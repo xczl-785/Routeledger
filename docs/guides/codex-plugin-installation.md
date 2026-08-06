@@ -35,7 +35,7 @@ project JSON.
 ## Git marketplace installation
 
 The canonical repository is `xczl-785/Routeledger`. Install the published
-0.3.2 plugin from the upgradeable `codex-marketplace` branch:
+0.3.3 plugin from the upgradeable `codex-marketplace` branch:
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref codex-marketplace --json
@@ -46,16 +46,16 @@ codex plugin list --json
 
 `codex plugin marketplace upgrade routeledger-team --json` refreshes an
 installed marketplace source when a later published version is available.
-For an exact 0.3.2 installation, use the immutable tag instead:
+For an exact 0.3.3 installation, use the immutable tag instead:
 
 ```bash
-codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.2 --json
+codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.3 --json
 ```
 
 The tag is appropriate for reproducible rollback or verification; the branch
 is appropriate for normal upgrades.
 
-The 0.3.2 publication passed workspace and plugin-contract CI on Ubuntu,
+The 0.3.3 publication passed workspace and plugin-contract CI on Ubuntu,
 macOS, and Windows. An isolated anonymous Codex home also verified branch
 install, enabled version, no-op upgrade, tag-based reinstall, release hashes,
 Apache-2.0 distribution files, and an end-to-end JSON-only workflow without a
