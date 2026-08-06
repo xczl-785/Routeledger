@@ -1,0 +1,40 @@
+{
+  "name": "@routeledger/mcp",
+  "version": "0.0.0-package-prep",
+  "description": "RouteLedger MCP stdio server JSON-only plugin runtime artifact. Start with --sqlite-read-model disabled.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "bin": {
+    "routeledger-mcp-stdio": "./bin.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin.js",
+    "binding-assist.js",
+    "binding-preflight.js",
+    "binding.js",
+    "debug-log.js",
+    "index.js",
+    "input-adapter.js",
+    "storage-paths.js",
+    "stdio-server.js",
+    "workspace-config.js",
+    "json-first-storage.js",
+    "codex/",
+    "core/",
+    "json/",
+    "mcp/",
+    "README.md"
+  ],
+  "routeledgerRuntime": {
+    "buildProfile": "json-only",
+    "mode": "json",
+    "sqliteReadModel": "disabled"
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+coverage/
+*.tsbuildinfo
+.codegraph/
+# This repository's own runtime state is never source. Canonical JSON test
+# fixtures below packages/json remain tracked through the explicit exception.
+/.routeledger/
+!/packages/
+!/packages/json/
+!/packages/json/src/
+!/packages/json/src/testing/
+!/packages/json/src/testing/fixtures/
+!/packages/json/src/testing/fixtures/canonical/
+!/packages/json/src/testing/fixtures/canonical/.routeledger/
+!/packages/json/src/testing/fixtures/canonical/.routeledger/**
+packages/*/dist/
+packages/*/dist-plugin-runtime/

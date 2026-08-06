@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "asset",
+  "id": "asset-1",
+  "project_id": "project-1",
+  "work_item_ids": [
+    "work-item-1"
+  ],
+  "path_base": "project_root",
+  "relative_path": "docs/json-contract.md",
+  "status": "active",
+  "path_history": [
+    {
+      "path_base": "project_root",
+      "relative_path": "docs/drafts/json-contract.md",
+      "recorded_at": "2026-06-26T23:00:00.000Z"
+    },
+    {
+      "path_base": "project_root",
+      "relative_path": "docs/json-contract.md",
+      "recorded_at": "2026-06-27T00:30:00.000Z"
+    }
+  ],
+  "created_by": {
+    "id": "actor-1",
+    "type": "agent",
+    "display_name": "test-agent"
+  },
+  "created_at": "2026-06-27T00:30:00.000Z",
+  "updated_at": "2026-06-27T00:45:00.000Z"
+}

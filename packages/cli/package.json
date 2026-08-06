@@ -1,0 +1,15 @@
+{
+  "name": "@routeledger/cli",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "pnpm -C ../.. exec vitest run packages/cli/src/testing/cli.test.ts"
+  },
+  "dependencies": {
+    "@routeledger/core": "workspace:*",
+    "@routeledger/json": "workspace:*",
+    "@routeledger/sqlite": "workspace:*"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../",
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "../core/src/**/*.ts",
+    "../json/src/**/*.ts",
+    "../sqlite/src/**/*.ts",
+    "../cli/src/**/*.ts",
+    "../ui/src/**/*.ts"
+  ]
+}

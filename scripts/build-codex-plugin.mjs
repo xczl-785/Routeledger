@@ -1,0 +1,173 @@
+/* global Buffer, console, process */
+
+import fs from "node:fs/promises";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const routeledgerRoot = path.resolve(scriptDir, "..");
+const repositoryRoot = routeledgerRoot;
+const pluginRoot = path.join(repositoryRoot, "plugins", "routeledger");
+const sourceRuntime = path.join(routeledgerRoot, "packages", "mcp", "dist-plugin-runtime");
+const bundledRuntime = path.join(pluginRoot, "runtime");
+const releaseMetadataPath = path.join(pluginRoot, "release.json");
+const buildMcpPackagePath = path.join(routeledgerRoot, "packages", "mcp", "scripts", "build-package.mjs");
+
+const toPortablePath = (filePath) => filePath.split(path.sep).join("/");
+
+const collectRelativeFiles = async (directory, relativeDirectory = "") => {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const relativePath = path.posix.join(relativeDirectory, entry.name);
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectRelativeFiles(entryPath, relativePath)));
+    } else if (entry.isFile()) {
+      files.push({ absolutePath: entryPath, relativePath: toPortablePath(relativePath) });
+    }
+  }
+  return files;
+};
+
+const hashFileSet = async (root, shouldInclude = () => true) => {
+  const hash = createHash("sha256");
+  const files = (await collectRelativeFiles(root)).filter(({ relativePath }) => shouldInclude(relativePath));
+  files.sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en"));
+  for (const { absolutePath, relativePath } of files) {
+    const content = await fs.readFile(absolutePath);
+    hash.update(Buffer.from(relativePath, "utf8"));
+    hash.update(Buffer.from([0]));
+    hash.update(Buffer.from(String(content.length), "ascii"));
+    hash.update(Buffer.from([0]));
+    hash.update(content);
+  }
+  return hash.digest("hex");
+};
+
+const writeReleaseMetadata = async () => {
+  const manifest = JSON.parse(await fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
+  const marketplace = JSON.parse(
+    await fs.readFile(path.join(repositoryRoot, ".agents", "plugins", "marketplace.json"), "utf8")
+  );
+  const pluginDistributionSha256 = await hashFileSet(pluginRoot, (relativePath) => relativePath !== "release.json");
+  const runtimeSha256 = await hashFileSet(bundledRuntime);
+  const releaseMetadata = {
+    schemaVersion: 1,
+    marketplace: {
+      name: marketplace.name,
+      displayName: marketplace.interface?.displayName
+    },
+    plugin: {
+      name: manifest.name,
+      version: manifest.version
+    },
+    content: {
+      algorithm: "sha256",
+      pluginDistributionSha256,
+      runtimeSha256,
+      pluginDistributionCoverage: "All regular files under plugins/routeledger, excluding release.json.",
+      runtimeCoverage: "All regular files under plugins/routeledger/runtime."
+    }
+  };
+  await fs.writeFile(releaseMetadataPath, `${JSON.stringify(releaseMetadata, null, 2)}\n`, "utf8");
+};
+
+const collectFiles = async (directory) => {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectFiles(entryPath)));
+    } else if (entry.isFile()) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+};
+
+const assertPortableRuntime = async (runtimeRoot) => {
+  const packagePath = path.join(runtimeRoot, "package.json");
+  const runtimePackage = JSON.parse(await fs.readFile(packagePath, "utf8"));
+  if (
+    runtimePackage.routeledgerRuntime?.buildProfile !== "json-only" ||
+    runtimePackage.routeledgerRuntime?.mode !== "json" ||
+    runtimePackage.routeledgerRuntime?.sqliteReadModel !== "disabled"
+  ) {
+    throw new Error("Plugin runtime package metadata must declare json-only / json / disabled.");
+  }
+
+  for (const section of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+    if (runtimePackage[section]?.["better-sqlite3"] !== undefined) {
+      throw new Error(`Plugin runtime package metadata declares better-sqlite3 in ${section}.`);
+    }
+  }
+
+  const declaredEntries = new Set((runtimePackage.files ?? []).map((entry) => entry.replace(/\/$/, "")));
+  declaredEntries.add("package.json");
+  for (const entry of await fs.readdir(runtimeRoot, { withFileTypes: true })) {
+    if (!declaredEntries.has(entry.name)) {
+      throw new Error(`Plugin runtime contains undeclared top-level entry: ${entry.name}`);
+    }
+  }
+  for (const forbiddenDirectory of ["sqlite", "ui"]) {
+    if (await fs.stat(path.join(runtimeRoot, forbiddenDirectory)).catch(() => null)) {
+      throw new Error(`Plugin runtime contains forbidden ${forbiddenDirectory}/ bundle.`);
+    }
+  }
+
+  const nativeReference = Buffer.from("better-sqlite3");
+  for (const filePath of await collectFiles(runtimeRoot)) {
+    const relativePath = path.relative(runtimeRoot, filePath);
+    if (relativePath === "README.md") {
+      continue;
+    }
+    if (relativePath.endsWith(".tgz")) {
+      throw new Error(`Plugin runtime must not contain a tarball: ${relativePath}`);
+    }
+    if ((await fs.readFile(filePath)).includes(nativeReference)) {
+      throw new Error(`Plugin runtime contains a better-sqlite3 reference: ${relativePath}`);
+    }
+  }
+};
+
+const synchronizeRuntime = async () => {
+  const temporaryRuntime = path.join(pluginRoot, `.runtime-sync-${process.pid}-${Date.now()}`);
+  const backupRuntime = path.join(pluginRoot, `.runtime-backup-${process.pid}-${Date.now()}`);
+  let destinationMoved = false;
+
+  await fs.rm(temporaryRuntime, { recursive: true, force: true });
+  await fs.cp(sourceRuntime, temporaryRuntime, { recursive: true, force: true });
+  await assertPortableRuntime(temporaryRuntime);
+
+  try {
+    if (await fs.stat(bundledRuntime).catch(() => null)) {
+      await fs.rename(bundledRuntime, backupRuntime);
+      destinationMoved = true;
+    }
+    await fs.rename(temporaryRuntime, bundledRuntime);
+    await fs.rm(backupRuntime, { recursive: true, force: true });
+  } catch (error) {
+    await fs.rm(temporaryRuntime, { recursive: true, force: true });
+    if (destinationMoved && !(await fs.stat(bundledRuntime).catch(() => null))) {
+      await fs.rename(backupRuntime, bundledRuntime);
+    }
+    throw error;
+  }
+};
+
+const main = async () => {
+  execFileSync(process.execPath, [buildMcpPackagePath, "--profile", "json-only"], {
+    cwd: routeledgerRoot,
+    stdio: "inherit"
+  });
+  await assertPortableRuntime(sourceRuntime);
+  await synchronizeRuntime();
+  await writeReleaseMetadata();
+  console.log(`Codex plugin runtime and release metadata synchronized: ${bundledRuntime}`);
+};
+
+await main();

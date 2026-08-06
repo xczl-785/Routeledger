@@ -1,0 +1,43 @@
+{
+  "name": "routeledger",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint . --ignore-pattern \"packages/*/dist/**\" --ignore-pattern \"packages/*/dist-plugin-runtime/**\" --ignore-pattern \"plugins/*/runtime/**\"",
+    "build:ui": "pnpm --filter @routeledger/ui run build",
+    "launch:ui": "pnpm --filter @routeledger/ui run launch",
+    "smoke:ui-source": "pnpm --filter @routeledger/mcp run smoke:mission-control-source",
+    "build:mcp-package": "pnpm --filter @routeledger/mcp run build:dist",
+    "smoke:mcp-package": "pnpm --filter @routeledger/mcp run package:smoke",
+    "build:mcp-plugin-runtime": "pnpm --filter @routeledger/mcp run build:plugin-runtime",
+    "smoke:mcp-plugin-runtime": "pnpm --filter @routeledger/mcp run plugin-runtime:smoke",
+    "smoke:mcp-package-profiles": "pnpm --filter @routeledger/mcp run package:profiles-smoke",
+    "build:codex-plugin": "node ./scripts/build-codex-plugin.mjs",
+    "smoke:codex-plugin": "node ./scripts/smoke-codex-plugin.mjs",
+    "check:codex-plugin-release": "node ./scripts/check-codex-plugin-release.mjs",
+    "smoke:codex-git-marketplace": "node ./scripts/smoke-codex-git-marketplace.mjs",
+    "verify:codex-plugin": "pnpm smoke:codex-plugin && pnpm smoke:codex-git-marketplace"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^5.0.2",
+    "@eslint/js": "^9.30.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.13",
+    "@typescript-eslint/eslint-plugin": "^8.35.1",
+    "@typescript-eslint/parser": "^8.35.1",
+    "eslint": "^9.30.1",
+    "globals": "^16.3.0",
+    "better-sqlite3": "^12.2.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.4",
+    "vitest": "^3.2.4"
+  }
+}

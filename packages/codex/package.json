@@ -1,0 +1,13 @@
+{
+  "name": "@routeledger/codex",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "routeledger-codex-config": "./src/bin.ts"
+  },
+  "scripts": {
+    "test": "pnpm -C ../.. exec vitest run packages/codex/src/testing/codex-config.test.ts"
+  }
+}

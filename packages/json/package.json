@@ -1,0 +1,13 @@
+{
+  "name": "@routeledger/json",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "pnpm -C ../.. exec vitest run packages/json/src/testing/json-codec.test.ts"
+  },
+  "dependencies": {
+    "@routeledger/core": "workspace:*"
+  }
+}

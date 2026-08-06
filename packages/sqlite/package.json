@@ -1,0 +1,14 @@
+{
+  "name": "@routeledger/sqlite",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "pnpm -C ../.. exec vitest run packages/sqlite/src/testing/sqlite-storage-adapter.test.ts"
+  },
+  "dependencies": {
+    "@routeledger/core": "workspace:*",
+    "better-sqlite3": "^12.2.0"
+  }
+}

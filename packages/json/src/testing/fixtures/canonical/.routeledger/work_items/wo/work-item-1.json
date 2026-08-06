@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "work_item",
+  "id": "work-item-1",
+  "project_id": "project-1",
+  "title": "Example work item",
+  "type": "other",
+  "status": "active",
+  "origin_version_id": "version-1",
+  "active_record_type": "todo",
+  "active_record_id": "todo-1",
+  "created_by": {
+    "id": "actor-1",
+    "type": "agent",
+    "display_name": "test-agent"
+  },
+  "created_at": "2026-06-27T00:00:00.000Z",
+  "updated_at": "2026-06-27T00:00:00.000Z",
+  "closed_at": null,
+  "summary": "Track JSON contract"
+}

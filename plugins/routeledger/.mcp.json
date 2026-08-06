@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "routeledger": {
+      "cwd": ".",
+      "command": "node",
+      "args": [
+        "./runtime/bin.js",
+        "--profile",
+        "codex",
+        "--sqlite-read-model",
+        "disabled"
+      ]
+    }
+  }
+}

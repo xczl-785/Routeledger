@@ -1,0 +1,7 @@
+{
+  "name": "@routeledger/core",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts"
+}

@@ -1,0 +1,27 @@
+{
+  "name": "routeledger",
+  "version": "0.3.0",
+  "description": "Local MCP control plane for RouteLedger project routes and version work.",
+  "author": {
+    "name": "RouteLedger"
+  },
+  "repository": "https://github.com/xczl-785/RouteLedger",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "RouteLedger",
+    "shortDescription": "Manage one project's route through local MCP.",
+    "longDescription": "Use the bundled JSON-only RouteLedger MCP runtime to inspect and safely update a bound project's route.",
+    "developerName": "RouteLedger",
+    "category": "Productivity",
+    "capabilities": [
+      "Read RouteLedger context",
+      "Write RouteLedger canonical JSON through MCP"
+    ],
+    "defaultPrompt": [
+      "Check the current RouteLedger context.",
+      "Help me plan the next route action.",
+      "Review this version's closeout blockers."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

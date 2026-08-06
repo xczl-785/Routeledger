@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "kind": "approval_artifact",
+  "id": "approval-1",
+  "project_id": "project-1",
+  "pending_operation_id": "pending-1",
+  "action_type": "close_version",
+  "target_id": "version-2",
+  "digest": {
+    "algorithm": "sha256",
+    "value": "abcd1234",
+    "payload": {
+      "action_type": "close_version",
+      "gate_snapshot": {
+        "allowed": false,
+        "blocked_constraint_ids": [],
+        "blockers": [
+          {
+            "code": "OPEN_TODOS",
+            "message": "存在未关闭 todo",
+            "record_ids": [
+              "todo-1"
+            ]
+          }
+        ],
+        "kind": "close",
+        "residual_audit": [
+          {
+            "destination": "create_undo",
+            "kind": "debt",
+            "preferred_resolution_version_id": "version-3",
+            "summary": "capture follow-up"
+          }
+        ],
+        "unresolved_deferred_ids": [],
+        "unresolved_todo_ids": [
+          "todo-1"
+        ],
+        "unresolved_undo_ids": [
+          "undo-1"
+        ]
+      },
+      "payload": {
+        "current_version_id": "version-2",
+        "description": "close current version",
+        "next_version_id": null,
+        "residual_audit": [
+          {
+            "destination": "create_undo",
+            "kind": "debt",
+            "preferred_resolution_version_id": "version-3",
+            "summary": "capture follow-up"
+          }
+        ],
+        "sibling_version_ids": [
+          "version-1",
+          "version-2"
+        ]
+      },
+      "project_id": "project-1",
+      "target_id": "version-2"
+    }
+  },
+  "status": "approved",
+  "approver": {
+    "id": "user-1",
+    "type": "user",
+    "display_name": "owner"
+  },
+  "decision_ref": "decision://routeledger/1",
+  "created_at": "2026-06-27T01:10:00.000Z",
+  "expires_at": "2026-06-28T01:10:00.000Z",
+  "consumed_at": null
+}

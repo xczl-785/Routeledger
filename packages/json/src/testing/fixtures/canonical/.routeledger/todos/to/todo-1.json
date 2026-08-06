@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "todo",
+  "id": "todo-1",
+  "project_id": "project-1",
+  "work_item_id": "work-item-1",
+  "version_id": "version-2",
+  "title": "Implement JSON codec",
+  "description": "Encode deterministic file set",
+  "status": "wait",
+  "source_type": "manual",
+  "source_id": null,
+  "created_by": {
+    "id": "actor-1",
+    "type": "agent",
+    "display_name": "test-agent"
+  },
+  "created_at": "2026-06-27T00:00:00.000Z",
+  "updated_at": "2026-06-27T00:00:00.000Z",
+  "closed_at": null,
+  "close_reason": null,
+  "close_note": null
+}

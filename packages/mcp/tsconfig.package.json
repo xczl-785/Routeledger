@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "../",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./tsconfig.package.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.ts",
+    "../codex/src/**/*.ts",
+    "../core/src/**/*.ts",
+    "../json/src/**/*.ts",
+    "../sqlite/src/**/*.ts"
+  ],
+  "exclude": [
+    "src/testing/**/*.ts",
+    "../codex/src/testing/**/*.ts",
+    "../core/src/testing/**/*.ts",
+    "../json/src/testing/**/*.ts",
+    "../sqlite/src/testing/**/*.ts"
+  ]
+}

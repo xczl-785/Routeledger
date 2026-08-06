@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://routeledger.dev/schema/routeledger.schema.json",
+  "title": "RouteLedger Canonical JSON Contract",
+  "description": "Public manifest for RouteLedger canonical JSON documents.",
+  "schema_version": 1,
+  "document_root": ".routeledger",
+  "documents": [
+    {
+      "kind": "project",
+      "path_pattern": ".routeledger/project.json"
+    },
+    {
+      "kind": "current_ref",
+      "path_pattern": ".routeledger/refs/current.json"
+    },
+    {
+      "kind": "version",
+      "path_pattern": ".routeledger/versions/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "work_item",
+      "path_pattern": ".routeledger/work_items/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "todo",
+      "path_pattern": ".routeledger/todos/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "undo",
+      "path_pattern": ".routeledger/undos/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "deferred_item",
+      "path_pattern": ".routeledger/deferred_items/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "constraint",
+      "path_pattern": ".routeledger/constraints/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "asset",
+      "path_pattern": ".routeledger/assets/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "transition_event",
+      "path_pattern": ".routeledger/events/<yyyy>/<mm>/<event_id>.json"
+    },
+    {
+      "kind": "pending_operation",
+      "path_pattern": ".routeledger/pending_operations/<id-prefix>/<id>.json"
+    },
+    {
+      "kind": "approval_artifact",
+      "path_pattern": ".routeledger/approval_artifacts/<id-prefix>/<id>.json"
+    }
+  ]
+}

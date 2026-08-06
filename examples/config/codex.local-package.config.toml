@@ -1,0 +1,60 @@
+# Use this only after building and locally installing the packaged MCP artifact.
+# The same shape can be rendered by:
+# pnpm --filter @routeledger/codex exec tsx src/bin.ts \
+#   --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT \
+#   --routeledger-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT/RELATIVE/PATH/TO/ROUTELEDGER_ROOT \
+#   --install-root /ABS/PATH/TO/routeledger-mcp-tools \
+#   --bin-path /ABS/PATH/TO/routeledger-mcp-tools/node_modules/@routeledger/mcp/bin.js
+#
+# 1. cd /ABS/PATH/TO/ROUTELEDGER_REPO_ROOT
+#
+# Temporary smoke only:
+# 2. pnpm smoke:mcp-package
+#    This validates the packaged MCP flow in a temporary install directory and cleans it up after the check.
+#
+# Persistent install required for this template:
+# 3. pnpm build:mcp-package
+# 4. cd /ABS/PATH/TO/ROUTELEDGER_REPO_ROOT/packages/mcp/dist
+# 5. npm pack
+# 6. mkdir -p /ABS/PATH/TO/routeledger-mcp-tools
+# 7. cd /ABS/PATH/TO/routeledger-mcp-tools
+# 8. npm init -y
+# 9. npm install /ABS/PATH/TO/ROUTELEDGER_REPO_ROOT/packages/mcp/dist/routeledger-mcp-0.0.0-package-prep.tgz
+#
+# Then point both `args[0]` and `cwd` below at that persistent install directory.
+# Single entry == single MCP binding.
+# If the same Codex workspace/thread must expose multiple RouteLedger entries,
+# rename each table to include the project slug and keep one binding per entry.
+
+[mcp_servers.routeledger]
+command = "node"
+args = [
+  "/ABS/PATH/TO/routeledger-mcp-tools/node_modules/@routeledger/mcp/bin.js",
+  "--workspace-root",
+  "/ABS/PATH/TO/CODEX_WORKSPACE_ROOT",
+  "--routeledger-root",
+  # routeledgerDir is fixed at <routeledgerRoot>/.routeledger.
+  "/ABS/PATH/TO/CODEX_WORKSPACE_ROOT/RELATIVE/PATH/TO/ROUTELEDGER_ROOT",
+  "--profile",
+  "codex",
+  "--actor-id",
+  "codex-agent",
+  "--actor-name",
+  "Codex",
+  "--approver-id",
+  "routeledger-approver",
+  "--approver-name",
+  "RouteLedger Approver",
+]
+cwd = "/ABS/PATH/TO/routeledger-mcp-tools"
+# Keep both binding paths explicit. routeledgerRoot must stay inside
+# workspaceRoot, and workspaceRoot == routeledgerRoot is the allowed
+# single-root special case.
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.routeledger.env]
+ROUTELEDGER_MCP_PROFILE = "codex"

@@ -1,0 +1,20 @@
+{
+  "name": "routeledger-team",
+  "interface": {
+    "displayName": "RouteLedger Team"
+  },
+  "plugins": [
+    {
+      "name": "routeledger",
+      "source": {
+        "source": "local",
+        "path": "./plugins/routeledger"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

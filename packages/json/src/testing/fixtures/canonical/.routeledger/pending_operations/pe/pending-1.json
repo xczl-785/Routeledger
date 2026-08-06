@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "kind": "pending_operation",
+  "id": "pending-1",
+  "project_id": "project-1",
+  "action_type": "close_version",
+  "target_id": "version-2",
+  "status": "pending",
+  "reason": "close current version",
+  "gate_snapshot": {
+    "kind": "close",
+    "evaluated_at": "2026-06-27T01:00:00.000Z",
+    "allowed": false,
+    "blockers": [
+      {
+        "code": "OPEN_TODOS",
+        "message": "存在未关闭 todo",
+        "record_ids": [
+          "todo-1"
+        ]
+      }
+    ],
+    "unresolved_todo_ids": [
+      "todo-1"
+    ],
+    "unresolved_undo_ids": [
+      "undo-1"
+    ],
+    "unresolved_deferred_ids": [],
+    "blocked_constraint_ids": [],
+    "residual_audit": [
+      {
+        "kind": "debt",
+        "summary": "capture follow-up",
+        "destination": "create_undo",
+        "preferred_resolution_version_id": "version-3"
+      }
+    ]
+  },
+  "digest": {
+    "algorithm": "sha256",
+    "value": "abcd1234",
+    "payload": {
+      "action_type": "close_version",
+      "gate_snapshot": {
+        "allowed": false,
+        "blocked_constraint_ids": [],
+        "blockers": [
+          {
+            "code": "OPEN_TODOS",
+            "message": "存在未关闭 todo",
+            "record_ids": [
+              "todo-1"
+            ]
+          }
+        ],
+        "kind": "close",
+        "residual_audit": [
+          {
+            "destination": "create_undo",
+            "kind": "debt",
+            "preferred_resolution_version_id": "version-3",
+            "summary": "capture follow-up"
+          }
+        ],
+        "unresolved_deferred_ids": [],
+        "unresolved_todo_ids": [
+          "todo-1"
+        ],
+        "unresolved_undo_ids": [
+          "undo-1"
+        ]
+      },
+      "payload": {
+        "current_version_id": "version-2",
+        "description": "close current version",
+        "next_version_id": null,
+        "residual_audit": [
+          {
+            "destination": "create_undo",
+            "kind": "debt",
+            "preferred_resolution_version_id": "version-3",
+            "summary": "capture follow-up"
+          }
+        ],
+        "sibling_version_ids": [
+          "version-1",
+          "version-2"
+        ]
+      },
+      "project_id": "project-1",
+      "target_id": "version-2"
+    }
+  },
+  "payload": {
+    "current_version_id": "version-2",
+    "residual_audit": [
+      {
+        "kind": "debt",
+        "summary": "capture follow-up",
+        "destination": "create_undo",
+        "preferred_resolution_version_id": "version-3"
+      }
+    ],
+    "description": "close current version",
+    "sibling_version_ids": [
+      "version-1",
+      "version-2"
+    ]
+  },
+  "created_by": {
+    "id": "actor-1",
+    "type": "agent",
+    "display_name": "test-agent"
+  },
+  "created_at": "2026-06-27T01:00:00.000Z",
+  "updated_at": "2026-06-27T01:05:00.000Z",
+  "committed_at": null,
+  "rejected_at": null,
+  "rejection_reason": null,
+  "approval_artifact_id": "approval-1"
+}

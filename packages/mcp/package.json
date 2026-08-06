@@ -1,0 +1,28 @@
+{
+  "name": "@routeledger/mcp",
+  "version": "0.0.0-package-prep",
+  "description": "RouteLedger MCP stdio server package-prep workspace source.",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "routeledger-mcp-stdio": "./src/bin.ts"
+  },
+  "scripts": {
+    "test": "pnpm -C ../.. exec vitest run packages/mcp/src/testing/mcp.test.ts",
+    "stdio": "pnpm -C ../.. exec tsx packages/mcp/src/bin.ts",
+    "smoke:mission-control-source": "pnpm -C ../.. exec tsx packages/mcp/scripts/smoke-source-mission-control.ts",
+    "build:dist": "node ./scripts/build-package.mjs",
+    "package:smoke": "node ./scripts/smoke-package.mjs",
+    "build:plugin-runtime": "node ./scripts/build-package.mjs --profile json-only",
+    "plugin-runtime:smoke": "node ./scripts/smoke-package.mjs --profile json-only",
+    "package:profiles-smoke": "node ./scripts/smoke-package-profiles.mjs"
+  },
+  "dependencies": {
+    "@routeledger/codex": "workspace:*",
+    "@routeledger/core": "workspace:*",
+    "@routeledger/json": "workspace:*",
+    "@routeledger/sqlite": "workspace:*"
+  }
+}

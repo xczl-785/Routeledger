@@ -1,0 +1,98 @@
+# Copy this into .codex/config.toml after replacing the placeholder paths.
+# The same shape can be rendered by:
+# pnpm --filter @routeledger/codex exec tsx src/bin.ts \
+#   --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT \
+#   --routeledger-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT/RELATIVE/PATH/TO/ROUTELEDGER_ROOT \
+#   --routeledger-workspace-root /ABS/PATH/TO/ROUTELEDGER_REPO_ROOT
+# Single entry == single MCP binding.
+# If the same Codex workspace/thread must expose multiple RouteLedger entries,
+# rename each table to include the project slug, for example
+# [mcp_servers.routeledger_project_a] and [mcp_servers.routeledger_project_b].
+# Ordinary workspaces/threads should keep only the current project's entry enabled.
+
+[mcp_servers.routeledger]
+command = "pnpm"
+args = [
+  "--filter",
+  "@routeledger/mcp",
+  "exec",
+  "tsx",
+  "src/bin.ts",
+  "--workspace-root",
+  "/ABS/PATH/TO/CODEX_WORKSPACE_ROOT",
+  "--routeledger-root",
+  # routeledgerDir is fixed at <routeledgerRoot>/.routeledger.
+  "/ABS/PATH/TO/CODEX_WORKSPACE_ROOT/RELATIVE/PATH/TO/ROUTELEDGER_ROOT",
+  "--profile",
+  "codex",
+  "--actor-id",
+  "codex-agent",
+  "--actor-name",
+  "Codex",
+  "--approver-id",
+  "routeledger-approver",
+  "--approver-name",
+  "RouteLedger Approver",
+]
+cwd = "/ABS/PATH/TO/ROUTELEDGER_REPO_ROOT"
+# Keep both binding paths explicit. routeledgerRoot must stay inside
+# workspaceRoot, and workspaceRoot == routeledgerRoot is the allowed
+# single-root special case.
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"
+# Optional strict smoke allowlist. Uncomment only when you want the smallest
+# possible Codex trial surface; leave unset for normal operation.
+# enabled_tools = [
+#   "init_project",
+#   "get_runtime_context",
+#   "get_current_context",
+#   "list_versions",
+#   "prepare_version",
+#   "check_start_gate",
+#   "list_l3_proposals",
+#   "propose_l3_operation",
+#   "approve_l3_operation",
+#   "commit_l3_operation",
+# ]
+
+[mcp_servers.routeledger.env]
+ROUTELEDGER_MCP_PROFILE = "codex"
+
+[mcp_servers.routeledger.tools.get_current_context]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.get_runtime_context]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.next_action]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.list_versions_window]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.list_versions]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.check_start_gate]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.check_close_gate]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.list_l3_proposals]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.get_l3_proposal]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.approve_l3_operation]
+approval_mode = "prompt"
+
+[mcp_servers.routeledger.tools.reject_l3_operation]
+approval_mode = "prompt"
+
+[mcp_servers.routeledger.tools.commit_l3_operation]
+approval_mode = "approve"
