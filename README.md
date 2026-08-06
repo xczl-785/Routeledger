@@ -132,7 +132,7 @@ Agent 默认使用 `create_todo` / `close_todo`、`defer_work` / `review_deferre
 
 ## Agent host docs
 
-Codex marketplace 与插件定义位于仓库根 `.agents/plugins/marketplace.json` 和 `plugins/routeledger/`。插件使用仓库内的 JSON-only runtime；npm registry package 和 global CLI 仍不是已发布能力。
+Codex marketplace 与插件定义位于仓库根 `.agents/plugins/marketplace.json` 和 `plugins/routeledger/`。`routeledger@routeledger-team` 已作为 Git marketplace plugin 发布，使用仓库内的 JSON-only runtime；这不等于 `@routeledger/mcp` 已发布到 npm registry，也不代表提供 global CLI。
 
 ## Mission Control source launch
 
@@ -171,5 +171,5 @@ Codex marketplace 与插件定义位于仓库根 `.agents/plugins/marketplace.js
 
 - 还没有对外发布 `@routeledger/mcp`。
 - 还不能把文档写成“现在可直接 `npx @routeledger/mcp`”。
-- 仓库根已经包含 0.3.1 Codex plugin release candidate；它与 npm registry package 是两条独立发布路径，尚无 release tag 或 release branch，不能据此宣称 `@routeledger/mcp` 已发布。
+- `routeledger@routeledger-team` 0.3.1 已作为 Git marketplace plugin 发布；不可变 `routeledger-plugin-v0.3.1` tag、`main` 和 canonical remote 的 `codex-marketplace` 分支指向同一 release source。它与 npm registry package 是两条独立发布路径，不能据此宣称 `@routeledger/mcp` 已发布。
 - `better-sqlite3` 仍只在当前开发机做过本地安装 smoke，干净 macOS / Windows / Linux 验证仍待完成。
