@@ -1,11 +1,11 @@
 {
   "name": "routeledger",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local MCP control plane for RouteLedger project routes and version work.",
   "author": {
     "name": "RouteLedger"
   },
-  "repository": "https://github.com/xczl-785/RouteLedger",
+  "repository": "https://github.com/xczl-785/Routeledger",
   "skills": "./skills/",
   "interface": {
     "displayName": "RouteLedger",

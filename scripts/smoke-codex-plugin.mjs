@@ -42,8 +42,12 @@ const assertPluginFiles = async () => {
   const marketplace = JSON.parse(await fs.readFile(marketplacePath, "utf8"));
   const server = mcpManifest.mcpServers?.routeledger;
 
-  if (manifest.name !== "routeledger" || manifest.version !== "0.3.0") {
-    throw new Error("Plugin manifest name/version do not match the RouteLedger plugin contract.");
+  if (
+    manifest.name !== "routeledger" ||
+    manifest.version !== "0.3.1" ||
+    manifest.repository !== "https://github.com/xczl-785/Routeledger"
+  ) {
+    throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");
   }
   if (manifest.skills !== "./skills/" || manifest.mcpServers !== "./.mcp.json") {
     throw new Error("Plugin manifest component paths do not match the plugin contract.");

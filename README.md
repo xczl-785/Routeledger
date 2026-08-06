@@ -10,7 +10,7 @@ RouteLedger 当前已经有可运行的 core / JSON / SQLite / CLI / MCP 实现�
 - 代码当前真相入口：[Capability index](docs/capabilities/capability-index.md)
 - 代码仓内 current-truth 文档目录：[Capabilities](docs/capabilities/README.md)
 - Undo 退役数据迁移分类报告：[Data migration classification](docs/undo-retirement-data-migration-classification.md)
-- Codex marketplace 与插件入口：`.agents/plugins/marketplace.json`、`plugins/routeledger/`
+- Codex marketplace 与插件入口：`xczl-785/Routeledger`、selector `routeledger@routeledger-team`、`.agents/plugins/marketplace.json`、`plugins/routeledger/`。
 - 公开接入与发布边界：[Guides](docs/README.md)、[Release policy](docs/release-policy.md)
 
 ## Current work semantics
@@ -171,5 +171,5 @@ Codex marketplace 与插件定义位于仓库根 `.agents/plugins/marketplace.js
 
 - 还没有对外发布 `@routeledger/mcp`。
 - 还不能把文档写成“现在可直接 `npx @routeledger/mcp`”。
-- 仓库根已经包含 staging Codex plugin；它与 npm registry package 是两条独立发布路径，不能据此宣称 `@routeledger/mcp` 已发布。
+- 仓库根已经包含 0.3.1 Codex plugin release candidate；它与 npm registry package 是两条独立发布路径，尚无 release tag 或 release branch，不能据此宣称 `@routeledger/mcp` 已发布。
 - `better-sqlite3` 仍只在当前开发机做过本地安装 smoke，干净 macOS / Windows / Linux 验证仍待完成。
