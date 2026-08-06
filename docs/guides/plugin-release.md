@@ -51,9 +51,12 @@ pnpm check:codex-plugin-release --require-tag-ref
 ```
 
 The current plugin release is `routeledger-plugin-v0.3.1`; it resolves to the
-same released source as `main` and the canonical remote's
-`codex-marketplace` branch. Future releases use the same tag format with their
-new SemVer and must not reuse or move an existing tag.
+same released source as the canonical remote's `codex-marketplace` branch.
+`main` aligned at that release point and may later advance through protected
+non-distribution changes. It remains the same 0.3.1 baseline only while
+`plugins/**` is byte-identical to the tag; any distribution-byte change
+requires a new SemVer and immutable tag. Future releases use the same tag
+format and must not reuse or move an existing tag.
 
 ## Install verification
 
