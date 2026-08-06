@@ -113,6 +113,7 @@ const AUTO_APPROVAL_TOOLS = [
 ] as const;
 
 const PROMPT_APPROVAL_TOOLS = [
+  "activate_routeledger_binding",
   "write_host_binding_config",
   "approve_l3_operation",
   "reject_l3_operation"

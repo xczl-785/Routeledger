@@ -5,12 +5,12 @@ local build. A release requires a rebuilt plugin distribution, passing smoke
 and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
-`routeledger@routeledger-team` version 0.3.1 is published through the Git
+`routeledger@routeledger-team` version 0.3.2 is the prospective Git
 marketplace. Its `main`, the canonical remote's `codex-marketplace` branch,
-and `routeledger-plugin-v0.3.1` sources aligned at the release point. The tag
+and `routeledger-plugin-v0.3.2` sources must align at the release point. The tag
 and marketplace branch remain fixed at that release commit; `main` may later
 advance through protected non-distribution changes. Such a main still carries
-the 0.3.1 baseline only while `plugins/**` is byte-identical to the tag. This
+the 0.3.2 baseline only while `plugins/**` is byte-identical to the tag. This
 is a Codex plugin release only; `@routeledger/mcp` remains unpublished to npm.
 
 RouteLedger source and plugin distribution are licensed under

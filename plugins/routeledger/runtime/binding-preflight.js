@@ -1,4 +1,5 @@
 import path from "node:path";
+import { arePhysicalPathsEqualSync } from "./physical-path.js";
 const summarizeReceivedValue = (value) => {
     if (typeof value === "string") {
         return value.length > 200 ? `${value.slice(0, 200)}...` : value;
@@ -38,6 +39,16 @@ export const getBindingRecommendedNextActions = (binding) => {
         });
     }
     else if (binding.status === "unbound" || binding.status === "invalid") {
+        if (binding.workspaceRootConfidence === "low" ||
+            binding.workspaceRootConfidence === "none") {
+            actions.push({
+                type: "activate_explicit_workspace_binding",
+                tool: "activate_routeledger_binding",
+                fields: ["workspaceRoot", "routeledgerRoot"],
+                description: "Pass the host project absolute workspaceRoot (and optional in-workspace routeledgerRoot). Do not use the MCP process cwd."
+            });
+            return actions;
+        }
         actions.push({
             type: "inspect_workspace",
             tool: "discover_routeledger_roots",
@@ -190,7 +201,8 @@ export const runBindingPreflight = (options) => {
         };
     }
     const normalizedExpectedRouteLedgerRoot = path.resolve(options.expectedRouteLedgerRoot);
-    if (normalizedExpectedRouteLedgerRoot !== options.binding.routeledgerRoot) {
+    if (options.binding.routeledgerRoot === null ||
+        !arePhysicalPathsEqualSync(normalizedExpectedRouteLedgerRoot, options.binding.routeledgerRoot)) {
         return {
             allowed: false,
             failure: {

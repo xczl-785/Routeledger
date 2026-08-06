@@ -21,12 +21,19 @@ node ./runtime/bin.js --profile codex --sqlite-read-model disabled
 ```
 
 It receives the managed workspace through MCP Roots. Installing the plugin
-does not bind it to the repository that supplied it.
+does not bind it to the repository that supplied it. Some Codex clients do not
+send Roots/rootUri; in that case `process cwd` may be the plugin cache and is
+not a project identity. Call `activate_routeledger_binding` with the host
+project's absolute `workspaceRoot` (and optional in-workspace
+`routeledgerRoot`) after the prompted approval. The activation is scoped to
+the running MCP session. It may create or normalize only the binding
+`.routeledger/config.json`; `init_project` separately creates canonical
+project JSON.
 
 ## Git marketplace installation
 
 The canonical repository is `xczl-785/Routeledger`. Install the published
-0.3.1 plugin from the upgradeable `codex-marketplace` branch:
+0.3.2 plugin from the upgradeable `codex-marketplace` branch after publication:
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref codex-marketplace --json
@@ -37,20 +44,20 @@ codex plugin list --json
 
 `codex plugin marketplace upgrade routeledger-team --json` refreshes an
 installed marketplace source when a later published version is available.
-For an exact 0.3.1 installation, use the immutable tag instead:
+For an exact 0.3.2 installation after publication, use the immutable tag instead:
 
 ```bash
-codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.1 --json
+codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.2 --json
 ```
 
 The tag is appropriate for reproducible rollback or verification; the branch
 is appropriate for normal upgrades.
 
-The published path is verified by tag CI across the workspace and plugin
-contracts on Ubuntu, macOS, and Windows. An isolated anonymous Codex home has
-also verified branch install, enabled version, no-op upgrade, removal,
-tag-based reinstall, release hashes, Apache-2.0 distribution files, and the
-JSON-only initialization workflow without a SQLite database.
+Before publication, the 0.3.2 path must pass tag CI across the workspace and
+plugin contracts on Ubuntu, macOS, and Windows, plus an isolated anonymous
+Codex-home verification of branch install, enabled version, no-op upgrade,
+removal, tag-based reinstall, release hashes, Apache-2.0 distribution files,
+and the JSON-only initialization workflow without a SQLite database.
 
 To remove the installation:
 
@@ -76,4 +83,12 @@ Git marketplace release does not publish `@routeledger/mcp` to npm.
 The installed runtime is JSON-only and has no SQLite or UI bundle. It expects
 `--sqlite-read-model disabled`, writes canonical JSON through its bound MCP
 root, and must not create a SQLite database. Start any write session by
-calling `get_runtime_context` and checking the returned binding.
+calling `get_runtime_context` and checking the returned binding. If that
+binding is low confidence, provide an explicit host workspace to
+`activate_routeledger_binding`; do not initialize at a plugin-cache cwd.
+
+`render_host_binding_config` and `write_host_binding_config` require an
+explicit stable, user-owned source launcher. The installed plugin cache has no
+stable launcher alias, so those tools return the machine-readable
+`STABLE_RUNTIME_LAUNCHER_REQUIRED` state instead of emitting a versioned cache
+path into project configuration.

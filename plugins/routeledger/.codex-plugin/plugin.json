@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Local MCP control plane for RouteLedger project routes and version work.",
   "author": {
     "name": "RouteLedger"

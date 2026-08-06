@@ -9,6 +9,9 @@ import {
   ROUTELEDGER_DB_FILENAME,
   ROUTELEDGER_DIRECTORY
 } from "./storage-paths.js";
+import {
+  isPhysicalPathContainedWithinSync
+} from "./physical-path.js";
 
 export const WORKSPACE_CONFIG_VERSION = 1;
 export const WORKSPACE_CONFIG_FILENAME = "config.json";
@@ -37,7 +40,7 @@ export interface WorkspaceConfigResolution {
   diagnostics: WorkspaceConfigDiagnostic[];
 }
 
-const normalizeWorkspaceRoot = (workspaceRoot: string): string => path.resolve(workspaceRoot);
+const normalizeWorkspaceRoot = (workspaceRoot: string): string => workspaceRoot;
 
 export const getWorkspaceConfigDirectory = (workspaceRoot: string): string =>
   path.join(normalizeWorkspaceRoot(workspaceRoot), ROUTELEDGER_DIRECTORY);
@@ -47,14 +50,6 @@ export const getWorkspaceConfigPath = (workspaceRoot: string): string =>
 
 export const resolveDefaultRouteLedgerDataDir = (workspaceRoot: string): string =>
   path.resolve(normalizeWorkspaceRoot(workspaceRoot), DEFAULT_WORKSPACE_DATA_DIR);
-
-const isContainedWithin = (root: string, candidate: string): boolean => {
-  const relativePath = path.relative(root, candidate);
-  return (
-    relativePath.length === 0 ||
-    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
-  );
-};
 
 const buildResolution = (
   workspaceRoot: string,
@@ -193,9 +188,9 @@ const parseWorkspaceConfig = (
     ]);
   }
 
-  const dataRoot = path.resolve(workspaceRoot, configRecord.dataDir);
+  const dataRootInput = `${workspaceRoot}${path.sep}${configRecord.dataDir}`;
 
-  if (!isContainedWithin(workspaceRoot, dataRoot)) {
+  if (!isPhysicalPathContainedWithinSync(workspaceRoot, dataRootInput)) {
     return toInvalidResolution(workspaceRoot, [
       {
         code: "WORKSPACE_CONFIG_DATA_DIR_OUTSIDE_WORKSPACE",
@@ -204,6 +199,8 @@ const parseWorkspaceConfig = (
       }
     ]);
   }
+
+  const dataRoot = path.resolve(workspaceRoot, configRecord.dataDir);
 
   try {
     const stat = fs.statSync(dataRoot);

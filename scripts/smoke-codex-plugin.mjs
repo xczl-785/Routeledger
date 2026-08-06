@@ -44,7 +44,7 @@ const assertPluginFiles = async () => {
 
   if (
     manifest.name !== "routeledger" ||
-    manifest.version !== "0.3.1" ||
+    manifest.version !== "0.3.2" ||
     manifest.repository !== "https://github.com/xczl-785/Routeledger"
   ) {
     throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");

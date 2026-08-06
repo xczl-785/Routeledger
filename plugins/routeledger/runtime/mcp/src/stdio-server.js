@@ -389,7 +389,11 @@ const collectInitializeRoots = (params) => {
     return [...roots];
 };
 export const createRouteLedgerStdioServer = (options) => {
-    const initializeRegistry = createRouteLedgerMcpRegistry(options);
+    const buildRegistry = (registryOptions) => options.registryFactory?.(registryOptions) ?? createRouteLedgerMcpRegistry(registryOptions);
+    const initializeRegistry = buildRegistry({
+        ...options,
+        deferSessionRebind: true
+    });
     let activeRegistry = initializeRegistry;
     const state = {
         initializeCompleted: false,
@@ -403,13 +407,73 @@ export const createRouteLedgerStdioServer = (options) => {
     const pendingRequests = new Map();
     const rebuildRegistry = () => {
         const effectiveRoots = state.initializeRoots.length > 0 ? state.initializeRoots : state.listedRoots;
-        if (activeRegistry !== initializeRegistry) {
-            activeRegistry.close();
+        let nextRegistry;
+        try {
+            nextRegistry = buildRegistry({
+                ...options,
+                mcpRoots: effectiveRoots,
+                deferSessionRebind: true
+            });
         }
-        activeRegistry = createRouteLedgerMcpRegistry({
-            ...options,
-            mcpRoots: effectiveRoots
-        });
+        catch (error) {
+            return error instanceof Error ? error : new Error(String(error));
+        }
+        const previousRegistry = activeRegistry;
+        activeRegistry = nextRegistry;
+        if (previousRegistry !== initializeRegistry) {
+            try {
+                previousRegistry.close();
+            }
+            catch {
+                // The replacement is already active. A close hook must not roll back it.
+            }
+        }
+        return null;
+    };
+    const activatePendingSessionRebind = (registry) => {
+        const nextBinding = registry.peekPendingSessionRebind();
+        if (nextBinding === null) {
+            return null;
+        }
+        // Build the replacement before releasing the old runtime. The bootstrap handler
+        // has already returned its result at this point, so closing old storage cannot
+        // prevent the JSON-RPC response from being formed.
+        let nextRegistry;
+        try {
+            nextRegistry = buildRegistry({
+                ...options,
+                workspaceRoot: nextBinding.workspaceRoot,
+                workspaceRootSource: "explicit_arg",
+                routeledgerRoot: nextBinding.routeledgerRoot,
+                mcpRoots: undefined,
+                deferSessionRebind: true
+            });
+        }
+        catch (error) {
+            return {
+                ok: false,
+                error: {
+                    code: "SESSION_REBIND_FAILED",
+                    message: "RouteLedger could not activate the requested session binding; the previous binding remains active.",
+                    details: {
+                        workspaceRoot: nextBinding.workspaceRoot,
+                        routeledgerRoot: nextBinding.routeledgerRoot,
+                        cause: error instanceof Error ? error.message : String(error)
+                    }
+                }
+            };
+        }
+        activeRegistry = nextRegistry;
+        registry.clearPendingSessionRebind();
+        if (registry !== initializeRegistry) {
+            try {
+                registry.close();
+            }
+            catch {
+                // The new registry is active and the call response is already formed.
+            }
+        }
+        return null;
     };
     const sendMessage = (message) => {
         options.sendMessage?.(message);
@@ -452,8 +516,14 @@ export const createRouteLedgerStdioServer = (options) => {
                 if (uniqueRoots.length === 0) {
                     return;
                 }
+                const previousListedRoots = state.listedRoots;
                 state.listedRoots = uniqueRoots;
-                rebuildRegistry();
+                const rebuildError = rebuildRegistry();
+                if (rebuildError !== null) {
+                    // Keep activeRegistry and the last accepted root set aligned. A later
+                    // roots/list_changed notification can retry without a half-switch.
+                    state.listedRoots = previousListedRoots;
+                }
             },
             reject: () => undefined
         });
@@ -465,9 +535,19 @@ export const createRouteLedgerStdioServer = (options) => {
                 pending.reject(new Error("RouteLedger stdio server closed before response arrived."));
             }
             pendingRequests.clear();
-            activeRegistry.close();
+            try {
+                activeRegistry.close();
+            }
+            catch {
+                // Shutdown must release the remaining registry even if one close hook fails.
+            }
             if (activeRegistry !== initializeRegistry) {
-                initializeRegistry.close();
+                try {
+                    initializeRegistry.close();
+                }
+                catch {
+                    // Best-effort server shutdown; no JSON-RPC response is in flight.
+                }
             }
         },
         listTools: () => activeRegistry.tools,
@@ -542,9 +622,15 @@ export const createRouteLedgerStdioServer = (options) => {
                             return errorResponse(request.id, INVALID_PARAMS, "initialize params.clientInfo.version must be a non-empty string.");
                         }
                         const initializeRoots = collectInitializeRoots(params);
+                        const previousInitializeRoots = state.initializeRoots;
                         state.initializeRoots = initializeRoots;
                         state.clientSupportsRoots = isObject(params.capabilities.roots);
-                        rebuildRegistry();
+                        const rebuildError = rebuildRegistry();
+                        if (rebuildError !== null) {
+                            state.initializeRoots = previousInitializeRoots;
+                            state.clientSupportsRoots = false;
+                            return errorResponse(request.id, INTERNAL_ERROR, `RouteLedger could not construct the requested Roots binding: ${rebuildError.message}`);
+                        }
                         state.initializeCompleted = true;
                         return successResponse(request.id, buildInitializeResult(activeRegistry));
                     }
@@ -583,8 +669,15 @@ export const createRouteLedgerStdioServer = (options) => {
                         const validationError = toolDefinition === undefined
                             ? null
                             : validateToolInput(toolDefinition, toolCall.arguments);
-                        const toolResponse = validationError ?? (await activeRegistry.invoke(toolCall.name, toolCall.arguments));
-                        return successResponse(request.id, toCallToolResult(activeRegistry, toolCall.name, toolResponse));
+                        const invocationRegistry = activeRegistry;
+                        const toolResponse = validationError ?? (await invocationRegistry.invoke(toolCall.name, toolCall.arguments));
+                        const callResult = toCallToolResult(invocationRegistry, toolCall.name, toolResponse);
+                        const rebindFailure = validationError === null && toolCall.name === "activate_routeledger_binding"
+                            ? activatePendingSessionRebind(invocationRegistry)
+                            : null;
+                        return successResponse(request.id, rebindFailure === null
+                            ? callResult
+                            : toCallToolResult(invocationRegistry, toolCall.name, rebindFailure));
                     }
                     case "notifications/initialized":
                         return errorResponse(request.id, INVALID_REQUEST, "notifications/initialized must be sent without an id.");

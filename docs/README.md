@@ -9,7 +9,7 @@ It is not a release record and does not replace a bound project's canonical
 - [Capability index](capabilities/capability-index.md) maps product rules to source and tests.
 - [Agent-host integration](guides/agent-host-integration.md) describes the one-server, one-binding runtime contract.
 - [Codex plugin installation](guides/codex-plugin-installation.md) describes the published Git marketplace installation and runtime boundary.
-- [Plugin release](guides/plugin-release.md) and the [release policy](release-policy.md) record the current 0.3.1 release baseline and the evidence required for future releases; Git plugin publication does not publish `@routeledger/mcp` to npm.
+- [Plugin release](guides/plugin-release.md) and the [release policy](release-policy.md) record the prospective 0.3.2 release baseline and the evidence required for publication; Git plugin publication does not publish `@routeledger/mcp` to npm.
 - [Undo retirement classification](undo-retirement-data-migration-classification.md) records the current compatibility boundary.
 
 ## Documentation boundary

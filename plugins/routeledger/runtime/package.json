@@ -22,6 +22,7 @@
     "debug-log.js",
     "index.js",
     "input-adapter.js",
+    "physical-path.js",
     "storage-paths.js",
     "stdio-server.js",
     "workspace-config.js",
