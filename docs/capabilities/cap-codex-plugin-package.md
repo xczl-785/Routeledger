@@ -79,6 +79,17 @@ preflight; state-writing entrypoints re-check their bound root assertion, but
 future hardening should make create/open operations descriptor-anchored where
 the host threat model requires TOCTOU resistance.
 
+Host approval metadata and MCP tool annotations are advisory host hints; the
+server cannot use them to guarantee that Codex displays an independent human
+confirmation UI for `activate_routeledger_binding`. If mandatory confirmation
+becomes a product requirement, implement it as an MCP `elicitation/create`
+flow whose proposal fixes the workspace root, RouteLedger root, risks, and
+digest before activation. Unsupported elicitation, cancellation, timeout, or
+any response other than explicit acceptance must fail closed. Because this
+would make activation unavailable to older hosts, it requires separate
+Desktop/CLI interoperability evidence and a compatibility release (expected
+`0.4.0`), rather than being folded into the advisory behavior of `0.3.3`.
+
 ## Verification
 
 Run `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
