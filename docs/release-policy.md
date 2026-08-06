@@ -13,6 +13,11 @@ advance through protected non-distribution changes. Such a main still carries
 the 0.3.2 baseline only while `plugins/**` is byte-identical to the tag. This
 is a Codex plugin release only; `@routeledger/mcp` remains unpublished to npm.
 
+The repository currently prepares `0.3.3` as an untagged release candidate.
+It is not a published marketplace release until its final commit has the
+immutable `routeledger-plugin-v0.3.3` tag, passes tag CI, and is published to
+the canonical marketplace branch.
+
 RouteLedger source and plugin distribution are licensed under
 [Apache License 2.0](../LICENSE). This policy does not change the licenses of
 third-party dependencies.

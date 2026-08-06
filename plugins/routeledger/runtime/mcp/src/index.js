@@ -537,6 +537,7 @@ const createInstructions = (options) => {
         "Use defer_work to defer new work or an existing Todo, review_deferred to activate, defer again, or resolve Deferred work, record_constraint to record a rule, and retire_constraint when a rule no longer applies.",
         "Legacy Undo records are audit-only and are not part of default tool discovery. Use get_current_context(includeLegacyUndo=true) only when a legacy blocker requires explicit audit.",
         "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
+        "Tool approval metadata is a host-policy hint only: the MCP server cannot force a host prompt, and that hint never replaces binding or L3 safeguards.",
         "L3 route changes are always proposal-based: call propose_l3_operation first, then approve_l3_operation or reject_l3_operation, and only then commit_l3_operation with a valid approval artifact.",
         "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
         "High-risk tools are shutdown_version, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path. approve_l3_operation and reject_l3_operation should prompt; commit_l3_operation is destructive and should require explicit human approval in the host.",
@@ -582,16 +583,7 @@ const buildRuntimeContext = (options) => {
         ? options.data.project
         : null;
     return {
-        binding: {
-            status: options.binding.status,
-            workspaceRoot: options.binding.workspaceRoot,
-            workspaceRootSource: options.binding.workspaceRootSource,
-            workspaceRootConfidence: options.binding.workspaceRootConfidence,
-            routeledgerRoot: options.binding.routeledgerRoot,
-            workspaceConfigPath: options.binding.workspaceConfigPath,
-            dataRoot: options.binding.dataRoot,
-            routeledgerDir: options.binding.routeledgerDir
-        },
+        binding: summarizeRuntimeBinding(options.binding),
         dataRoot: options.binding.dataRoot,
         routeledgerDir: options.binding.routeledgerDir,
         workspaceConfigPath: options.binding.workspaceConfigPath,
@@ -605,6 +597,18 @@ const buildRuntimeContext = (options) => {
         processCwd: options.binding.processCwd
     };
 };
+const summarizeRuntimeBinding = (binding) => ({
+    status: binding.status,
+    workspaceRoot: binding.workspaceRoot,
+    workspaceRootSource: binding.workspaceRootSource,
+    workspaceRootConfidence: binding.workspaceRootConfidence,
+    routeledgerRoot: binding.routeledgerRoot,
+    workspaceConfigPath: binding.workspaceConfigPath,
+    dataRoot: binding.dataRoot,
+    routeledgerDir: binding.routeledgerDir,
+    jsonProjectPath: binding.jsonProjectPath,
+    sqliteDbPath: binding.sqliteDbPath
+});
 const withRuntimeContextMeta = (options) => ({
     ...(options.meta ?? {}),
     runtimeContext: buildRuntimeContext({
@@ -635,6 +639,18 @@ const toToolError = (error) => {
         }
     };
 };
+export const createSessionRebindFailureResponse = (pendingRebind, cause) => ({
+    ok: false,
+    error: {
+        code: "SESSION_REBIND_FAILED",
+        message: "RouteLedger could not activate the requested session binding; the previous binding remains active.",
+        details: {
+            workspaceRoot: pendingRebind.workspaceRoot,
+            routeledgerRoot: pendingRebind.routeledgerRoot,
+            cause: cause instanceof Error ? cause.message : String(cause)
+        }
+    }
+});
 const readStringField = (input, key) => typeof input?.[key] === "string" ? input[key] : undefined;
 const readDebugVersionId = (input) => readStringField(input, "versionId") ??
     readStringField(input, "targetVersionId") ??
@@ -742,10 +758,21 @@ const withExpectedRouteLedgerRootInputSchema = (inputSchema, riskLevel) => {
         }
     };
 };
-const defineTool = (name, description, inputSchema, options, handler) => ({
+const formatToolNarrative = (narrative) => [
+    narrative.what,
+    narrative.when === undefined ? undefined : `When: ${narrative.when}.`,
+    narrative.prerequisite === undefined
+        ? undefined
+        : `Needs: ${narrative.prerequisite}.`,
+    narrative.parameter === undefined ? undefined : `Input: ${narrative.parameter}.`,
+    narrative.warning === undefined ? undefined : `Warning: ${narrative.warning}.`
+]
+    .filter((part) => part !== undefined)
+    .join(" ");
+const defineTool = (name, narrative, inputSchema, options, handler) => ({
     definition: {
         name,
-        description,
+        description: formatToolNarrative(narrative),
         inputSchema: withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel),
         ...createToolMetadata(options)
     },
@@ -819,18 +846,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
         const storageInspection = storage === null ? null : await storage.inspectRuntimeBinding();
         const activeProject = storageInspection?.activeProject ?? null;
         return {
-            binding: {
-                status: binding.status,
-                workspaceRoot: binding.workspaceRoot,
-                workspaceRootSource: binding.workspaceRootSource,
-                workspaceRootConfidence: binding.workspaceRootConfidence,
-                routeledgerRoot: binding.routeledgerRoot,
-                workspaceConfigPath: binding.workspaceConfigPath,
-                dataRoot: binding.dataRoot,
-                routeledgerDir: binding.routeledgerDir,
-                jsonProjectPath: binding.jsonProjectPath,
-                sqliteDbPath: binding.sqliteDbPath
-            },
+            binding: summarizeRuntimeBinding(binding),
             processCwd: binding.processCwd,
             hostProfile,
             actor: {
@@ -863,7 +879,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
         };
     };
     const tools = [
-        defineTool("get_runtime_context", "Inspect the current MCP runtime binding and storage state without rebuilding read models or mutating canonical RouteLedger data.", objectSchema({}), {
+        defineTool("get_runtime_context", { what: "Inspect MCP binding, active project, and storage state." }, objectSchema({}), {
             title: "Get Runtime Context",
             riskLevel: "read-only",
             toolKind: "diagnostic"
@@ -887,7 +903,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("discover_routeledger_roots", "Scan an explicit or trusted workspaceRoot for .routeledger candidates without modifying data or switching the active MCP binding.", objectSchema({
+        defineTool("discover_routeledger_roots", { what: "Find .routeledger candidates under a workspace.", when: "inspecting an unbound workspace", parameter: "workspaceRoot" }, objectSchema({
             workspaceRoot: stringSchema("Optional absolute host workspaceRoot. It is required when the current binding only knows an untrusted process cwd.")
         }), {
             title: "Discover RouteLedger Roots",
@@ -904,7 +920,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
-        defineTool("plan_routeledger_binding", "Generate a read-only binding plan for an explicit workspaceRoot and/or routeledgerRoot.", objectSchema({
+        defineTool("plan_routeledger_binding", { what: "Plan a RouteLedger binding without activating it.", parameter: "workspaceRoot and routeledgerRoot" }, objectSchema({
             workspaceRoot: stringSchema("Optional absolute host workspaceRoot. It is required when the current binding only knows an untrusted process cwd."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot to plan. When omitted, the tool uses the current binding or a discovered single candidate.")
         }), {
@@ -916,11 +932,16 @@ export const createRouteLedgerMcpRegistry = (options) => {
             data: await planRouteLedgerBinding({
                 binding: readBinding(),
                 workspaceRoot: input.workspaceRoot,
-                routeledgerRoot: input.routeledgerRoot
+                routeledgerRoot: input.routeledgerRoot,
+                hostProfile
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
-        defineTool("activate_routeledger_binding", "Prompt before explicitly activating one workspaceRoot + routeledgerRoot for this MCP stdio session. It may create or normalize .routeledger/config.json for that explicit binding, never creates canonical project JSON, and refuses to switch an established project.", objectSchema({
+        defineTool("activate_routeledger_binding", {
+            what: "Activate an explicit MCP binding.",
+            parameter: "workspaceRoot",
+            warning: "writes config only; cannot switch an established binding"
+        }, objectSchema({
             workspaceRoot: stringSchema("Required absolute host workspaceRoot."),
             routeledgerRoot: stringSchema("Optional absolute RouteLedger root inside workspaceRoot. Defaults to workspaceRoot.")
         }, ["workspaceRoot"]), {
@@ -952,7 +973,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
             const bindingPlan = await planRouteLedgerBinding({
                 binding: previousBinding,
                 workspaceRoot: input.workspaceRoot,
-                routeledgerRoot: input.routeledgerRoot ?? input.workspaceRoot
+                routeledgerRoot: input.routeledgerRoot ?? input.workspaceRoot,
+                hostProfile
             });
             if ((bindingPlan.status !== "ready" && bindingPlan.status !== "needs_init") ||
                 bindingPlan.targetBinding === null) {
@@ -964,28 +986,22 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }
             pendingSessionRebind = {
                 workspaceRoot: bindingPlan.targetBinding.workspaceRoot,
-                routeledgerRoot: bindingPlan.targetBinding.routeledgerRoot
+                routeledgerRoot: bindingPlan.targetBinding.routeledgerRoot,
+                previousBinding,
+                bindingPlan,
+                requiresInit: bindingPlan.requiresInit
             };
             return {
                 ok: true,
                 data: {
-                    status: "activated",
-                    rebound: true,
+                    status: "pending_session_rebind",
                     previousBinding,
-                    nextBinding: bindingPlan.targetBinding,
                     requiresInit: bindingPlan.requiresInit,
                     bindingPlan
-                },
-                meta: withRuntimeContextMeta({
-                    data: null,
-                    binding: resolveRouteLedgerBinding(pendingSessionRebind, {
-                        autoCreateWorkspaceConfig: false
-                    }),
-                    hostProfile
-                })
+                }
             };
         }),
-        defineTool("render_host_binding_config", "Render a Codex host binding config or fragment for a planned routeledgerRoot without writing user config files.", objectSchema({
+        defineTool("render_host_binding_config", { what: "Render a Codex binding config or fragment." }, objectSchema({
             workspaceRoot: stringSchema("Optional absolute host workspaceRoot. Required when the current binding only knows an untrusted process cwd."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot to render. When omitted, the tool uses the current binding or a discovered single candidate."),
             routeLedgerWorkspaceRoot: stringSchema("Optional absolute RouteLedger source repo root used as the Codex MCP cwd in source mode."),
@@ -1014,7 +1030,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
-        defineTool("write_host_binding_config", "Write a Codex project-level host binding config or fragment for a planned routeledgerRoot.", objectSchema({
+        defineTool("write_host_binding_config", { what: "Write a Codex binding config or fragment.", prerequisite: "a planned binding" }, objectSchema({
             workspaceRoot: stringSchema("Optional absolute host workspaceRoot. Required when the current binding only knows an untrusted process cwd."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot to write. When omitted, the tool uses the current binding or a discovered single candidate."),
             routeLedgerWorkspaceRoot: stringSchema("Optional absolute RouteLedger source repo root used as the Codex MCP cwd in source mode."),
@@ -1046,7 +1062,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
-        defineTool("open_mission_control", "Open or reuse the source-mode Mission Control UI for the current binding or an explicit workspaceRoot + routeledgerRoot pair.", objectSchema({
+        defineTool("open_mission_control", { what: "Open or reuse source-mode Mission Control." }, objectSchema({
             workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot."),
             devBuild: booleanSchema("When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server.")
@@ -1072,7 +1088,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("get_mission_control_status", "Inspect Mission Control source-mode registry and health state for the current binding or an explicit workspaceRoot + routeledgerRoot pair without starting the UI.", objectSchema({
+        defineTool("get_mission_control_status", { what: "Inspect source-mode Mission Control health." }, objectSchema({
             workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot.")
         }), {
@@ -1096,7 +1112,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("init_project", "Create a new RouteLedger project.", objectSchema({
+        defineTool("init_project", { what: "Initialize canonical RouteLedger project data." }, objectSchema({
             name: stringSchema("Project name."),
             description: stringSchema("Optional project description.")
         }, ["name"]), {
@@ -1111,7 +1127,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("get_current_context", "Get lightweight current context for a project.", objectSchema({
+        defineTool("get_current_context", { what: "Read current project, route, work, and gate context." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             budgetBytes: integerSchema("Optional payload budget in bytes.", {
                 minimum: 8192,
@@ -1148,7 +1164,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         })),
-        defineTool("next_action", "Get the shared current-context judgment and recommended next route action.", objectSchema({
+        defineTool("next_action", { what: "Read the shared next route action." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID.")
         }, ["projectId"]), {
             title: "Next Action",
@@ -1163,7 +1179,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 meta: withCurrentRuntimeContextMeta({ data: nextAction.data })
             };
         }),
-        defineTool("check_doc_drift", "Check whether selected human entry docs drift from the current RouteLedger truth without creating proposals or changing canonical .routeledger route truth. Read paths may still refresh derived caches or read models.", objectSchema({
+        defineTool("check_doc_drift", { what: "Compare selected entry docs with RouteLedger truth.", parameter: "entryFiles" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             entryFiles: {
                 type: "array",
@@ -1190,7 +1206,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 meta: withCurrentRuntimeContextMeta({ data: result.data })
             };
         })),
-        defineTool("summarize_version_closeout", "Get a controller-facing closeout summary for one version without creating proposals or changing canonical .routeledger route truth. Read paths may still refresh derived caches or read models.", objectSchema({
+        defineTool("summarize_version_closeout", { what: "Summarize a version's closeout blockers and evidence." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Optional version ID. Defaults to project.currentVersionId."),
             eventLimit: integerSchema("How many related recent events to include.", {
@@ -1236,7 +1252,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("plan_version_closeout", "Get a controller closeout execution plan for one version without creating proposals or changing canonical .routeledger route truth. Read paths may still refresh derived caches or read models.", objectSchema({
+        defineTool("plan_version_closeout", { what: "Plan concrete steps to clear a version closeout." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Optional version ID. Defaults to project.currentVersionId."),
             eventLimit: integerSchema("How many related recent events to include in the embedded summary.", {
@@ -1282,7 +1298,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("list_versions_window", "List a lightweight version window around the current or specified version.", objectSchema({
+        defineTool("list_versions_window", { what: "List a compact version window." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             aroundVersionId: stringSchema("Optional anchor version ID. Defaults to currentVersionId."),
             before: integerSchema("How many versions before the anchor to include.", {
@@ -1312,7 +1328,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         })),
-        defineTool("list_versions", "List project versions.", objectSchema({
+        defineTool("list_versions", { what: "List project versions." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID.")
         }, ["projectId"]), {
             title: "List Versions",
@@ -1321,7 +1337,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ok: true,
             data: await service.listVersions(input.projectId)
         })),
-        defineTool("check_start_gate", "Evaluate the start gate for a version.", objectSchema({
+        defineTool("check_start_gate", { what: "Evaluate a version start gate." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID.")
         }, ["projectId", "versionId"]), {
@@ -1347,7 +1363,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: gate
             };
         }),
-        defineTool("check_close_gate", "Evaluate the close gate for a version.", objectSchema({
+        defineTool("check_close_gate", { what: "Evaluate a version close gate." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             residualAudit: {
@@ -1384,7 +1400,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: gate
             };
         }),
-        defineTool("get_version_structure", "Get a read-only version topology view with legal operation hints around the current or specified version.", objectSchema({
+        defineTool("get_version_structure", { what: "Read version topology and legal operation hints." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Optional focus version ID. Defaults to currentVersionId."),
             residualAudit: {
@@ -1410,7 +1426,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: sanitizeVersionStructureForAgent(structure)
             };
         }),
-        defineTool("get_version_transition_guide", "Read-only workflow guide for a from-version -> target-version transition. It evaluates close/start gates and recommends the existing step-by-step tools without creating proposals.", objectSchema({
+        defineTool("get_version_transition_guide", { what: "Guide a from-version to target-version transition.", parameter: "fromVersionId and targetVersionId" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             fromVersionId: stringSchema("Optional from version ID. Defaults to currentVersionId."),
             targetVersionId: stringSchema("Target version ID."),
@@ -1447,7 +1463,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("list_l3_proposals", "List pending and historical L3 proposals for a project.", objectSchema({
+        defineTool("list_l3_proposals", { what: "List pending and historical L3 proposals." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID.")
         }, ["projectId"]), {
             title: "List L3 Proposals",
@@ -1456,7 +1472,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ok: true,
             data: await service.listL3Proposals(input.projectId)
         })),
-        defineTool("get_l3_proposal", "Get a single L3 proposal.", objectSchema({
+        defineTool("get_l3_proposal", { what: "Read one L3 proposal." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             pendingOperationId: stringSchema("Pending operation ID.")
         }, ["projectId", "pendingOperationId"]), {
@@ -1466,7 +1482,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ok: true,
             data: await service.getL3Proposal(input.projectId, input.pendingOperationId)
         })),
-        defineTool("batch_create_versions", "Preflight or propose one atomic batch version-creation plan.", objectSchema({
+        defineTool("batch_create_versions", { what: "Preflight or propose an atomic version batch.", parameter: "mode and versions" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             mode: {
                 type: "string",
@@ -1504,7 +1520,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("transition_version", "Workflow-first wrapper that plans or proposes the next live step needed to transition focus to a target version without bypassing the existing L3 chain.", objectSchema({
+        defineTool("transition_version", { what: "Plan or propose the next step toward a target version.", parameter: "mode and targetVersionId" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             mode: {
@@ -1526,7 +1542,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("close_version", "Workflow-first close wrapper. It defaults to dry-run semantics and only creates a close proposal when explicitly asked and the gate already passes.", objectSchema({
+        defineTool("close_version", { what: "Preview or propose a version close.", parameter: "mode and versionId", warning: "proposal needs a passing gate" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             mode: {
@@ -1573,7 +1589,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: result
             };
         }),
-        defineTool("shutdown_version", "Emergency forced-close wrapper. It defaults to dry-run semantics and, when proposed, creates a shutdown_version L3 proposal that bypasses ordinary close blockers while explicitly recording forced-path metadata.", objectSchema({
+        defineTool("shutdown_version", { what: "Preview or propose an emergency forced close.", parameter: "mode and versionId", warning: "bypasses ordinary blockers" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             mode: {
@@ -1614,7 +1630,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: result
             };
         }),
-        defineTool("create_todo", "Create a todo.", objectSchema({
+        defineTool("create_todo", { what: "Create a Todo for current work." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Owning version ID."),
             title: stringSchema("Todo title."),
@@ -1632,7 +1648,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("close_todo", "Close a todo.", objectSchema({
+        defineTool("close_todo", { what: "Close a Todo with its outcome." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             todoId: stringSchema("Todo ID."),
             reason: stringSchema("Close reason."),
@@ -1651,7 +1667,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("defer_work", "Move work out of the current execution path and schedule a future review. Use mode=new for newly identified work or mode=todo for an existing Todo.", objectSchema({
+        defineTool("defer_work", { what: "Create Deferred work for a future review.", parameter: "mode, targetReviewVersionId, and Todo or new-work fields" }, objectSchema({
             mode: {
                 type: "string",
                 enum: ["new", "todo"],
@@ -1718,7 +1734,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     }
             };
         })),
-        defineTool("review_deferred", "Review one Deferred item through a single action: activate it as a Todo, defer it again to a later review version, or resolve it with a final outcome.", objectSchema({
+        defineTool("review_deferred", { what: "Review Deferred work: activate, defer again, or resolve.", parameter: "deferredId and action" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             deferredId: stringSchema("Deferred item ID."),
             action: {
@@ -1782,7 +1798,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     }
             };
         })),
-        defineTool("record_constraint", "Record a rule that RouteLedger agents must not violate. Scope it to the whole project or one version.", objectSchema({
+        defineTool("record_constraint", { what: "Record a RouteLedger constraint.", parameter: "rule, rationale, and scopeType" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             rule: stringSchema("The rule that must not be violated."),
             rationale: stringSchema("Why this constraint exists."),
@@ -1823,7 +1839,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 }
             };
         })),
-        defineTool("retire_constraint", "Retire a Constraint that no longer applies while preserving its audit history.", objectSchema({
+        defineTool("retire_constraint", { what: "Retire an obsolete constraint." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             constraintId: stringSchema("Constraint ID."),
             reason: stringSchema("Why this constraint no longer applies."),
@@ -1853,7 +1869,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 }
             };
         })),
-        defineTool("create_undo", "Create an undo.", objectSchema({
+        defineTool("create_undo", { what: "Create a legacy Undo record.", parameter: "origin and preferred resolution versions" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Owning version ID."),
             originVersionId: stringSchema("Origin version ID."),
@@ -1899,7 +1915,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: created
             };
         }),
-        defineTool("reassign_undo", "Reassign an undo.", objectSchema({
+        defineTool("reassign_undo", { what: "Reassign a legacy Undo record.", parameter: "undoId and preferredResolutionVersionId" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             undoId: stringSchema("Undo ID."),
             preferredResolutionVersionId: stringSchema("Next preferred resolution version ID."),
@@ -1921,7 +1937,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("carry_forward_undo", "Keep an open undo as an undo while routing its preferred downstream resolution version forward.", objectSchema({
+        defineTool("carry_forward_undo", { what: "Carry a legacy Undo forward.", parameter: "undoId and preferredResolutionVersionId" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             undoId: stringSchema("Undo ID."),
             preferredResolutionVersionId: stringSchema("Downstream version ID that should inherit responsibility."),
@@ -1943,7 +1959,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("resolve_undo_as_downstream_input", "Alias of carry_forward_undo for route semantics that treat unresolved undo as downstream input.", objectSchema({
+        defineTool("resolve_undo_as_downstream_input", { what: "Route a legacy Undo as downstream input.", parameter: "undoId and preferredResolutionVersionId" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             undoId: stringSchema("Undo ID."),
             preferredResolutionVersionId: stringSchema("Downstream version ID that should inherit responsibility."),
@@ -1965,7 +1981,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("close_undo", "Close an undo.", objectSchema({
+        defineTool("close_undo", { what: "Close a legacy Undo record.", parameter: "undoId and reason" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             undoId: stringSchema("Undo ID."),
             reason: stringSchema("Close reason."),
@@ -1997,7 +2013,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: closed
             };
         }),
-        defineTool("prepare_version", "Prepare a version.", objectSchema({
+        defineTool("prepare_version", { what: "Prepare a version for execution." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Version ID.")
         }, ["projectId", "versionId"]), {
@@ -2012,7 +2028,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("mark_version_complete", "Mark a version complete.", objectSchema({
+        defineTool("mark_version_complete", { what: "Mark a version complete." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Version ID.")
         }, ["projectId", "versionId"]), {
@@ -2027,7 +2043,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("create_version", "Create a top-level version proposal and return CONFIRMATION_REQUIRED with the pending operation details.", objectSchema({
+        defineTool("create_version", { what: "Propose a top-level version.", warning: "returns a pending L3 operation" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             title: stringSchema("Version title."),
             description: stringSchema("Optional version description.")
@@ -2043,7 +2059,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("insert_version", "Insert a new sibling version proposal relative to an existing root or child anchor.", objectSchema({
+        defineTool("insert_version", { what: "Propose a sibling version insertion.", parameter: "sibling anchor" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             title: stringSchema("Version title."),
             description: stringSchema("Optional version description."),
@@ -2063,7 +2079,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("create_child_version", "Create a child version proposal under a parent, optionally positioned by child anchors.", objectSchema({
+        defineTool("create_child_version", { what: "Propose a child version.", parameter: "parentVersionId and child anchor" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             parentVersionId: stringSchema("Parent version ID."),
             title: stringSchema("Version title."),
@@ -2085,7 +2101,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("reorder_versions", "Reorder an existing version within the same parent scope.", objectSchema({
+        defineTool("reorder_versions", { what: "Propose a version reorder within its parent.", parameter: "sibling anchor" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Version ID to move."),
             afterVersionId: stringSchema("Move after this sibling version ID."),
@@ -2103,7 +2119,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("propose_l3_operation", "Create a pending L3 proposal.", objectSchema({
+        defineTool("propose_l3_operation", { what: "Create a pending L3 proposal.", parameter: "actionType, targetId, and reason" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             actionType: {
                 type: "string",
@@ -2137,7 +2153,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("approve_l3_operation", "Create an approval artifact for a pending L3 proposal.", objectSchema({
+        defineTool("approve_l3_operation", { what: "Approve an L3 proposal.", parameter: "pendingOperationId", warning: "requires a host decision" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             pendingOperationId: stringSchema("Pending operation ID."),
             decisionRef: stringSchema("Optional host-visible decision reference.")
@@ -2154,7 +2170,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 decisionRef: input.decisionRef
             })
         })),
-        defineTool("commit_l3_operation", "Commit a pending L3 proposal with an approval artifact.", objectSchema({
+        defineTool("commit_l3_operation", { what: "Commit an approved L3 proposal.", parameter: "pendingOperationId and approvalArtifactId", warning: "consumes approval artifact" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             pendingOperationId: stringSchema("Pending operation ID."),
             approvalArtifactId: stringSchema("Approval artifact ID."),
@@ -2189,7 +2205,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: committed
             };
         }),
-        defineTool("reject_l3_operation", "Reject a pending L3 proposal.", objectSchema({
+        defineTool("reject_l3_operation", { what: "Reject a pending L3 proposal.", warning: "requires a host decision" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             pendingOperationId: stringSchema("Pending operation ID."),
             reason: stringSchema("Rejection reason.")
@@ -2240,21 +2256,75 @@ export const createRouteLedgerMcpRegistry = (options) => {
         .filter((tool) => tool.visibility === "default")
         .map((tool) => tool.definition);
     let reboundRegistry = null;
-    const activatePendingRebindForDirectRegistry = () => {
+    const createActivationSuccessResponse = async (pendingRebind) => {
+        const binding = readBinding();
+        const runtimeContext = await getRuntimeContextData(binding);
+        return {
+            ok: true,
+            data: {
+                status: "activated",
+                rebound: true,
+                previousBinding: pendingRebind.previousBinding,
+                activeBinding: runtimeContext.binding,
+                requiresInit: pendingRebind.requiresInit,
+                bindingPlan: pendingRebind.bindingPlan
+            },
+            meta: withRuntimeContextMeta({
+                data: runtimeContext.activeProject === null
+                    ? null
+                    : {
+                        project: {
+                            id: runtimeContext.activeProject.id,
+                            name: runtimeContext.activeProject.name
+                        }
+                    },
+                binding,
+                hostProfile
+            })
+        };
+    };
+    const activatePendingRebindForDirectRegistry = async () => {
         if (options.deferSessionRebind || pendingSessionRebind === null) {
-            return;
+            return null;
         }
         const nextBinding = pendingSessionRebind;
+        let nextRegistry;
+        try {
+            nextRegistry = createRouteLedgerMcpRegistry({
+                ...options,
+                workspaceRoot: nextBinding.workspaceRoot,
+                workspaceRootSource: "explicit_arg",
+                routeledgerRoot: nextBinding.routeledgerRoot,
+                mcpRoots: undefined,
+                deferSessionRebind: false
+            });
+        }
+        catch (error) {
+            return createSessionRebindFailureResponse(nextBinding, error);
+        }
+        let activationResponse;
+        try {
+            activationResponse = await nextRegistry.createActivationSuccessResponse(nextBinding);
+        }
+        catch (error) {
+            try {
+                nextRegistry.close();
+            }
+            catch {
+                // The original registry remains active; candidate cleanup cannot change that.
+            }
+            return createSessionRebindFailureResponse(nextBinding, error);
+        }
+        const previousReboundRegistry = reboundRegistry;
+        reboundRegistry = nextRegistry;
         pendingSessionRebind = null;
-        reboundRegistry?.close();
-        reboundRegistry = createRouteLedgerMcpRegistry({
-            ...options,
-            workspaceRoot: nextBinding.workspaceRoot,
-            workspaceRootSource: "explicit_arg",
-            routeledgerRoot: nextBinding.routeledgerRoot,
-            mcpRoots: undefined,
-            deferSessionRebind: false
-        });
+        try {
+            previousReboundRegistry?.close();
+        }
+        catch {
+            // The replacement is active; a stale close hook cannot roll it back.
+        }
+        return activationResponse;
     };
     return {
         tools: toolDefinitions,
@@ -2279,8 +2349,10 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }
             try {
                 const response = await handler(input);
-                activatePendingRebindForDirectRegistry();
-                return response;
+                const activationResponse = toolName === "activate_routeledger_binding"
+                    ? await activatePendingRebindForDirectRegistry()
+                    : null;
+                return activationResponse ?? response;
             }
             catch (error) {
                 const response = toToolError(error);
@@ -2302,6 +2374,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
         clearPendingSessionRebind: () => {
             pendingSessionRebind = null;
         },
+        createActivationSuccessResponse,
         close: () => {
             reboundRegistry?.close();
             close();
