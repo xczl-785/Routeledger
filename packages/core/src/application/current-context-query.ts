@@ -656,6 +656,18 @@ const buildNextAction = (options: {
     };
   }
 
+  if (currentVersion?.state === "wait") {
+    return {
+      actionType: "prepare_version",
+      summary: "准备当前 version。",
+      reason: `current version ${currentVersion.id} 仍处于 wait，需先 prepare_version。`,
+      targetId: currentVersion.id,
+      requiresL3Approval: false,
+      recordIds: [currentVersion.id],
+      blockingRiskCodes
+    };
+  }
+
   if (currentVersion?.state === "close" && nextVersion?.state === "wait") {
     return {
       actionType: "prepare_version",
@@ -737,6 +749,18 @@ const buildNextAction = (options: {
         (blocker) => blocker.recordIds
       ),
       blockingRiskCodes: ["START_GATE_BLOCKED"]
+    };
+  }
+
+  if (currentVersion?.state === "ready" && startGate?.allowed) {
+    return {
+      actionType: "start_version",
+      summary: "启动当前 ready version。",
+      reason: `current version ${currentVersion.id} 已 ready 且 start gate 通过，可进入 start_version 审计链。`,
+      targetId: currentVersion.id,
+      requiresL3Approval: true,
+      recordIds: [currentVersion.id],
+      blockingRiskCodes
     };
   }
 

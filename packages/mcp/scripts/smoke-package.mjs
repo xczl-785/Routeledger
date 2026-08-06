@@ -166,11 +166,66 @@ const assertJsonOnlyEntryRequiresDisabled = async (installDir) => {
   }
 };
 
+const assertDirectImportProfile = async ({
+  installDir,
+  workspaceRoot,
+  routeledgerRoot,
+  sqliteReadModel,
+  profileName
+}) => {
+  const packageEntry = path.join(installDir, "node_modules/@routeledger/mcp/index.js");
+  const imported = await import(`${pathToFileURL(packageEntry).href}?profile-smoke=${Date.now()}`);
+  const registry = imported.createRouteLedgerMcpRegistry({
+    workspaceRoot,
+    routeledgerRoot,
+    sqliteReadModel
+  });
+
+  try {
+    if (registry.runtimeProfile !== profileName) {
+      throw new Error(
+        `Direct package import reported runtimeProfile=${registry.runtimeProfile}; expected ${profileName}.`
+      );
+    }
+
+    const missionControlTools = ["open_mission_control", "get_mission_control_status"];
+    for (const toolName of missionControlTools) {
+      const exposed = registry.getTool(toolName) !== undefined;
+      if (profileName === "json-only" && exposed) {
+        throw new Error(`Direct JSON-only package import unexpectedly exposed ${toolName}.`);
+      }
+      if (profileName === "full" && !exposed) {
+        throw new Error(`Direct full package import did not expose ${toolName}.`);
+      }
+    }
+
+    if (profileName === "json-only") {
+      const unavailable = await registry.invoke("get_mission_control_status", {});
+      if (unavailable.ok || unavailable.error?.code !== "ACTION_NOT_IMPLEMENTED") {
+        throw new Error("Direct JSON-only package import allowed Mission Control invocation.");
+      }
+    } else {
+      const status = await registry.invoke("get_mission_control_status", {
+        workspaceRoot,
+        routeledgerRoot
+      });
+      if (!status.ok) {
+        throw new Error(
+          `Direct full package import could not invoke Mission Control: ${JSON.stringify(status.error)}`
+        );
+      }
+    }
+  } finally {
+    registry.close();
+  }
+};
+
 const runStdioSmoke = async ({
   installDir,
   workspaceRoot,
   routeledgerRoot,
-  sqliteReadModel
+  sqliteReadModel,
+  profileName
 }) => {
   const child = spawn(
     process.execPath,
@@ -285,6 +340,16 @@ const runStdioSmoke = async ({
   if (!Array.isArray(stdoutLines[1]?.result?.tools) || stdoutLines[1].result.tools.length === 0) {
     throw new Error("tools/list response did not include RouteLedger tools.");
   }
+  const listedToolNames = stdoutLines[1].result.tools.map((tool) => tool.name);
+  const missionControlToolNames = ["open_mission_control", "get_mission_control_status"];
+  for (const toolName of missionControlToolNames) {
+    if (profileName === "json-only" && listedToolNames.includes(toolName)) {
+      throw new Error(`JSON-only tools/list unexpectedly exposed ${toolName}.`);
+    }
+    if (profileName === "full" && !listedToolNames.includes(toolName)) {
+      throw new Error(`Full tools/list did not expose ${toolName}.`);
+    }
+  }
 
   if (stdoutLines[2]?.result?.structuredContent?.ok !== true) {
     throw new Error("init_project did not report a successful canonical JSON write.");
@@ -303,6 +368,9 @@ const runStdioSmoke = async ({
 
   if (runtimeContext?.storage?.sqliteReadModel !== sqliteReadModel) {
     throw new Error(`get_runtime_context did not report sqliteReadModel=${sqliteReadModel}.`);
+  }
+  if (runtimeContext?.runtimeProfile !== profileName) {
+    throw new Error(`get_runtime_context did not report runtimeProfile=${profileName}.`);
   }
 
   return runtimeContext;
@@ -394,11 +462,20 @@ const main = async () => {
       await assertJsonOnlyEntryRequiresDisabled(installDir);
     }
 
+    await assertDirectImportProfile({
+      installDir,
+      workspaceRoot,
+      routeledgerRoot,
+      sqliteReadModel,
+      profileName
+    });
+
     const runtimeContext = await runStdioSmoke({
       installDir,
       workspaceRoot,
       routeledgerRoot,
-      sqliteReadModel
+      sqliteReadModel,
+      profileName
     });
 
     if (profileName === "json-only") {

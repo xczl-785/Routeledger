@@ -703,6 +703,7 @@ export const runRouteLedgerStdioServer = async (options) => {
         routeledgerRoot: options.routeledgerRoot,
         sqliteReadModel: options.sqliteReadModel,
         hostProfile: options.hostProfile,
+        runtimeProfile: options.runtimeProfile,
         actor: options.actor,
         approver: options.approver,
         sendMessage: (message) => {

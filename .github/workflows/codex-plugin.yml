@@ -77,11 +77,10 @@ jobs:
         env:
           PREVIOUS_REF: ${{ steps.previous.outputs.ref }}
           IS_PLUGIN_TAG: ${{ startsWith(github.ref, 'refs/tags/routeledger-plugin-v') }}
-          IS_RELEASE_BRANCH: ${{ github.ref == 'refs/heads/codex-marketplace' }}
         run: |
           args=()
           if [ -n "$PREVIOUS_REF" ]; then args+=(--previous-ref "$PREVIOUS_REF"); fi
-          if [ "$IS_PLUGIN_TAG" = "true" ] || [ "$IS_RELEASE_BRANCH" = "true" ]; then args+=(--require-tag-ref); fi
+          if [ "$IS_PLUGIN_TAG" = "true" ]; then args+=(--require-tag-ref); fi
           pnpm run check:codex-plugin-release "${args[@]}"
       - name: Smoke Codex Git marketplace ingestion
         run: pnpm smoke:codex-git-marketplace

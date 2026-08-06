@@ -4,15 +4,11 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. `routeledger@routeledger-team` version `0.3.3` is the current
-Git marketplace release: at publication, `main`, the canonical remote's
-`codex-marketplace` branch, and immutable `routeledger-plugin-v0.3.3` tag all
-resolved to commit `437a958`. The tag and marketplace branch remain the fixed
-release anchor; `main` may later advance through protected non-distribution
-changes. When `plugins/**` remains byte-identical to the tag, that later main
-still carries the same 0.3.3 distribution baseline. The release passed tag CI
-on Ubuntu, macOS, and Windows plus an isolated anonymous Codex marketplace
-installation and JSON-only business-workflow verification.
+distribution. The manifest declares the next patch distribution as `0.3.4`;
+the last published Git marketplace release remains immutable
+`routeledger-plugin-v0.3.3` at commit `437a958` until the new version is merged,
+tagged, and verified. `main` is the release branch for 0.3.4 and later.
+`codex-marketplace` remains only the historical 0.3.3 branch anchor.
 
 ## Current Rules
 
@@ -27,7 +23,9 @@ installation and JSON-only business-workflow verification.
    contract.
 4. The bundled runtime is JSON-only: it starts with `--profile codex
    --sqlite-read-model disabled`, contains neither `sqlite/` nor `ui/`, and
-   does not declare `better-sqlite3`.
+   does not declare `better-sqlite3`. Its runtime profile omits source-only
+   Mission Control tools from discovery and invocation; the full/source MCP
+   profile continues to expose them.
 5. Plugin binding comes from MCP Roots and the managed project's
    `.routeledger/config.json`; the plugin directory and process `cwd` do not
    select a managed project. When a host sends no Roots/rootUri, the prompted,
@@ -35,16 +33,19 @@ installation and JSON-only business-workflow verification.
    absolute workspace root and refuses a silent high-confidence project switch.
    Cache cwd is never a discovery or initialization target. That approved
    activation may create/normalize binding `config.json`, never canonical
-   project JSON; `init_project` creates project state.
+   project JSON; `init_project` creates project state. Plugin prompts and the
+   operator Skill direct an unbound agent to use the host's current absolute
+   workspace root, activate the session, and verify the rebound context.
 6. Any distribution-byte change relative to a Git baseline requires a SemVer
-   increase. `release.json` must be regenerated to match the new distribution
-   bytes before a release is tagged.
-   Non-distribution changes may advance `main` without changing the published
-   plugin baseline only while `plugins/**` remains byte-identical to its tag.
+   increase. `main` is the release branch, and `release.json` must be
+   regenerated to match the new distribution bytes before a release is tagged.
 7. `pnpm check:codex-plugin-release --previous-ref <ref>` rejects a version
    regression and rejects changed distribution bytes under the same released
    version. `--require-tag-ref` additionally requires
-   `routeledger-plugin-v<version>` to resolve to `HEAD`.
+   `routeledger-plugin-v<version>` to resolve to `HEAD`. The previous immutable
+   tag, not a mutable release branch, is the comparison baseline. Pull-request
+   and `main` CI run the previous-ref replay guard; only immutable version-tag
+   CI runs the tag-to-HEAD guard after the tag exists.
 8. Git marketplace publication is distinct from npm publication. The plugin
    carries a generated JSON-only runtime, but this capability does not publish
    `@routeledger/mcp` to an npm registry.
@@ -67,8 +68,8 @@ installation and JSON-only business-workflow verification.
 GitHub Actions currently emits a Node 20 deprecation warning. It is a release
 automation maintenance constraint, not evidence of a failed plugin release;
 the workflow runtime should be migrated before that platform warning becomes a
-hard failure. Future releases must rebuild a new SemVer distribution, pass the
-previous-ref and tag-to-HEAD gates, obtain tag CI, and repeat clean-home Git
+hard failure. Future releases from `main` must rebuild a new SemVer
+distribution, pass the previous-tag and tag-to-HEAD gates, obtain tag CI, and repeat clean-home Git
 marketplace installation/reinstallation verification. npm publication of
 `@routeledger/mcp` remains outside this capability.
 
@@ -88,7 +89,7 @@ digest before activation. Unsupported elicitation, cancellation, timeout, or
 any response other than explicit acceptance must fail closed. Because this
 would make activation unavailable to older hosts, it requires separate
 Desktop/CLI interoperability evidence and a compatibility release (expected
-`0.4.0`), rather than being folded into the advisory behavior of `0.3.3`.
+`0.4.0`), rather than being folded into the advisory behavior of `0.3.4`.
 
 ## Verification
 

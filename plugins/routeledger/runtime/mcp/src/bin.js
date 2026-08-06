@@ -18,6 +18,15 @@ export const parseSqliteReadModel = (value) => {
     }
     throw new Error("Invalid SQLite read-model setting. Use --sqlite-read-model enabled|disabled or ROUTELEDGER_MCP_SQLITE_READ_MODEL=enabled|disabled.");
 };
+export const parseRuntimeProfile = (value) => {
+    if (value === undefined) {
+        return "full";
+    }
+    if (value === "full" || value === "json-only") {
+        return value;
+    }
+    throw new Error("Invalid MCP runtime profile. ROUTELEDGER_MCP_RUNTIME_PROFILE must be full or json-only.");
+};
 export const main = async (argv = process.argv.slice(2)) => {
     const workspaceRootFlag = getFlagValue(argv, "--workspace-root");
     const workspaceRootEnv = process.env.ROUTELEDGER_MCP_WORKSPACE_ROOT;
@@ -32,6 +41,7 @@ export const main = async (argv = process.argv.slice(2)) => {
     const sqliteReadModel = parseSqliteReadModel(hasFlag(argv, "--sqlite-read-model")
         ? (sqliteReadModelFlag ?? "")
         : process.env.ROUTELEDGER_MCP_SQLITE_READ_MODEL);
+    const runtimeProfile = parseRuntimeProfile(process.env.ROUTELEDGER_MCP_RUNTIME_PROFILE);
     await runRouteLedgerStdioServer({
         workspaceRoot,
         workspaceRootSource: workspaceRootFlag !== undefined
@@ -41,6 +51,7 @@ export const main = async (argv = process.argv.slice(2)) => {
                 : undefined,
         routeledgerRoot,
         sqliteReadModel,
+        runtimeProfile,
         hostProfile: hostProfile === "generic" ||
             hostProfile === "codex" ||
             hostProfile === "claude-code" ||

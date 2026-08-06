@@ -23,6 +23,10 @@ rules.
    approval.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
+7. `next_action` follows the version lifecycle: a current `wait` version
+   recommends `prepare_version`, while a current `ready` version with a passing
+   start gate recommends `start_version`. Gate blockers, due Deferred work,
+   pending proposals, shutdown state, and pointer drift retain higher priority.
 
 ## Evidence
 
