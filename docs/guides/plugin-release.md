@@ -50,10 +50,10 @@ For each future release, create that tag on the final release commit in
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-The current plugin release is `routeledger-plugin-v0.3.2`; it and the canonical
-remote's `codex-marketplace` branch resolve to release commit `9c58e1d`.
+The current plugin release is `routeledger-plugin-v0.3.3`; it and the canonical
+remote's `codex-marketplace` branch resolve to release commit `437a958`.
 `main` aligned at that release point and may later advance through protected
-non-distribution changes. It remains the same 0.3.2 baseline only while
+non-distribution changes. It remains the same 0.3.3 baseline only while
 `plugins/**` is byte-identical to the tag; any distribution-byte change
 requires a new SemVer and immutable tag. Future releases use the same tag
 format and must not reuse or move an existing tag.
@@ -62,8 +62,8 @@ format and must not reuse or move an existing tag.
 
 Use a clean Codex home and the canonical repository URL to add the marketplace,
 install `routeledger@routeledger-team`, run an MCP initialization and binding
-smoke, then remove it. The published 0.3.2 path passed branch install, no-op
-upgrade, tag-based reinstall, release-hash verification, Apache-2.0
+smoke, then remove it. The published 0.3.3 path passed branch install, upgrade,
+tag-based reinstall, release-hash verification, Apache-2.0
 distribution checks, and the JSON-only runtime workflow. The
 repository's hermetic Git marketplace smoke covers the equivalent mechanics
 without modifying a user profile.

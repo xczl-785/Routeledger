@@ -4,13 +4,13 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. `routeledger@routeledger-team` version `0.3.2` is the current
+distribution. `routeledger@routeledger-team` version `0.3.3` is the current
 Git marketplace release: at publication, `main`, the canonical remote's
-`codex-marketplace` branch, and immutable `routeledger-plugin-v0.3.2` tag all
-resolved to commit `9c58e1d`. The tag and marketplace branch remain the fixed
+`codex-marketplace` branch, and immutable `routeledger-plugin-v0.3.3` tag all
+resolved to commit `437a958`. The tag and marketplace branch remain the fixed
 release anchor; `main` may later advance through protected non-distribution
 changes. When `plugins/**` remains byte-identical to the tag, that later main
-still carries the same 0.3.2 distribution baseline. The release passed tag CI
+still carries the same 0.3.3 distribution baseline. The release passed tag CI
 on Ubuntu, macOS, and Windows plus an isolated anonymous Codex marketplace
 installation and JSON-only business-workflow verification.
 
