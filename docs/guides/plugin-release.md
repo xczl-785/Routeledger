@@ -43,16 +43,16 @@ For a normal release, the tag is exactly:
 routeledger-plugin-v<plugin-semver>
 ```
 
-After the final canonical repository transition, create that tag on the final
-release commit and validate it with:
+Create that tag on the final release commit in
+`xczl-785/Routeledger` and validate it with:
 
 ```bash
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-For the current staging baseline, the prospective tag is
-`routeledger-plugin-v0.3.0`. It must not be created merely to make a staging
-checkout look published.
+For the current 0.3.1 release candidate, the prospective tag is
+`routeledger-plugin-v0.3.1`. It has not been created and must not be created
+merely to make a candidate checkout look published.
 
 ## Install verification
 

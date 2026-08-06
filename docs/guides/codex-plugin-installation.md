@@ -23,27 +23,28 @@ node ./runtime/bin.js --profile codex --sqlite-read-model disabled
 It receives the managed workspace through MCP Roots. Installing the plugin
 does not bind it to the repository that supplied it.
 
-## Staging validation
+## Release-candidate validation
 
-Version `0.3.0` is a staging baseline, not a published release claim. Until
-the final repository name is active, use a staging ref only for controlled
-validation:
+The canonical repository is `xczl-785/Routeledger`. Version `0.3.1` is a
+release candidate, not a published release: no release tag or release branch
+is asserted by this guide. Use the canonical repository and an explicit
+candidate ref for controlled validation:
 
 ```bash
-codex plugin marketplace add <STAGING_GIT_REPOSITORY_URL> --ref <STAGING_REF> --json
+codex plugin marketplace add xczl-785/Routeledger --ref <CANDIDATE_REF> --json
 codex plugin list --marketplace routeledger-team --available --json
 codex plugin add routeledger@routeledger-team --json
 codex plugin list --json
 ```
 
-To remove the staged installation:
+To remove the candidate installation:
 
 ```bash
 codex plugin remove routeledger@routeledger-team --json
 codex plugin marketplace remove routeledger-team --json
 ```
 
-Run the repository checks before a staging install:
+Run the repository checks before a candidate install:
 
 ```bash
 pnpm build:codex-plugin
@@ -52,10 +53,10 @@ pnpm check:codex-plugin-release
 pnpm smoke:codex-git-marketplace
 ```
 
-The final canonical repository URL recorded by the plugin manifest is
-`https://github.com/xczl-785/RouteLedger`. A normal release is installed from
-that repository only after the final repository transition and release tag
-have been completed under the release policy.
+The plugin manifest records
+`https://github.com/xczl-785/Routeledger`. A normal release becomes installable
+from that repository only after the release tag gate has been completed under
+the release policy.
 
 ## Runtime expectations
 

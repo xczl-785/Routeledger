@@ -24,9 +24,9 @@ const sourcePluginRoot = path.join(repositoryRoot, "plugins", "routeledger");
 const pluginName = "routeledger";
 const marketplaceName = "routeledger-team";
 const releaseBranch = "codex-marketplace";
-const baselineVersion = "0.3.0";
-const upgradedVersion = "0.3.1";
-const baselineTag = "routeledger-plugin-v0.3.0";
+const baselineVersion = "0.3.1";
+const upgradedVersion = "0.3.2";
+const baselineTag = "routeledger-plugin-v0.3.1";
 const fixtureAttributes = "plugins/routeledger/** -text\n";
 const codexCommand = process.platform === "win32" ? "codex.cmd" : "codex";
 const codexCliJs = process.env.CODEX_CLI_JS?.trim();
@@ -466,7 +466,7 @@ const main = async () => {
     await assertCodexConfig(environment, [marketplaceName, gitServer.url, baselineTag]);
     const rollbackInstalledRoot = await findInstalledPluginRoot(environment, fixture.baseline);
     await runInstalledRuntimeSmoke(rollbackInstalledRoot, temporaryRoot, "rollback");
-    console.log("Codex Git marketplace smoke passed: fresh install, automatic upgrade, immutable-tag rollback, cache hashes, and JSON-only installed runtime.");
+    console.log("Codex Git marketplace smoke passed: fresh install, automatic upgrade, fixture-tag reinstall, cache hashes, and JSON-only installed runtime.");
   } finally {
     await gitServer?.close().catch(() => undefined);
     await fs.rm(temporaryRoot, { recursive: true, force: true });
