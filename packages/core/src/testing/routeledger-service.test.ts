@@ -3008,6 +3008,114 @@ describe("route ledger service", () => {
     expect(data.nextAction.blockingRiskCodes).toEqual([]);
   });
 
+  it("fresh current wait version recommends prepare_version", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const currentVersion = createVersionFixture({
+      id: "version-fresh",
+      title: "V1.0",
+      state: "wait",
+      isCurrent: true,
+      order: 1
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({
+        id: "project-1",
+        currentVersionId: currentVersion.id
+      }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const nextAction = await service.getNextAction({
+      projectId: "project-1"
+    });
+    const data = nextAction.data as {
+      nextAction: {
+        actionType: string;
+        targetId: string | null;
+        requiresL3Approval: boolean;
+        recordIds: string[];
+        blockingRiskCodes: string[];
+      };
+    };
+
+    expect(data.nextAction).toMatchObject({
+      actionType: "prepare_version",
+      targetId: currentVersion.id,
+      requiresL3Approval: false,
+      recordIds: [currentVersion.id],
+      blockingRiskCodes: []
+    });
+  });
+
+  it("current ready version with an allowed start gate recommends start_version", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const currentVersion = createVersionFixture({
+      id: "version-ready",
+      title: "V1.0",
+      state: "ready",
+      isCurrent: true,
+      order: 1
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({
+        id: "project-1",
+        currentVersionId: currentVersion.id
+      }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const nextAction = await service.getNextAction({
+      projectId: "project-1"
+    });
+    const data = nextAction.data as {
+      gates: { start: { allowed: boolean } | null };
+      nextAction: {
+        actionType: string;
+        targetId: string | null;
+        requiresL3Approval: boolean;
+        recordIds: string[];
+        blockingRiskCodes: string[];
+      };
+    };
+
+    expect(data.gates.start).toMatchObject({ allowed: true });
+    expect(data.nextAction).toMatchObject({
+      actionType: "start_version",
+      targetId: currentVersion.id,
+      requiresL3Approval: true,
+      recordIds: [currentVersion.id],
+      blockingRiskCodes: []
+    });
+  });
+
   it("鍞竴 running version 涓?current 鎸囬拡婕傜Щ鏃讹紝context 鎶ラ闄╀笖 next_action 寤鸿璧?L3 set_current_version", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({

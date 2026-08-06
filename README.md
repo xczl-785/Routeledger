@@ -171,5 +171,5 @@ Codex marketplace 与插件定义位于仓库根 `.agents/plugins/marketplace.js
 
 - 还没有对外发布 `@routeledger/mcp`。
 - 还不能把文档写成“现在可直接 `npx @routeledger/mcp`”。
-- `routeledger@routeledger-team` 0.3.3 已作为 Git marketplace plugin 发布；不可变 `routeledger-plugin-v0.3.3` tag 与 canonical remote 的 `codex-marketplace` 分支共同固定发布提交 `437a958`。任何后续分发字节变化都必须使用新 SemVer 和 tag；它与 npm registry package 是两条独立发布路径，不能据此宣称 `@routeledger/mcp` 已发布。
+- `routeledger@routeledger-team` 0.3.3 已作为 Git marketplace plugin 发布；不可变 `routeledger-plugin-v0.3.3` tag 与历史 `codex-marketplace` 分支固定发布提交 `437a958`。0.3.4 起以 `main` 为 release 分支，任何后续分发字节变化都必须使用新 SemVer 和 tag；它与 npm registry package 是两条独立发布路径，不能据此宣称 `@routeledger/mcp` 已发布。
 - `better-sqlite3` 仍只在当前开发机做过本地安装 smoke，干净 macOS / Windows / Linux 验证仍待完成。

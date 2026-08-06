@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const routeledgerRoot = path.resolve(scriptDir, "..");
@@ -36,6 +36,12 @@ const assertRegularFile = async (filePath) => {
   }
 };
 
+const assertPathAbsent = async (filePath, description) => {
+  if (await fs.stat(filePath).catch(() => null)) {
+    throw new Error(description);
+  }
+};
+
 const assertPluginFiles = async () => {
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   const mcpManifest = JSON.parse(await fs.readFile(mcpManifestPath, "utf8"));
@@ -44,13 +50,20 @@ const assertPluginFiles = async () => {
 
   if (
     manifest.name !== "routeledger" ||
-    manifest.version !== "0.3.3" ||
+    manifest.version !== "0.3.4" ||
     manifest.repository !== "https://github.com/xczl-785/Routeledger"
   ) {
     throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");
   }
   if (manifest.skills !== "./skills/" || manifest.mcpServers !== "./.mcp.json") {
     throw new Error("Plugin manifest component paths do not match the plugin contract.");
+  }
+  if (
+    !manifest.interface?.defaultPrompt?.includes(
+      "Check the current RouteLedger context; if it is unbound, bind the current host project before route work."
+    )
+  ) {
+    throw new Error("Plugin default prompt must direct unbound sessions to bind the current host project.");
   }
   if (
     server?.cwd !== "." ||
@@ -77,6 +90,17 @@ const assertPluginFiles = async () => {
     assertRegularFile(path.join(pluginRoot, "runtime", "bin.js")),
     assertRegularFile(path.join(pluginRoot, "runtime", "package.json"))
   ]);
+  const operatorSkill = await fs.readFile(path.join(pluginRoot, "skills", "routeledger-operator", "SKILL.md"), "utf8");
+  for (const requiredGuidance of [
+    "`WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`",
+    "`get_runtime_context` again to confirm the session rebound",
+    "Use `discover_routeledger_roots` and `plan_routeledger_binding` only when the target root is ambiguous",
+    "never infer it from the plugin cache or MCP process `cwd`"
+  ]) {
+    if (!operatorSkill.includes(requiredGuidance)) {
+      throw new Error(`RouteLedger operator Skill is missing required unbound-binding guidance: ${requiredGuidance}`);
+    }
+  }
 };
 
 const runOptionalExternalValidator = async () => {
@@ -100,9 +124,14 @@ const runOptionalExternalValidator = async () => {
 
 const runPluginStdioSmoke = async () => {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-codex-plugin-smoke-"));
+  const cachedPluginRoot = path.join(temporaryRoot, "codex-plugin-cache", "routeledger");
   const testWorkspaceRoot = path.join(temporaryRoot, "workspace");
   const testRouteledgerRoot = path.join(testWorkspaceRoot, "routeledger");
   const routeledgerConfigDir = path.join(testWorkspaceRoot, ".routeledger");
+  const cachedRouteledgerConfigDir = path.join(cachedPluginRoot, ".routeledger");
+  const cachedSqlitePath = path.join(cachedRouteledgerConfigDir, "db", "routeledger.sqlite3");
+  await fs.cp(pluginRoot, cachedPluginRoot, { recursive: true });
+  const cachedProcessCwd = await fs.realpath(cachedPluginRoot);
   await fs.mkdir(testRouteledgerRoot, { recursive: true });
   await fs.mkdir(routeledgerConfigDir, { recursive: true });
   await fs.writeFile(
@@ -112,7 +141,7 @@ const runPluginStdioSmoke = async () => {
   );
 
   const child = spawn(process.execPath, ["./runtime/bin.js", "--profile", "codex", "--sqlite-read-model", "disabled"], {
-    cwd: pluginRoot,
+    cwd: cachedPluginRoot,
     stdio: ["pipe", "pipe", "pipe"]
   });
   const stdoutChunks = [];
@@ -127,13 +156,18 @@ const runPluginStdioSmoke = async () => {
     method: "initialize",
     params: {
       protocolVersion: "2025-11-25",
-      rootUri: pathToFileURL(testWorkspaceRoot).href,
       capabilities: {},
       clientInfo: { name: "codex-plugin-smoke", version: "0.1.0" }
     }
   });
   write({ jsonrpc: "2.0", method: "notifications/initialized" });
   write({ jsonrpc: "2.0", id: "tools-list", method: "tools/list", params: {} });
+  write({
+    jsonrpc: "2.0",
+    id: "runtime-context-unbound",
+    method: "tools/call",
+    params: { name: "get_runtime_context", arguments: {} }
+  });
   write({
     jsonrpc: "2.0",
     id: "init-project",
@@ -145,7 +179,31 @@ const runPluginStdioSmoke = async () => {
   });
   write({
     jsonrpc: "2.0",
-    id: "runtime-context",
+    id: "activate-binding",
+    method: "tools/call",
+    params: {
+      name: "activate_routeledger_binding",
+      arguments: { workspaceRoot: testWorkspaceRoot, routeledgerRoot: testRouteledgerRoot }
+    }
+  });
+  write({
+    jsonrpc: "2.0",
+    id: "runtime-context-rebound",
+    method: "tools/call",
+    params: { name: "get_runtime_context", arguments: {} }
+  });
+  write({
+    jsonrpc: "2.0",
+    id: "init-project-rebound",
+    method: "tools/call",
+    params: {
+      name: "init_project",
+      arguments: { name: "Codex Plugin Smoke", expectedRouteLedgerRoot: testRouteledgerRoot }
+    }
+  });
+  write({
+    jsonrpc: "2.0",
+    id: "runtime-context-initialized",
     method: "tools/call",
     params: { name: "get_runtime_context", arguments: {} }
   });
@@ -164,7 +222,7 @@ const runPluginStdioSmoke = async () => {
     .map((line) => JSON.parse(line));
 
   try {
-    if (exitCode !== 0 || stderr !== "" || responses.length !== 4) {
+    if (exitCode !== 0 || stderr !== "" || responses.length !== 8) {
       throw new Error(`Bundled plugin stdio smoke failed (exit=${exitCode}, responses=${responses.length}): ${stderr}`);
     }
     if (responses[0]?.result?.protocolVersion !== "2025-11-25") {
@@ -173,18 +231,61 @@ const runPluginStdioSmoke = async () => {
     if (!Array.isArray(responses[1]?.result?.tools) || responses[1].result.tools.length === 0) {
       throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
     }
-    if (responses[2]?.result?.structuredContent?.ok !== true) {
-      throw new Error("Bundled runtime init_project did not report a successful canonical JSON write.");
+    const bundledToolNames = responses[1].result.tools.map((tool) => tool.name);
+    for (const sourceOnlyTool of ["open_mission_control", "get_mission_control_status"]) {
+      if (bundledToolNames.includes(sourceOnlyTool)) {
+        throw new Error(`Bundled JSON-only runtime unexpectedly exposed ${sourceOnlyTool}.`);
+      }
     }
-    const runtimeContext = responses[3]?.result?.structuredContent?.data;
+    const unboundRuntimeContext = responses[2]?.result?.structuredContent?.data;
+    if (
+      unboundRuntimeContext?.binding?.status !== "unbound" ||
+      unboundRuntimeContext?.binding?.workspaceRootSource !== "process_cwd" ||
+      unboundRuntimeContext?.processCwd !== cachedProcessCwd ||
+      unboundRuntimeContext?.storage?.mode !== "unbound" ||
+      !unboundRuntimeContext?.diagnostics?.some((diagnostic) => diagnostic?.code === "WORKSPACE_ROOT_UNTRUSTED")
+    ) {
+      throw new Error("Bundled runtime did not fail closed when Codex supplied neither rootUri nor Roots.");
+    }
+    const unboundInit = responses[3]?.result;
+    if (
+      unboundInit?.isError !== true ||
+      unboundInit?.structuredContent?.error?.code !== "ROUTELEDGER_BINDING_REQUIRED"
+    ) {
+      throw new Error("Bundled runtime allowed init_project before an explicit workspace binding.");
+    }
+    const activation = responses[4]?.result?.structuredContent?.data;
+    if (
+      activation?.status !== "activated" ||
+      activation?.rebound !== true ||
+      activation?.activeBinding?.workspaceRoot !== testWorkspaceRoot ||
+      activation?.activeBinding?.workspaceRootSource !== "explicit_arg" ||
+      activation?.activeBinding?.routeledgerRoot !== testRouteledgerRoot
+    ) {
+      throw new Error("Bundled runtime did not activate and rebind the explicit host workspace.");
+    }
+    const runtimeContext = responses[5]?.result?.structuredContent?.data;
     if (
       runtimeContext?.binding?.workspaceRoot !== testWorkspaceRoot ||
-      runtimeContext?.binding?.workspaceRootSource !== "mcp_roots" ||
+      runtimeContext?.binding?.workspaceRootSource !== "explicit_arg" ||
       runtimeContext?.binding?.routeledgerRoot !== testRouteledgerRoot ||
       runtimeContext?.storage?.sqliteReadModel !== "disabled" ||
-      runtimeContext?.storage?.mode !== "json"
+      runtimeContext?.storage?.mode !== "uninitialized"
     ) {
-      throw new Error("Bundled runtime context did not preserve MCP-root binding and JSON-only storage.");
+      throw new Error("Bundled runtime context did not preserve the explicit rebound binding before initialization.");
+    }
+    if (responses[6]?.result?.structuredContent?.ok !== true) {
+      throw new Error("Bundled runtime init_project did not report a successful canonical JSON write after session rebound.");
+    }
+    const initializedRuntimeContext = responses[7]?.result?.structuredContent?.data;
+    if (
+      initializedRuntimeContext?.binding?.workspaceRoot !== testWorkspaceRoot ||
+      initializedRuntimeContext?.binding?.workspaceRootSource !== "explicit_arg" ||
+      initializedRuntimeContext?.binding?.routeledgerRoot !== testRouteledgerRoot ||
+      initializedRuntimeContext?.storage?.sqliteReadModel !== "disabled" ||
+      initializedRuntimeContext?.storage?.mode !== "json"
+    ) {
+      throw new Error("Bundled runtime did not initialize JSON-only storage after the explicit session rebound.");
     }
     if (!(await fs.stat(path.join(testRouteledgerRoot, ".routeledger", "project.json")).catch(() => null))) {
       throw new Error("Bundled runtime did not write canonical project JSON.");
@@ -192,6 +293,14 @@ const runPluginStdioSmoke = async () => {
     if (await fs.stat(path.join(testRouteledgerRoot, ".routeledger", "db", "routeledger.sqlite3")).catch(() => null)) {
       throw new Error("Bundled JSON-only runtime unexpectedly created a SQLite database.");
     }
+    await assertPathAbsent(
+      cachedRouteledgerConfigDir,
+      "Bundled runtime treated the Codex plugin cache cwd as a RouteLedger initialization target."
+    );
+    await assertPathAbsent(
+      cachedSqlitePath,
+      "Bundled JSON-only runtime unexpectedly created a SQLite database in the Codex plugin cache cwd."
+    );
   } finally {
     await fs.rm(temporaryRoot, { recursive: true, force: true });
   }

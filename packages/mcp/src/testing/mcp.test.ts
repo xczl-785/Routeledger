@@ -1725,7 +1725,7 @@ describe("routeledger mcp registry", () => {
                 id: projectId
               },
               nextAction: {
-                actionType: expect.any(String)
+                actionType: "prepare_version"
               },
               statusRisks: expect.any(Array)
             },
@@ -7673,6 +7673,42 @@ describe("routeledger mcp registry", () => {
           tools: expect.any(Array)
         }
       });
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("json-only runtime profile does not register Mission Control source tools", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const server = await initializeServer(projectRoot, { runtimeProfile: "json-only" });
+      const response = (await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "json-only-tools-list",
+        method: "tools/list",
+        params: {}
+      })) as JsonRpcResponse;
+      const tools = (response as ToolListResult).result.tools;
+
+      expect(tools.map((tool) => tool.name)).not.toContain("open_mission_control");
+      expect(tools.map((tool) => tool.name)).not.toContain("get_mission_control_status");
+
+      const registry = createRouteLedgerMcpRegistry({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot,
+        runtimeProfile: "json-only"
+      });
+      const directInvoke = await registry.invoke("open_mission_control", {});
+      expect(directInvoke).toMatchObject({
+        ok: false,
+        error: {
+          code: "ACTION_NOT_IMPLEMENTED"
+        }
+      });
+
+      registry.close();
+      server.close();
     } finally {
       cleanupProjectRoot(projectRoot);
     }

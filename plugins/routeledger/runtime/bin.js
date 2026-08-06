@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+process.env.ROUTELEDGER_MCP_RUNTIME_PROFILE = "json-only";
+
 const sqliteReadModelFlag = "--sqlite-read-model";
 const flagIndex = process.argv.indexOf(sqliteReadModelFlag);
 

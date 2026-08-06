@@ -55,6 +55,10 @@ codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.
 The tag is appropriate for reproducible rollback or verification; the branch
 is appropriate for normal upgrades.
 
+Starting with 0.3.4, `main` is the release branch. The existing
+`codex-marketplace` branch remains a historical 0.3.3 anchor; future published
+versions are installed from `main` or their immutable version tag.
+
 The 0.3.3 publication passed workspace and plugin-contract CI on Ubuntu,
 macOS, and Windows. An isolated anonymous Codex home also verified branch
 install, enabled version, no-op upgrade, tag-based reinstall, release hashes,

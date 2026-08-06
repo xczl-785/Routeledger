@@ -201,7 +201,12 @@ const pruneArtifactToRuntimeAllowlist = async (outDir, runtimeDirectories) => {
   );
 };
 
-const renderJsonOnlyBin = () => `#!/usr/bin/env node
+const renderArtifactBin = (profileName) =>
+  [
+    "#!/usr/bin/env node",
+    `process.env.ROUTELEDGER_MCP_RUNTIME_PROFILE = ${JSON.stringify(profileName)};`,
+    profileName === "json-only"
+      ? `
 const sqliteReadModelFlag = "--sqlite-read-model";
 const flagIndex = process.argv.indexOf(sqliteReadModelFlag);
 
@@ -212,7 +217,16 @@ if (flagIndex === -1 || process.argv[flagIndex + 1] !== "disabled") {
   process.exitCode = 2;
 } else {
   await import("./mcp/src/bin.js");
-}
+}`
+      : `await import("./mcp/src/bin.js");`,
+    ""
+  ].join("\n");
+
+const renderArtifactIndex = (profileName) => `export * from "./mcp/src/index.js";
+import { createRouteLedgerMcpRegistry as createSharedRegistry } from "./mcp/src/index.js";
+
+export const createRouteLedgerMcpRegistry = (options = {}) =>
+  createSharedRegistry({ ...options, runtimeProfile: ${JSON.stringify(profileName)} });
 `;
 
 const main = async () => {
@@ -244,12 +258,8 @@ const main = async () => {
     }
   );
 
-  await fs.copyFile(path.join(outDir, "mcp/src/index.js"), path.join(outDir, "index.js"));
-  if (profileName === "json-only") {
-    await fs.writeFile(path.join(outDir, "bin.js"), renderJsonOnlyBin());
-  } else {
-    await fs.copyFile(path.join(outDir, "mcp/src/bin.js"), path.join(outDir, "bin.js"));
-  }
+  await fs.writeFile(path.join(outDir, "index.js"), renderArtifactIndex(profileName));
+  await fs.writeFile(path.join(outDir, "bin.js"), renderArtifactBin(profileName));
   await fs.copyFile(
     path.join(outDir, "mcp/src/stdio-server.js"),
     path.join(outDir, "stdio-server.js")
@@ -313,7 +323,7 @@ const main = async () => {
   };
 
   if (profile.includeSqliteRuntime) {
-    distPackage.files.splice(distPackage.files.indexOf("README.md"), 0, "sqlite/");
+    distPackage.files.splice(distPackage.files.indexOf("README.md"), 0, "sqlite/", "ui/");
     distPackage.dependencies = {
       "better-sqlite3": rootPackage.devDependencies["better-sqlite3"]
     };

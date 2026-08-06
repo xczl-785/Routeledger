@@ -690,20 +690,7 @@ const parseRouteOperationWorkflowMode = (value) => {
         allowedModes: [...ROUTE_OPERATION_WORKFLOW_MODES]
     });
 };
-const isErrnoException = (error) => error instanceof Error && "code" in error;
-const loadMissionControlSourceModule = async () => {
-    try {
-        return (await import("../../ui/src/server/launcher.js"));
-    }
-    catch (error) {
-        if (isErrnoException(error) && error.code === "ERR_MODULE_NOT_FOUND") {
-            throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "Mission Control source-mode tools 需要 RouteLedger 源码工作区；当前安装包 artifact 不提供该入口。", {
-                modulePath: "../../ui/src/server/launcher.js"
-            });
-        }
-        throw error;
-    }
-};
+const loadMissionControlSourceModule = async () => (await import("../../ui/src/server/launcher.js"));
 const resolveMissionControlRoots = (input, binding) => {
     const workspaceRootInput = typeof input.workspaceRoot === "string" && input.workspaceRoot.length > 0
         ? input.workspaceRoot
@@ -807,6 +794,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
     const actor = resolveActor(DEFAULT_ACTOR, options.actor);
     const approver = resolveActor(DEFAULT_APPROVER, options.approver);
     const hostProfile = options.hostProfile ?? "generic";
+    const runtimeProfile = options.runtimeProfile ?? "full";
     const instructions = createInstructions({
         hostProfile,
         actor,
@@ -839,7 +827,9 @@ export const createRouteLedgerMcpRegistry = (options) => {
     });
     const getBlockedTools = (binding) => {
         return guardedTools
-            .filter((tool) => !isBindingToolKindAllowed(binding, tool.toolKind))
+            .filter((tool) => (tool.visibility === "default" ||
+            (tool.visibility === "source-only" && runtimeProfile === "full")) &&
+            !isBindingToolKindAllowed(binding, tool.toolKind))
             .map((tool) => tool.definition.name);
     };
     const getRuntimeContextData = async (binding = readBinding()) => {
@@ -849,6 +839,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             binding: summarizeRuntimeBinding(binding),
             processCwd: binding.processCwd,
             hostProfile,
+            runtimeProfile,
             actor: {
                 id: actor.id,
                 displayName: actor.displayName ?? actor.id
@@ -1069,7 +1060,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
         }), {
             title: "Open Mission Control",
             riskLevel: "read-only",
-            toolKind: "diagnostic"
+            toolKind: "diagnostic",
+            visibility: "source-only"
         }, async (input) => {
             const roots = resolveMissionControlRoots(input, readBinding());
             const missionControlSource = await loadMissionControlSourceModule();
@@ -1094,7 +1086,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
         }), {
             title: "Get Mission Control Status",
             riskLevel: "read-only",
-            toolKind: "diagnostic"
+            toolKind: "diagnostic",
+            visibility: "source-only"
         }, async (input) => {
             const roots = resolveMissionControlRoots(input, readBinding());
             const missionControlSource = await loadMissionControlSourceModule();
@@ -2251,9 +2244,12 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }
         };
     });
-    const handlers = new Map(guardedTools.map((tool) => [tool.definition.name, tool.handler]));
-    toolDefinitions = guardedTools
-        .filter((tool) => tool.visibility === "default")
+    const callableTools = guardedTools.filter((tool) => tool.visibility !== "source-only" ||
+        runtimeProfile === "full");
+    const registeredTools = callableTools.filter((tool) => tool.visibility === "default" ||
+        (tool.visibility === "source-only" && runtimeProfile === "full"));
+    const handlers = new Map(callableTools.map((tool) => [tool.definition.name, tool.handler]));
+    toolDefinitions = registeredTools
         .map((tool) => tool.definition);
     let reboundRegistry = null;
     const createActivationSuccessResponse = async (pendingRebind) => {
@@ -2331,6 +2327,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
         serverInfo: SERVER_INFO,
         serverCapabilities,
         hostProfile,
+        runtimeProfile,
         instructions,
         getTool: (toolName) => toolDefinitions.find((tool) => tool.name === toolName),
         invoke: async (toolName, input) => {

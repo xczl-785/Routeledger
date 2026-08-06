@@ -2,6 +2,7 @@
 
 import { runRouteLedgerStdioServer } from "./stdio-server.js";
 import type { SqliteReadModelMode } from "./json-first-storage.js";
+import type { RouteLedgerMcpRuntimeProfile } from "./index.js";
 
 const getFlagValue = (argv: string[], name: string): string | undefined => {
   const index = argv.findIndex((argument) => argument === name);
@@ -35,6 +36,22 @@ export const parseSqliteReadModel = (value: string | undefined): SqliteReadModel
   );
 };
 
+export const parseRuntimeProfile = (
+  value: string | undefined
+): RouteLedgerMcpRuntimeProfile => {
+  if (value === undefined) {
+    return "full";
+  }
+
+  if (value === "full" || value === "json-only") {
+    return value;
+  }
+
+  throw new Error(
+    "Invalid MCP runtime profile. ROUTELEDGER_MCP_RUNTIME_PROFILE must be full or json-only."
+  );
+};
+
 export const main = async (argv: string[] = process.argv.slice(2)): Promise<void> => {
   const workspaceRootFlag = getFlagValue(argv, "--workspace-root");
   const workspaceRootEnv = process.env.ROUTELEDGER_MCP_WORKSPACE_ROOT;
@@ -63,6 +80,7 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
       ? (sqliteReadModelFlag ?? "")
       : process.env.ROUTELEDGER_MCP_SQLITE_READ_MODEL
   );
+  const runtimeProfile = parseRuntimeProfile(process.env.ROUTELEDGER_MCP_RUNTIME_PROFILE);
 
   await runRouteLedgerStdioServer({
     workspaceRoot,
@@ -74,6 +92,7 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
           : undefined,
     routeledgerRoot,
     sqliteReadModel,
+    runtimeProfile,
     hostProfile:
       hostProfile === "generic" ||
       hostProfile === "codex" ||

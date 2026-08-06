@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Local MCP control plane for RouteLedger project routes and version work.",
   "author": {
     "name": "RouteLedger"
@@ -18,7 +18,7 @@
       "Write RouteLedger canonical JSON through MCP"
     ],
     "defaultPrompt": [
-      "Check the current RouteLedger context.",
+      "Check the current RouteLedger context; if it is unbound, bind the current host project before route work.",
       "Help me plan the next route action.",
       "Review this version's closeout blockers."
     ]
