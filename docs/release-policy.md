@@ -7,7 +7,10 @@ and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.3.1 is published through the Git
 marketplace. Its `main`, the canonical remote's `codex-marketplace` branch,
-and `routeledger-plugin-v0.3.1` sources resolve to the released commit. This
+and `routeledger-plugin-v0.3.1` sources aligned at the release point. The tag
+and marketplace branch remain fixed at that release commit; `main` may later
+advance through protected non-distribution changes. Such a main still carries
+the 0.3.1 baseline only while `plugins/**` is byte-identical to the tag. This
 is a Codex plugin release only; `@routeledger/mcp` remains unpublished to npm.
 
 RouteLedger source and plugin distribution are licensed under

@@ -7,7 +7,10 @@ marketplace descriptor and the single generated `routeledger` plugin
 distribution. `routeledger@routeledger-team` version `0.3.1` is published
 through the Git marketplace: `main`, the canonical remote's
 `codex-marketplace` branch, and the immutable `routeledger-plugin-v0.3.1` tag
-resolve to the same released source. The
+aligned at the release point. The tag and marketplace branch remain the fixed
+release anchor; `main` may later advance through protected non-distribution
+changes. When `plugins/**` remains byte-identical to the tag, that later main
+still carries the same 0.3.1 distribution baseline. The
 published path is covered by tag CI on Ubuntu, macOS, and Windows plus an
 isolated anonymous Codex marketplace installation workflow.
 
@@ -31,6 +34,8 @@ isolated anonymous Codex marketplace installation workflow.
 6. Any distribution-byte change relative to a Git baseline requires a SemVer
    increase. `release.json` must be regenerated to match the new distribution
    bytes before a release is tagged.
+   Non-distribution changes may advance `main` without changing the published
+   plugin baseline only while `plugins/**` remains byte-identical to its tag.
 7. `pnpm check:codex-plugin-release --previous-ref <ref>` rejects a version
    regression and rejects changed distribution bytes under the same released
    version. `--require-tag-ref` additionally requires
