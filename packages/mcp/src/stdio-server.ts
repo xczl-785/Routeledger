@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   MCP_PROTOCOL_VERSION,
+  createSessionRebindFailureResponse,
   createRouteLedgerMcpRegistry,
   type RouteLedgerMcpRegistry,
   type RouteLedgerMcpRegistryOptions,
@@ -678,9 +679,9 @@ export const createRouteLedgerStdioServer = (
     return null;
   };
 
-  const activatePendingSessionRebind = (
+  const activatePendingSessionRebind = async (
     registry: RouteLedgerMcpRegistry
-  ): ToolResponse | null => {
+  ): Promise<ToolResponse | null> => {
     const nextBinding = registry.peekPendingSessionRebind();
     if (nextBinding === null) {
       return null;
@@ -700,19 +701,21 @@ export const createRouteLedgerStdioServer = (
         deferSessionRebind: true
       });
     } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: "SESSION_REBIND_FAILED",
-          message: "RouteLedger could not activate the requested session binding; the previous binding remains active.",
-          details: {
-            workspaceRoot: nextBinding.workspaceRoot,
-            routeledgerRoot: nextBinding.routeledgerRoot,
-            cause: error instanceof Error ? error.message : String(error)
-          }
-        }
-      };
+      return createSessionRebindFailureResponse(nextBinding, error);
     }
+
+    let activationResponse: ToolResponse;
+    try {
+      activationResponse = await nextRegistry.createActivationSuccessResponse(nextBinding);
+    } catch (error) {
+      try {
+        nextRegistry.close();
+      } catch {
+        // The old registry remains active; a failed candidate close is irrelevant.
+      }
+      return createSessionRebindFailureResponse(nextBinding, error);
+    }
+
     activeRegistry = nextRegistry;
     registry.clearPendingSessionRebind();
     if (registry !== initializeRegistry) {
@@ -722,7 +725,7 @@ export const createRouteLedgerStdioServer = (
         // The new registry is active and the call response is already formed.
       }
     }
-    return null;
+    return activationResponse;
   };
 
   const sendMessage = (message: JsonRpcMessage): void => {
@@ -1006,21 +1009,18 @@ export const createRouteLedgerStdioServer = (
             const invocationRegistry = activeRegistry;
             const toolResponse =
               validationError ?? (await invocationRegistry.invoke(toolCall.name, toolCall.arguments));
-            const callResult = toCallToolResult(
-              invocationRegistry,
-              toolCall.name,
-              toolResponse
-            );
-            const rebindFailure =
+            const rebindResponse =
               validationError === null && toolCall.name === "activate_routeledger_binding"
-                ? activatePendingSessionRebind(invocationRegistry)
+                ? await activatePendingSessionRebind(invocationRegistry)
                 : null;
 
             return successResponse(
               request.id,
-              rebindFailure === null
-                ? callResult
-                : toCallToolResult(invocationRegistry, toolCall.name, rebindFailure)
+              toCallToolResult(
+                activeRegistry,
+                toolCall.name,
+                rebindResponse ?? toolResponse
+              )
             );
           }
           case "notifications/initialized":

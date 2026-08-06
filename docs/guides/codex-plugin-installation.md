@@ -25,8 +25,10 @@ does not bind it to the repository that supplied it. Some Codex clients do not
 send Roots/rootUri; in that case `process cwd` may be the plugin cache and is
 not a project identity. Call `activate_routeledger_binding` with the host
 project's absolute `workspaceRoot` (and optional in-workspace
-`routeledgerRoot`) after the prompted approval. The activation is scoped to
-the running MCP session. It may create or normalize only the binding
+`routeledgerRoot`) through the host's available approval workflow. The
+activation is scoped to the running MCP session. Approval metadata is a host
+hint, not a prompt the MCP server can force or a substitute for binding/L3
+safeguards. Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.
 

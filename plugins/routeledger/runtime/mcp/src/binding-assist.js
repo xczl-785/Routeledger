@@ -293,6 +293,36 @@ const buildPlanAction = (type, description, extra = {}) => ({
     description,
     ...extra
 });
+const unavailableSessionActivation = {
+    available: false,
+    required: false,
+    action: null
+};
+const noPersistentHostBinding = {
+    requiredForFutureSessions: false,
+    requiresHostConfigUpdate: false,
+    requiresServerRestart: false
+};
+const createPersistentHostBinding = (requiredForFutureSessions) => ({
+    requiredForFutureSessions,
+    requiresHostConfigUpdate: requiredForFutureSessions,
+    requiresServerRestart: requiredForFutureSessions
+});
+const createSessionActivation = (options) => {
+    const requiresActivation = options.hostProfile === "codex" &&
+        (options.binding.status === "unbound" ||
+            options.binding.status === "invalid" ||
+            options.binding.workspaceRootConfidence === "low" ||
+            options.binding.workspaceRootConfidence === "none") &&
+        (options.targetStatus === "ready" || options.targetStatus === "needs_init");
+    return requiresActivation
+        ? {
+            available: true,
+            required: true,
+            action: "activate_routeledger_binding"
+        }
+        : unavailableSessionActivation;
+};
 export const planRouteLedgerBinding = async (options) => {
     const currentBinding = {
         status: options.binding.status,
@@ -340,6 +370,8 @@ export const planRouteLedgerBinding = async (options) => {
             requiresInit: false,
             requiresHostConfigUpdate: false,
             requiresServerRestart: false,
+            sessionActivation: unavailableSessionActivation,
+            persistentHostBinding: noPersistentHostBinding,
             recommendedNextActions: [
                 buildPlanAction("provide_explicit_workspace_root", "Retry with the host project absolute workspaceRoot; do not use the MCP process cwd.", { tool: "activate_routeledger_binding" })
             ]
@@ -371,6 +403,8 @@ export const planRouteLedgerBinding = async (options) => {
                 requiresInit: false,
                 requiresHostConfigUpdate: false,
                 requiresServerRestart: false,
+                sessionActivation: unavailableSessionActivation,
+                persistentHostBinding: noPersistentHostBinding,
                 recommendedNextActions: [
                     buildPlanAction("retry_with_absolute_root", "Retry plan_routeledger_binding with an absolute routeledgerRoot.")
                 ]
@@ -403,6 +437,8 @@ export const planRouteLedgerBinding = async (options) => {
                 requiresInit: false,
                 requiresHostConfigUpdate: false,
                 requiresServerRestart: false,
+                sessionActivation: unavailableSessionActivation,
+                persistentHostBinding: noPersistentHostBinding,
                 recommendedNextActions: [
                     buildPlanAction("plan_init_at_workspace_root", "Retry with an explicit routeledgerRoot if you intend to initialize a new RouteLedger root.", {
                         tool: "plan_routeledger_binding",
@@ -431,6 +467,8 @@ export const planRouteLedgerBinding = async (options) => {
                 requiresInit: false,
                 requiresHostConfigUpdate: false,
                 requiresServerRestart: false,
+                sessionActivation: unavailableSessionActivation,
+                persistentHostBinding: noPersistentHostBinding,
                 recommendedNextActions: discovery.recommendedNextActions
             };
         }
@@ -452,6 +490,8 @@ export const planRouteLedgerBinding = async (options) => {
             requiresInit: false,
             requiresHostConfigUpdate: false,
             requiresServerRestart: false,
+            sessionActivation: unavailableSessionActivation,
+            persistentHostBinding: noPersistentHostBinding,
             recommendedNextActions: []
         };
     }
@@ -474,6 +514,8 @@ export const planRouteLedgerBinding = async (options) => {
             requiresInit: false,
             requiresHostConfigUpdate: false,
             requiresServerRestart: false,
+            sessionActivation: unavailableSessionActivation,
+            persistentHostBinding: noPersistentHostBinding,
             recommendedNextActions: [
                 buildPlanAction("choose_in_workspace_root", "Pick a routeledgerRoot that stays within workspaceRoot.")
             ]
@@ -489,6 +531,7 @@ export const planRouteLedgerBinding = async (options) => {
     const requiresHostConfigUpdate = currentBinding.workspaceRoot !== workspaceRoot ||
         currentBinding.routeledgerRoot !== selectedRouteLedgerRoot;
     const requiresServerRestart = requiresHostConfigUpdate;
+    const persistentHostBinding = createPersistentHostBinding(requiresHostConfigUpdate);
     const workspaceConfig = resolveWorkspaceConfigSync({
         projectRoot: workspaceRoot,
         autoCreate: false
@@ -504,6 +547,11 @@ export const planRouteLedgerBinding = async (options) => {
         message: "routeledgerRoot stays within workspaceRoot."
     });
     if (workspaceConfig.status === "missing" || targetBinding.status === "uninitialized") {
+        const sessionActivation = createSessionActivation({
+            hostProfile: options.hostProfile,
+            binding: options.binding,
+            targetStatus: "needs_init"
+        });
         checks.push({
             code: workspaceConfig.status === "missing"
                 ? "WORKSPACE_CONFIG_NOT_FOUND"
@@ -548,17 +596,38 @@ export const planRouteLedgerBinding = async (options) => {
             requiresInit: true,
             requiresHostConfigUpdate,
             requiresServerRestart,
-            recommendedNextActions: [
-                buildPlanAction("render_codex_config", "Render host config for this target before restarting the MCP server.", {
-                    tool: "render_host_binding_config",
-                    routeledgerRoot: selectedRouteLedgerRoot
-                }),
-                buildPlanAction("initialize_routeledger", "Initialize RouteLedger at the planned routeledgerRoot after confirming the target.", {
-                    tool: "init_project",
-                    routeledgerRoot: selectedRouteLedgerRoot,
-                    requiresUserDecision: true
-                })
-            ]
+            sessionActivation,
+            persistentHostBinding,
+            recommendedNextActions: sessionActivation.required
+                ? [
+                    buildPlanAction("activate_session_binding", "Activate this MCP session at the planned RouteLedger root.", {
+                        tool: "activate_routeledger_binding",
+                        routeledgerRoot: selectedRouteLedgerRoot
+                    }),
+                    buildPlanAction("initialize_routeledger", "After activation, initialize RouteLedger at the planned root.", {
+                        tool: "init_project",
+                        routeledgerRoot: selectedRouteLedgerRoot,
+                        requiresUserDecision: true
+                    }),
+                    buildPlanAction("render_codex_config", "Optionally persist this binding for future Codex sessions.", {
+                        tool: "render_host_binding_config",
+                        routeledgerRoot: selectedRouteLedgerRoot
+                    })
+                ]
+                : requiresHostConfigUpdate
+                    ? [
+                        buildPlanAction("render_codex_config", "Persist this alternate binding for future Codex sessions.", {
+                            tool: "render_host_binding_config",
+                            routeledgerRoot: selectedRouteLedgerRoot
+                        })
+                    ]
+                    : [
+                        buildPlanAction("initialize_routeledger", "Initialize RouteLedger at the current bound root.", {
+                            tool: "init_project",
+                            routeledgerRoot: selectedRouteLedgerRoot,
+                            requiresUserDecision: true
+                        })
+                    ]
         };
     }
     if (targetBinding.status === "invalid") {
@@ -583,6 +652,8 @@ export const planRouteLedgerBinding = async (options) => {
             requiresInit: false,
             requiresHostConfigUpdate: false,
             requiresServerRestart: false,
+            sessionActivation: unavailableSessionActivation,
+            persistentHostBinding: noPersistentHostBinding,
             recommendedNextActions: [
                 buildPlanAction("inspect_workspace_config", "Fix .routeledger/config.json or the configured dataDir before updating host config.")
             ]
@@ -617,6 +688,8 @@ export const planRouteLedgerBinding = async (options) => {
             requiresInit: false,
             requiresHostConfigUpdate,
             requiresServerRestart,
+            sessionActivation: unavailableSessionActivation,
+            persistentHostBinding,
             recommendedNextActions: [
                 buildPlanAction("inspect_workspace", "Review discovered RouteLedger roots before updating host config.", {
                     tool: "discover_routeledger_roots"
@@ -630,6 +703,11 @@ export const planRouteLedgerBinding = async (options) => {
         message: selectedCandidate.risks.length > 0
             ? "The target RouteLedger root is usable but has non-blocking risks."
             : "The target RouteLedger root is ready for binding."
+    });
+    const sessionActivation = createSessionActivation({
+        hostProfile: options.hostProfile,
+        binding: options.binding,
+        targetStatus: "ready"
     });
     return {
         status: "ready",
@@ -652,19 +730,35 @@ export const planRouteLedgerBinding = async (options) => {
         requiresInit: false,
         requiresHostConfigUpdate,
         requiresServerRestart,
-        recommendedNextActions: [
-            buildPlanAction("render_codex_config", "Render a Codex config or fragment for this binding.", {
-                tool: "render_host_binding_config",
-                routeledgerRoot: selectedRouteLedgerRoot
-            })
-        ]
+        sessionActivation,
+        persistentHostBinding,
+        recommendedNextActions: sessionActivation.required
+            ? [
+                buildPlanAction("activate_session_binding", "Activate this MCP session at the planned RouteLedger root.", {
+                    tool: "activate_routeledger_binding",
+                    routeledgerRoot: selectedRouteLedgerRoot
+                }),
+                buildPlanAction("render_codex_config", "Optionally persist this binding for future Codex sessions.", {
+                    tool: "render_host_binding_config",
+                    routeledgerRoot: selectedRouteLedgerRoot
+                })
+            ]
+            : requiresHostConfigUpdate
+                ? [
+                    buildPlanAction("render_codex_config", "Persist this alternate binding for future Codex sessions.", {
+                        tool: "render_host_binding_config",
+                        routeledgerRoot: selectedRouteLedgerRoot
+                    })
+                ]
+                : []
     };
 };
 export const renderHostBindingConfig = async (options) => {
     const bindingPlan = await planRouteLedgerBinding({
         binding: options.binding,
         workspaceRoot: options.workspaceRoot,
-        routeledgerRoot: options.routeledgerRoot
+        routeledgerRoot: options.routeledgerRoot,
+        hostProfile: "codex"
     });
     if (bindingPlan.status !== "ready" && bindingPlan.status !== "needs_init") {
         return {
@@ -714,7 +808,8 @@ export const writeHostBindingConfig = async (options) => {
     const bindingPlan = await planRouteLedgerBinding({
         binding: options.binding,
         workspaceRoot: options.workspaceRoot,
-        routeledgerRoot: options.routeledgerRoot
+        routeledgerRoot: options.routeledgerRoot,
+        hostProfile: "codex"
     });
     if (bindingPlan.status !== "ready" && bindingPlan.status !== "needs_init") {
         return {

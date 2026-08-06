@@ -762,21 +762,20 @@ describe("routeledger mcp registry", () => {
       expect(checkDocDriftTool?.annotations.readOnlyHint).toBe(true);
       expect(checkDocDriftTool?.annotations.idempotentHint).toBe(true);
       expect(checkDocDriftTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(checkDocDriftTool?.description).toContain(
-        "without creating proposals or changing canonical .routeledger route truth"
+      expect(checkDocDriftTool?.description).toBe(
+        "Compare selected entry docs with RouteLedger truth. Input: entryFiles."
       );
-      expect(checkDocDriftTool?.description).toContain("may still refresh derived caches or read models");
       expect(summarizeVersionCloseoutTool?.annotations.readOnlyHint).toBe(true);
       expect(summarizeVersionCloseoutTool?.annotations.idempotentHint).toBe(true);
       expect(summarizeVersionCloseoutTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(summarizeVersionCloseoutTool?.description).toContain(
-        "without creating proposals or changing canonical .routeledger route truth"
+      expect(summarizeVersionCloseoutTool?.description).toBe(
+        "Summarize a version's closeout blockers and evidence."
       );
       expect(planVersionCloseoutTool?.annotations.readOnlyHint).toBe(true);
       expect(planVersionCloseoutTool?.annotations.idempotentHint).toBe(true);
       expect(planVersionCloseoutTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(planVersionCloseoutTool?.description).toContain(
-        "without creating proposals or changing canonical .routeledger route truth"
+      expect(planVersionCloseoutTool?.description).toBe(
+        "Plan concrete steps to clear a version closeout."
       );
       expect(listVersionsWindowTool?.annotations.readOnlyHint).toBe(true);
       expect(listVersionsWindowTool?.annotations.idempotentHint).toBe(true);
@@ -2520,21 +2519,35 @@ describe("routeledger mcp registry", () => {
         "activate_routeledger_binding",
         { workspaceRoot }
       );
-      expect(getStructuredData<{ status: string; rebound: boolean }>(activation)).toMatchObject({
+      const activationData = getStructuredData<{
+        status: string;
+        rebound: boolean;
+        activeBinding: Record<string, unknown>;
+      }>(activation);
+      expect(activationData).toMatchObject({
         status: "activated",
         rebound: true
       });
       expect(fs.existsSync(getDefaultWorkspaceConfigPath(workspaceRoot))).toBe(true);
       expect(fs.existsSync(path.join(workspaceRoot, ".routeledger", "project.json"))).toBe(false);
 
-      expect(getStructuredData<{ binding: { workspaceRoot: string; status: string } }>(
+      const postActivationContext = getStructuredData<{
+        binding: Record<string, unknown>;
+      }>(
         await callTool(server, "post-activate-context", "get_runtime_context", {})
-      )).toMatchObject({
+      );
+      expect(postActivationContext).toMatchObject({
         binding: {
           workspaceRoot,
           status: "uninitialized"
         }
       });
+      expect(activationData.activeBinding).toEqual(
+        (activation as {
+          result: { structuredContent: { meta: { runtimeContext: { binding: unknown } } } };
+        }).result.structuredContent.meta.runtimeContext.binding
+      );
+      expect(activationData.activeBinding).toEqual(postActivationContext.binding);
 
       const initialized = getStructuredData<{
         project: { id: string };
@@ -2576,6 +2589,44 @@ describe("routeledger mcp registry", () => {
       cleanupProjectRoot(cacheCwd);
       cleanupProjectRoot(workspaceRoot);
       cleanupProjectRoot(outsideRoot);
+    }
+  });
+
+  it("direct activation returns the swapped registry binding in its own response", async () => {
+    const cacheCwd = createTempProjectRoot();
+    const workspaceRoot = createTempProjectRoot();
+    const registry = createProcessCwdRegistry(cacheCwd, { hostProfile: "codex" });
+
+    try {
+      const activation = await registry.invoke("activate_routeledger_binding", { workspaceRoot });
+      expect(activation).toMatchObject({
+        ok: true,
+        data: {
+          status: "activated",
+          rebound: true,
+          activeBinding: {
+            workspaceRoot,
+            status: "uninitialized"
+          }
+        },
+        meta: {
+          runtimeContext: {
+            binding: {
+              workspaceRoot,
+              status: "uninitialized"
+            }
+          }
+        }
+      });
+      const context = await registry.invoke("get_runtime_context", {});
+      expect((activation.data as { activeBinding: unknown }).activeBinding).toEqual(
+        (context.data as { binding: unknown }).binding
+      );
+    } finally {
+      registry.close();
+      registry.restore();
+      cleanupProjectRoot(cacheCwd);
+      cleanupProjectRoot(workspaceRoot);
     }
   });
 
@@ -2730,6 +2781,8 @@ describe("routeledger mcp registry", () => {
           _meta: { routeledger: { toolName: "activate_routeledger_binding" } }
         }
       });
+      expect(JSON.stringify(failedActivation)).not.toContain('"activated"');
+      expect(JSON.stringify(failedActivation)).not.toContain('"rebound":true');
       expect(getStructuredData<{ binding: { status: string } }>(
         await callTool(server, "rebind-failure-context", "get_runtime_context", {})
       )).toMatchObject({ binding: { status: "unbound" } });
@@ -2762,7 +2815,7 @@ describe("routeledger mcp registry", () => {
 
   it("open_mission_control returns INVALID_TOOL_INPUT when neither binding nor input provides routeledgerRoot", async () => {
     const workspaceRoot = createTempProjectRoot();
-    const registry = createProcessCwdRegistry(workspaceRoot);
+    const registry = createProcessCwdRegistry(workspaceRoot, { hostProfile: "codex" });
 
     try {
       const response = await registry.invoke("open_mission_control", {});
@@ -3012,7 +3065,7 @@ describe("routeledger mcp registry", () => {
     const workspaceRoot = createTempProjectRoot();
     const routeledgerRoot = path.join(workspaceRoot, "docs");
     fs.mkdirSync(routeledgerRoot, { recursive: true });
-    const registry = createProcessCwdRegistry(workspaceRoot);
+    const registry = createProcessCwdRegistry(workspaceRoot, { hostProfile: "codex" });
     const resolvedWorkspaceRoot = fs.realpathSync.native(workspaceRoot);
     const resolvedRouteledgerRoot = fs.realpathSync.native(routeledgerRoot);
 
@@ -3035,14 +3088,28 @@ describe("routeledger mcp registry", () => {
           requiresInit: true,
           requiresHostConfigUpdate: true,
           requiresServerRestart: true,
+          sessionActivation: {
+            available: true,
+            required: true,
+            action: "activate_routeledger_binding"
+          },
+          persistentHostBinding: {
+            requiredForFutureSessions: true,
+            requiresHostConfigUpdate: true,
+            requiresServerRestart: true
+          },
           recommendedNextActions: [
             expect.objectContaining({
-              type: "render_codex_config",
-              tool: "render_host_binding_config"
+              type: "activate_session_binding",
+              tool: "activate_routeledger_binding"
             }),
             expect.objectContaining({
               type: "initialize_routeledger",
               tool: "init_project"
+            }),
+            expect.objectContaining({
+              type: "render_codex_config",
+              tool: "render_host_binding_config"
             })
           ]
         }
@@ -3083,6 +3150,81 @@ describe("routeledger mcp registry", () => {
       registry.close();
       cleanupProjectRoot(workspaceRoot);
       cleanupProjectRoot(outsideRoot);
+    }
+  });
+
+  it("plan_routeledger_binding separates Codex session activation from future-session config", async () => {
+    const cacheCwd = createTempProjectRoot();
+    const targetRoot = createTempProjectRoot();
+    await initializeCanonicalProjectAtRoot(targetRoot, "Planned target");
+    const unboundRegistry = createProcessCwdRegistry(cacheCwd, { hostProfile: "codex" });
+    const boundWorkspaceRoot = createTempProjectRoot();
+    await initializeCanonicalProjectAtRoot(boundWorkspaceRoot, "Established binding");
+    const boundRegistry = createRegistry(boundWorkspaceRoot, { hostProfile: "codex" });
+
+    try {
+      const unboundPlan = await unboundRegistry.invoke("plan_routeledger_binding", {
+        workspaceRoot: targetRoot,
+        routeledgerRoot: targetRoot
+      });
+      expect(unboundPlan).toMatchObject({
+        ok: true,
+        data: {
+          status: "ready",
+          requiresHostConfigUpdate: true,
+          requiresServerRestart: true,
+          sessionActivation: {
+            available: true,
+            required: true,
+            action: "activate_routeledger_binding"
+          },
+          persistentHostBinding: {
+            requiredForFutureSessions: true,
+            requiresHostConfigUpdate: true,
+            requiresServerRestart: true
+          },
+          recommendedNextActions: [
+            expect.objectContaining({ tool: "activate_routeledger_binding" }),
+            expect.objectContaining({ tool: "render_host_binding_config" })
+          ]
+        }
+      });
+
+      const establishedPlan = await boundRegistry.invoke("plan_routeledger_binding", {
+        workspaceRoot: boundWorkspaceRoot,
+        routeledgerRoot: boundWorkspaceRoot
+      });
+      expect(establishedPlan).toMatchObject({
+        ok: true,
+        data: {
+          currentBinding: { status: "bound" },
+          sessionActivation: {
+            available: false,
+            required: false,
+            action: null
+          },
+          persistentHostBinding: {
+            requiredForFutureSessions: false,
+            requiresHostConfigUpdate: false,
+            requiresServerRestart: false
+          },
+          recommendedNextActions: []
+        }
+      });
+      expect(
+        (
+          establishedPlan.data as {
+            recommendedNextActions: Array<{ tool?: string }>;
+          }
+        ).recommendedNextActions.some((action) => action.tool === "activate_routeledger_binding")
+      ).toBe(false);
+    } finally {
+      unboundRegistry.close();
+      unboundRegistry.restore();
+      boundRegistry.close();
+      cleanupProjectRoot(cacheCwd);
+      cleanupProjectRoot(targetRoot);
+      cleanupProjectRoot(boundWorkspaceRoot);
     }
   });
 
