@@ -33,7 +33,7 @@ project JSON.
 ## Git marketplace installation
 
 The canonical repository is `xczl-785/Routeledger`. Install the published
-0.3.2 plugin from the upgradeable `codex-marketplace` branch after publication:
+0.3.2 plugin from the upgradeable `codex-marketplace` branch:
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref codex-marketplace --json
@@ -44,7 +44,7 @@ codex plugin list --json
 
 `codex plugin marketplace upgrade routeledger-team --json` refreshes an
 installed marketplace source when a later published version is available.
-For an exact 0.3.2 installation after publication, use the immutable tag instead:
+For an exact 0.3.2 installation, use the immutable tag instead:
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.2 --json
@@ -53,11 +53,15 @@ codex plugin marketplace add xczl-785/Routeledger --ref routeledger-plugin-v0.3.
 The tag is appropriate for reproducible rollback or verification; the branch
 is appropriate for normal upgrades.
 
-Before publication, the 0.3.2 path must pass tag CI across the workspace and
-plugin contracts on Ubuntu, macOS, and Windows, plus an isolated anonymous
-Codex-home verification of branch install, enabled version, no-op upgrade,
-removal, tag-based reinstall, release hashes, Apache-2.0 distribution files,
-and the JSON-only initialization workflow without a SQLite database.
+The 0.3.2 publication passed workspace and plugin-contract CI on Ubuntu,
+macOS, and Windows. An isolated anonymous Codex home also verified branch
+install, enabled version, no-op upgrade, tag-based reinstall, release hashes,
+Apache-2.0 distribution files, and an end-to-end JSON-only workflow without a
+SQLite database.
+
+After upgrading an installed marketplace source, start a new Codex task so the
+new plugin and MCP process are loaded. The desktop application itself does not
+need to be restarted.
 
 To remove the installation:
 
