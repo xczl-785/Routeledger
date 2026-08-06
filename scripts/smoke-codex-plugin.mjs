@@ -42,6 +42,11 @@ const assertPathAbsent = async (filePath, description) => {
   }
 };
 
+const normalizeRealPathForComparison = async (filePath) => {
+  const normalizedPath = path.normalize(await fs.realpath(filePath));
+  return process.platform === "win32" ? normalizedPath.toLowerCase() : normalizedPath;
+};
+
 const assertPluginFiles = async () => {
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   const mcpManifest = JSON.parse(await fs.readFile(mcpManifestPath, "utf8"));
@@ -131,7 +136,6 @@ const runPluginStdioSmoke = async () => {
   const cachedRouteledgerConfigDir = path.join(cachedPluginRoot, ".routeledger");
   const cachedSqlitePath = path.join(cachedRouteledgerConfigDir, "db", "routeledger.sqlite3");
   await fs.cp(pluginRoot, cachedPluginRoot, { recursive: true });
-  const cachedProcessCwd = await fs.realpath(cachedPluginRoot);
   await fs.mkdir(testRouteledgerRoot, { recursive: true });
   await fs.mkdir(routeledgerConfigDir, { recursive: true });
   await fs.writeFile(
@@ -238,14 +242,30 @@ const runPluginStdioSmoke = async () => {
       }
     }
     const unboundRuntimeContext = responses[2]?.result?.structuredContent?.data;
+    const expectedCacheRoot = await normalizeRealPathForComparison(cachedPluginRoot);
+    const runtimeProcessCwd = unboundRuntimeContext?.processCwd;
+    const normalizedRuntimeProcessCwd =
+      typeof runtimeProcessCwd === "string"
+        ? await normalizeRealPathForComparison(runtimeProcessCwd).catch(() => null)
+        : null;
     if (
       unboundRuntimeContext?.binding?.status !== "unbound" ||
       unboundRuntimeContext?.binding?.workspaceRootSource !== "process_cwd" ||
-      unboundRuntimeContext?.processCwd !== cachedProcessCwd ||
+      normalizedRuntimeProcessCwd !== expectedCacheRoot ||
       unboundRuntimeContext?.storage?.mode !== "unbound" ||
       !unboundRuntimeContext?.diagnostics?.some((diagnostic) => diagnostic?.code === "WORKSPACE_ROOT_UNTRUSTED")
     ) {
-      throw new Error("Bundled runtime did not fail closed when Codex supplied neither rootUri nor Roots.");
+      throw new Error(
+        `Bundled runtime did not fail closed when Codex supplied neither rootUri nor Roots: ${JSON.stringify({
+          status: unboundRuntimeContext?.binding?.status,
+          source: unboundRuntimeContext?.binding?.workspaceRootSource,
+          storage: unboundRuntimeContext?.storage?.mode,
+          processCwd: runtimeProcessCwd,
+          expectedCacheRoot,
+          normalizedProcessCwd: normalizedRuntimeProcessCwd,
+          diagnosticCodes: unboundRuntimeContext?.diagnostics?.map((diagnostic) => diagnostic?.code)
+        })}`
+      );
     }
     const unboundInit = responses[3]?.result;
     if (
