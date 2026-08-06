@@ -29,8 +29,12 @@ import {
   resolveDefaultRouteLedgerDataDir,
   resolveWorkspaceConfigSync
 } from "./workspace-config.js";
+import {
+  isPhysicalPathContainedWithinSync
+} from "./physical-path.js";
 
 export type RouteLedgerDiscoveryStatus =
+  | "blocked"
   | "none_found"
   | "single_candidate"
   | "ambiguous";
@@ -59,7 +63,7 @@ export interface RouteLedgerRootCandidate {
 }
 
 export interface DiscoverRouteLedgerRootsResult {
-  workspaceRoot: string;
+  workspaceRoot: string | null;
   status: RouteLedgerDiscoveryStatus;
   candidates: RouteLedgerRootCandidate[];
   recommendedBinding: {
@@ -90,6 +94,7 @@ export interface RouteLedgerBindingPlanResult {
     | "explicit_root"
     | "current_binding"
     | "discovered_single_candidate"
+    | "needs_explicit_workspace"
     | "none_found"
     | "ambiguous";
   currentBinding: {
@@ -124,6 +129,10 @@ export interface RouteLedgerBindingPlanResult {
 export interface RenderHostBindingConfigResult {
   hostProfile: "codex";
   status: "ready" | "blocked";
+  launcherRequirement?: {
+    code: "STABLE_RUNTIME_LAUNCHER_REQUIRED";
+    message: string;
+  };
   bindingPlan: RouteLedgerBindingPlanResult;
   renderedConfig: {
     format: "toml";
@@ -135,6 +144,10 @@ export interface RenderHostBindingConfigResult {
 export interface WriteHostBindingConfigResult {
   hostProfile: "codex";
   status: "ready" | "blocked";
+  launcherRequirement?: {
+    code: "STABLE_RUNTIME_LAUNCHER_REQUIRED";
+    message: string;
+  };
   bindingPlan: RouteLedgerBindingPlanResult;
   writeResult: WriteCodexProjectConfigResult | null;
 }
@@ -144,14 +157,6 @@ const DISCOVERY_IGNORED_DIR_NAMES = new Set([
   "node_modules",
   ".pnpm-store"
 ]);
-
-const isContainedWithin = (root: string, candidate: string): boolean => {
-  const relativePath = path.relative(root, candidate);
-  return (
-    relativePath.length === 0 ||
-    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
-  );
-};
 
 const describeCandidateRisks = (
   inspection: Pick<
@@ -380,9 +385,34 @@ const buildDiscoverActions = (
 };
 
 export const discoverRouteLedgerRoots = async (options: {
-  workspaceRoot: string;
+  workspaceRoot?: string;
 }): Promise<DiscoverRouteLedgerRootsResult> => {
-  const workspaceRoot = path.resolve(options.workspaceRoot);
+  if (typeof options.workspaceRoot !== "string" || !path.isAbsolute(options.workspaceRoot)) {
+    return {
+      workspaceRoot: null,
+      status: "blocked",
+      candidates: [],
+      recommendedBinding: null,
+      reasons: [
+        {
+          code: "NEEDS_EXPLICIT_WORKSPACE_ROOT",
+          severity: "warning",
+          message:
+            "workspaceRoot must be an absolute path. Do not scan an untrusted MCP process cwd."
+        }
+      ],
+      recommendedNextActions: [
+        {
+          type: "provide_explicit_workspace_root",
+          tool: "activate_routeledger_binding",
+          field: "workspaceRoot",
+          description:
+            "Pass the host project absolute workspaceRoot to activate_routeledger_binding."
+        }
+      ]
+    };
+  }
+  const workspaceRoot = options.workspaceRoot;
   const routeledgerRoots = new Set<string>();
 
   const visit = async (directory: string): Promise<void> => {
@@ -492,9 +522,9 @@ const buildPlanAction = (
 
 export const planRouteLedgerBinding = async (options: {
   binding: RouteLedgerBindingSummary;
+  workspaceRoot?: string;
   routeledgerRoot?: string;
 }): Promise<RouteLedgerBindingPlanResult> => {
-  const workspaceRoot = options.binding.workspaceRoot ?? options.binding.processCwd;
   const currentBinding = {
     status: options.binding.status,
     workspaceRoot: options.binding.workspaceRoot,
@@ -505,6 +535,57 @@ export const planRouteLedgerBinding = async (options: {
     jsonProjectPath: options.binding.jsonProjectPath,
     sqliteDbPath: options.binding.sqliteDbPath
   };
+  const requestedWorkspaceRoot = options.workspaceRoot;
+  const fallbackWorkspaceRoot = options.binding.workspaceRoot;
+  const workspaceRoot =
+    typeof requestedWorkspaceRoot === "string" && path.isAbsolute(requestedWorkspaceRoot)
+      ? requestedWorkspaceRoot
+      : fallbackWorkspaceRoot;
+  const needsExplicitWorkspace =
+    requestedWorkspaceRoot === undefined &&
+    (options.binding.workspaceRootConfidence === "low" ||
+      options.binding.workspaceRootConfidence === "none" ||
+      fallbackWorkspaceRoot === null);
+  if (
+    (requestedWorkspaceRoot !== undefined &&
+      (typeof requestedWorkspaceRoot !== "string" || !path.isAbsolute(requestedWorkspaceRoot))) ||
+    needsExplicitWorkspace ||
+    workspaceRoot === null
+  ) {
+    return {
+      status: "blocked",
+      workspaceRoot: workspaceRoot ?? options.binding.processCwd,
+      source: "needs_explicit_workspace",
+      currentBinding,
+      targetBinding: null,
+      selectedCandidate: null,
+      checks: [
+        {
+          code:
+            requestedWorkspaceRoot !== undefined
+              ? "ABSOLUTE_PATH_REQUIRED"
+              : "NEEDS_EXPLICIT_WORKSPACE_ROOT",
+          status: "blocked",
+          message:
+            requestedWorkspaceRoot !== undefined
+              ? "workspaceRoot must be an absolute path."
+              : "Current MCP binding has no trusted workspaceRoot. Pass the host project absolute workspaceRoot."
+        }
+      ],
+      risks: [],
+      requiresUserDecision: true,
+      requiresInit: false,
+      requiresHostConfigUpdate: false,
+      requiresServerRestart: false,
+      recommendedNextActions: [
+        buildPlanAction(
+          "provide_explicit_workspace_root",
+          "Retry with the host project absolute workspaceRoot; do not use the MCP process cwd.",
+          { tool: "activate_routeledger_binding" }
+        )
+      ]
+    };
+  }
   const checks: RouteLedgerBindingPlanCheck[] = [];
   const risks: RouteLedgerBindingAssistRisk[] = [];
 
@@ -544,7 +625,7 @@ export const planRouteLedgerBinding = async (options: {
       };
     }
 
-    selectedRouteLedgerRoot = path.resolve(options.routeledgerRoot);
+    selectedRouteLedgerRoot = options.routeledgerRoot;
   } else if (options.binding.routeledgerRoot !== null && options.binding.status !== "invalid") {
     selectedRouteLedgerRoot = options.binding.routeledgerRoot;
   } else {
@@ -630,7 +711,7 @@ export const planRouteLedgerBinding = async (options: {
     };
   }
 
-  if (!isContainedWithin(workspaceRoot, selectedRouteLedgerRoot)) {
+  if (!isPhysicalPathContainedWithinSync(workspaceRoot, selectedRouteLedgerRoot)) {
     checks.push({
       code: "ROUTELEDGER_ROOT_OUTSIDE_WORKSPACE",
       status: "blocked",
@@ -886,13 +967,15 @@ export const planRouteLedgerBinding = async (options: {
 
 export const renderHostBindingConfig = async (options: {
   binding: RouteLedgerBindingSummary;
+  workspaceRoot?: string;
   routeledgerRoot?: string;
-  routeLedgerWorkspaceRoot: string;
+  routeLedgerWorkspaceRoot?: string;
   serverName?: string;
   existingConfigStrategy?: WriteCodexProjectConfigOptions["existingConfigStrategy"];
 }): Promise<RenderHostBindingConfigResult> => {
   const bindingPlan = await planRouteLedgerBinding({
     binding: options.binding,
+    workspaceRoot: options.workspaceRoot,
     routeledgerRoot: options.routeledgerRoot
   });
 
@@ -900,6 +983,21 @@ export const renderHostBindingConfig = async (options: {
     return {
       hostProfile: "codex",
       status: "blocked",
+      bindingPlan,
+      renderedConfig: null,
+      writePlan: null
+    };
+  }
+
+  if (typeof options.routeLedgerWorkspaceRoot !== "string" || options.routeLedgerWorkspaceRoot.length === 0) {
+    return {
+      hostProfile: "codex",
+      status: "blocked",
+      launcherRequirement: {
+        code: "STABLE_RUNTIME_LAUNCHER_REQUIRED",
+        message:
+          "A stable, user-owned RouteLedger source launcher is required. Installed plugin cache paths are not valid project config launchers."
+      },
       bindingPlan,
       renderedConfig: null,
       writePlan: null
@@ -932,14 +1030,16 @@ export const renderHostBindingConfig = async (options: {
 
 export const writeHostBindingConfig = async (options: {
   binding: RouteLedgerBindingSummary;
+  workspaceRoot?: string;
   routeledgerRoot?: string;
-  routeLedgerWorkspaceRoot: string;
+  routeLedgerWorkspaceRoot?: string;
   serverName?: string;
   outputPath?: string;
   existingConfigStrategy?: WriteCodexProjectConfigOptions["existingConfigStrategy"];
 }): Promise<WriteHostBindingConfigResult> => {
   const bindingPlan = await planRouteLedgerBinding({
     binding: options.binding,
+    workspaceRoot: options.workspaceRoot,
     routeledgerRoot: options.routeledgerRoot
   });
 
@@ -947,6 +1047,20 @@ export const writeHostBindingConfig = async (options: {
     return {
       hostProfile: "codex",
       status: "blocked",
+      bindingPlan,
+      writeResult: null
+    };
+  }
+
+  if (typeof options.routeLedgerWorkspaceRoot !== "string" || options.routeLedgerWorkspaceRoot.length === 0) {
+    return {
+      hostProfile: "codex",
+      status: "blocked",
+      launcherRequirement: {
+        code: "STABLE_RUNTIME_LAUNCHER_REQUIRED",
+        message:
+          "A stable, user-owned RouteLedger source launcher is required. Installed plugin cache paths are not valid project config launchers."
+      },
       bindingPlan,
       writeResult: null
     };

@@ -73,6 +73,7 @@ const topLevelMcpFiles = [
   "binding.js",
   "debug-log.js",
   "input-adapter.js",
+  "physical-path.js",
   "storage-paths.js",
   "workspace-config.js"
 ];
@@ -293,6 +294,7 @@ const main = async () => {
       "debug-log.js",
       "index.js",
       "input-adapter.js",
+      "physical-path.js",
       "storage-paths.js",
       "stdio-server.js",
       "workspace-config.js",

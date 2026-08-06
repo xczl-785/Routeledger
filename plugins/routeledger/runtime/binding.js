@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ROUTELEDGER_DIRECTORY } from "./storage-paths.js";
 import { resolveWorkspaceConfigSync } from "./workspace-config.js";
+import { arePhysicalPathsEqualSync, isPhysicalPathContainedWithinSync } from "./physical-path.js";
 const normalizeOptionalAbsolutePath = (value, fieldName, diagnostics) => {
     if (value === undefined) {
         return null;
@@ -22,12 +23,9 @@ const normalizeOptionalAbsolutePath = (value, fieldName, diagnostics) => {
         });
         return null;
     }
-    return path.resolve(value);
-};
-const isContainedWithin = (root, candidate) => {
-    const relativePath = path.relative(root, candidate);
-    return (relativePath.length === 0 ||
-        (!relativePath.startsWith("..") && !path.isAbsolute(relativePath)));
+    // Preserve the host spelling in binding output and storage paths. Physical
+    // resolution is applied only to containment/equality decisions below.
+    return value;
 };
 const convertWorkspaceDiagnostics = (diagnostics) => diagnostics.map((diagnostic) => ({ ...diagnostic }));
 const findWorkspaceMarkerFromCwd = (processCwd) => {
@@ -149,7 +147,8 @@ export const resolveRouteLedgerBinding = (config, options = {}) => {
             diagnostics
         });
     }
-    if (explicitRouteLedgerRoot !== null && !isContainedWithin(workspaceRoot, explicitRouteLedgerRoot)) {
+    if (explicitRouteLedgerRoot !== null &&
+        !isPhysicalPathContainedWithinSync(workspaceRoot, explicitRouteLedgerRoot)) {
         diagnostics.push({
             code: "ROUTELEDGER_ROOT_OUTSIDE_WORKSPACE",
             severity: "error",
@@ -224,7 +223,7 @@ export const resolveRouteLedgerBinding = (config, options = {}) => {
     }
     const resolvedRouteLedgerRoot = workspaceConfig.dataRoot;
     if (explicitRouteLedgerRoot !== null &&
-        path.resolve(explicitRouteLedgerRoot) !== path.resolve(resolvedRouteLedgerRoot)) {
+        !arePhysicalPathsEqualSync(explicitRouteLedgerRoot, resolvedRouteLedgerRoot)) {
         diagnostics.push({
             code: "ROUTELEDGER_ROOT_CONFIG_MISMATCH",
             severity: "error",

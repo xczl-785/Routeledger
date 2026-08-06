@@ -7,6 +7,10 @@ import {
   resolveWorkspaceConfigSync,
   type WorkspaceConfigDiagnostic
 } from "./workspace-config.js";
+import {
+  arePhysicalPathsEqualSync,
+  isPhysicalPathContainedWithinSync
+} from "./physical-path.js";
 
 export type RouteLedgerBindingStatus =
   | "bound"
@@ -84,15 +88,9 @@ const normalizeOptionalAbsolutePath = (
     return null;
   }
 
-  return path.resolve(value);
-};
-
-const isContainedWithin = (root: string, candidate: string): boolean => {
-  const relativePath = path.relative(root, candidate);
-  return (
-    relativePath.length === 0 ||
-    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
-  );
+  // Preserve the host spelling in binding output and storage paths. Physical
+  // resolution is applied only to containment/equality decisions below.
+  return value;
 };
 
 const convertWorkspaceDiagnostics = (
@@ -270,7 +268,10 @@ export const resolveRouteLedgerBinding = (
     });
   }
 
-  if (explicitRouteLedgerRoot !== null && !isContainedWithin(workspaceRoot, explicitRouteLedgerRoot)) {
+  if (
+    explicitRouteLedgerRoot !== null &&
+    !isPhysicalPathContainedWithinSync(workspaceRoot, explicitRouteLedgerRoot)
+  ) {
     diagnostics.push({
       code: "ROUTELEDGER_ROOT_OUTSIDE_WORKSPACE",
       severity: "error",
@@ -361,7 +362,7 @@ export const resolveRouteLedgerBinding = (
 
   if (
     explicitRouteLedgerRoot !== null &&
-    path.resolve(explicitRouteLedgerRoot) !== path.resolve(resolvedRouteLedgerRoot)
+    !arePhysicalPathsEqualSync(explicitRouteLedgerRoot, resolvedRouteLedgerRoot)
   ) {
     diagnostics.push({
       code: "ROUTELEDGER_ROOT_CONFIG_MISMATCH",

@@ -39,6 +39,9 @@ import {
   resolveDefaultRouteLedgerDataDir,
   resolveWorkspaceConfigSync
 } from "../workspace-config.js";
+import { resolveRouteLedgerBinding } from "../binding.js";
+import { isPhysicalPathContainedWithinSync } from "../physical-path.js";
+import { planRouteLedgerBinding } from "../binding-assist.js";
 
 type ToolListResult = {
   result: {
@@ -745,7 +748,7 @@ describe("routeledger mcp registry", () => {
         outputPath: expect.objectContaining({ type: "string" }),
         expectedRouteLedgerRoot: expect.objectContaining({ type: "string" })
       });
-      expect(writeTools).toHaveLength(18);
+      expect(writeTools).toHaveLength(19);
       expect(highRiskTools).toHaveLength(4);
       for (const tool of [...writeTools, ...highRiskTools]) {
         expect(tool.inputSchema.properties).toHaveProperty("expectedRouteLedgerRoot");
@@ -2430,7 +2433,7 @@ describe("routeledger mcp registry", () => {
     }
   });
 
-  it("discover_routeledger_roots returns none_found for an unbound workspace without candidates", async () => {
+  it("discover_routeledger_roots blocks an unbound process cwd until the host supplies workspaceRoot", async () => {
     const workspaceRoot = createTempProjectRoot();
     const registry = createProcessCwdRegistry(workspaceRoot);
     const resolvedWorkspaceRoot = fs.realpathSync.native(workspaceRoot);
@@ -2441,22 +2444,318 @@ describe("routeledger mcp registry", () => {
       expect(response).toMatchObject({
         ok: true,
         data: {
-          workspaceRoot: resolvedWorkspaceRoot,
-          status: "none_found",
+          workspaceRoot: null,
+          status: "blocked",
           candidates: [],
           recommendedBinding: null,
           recommendedNextActions: [
             expect.objectContaining({
-              type: "initialize_at_workspace_root",
-              tool: "plan_routeledger_binding",
-              routeledgerRoot: resolvedWorkspaceRoot
+              type: "provide_explicit_workspace_root",
+              tool: "activate_routeledger_binding"
             })
           ]
         }
       });
+      const explicitResponse = await registry.invoke("discover_routeledger_roots", {
+        workspaceRoot: resolvedWorkspaceRoot
+      });
+      expect(explicitResponse).toMatchObject({
+        ok: true,
+        data: { workspaceRoot: resolvedWorkspaceRoot, status: "none_found" }
+      });
     } finally {
       registry.close();
       registry.restore();
+      cleanupProjectRoot(workspaceRoot);
+    }
+  });
+
+  it("Codex no-roots session activates an explicit workspace without scanning cache cwd", async () => {
+    const cacheCwd = createTempProjectRoot();
+    const workspaceRoot = createTempProjectRoot();
+    const outsideRoot = createTempProjectRoot();
+    const previousCwd = process.cwd();
+    process.chdir(cacheCwd);
+    const server = createRouteLedgerStdioServer({ hostProfile: "codex" });
+
+    try {
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "codex-0.144.1-initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: { elicitation: {} },
+          clientInfo: { name: "codex-mcp-client", version: "0.144.1" }
+        }
+      });
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        method: "notifications/initialized"
+      });
+
+      expect(getStructuredData<{ status: string }>(
+        await callTool(server, "cache-discover", "discover_routeledger_roots", {})
+      )).toMatchObject({ status: "blocked" });
+      expect(getStructuredData<{ status: string }>(
+        await callTool(server, "cache-plan", "plan_routeledger_binding", {})
+      )).toMatchObject({ status: "blocked" });
+      expect(getStructuredData<{ status: string }>(
+        await callTool(server, "explicit-readonly-plan", "plan_routeledger_binding", {
+          workspaceRoot,
+          routeledgerRoot: workspaceRoot
+        })
+      )).toMatchObject({ status: "needs_init" });
+      expect(fs.existsSync(getDefaultWorkspaceConfigPath(workspaceRoot))).toBe(false);
+      expect(getStructuredData<{ status: string }>(
+        await callTool(server, "outside-plan", "plan_routeledger_binding", {
+          workspaceRoot,
+          routeledgerRoot: outsideRoot
+        })
+      )).toMatchObject({ status: "blocked" });
+
+      const activation = await callTool(
+        server,
+        "activate-explicit-workspace",
+        "activate_routeledger_binding",
+        { workspaceRoot }
+      );
+      expect(getStructuredData<{ status: string; rebound: boolean }>(activation)).toMatchObject({
+        status: "activated",
+        rebound: true
+      });
+      expect(fs.existsSync(getDefaultWorkspaceConfigPath(workspaceRoot))).toBe(true);
+      expect(fs.existsSync(path.join(workspaceRoot, ".routeledger", "project.json"))).toBe(false);
+
+      expect(getStructuredData<{ binding: { workspaceRoot: string; status: string } }>(
+        await callTool(server, "post-activate-context", "get_runtime_context", {})
+      )).toMatchObject({
+        binding: {
+          workspaceRoot,
+          status: "uninitialized"
+        }
+      });
+
+      const initialized = getStructuredData<{
+        project: { id: string };
+        initialVersion: { id: string };
+      }>(await callTool(server, "activate-init", "init_project", {
+        name: "Activated RouteLedger",
+        expectedRouteLedgerRoot: workspaceRoot
+      }));
+      const todo = getStructuredData<{ todo: { id: string } }>(
+        await callTool(server, "activate-create-todo", "create_todo", {
+          projectId: initialized.project.id,
+          versionId: initialized.initialVersion.id,
+          title: "session binding proof",
+          expectedRouteLedgerRoot: workspaceRoot
+        })
+      );
+      expect(getStructuredData<unknown>(
+        await callTool(server, "activate-close-todo", "close_todo", {
+          projectId: initialized.project.id,
+          todoId: todo.todo.id,
+          reason: "verified",
+          note: "session rebind uses the new service",
+          expectedRouteLedgerRoot: workspaceRoot
+        })
+      )).toBeTruthy();
+
+      const switchAttempt = getStructuredData<{ status: string; code: string }>(
+        await callTool(server, "reject-bound-switch", "activate_routeledger_binding", {
+          workspaceRoot: outsideRoot
+        })
+      );
+      expect(switchAttempt).toMatchObject({
+        status: "blocked",
+        code: "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED"
+      });
+    } finally {
+      server.close();
+      process.chdir(previousCwd);
+      cleanupProjectRoot(cacheCwd);
+      cleanupProjectRoot(workspaceRoot);
+      cleanupProjectRoot(outsideRoot);
+    }
+  });
+
+  it("uses physical containment for links, missing in-workspace children, and workspace dataDir", async () => {
+    const workspaceRoot = createTempProjectRoot();
+    const outsideRoot = createTempProjectRoot();
+    const insideRoot = path.join(workspaceRoot, "inside");
+    const outsideLink = path.join(workspaceRoot, "outside-link");
+    const insideLink = path.join(workspaceRoot, "inside-link");
+    fs.mkdirSync(insideRoot, { recursive: true });
+
+    try {
+      fs.symlinkSync(
+        outsideRoot,
+        outsideLink,
+        process.platform === "win32" ? "junction" : "dir"
+      );
+      fs.symlinkSync(
+        insideRoot,
+        insideLink,
+        process.platform === "win32" ? "junction" : "dir"
+      );
+
+      expect(isPhysicalPathContainedWithinSync(workspaceRoot, outsideLink)).toBe(false);
+      expect(
+        isPhysicalPathContainedWithinSync(
+          workspaceRoot,
+          `${outsideLink}${path.sep}..${path.sep}escaped-child`
+        )
+      ).toBe(false);
+      expect(isPhysicalPathContainedWithinSync(workspaceRoot, insideLink)).toBe(true);
+      expect(
+        isPhysicalPathContainedWithinSync(
+          workspaceRoot,
+          path.join(workspaceRoot, "missing", "child")
+        )
+      ).toBe(true);
+      const missingChild = path.join(workspaceRoot, "missing", "child");
+      await expect(
+        planRouteLedgerBinding({
+          binding: resolveRouteLedgerBinding({}, { autoCreateWorkspaceConfig: false }),
+          workspaceRoot,
+          routeledgerRoot: missingChild
+        })
+      ).resolves.toMatchObject({ status: "needs_init" });
+      expect(
+        resolveRouteLedgerBinding(
+          { workspaceRoot, routeledgerRoot: outsideLink },
+          { autoCreateWorkspaceConfig: false }
+        ).status
+      ).toBe("invalid");
+      expect(
+        resolveRouteLedgerBinding(
+          {
+            workspaceRoot,
+            routeledgerRoot: `${outsideLink}${path.sep}..${path.sep}escaped-child`
+          },
+          { autoCreateWorkspaceConfig: false }
+        ).status
+      ).toBe("invalid");
+
+      fs.mkdirSync(path.join(workspaceRoot, ".routeledger"), { recursive: true });
+      fs.writeFileSync(
+        getDefaultWorkspaceConfigPath(workspaceRoot),
+        `${JSON.stringify({ version: 1, dataDir: "outside-link" })}\n`,
+        "utf8"
+      );
+      expect(
+        resolveWorkspaceConfigSync({ projectRoot: workspaceRoot, autoCreate: false })
+      ).toMatchObject({
+        status: "invalid",
+        diagnostics: [
+          expect.objectContaining({
+            code: "WORKSPACE_CONFIG_DATA_DIR_OUTSIDE_WORKSPACE"
+          })
+        ]
+      });
+      fs.writeFileSync(
+        getDefaultWorkspaceConfigPath(workspaceRoot),
+        `${JSON.stringify({ version: 1, dataDir: "inside-link" })}\n`,
+        "utf8"
+      );
+      expect(
+        resolveRouteLedgerBinding(
+          { workspaceRoot, routeledgerRoot: insideRoot },
+          { autoCreateWorkspaceConfig: false }
+        )
+      ).toMatchObject({ status: "uninitialized", routeledgerRoot: insideLink });
+    } finally {
+      cleanupProjectRoot(workspaceRoot);
+      cleanupProjectRoot(outsideRoot);
+    }
+  });
+
+  it("keeps the executing registry on session-rebind construction failure and close failure", async () => {
+    const cacheCwd = createTempProjectRoot();
+    const workspaceRoot = createTempProjectRoot();
+    const previousCwd = process.cwd();
+    process.chdir(cacheCwd);
+    let buildCount = 0;
+    let closeAttempted = false;
+    let failNextBoundRegistryConstruction = true;
+    const server = createRouteLedgerStdioServer({
+      hostProfile: "codex",
+      registryFactory: (options: RouteLedgerMcpRegistryOptions) => {
+        if (
+          options.workspaceRoot === workspaceRoot &&
+          failNextBoundRegistryConstruction
+        ) {
+          failNextBoundRegistryConstruction = false;
+          throw new Error("injected registry construction failure");
+        }
+        buildCount += 1;
+        const registry = createRouteLedgerMcpRegistry(options);
+        if (buildCount !== 2) {
+          return registry;
+        }
+        return {
+          ...registry,
+          close: () => {
+            closeAttempted = true;
+            registry.close();
+            throw new Error("injected old registry close failure");
+          }
+        };
+      }
+    });
+
+    try {
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "rebind-failure-initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "codex-mcp-client", version: "0.144.1" }
+        }
+      });
+      await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+      const failedActivation = await callTool(
+        server,
+        "injected-rebind-failure",
+        "activate_routeledger_binding",
+        { workspaceRoot }
+      );
+      expect(failedActivation).toMatchObject({
+        result: {
+          isError: true,
+          structuredContent: { ok: false, error: { code: "SESSION_REBIND_FAILED" } },
+          _meta: { routeledger: { toolName: "activate_routeledger_binding" } }
+        }
+      });
+      expect(getStructuredData<{ binding: { status: string } }>(
+        await callTool(server, "rebind-failure-context", "get_runtime_context", {})
+      )).toMatchObject({ binding: { status: "unbound" } });
+
+      // The pending request survives the failed construction. A subsequent
+      // explicit activation builds the new registry, and an old close failure
+      // cannot invalidate its already formed response.
+      const successfulActivation = await callTool(
+        server,
+        "rebind-close-failure",
+        "activate_routeledger_binding",
+        { workspaceRoot }
+      );
+      expect(successfulActivation).toMatchObject({
+        result: {
+          structuredContent: { ok: true, data: { status: "activated", rebound: true } }
+        }
+      });
+      expect(closeAttempted).toBe(true);
+      expect(getStructuredData<{ binding: { workspaceRoot: string } }>(
+        await callTool(server, "rebind-close-context", "get_runtime_context", {})
+      )).toMatchObject({ binding: { workspaceRoot } });
+    } finally {
+      server.close();
+      process.chdir(previousCwd);
+      cleanupProjectRoot(cacheCwd);
       cleanupProjectRoot(workspaceRoot);
     }
   });
@@ -2523,7 +2822,9 @@ describe("routeledger mcp registry", () => {
     const resolvedCandidateRoot = fs.realpathSync.native(candidateRoot);
 
     try {
-      const response = await registry.invoke("discover_routeledger_roots", {});
+      const response = await registry.invoke("discover_routeledger_roots", {
+        workspaceRoot: resolvedWorkspaceRoot
+      });
 
       expect(response.ok).toBe(true);
       expect(response.data).toMatchObject({
@@ -2573,7 +2874,9 @@ describe("routeledger mcp registry", () => {
       });
       expect(initResponse.ok).toBe(true);
 
-      const discoverResponse = await registry.invoke("discover_routeledger_roots", {});
+      const discoverResponse = await registry.invoke("discover_routeledger_roots", {
+        workspaceRoot
+      });
       expect(discoverResponse).toMatchObject({
         ok: true,
         data: {
@@ -2595,7 +2898,7 @@ describe("routeledger mcp registry", () => {
         }
       });
 
-      const planResponse = await registry.invoke("plan_routeledger_binding", {});
+      const planResponse = await registry.invoke("plan_routeledger_binding", { workspaceRoot });
       expect(planResponse).toMatchObject({
         ok: true,
         data: {
@@ -2630,7 +2933,9 @@ describe("routeledger mcp registry", () => {
     const resolvedCodeRoot = fs.realpathSync.native(codeRoot);
 
     try {
-      const response = await registry.invoke("discover_routeledger_roots", {});
+      const response = await registry.invoke("discover_routeledger_roots", {
+        workspaceRoot: resolvedWorkspaceRoot
+      });
 
       expect(response).toMatchObject({
         ok: true,
@@ -2673,7 +2978,9 @@ describe("routeledger mcp registry", () => {
     const resolvedCandidateRoot = fs.realpathSync.native(candidateRoot);
 
     try {
-      const response = await registry.invoke("discover_routeledger_roots", {});
+      const response = await registry.invoke("discover_routeledger_roots", {
+        workspaceRoot: fs.realpathSync.native(workspaceRoot)
+      });
 
       expect(response.ok).toBe(true);
       expect(response.data).toMatchObject({
@@ -2711,6 +3018,7 @@ describe("routeledger mcp registry", () => {
 
     try {
       const response = await registry.invoke("plan_routeledger_binding", {
+        workspaceRoot: resolvedWorkspaceRoot,
         routeledgerRoot: resolvedRouteledgerRoot
       });
 
@@ -2793,8 +3101,25 @@ describe("routeledger mcp registry", () => {
     const resolvedWorkspaceRoot = fs.realpathSync.native(workspaceRoot);
 
     try {
-      const response = await registry.invoke("render_host_binding_config", {
+      const blockedWithoutLauncher = await registry.invoke("render_host_binding_config", {
+        workspaceRoot: resolvedWorkspaceRoot,
         routeledgerRoot: resolvedRouteledgerRoot
+      });
+      expect(blockedWithoutLauncher).toMatchObject({
+        ok: true,
+        data: {
+          status: "blocked",
+          launcherRequirement: {
+            code: "STABLE_RUNTIME_LAUNCHER_REQUIRED"
+          },
+          renderedConfig: null,
+          writePlan: null
+        }
+      });
+      const response = await registry.invoke("render_host_binding_config", {
+        workspaceRoot: resolvedWorkspaceRoot,
+        routeledgerRoot: resolvedRouteledgerRoot,
+        routeLedgerWorkspaceRoot: process.cwd()
       });
 
       expect(response).toMatchObject({
@@ -2840,7 +3165,9 @@ describe("routeledger mcp registry", () => {
 
     try {
       const response = await registry.invoke("write_host_binding_config", {
-        routeledgerRoot: resolvedRouteledgerRoot
+        workspaceRoot: resolvedWorkspaceRoot,
+        routeledgerRoot: resolvedRouteledgerRoot,
+        routeLedgerWorkspaceRoot: process.cwd()
       });
 
       expect(response).toMatchObject({
@@ -2923,18 +3250,10 @@ describe("routeledger mcp registry", () => {
           code: "ROUTELEDGER_BINDING_REQUIRED",
           details: {
             recommendedNextActions: expect.arrayContaining([
-              expect.objectContaining({
-                type: "inspect_workspace",
-                tool: "discover_routeledger_roots"
-              }),
-              expect.objectContaining({
-                type: "plan_binding",
-                tool: "plan_routeledger_binding"
-              }),
-              expect.objectContaining({
-                type: "render_codex_config",
-                tool: "render_host_binding_config"
-              })
+            expect.objectContaining({
+              type: "activate_explicit_workspace_binding",
+              tool: "activate_routeledger_binding"
+            })
             ])
           }
         }
@@ -3449,6 +3768,103 @@ describe("routeledger mcp registry", () => {
     } finally {
       server.close();
       cleanupProjectRoot(workspaceRoot);
+    }
+  });
+
+  it("delayed Roots rebuild retains the old registry on construction failure and survives old close failure", async () => {
+    const workspaceA = createTempProjectRoot();
+    const workspaceB = createTempProjectRoot();
+    let failWorkspaceBOnce = true;
+    let oldWorkspaceACloseAttempted = false;
+    const { server, outboundMessages } = createCapturedServer({
+      hostProfile: "codex",
+      registryFactory: (options: RouteLedgerMcpRegistryOptions) => {
+        const roots = options.mcpRoots ?? [];
+        if (roots.includes(workspaceB) && failWorkspaceBOnce) {
+          failWorkspaceBOnce = false;
+          throw new Error("injected delayed Roots construction failure");
+        }
+        const registry = createRouteLedgerMcpRegistry(options);
+        if (!roots.includes(workspaceA)) {
+          return registry;
+        }
+        return {
+          ...registry,
+          close: () => {
+            oldWorkspaceACloseAttempted = true;
+            registry.close();
+            throw new Error("injected delayed Roots old close failure");
+          }
+        };
+      }
+    });
+
+    try {
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "delayed-roots-initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: { roots: {} },
+          clientInfo: { name: "vitest", version: "0.0.0" }
+        }
+      });
+      await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+      const rootsRequestA = expectSingleRootsListRequest(outboundMessages);
+      expect(
+        await server.handleMessage({
+          jsonrpc: "2.0",
+          id: rootsRequestA.id,
+          result: { roots: [{ uri: pathToFileURL(workspaceA).href }] }
+        })
+      ).toBeNull();
+      expect(getStructuredData<{ binding: { workspaceRoot: string } }>(
+        await callTool(server, "roots-a-context", "get_runtime_context", {})
+      )).toMatchObject({ binding: { workspaceRoot: workspaceA } });
+
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        method: "notifications/roots/list_changed"
+      });
+      const rootsRequestBFailure = outboundMessages[1] as JsonRpcMessage & {
+        id: string | number;
+      };
+      expect(
+        await server.handleMessage({
+          jsonrpc: "2.0",
+          id: rootsRequestBFailure.id,
+          result: { roots: [{ uri: pathToFileURL(workspaceB).href }] }
+        })
+      ).toBeNull();
+      expect(oldWorkspaceACloseAttempted).toBe(false);
+      expect(getStructuredData<{ binding: { workspaceRoot: string } }>(
+        await callTool(server, "roots-a-survives-failure", "get_runtime_context", {})
+      )).toMatchObject({ binding: { workspaceRoot: workspaceA } });
+
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        method: "notifications/roots/list_changed"
+      });
+      const rootsRequestBSuccess = outboundMessages[2] as JsonRpcMessage & {
+        id: string | number;
+      };
+      expect(
+        await server.handleMessage({
+          jsonrpc: "2.0",
+          id: rootsRequestBSuccess.id,
+          result: { roots: [{ uri: pathToFileURL(workspaceB).href }] }
+        })
+      ).toBeNull();
+      expect(oldWorkspaceACloseAttempted).toBe(true);
+      expect(getStructuredData<{ binding: { workspaceRoot: string } }>(
+        await callTool(server, "roots-b-after-close-failure", "get_runtime_context", {})
+      )).toMatchObject({ binding: { workspaceRoot: workspaceB } });
+    } finally {
+      server.close();
+      cleanupProjectRoot(workspaceA);
+      cleanupProjectRoot(workspaceB);
     }
   });
 

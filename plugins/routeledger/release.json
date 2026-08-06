@@ -6,12 +6,12 @@
   },
   "plugin": {
     "name": "routeledger",
-    "version": "0.3.1"
+    "version": "0.3.2"
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "963180656e6fe63516b0a15da5f2b191b2e60f67d59fea8c9411c9c518554cee",
-    "runtimeSha256": "67b19a1e5f4d9fcde75ad86dfd3b8ebdac088a425056583a5c8583c8e2420033",
+    "pluginDistributionSha256": "b41488abcbf2bff8a7ec6f5f61a0935af50cfbb8d89b413c5f8c32aaaf1e3cf2",
+    "runtimeSha256": "07c457f97c65a3247eff2594062069eb3d58e712482f6af7d40b397275dfb717",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }

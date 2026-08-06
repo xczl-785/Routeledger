@@ -4,15 +4,15 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. `routeledger@routeledger-team` version `0.3.1` is published
-through the Git marketplace: `main`, the canonical remote's
-`codex-marketplace` branch, and the immutable `routeledger-plugin-v0.3.1` tag
-aligned at the release point. The tag and marketplace branch remain the fixed
+distribution. `routeledger@routeledger-team` version `0.3.2` is the prospective
+Git marketplace release: `main`, the canonical remote's
+`codex-marketplace` branch, and the prospective immutable `routeledger-plugin-v0.3.2` tag
+must align at the release point. The tag and marketplace branch remain the fixed
 release anchor; `main` may later advance through protected non-distribution
 changes. When `plugins/**` remains byte-identical to the tag, that later main
-still carries the same 0.3.1 distribution baseline. The
-published path is covered by tag CI on Ubuntu, macOS, and Windows plus an
-isolated anonymous Codex marketplace installation workflow.
+still carries the same 0.3.2 distribution baseline. The
+prospective path requires tag CI on Ubuntu, macOS, and Windows plus an
+isolated anonymous Codex marketplace installation workflow before publication.
 
 ## Current Rules
 
@@ -30,7 +30,12 @@ isolated anonymous Codex marketplace installation workflow.
    does not declare `better-sqlite3`.
 5. Plugin binding comes from MCP Roots and the managed project's
    `.routeledger/config.json`; the plugin directory and process `cwd` do not
-   select a managed project.
+   select a managed project. When a host sends no Roots/rootUri, the prompted,
+   session-scoped `activate_routeledger_binding` tool requires the host's
+   absolute workspace root and refuses a silent high-confidence project switch.
+   Cache cwd is never a discovery or initialization target. That approved
+   activation may create/normalize binding `config.json`, never canonical
+   project JSON; `init_project` creates project state.
 6. Any distribution-byte change relative to a Git baseline requires a SemVer
    increase. `release.json` must be regenerated to match the new distribution
    bytes before a release is tagged.
@@ -66,6 +71,13 @@ hard failure. Future releases must rebuild a new SemVer distribution, pass the
 previous-ref and tag-to-HEAD gates, obtain tag CI, and repeat clean-home Git
 marketplace installation/reinstallation verification. npm publication of
 `@routeledger/mcp` remains outside this capability.
+
+Physical-path containment resolves existing symlinks, junctions, and reparse
+points at preflight time and fails closed when that resolution is unavailable.
+That is not a complete defence against an attacker swapping a link after
+preflight; state-writing entrypoints re-check their bound root assertion, but
+future hardening should make create/open operations descriptor-anchored where
+the host threat model requires TOCTOU resistance.
 
 ## Verification
 

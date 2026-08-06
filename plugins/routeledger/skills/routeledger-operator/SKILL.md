@@ -9,7 +9,7 @@ Use this Skill only for work governed by the RouteLedger MCP server. Do not use 
 
 ## Preflight
 
-Call `get_runtime_context` first. Confirm the returned workspace root, RouteLedger root, active project, and JSON-only storage mode match the intended project. If binding is unbound, invalid, or surprising, stop and explain the mismatch. Do not infer a different root from `cwd`, call a root-switch operation, or continue a write.
+Call `get_runtime_context` first. Confirm the returned workspace root, RouteLedger root, active project, and JSON-only storage mode match the intended project. If MCP Roots/rootUri supplied the binding, keep that binding. If binding is unbound, invalid, or only `process_cwd`/low confidence, obtain the host project's absolute `workspaceRoot` and call `activate_routeledger_binding` (with an optional in-workspace `routeledgerRoot`) after the host prompts for approval. Activation may create or normalize only `.routeledger/config.json` for that explicit binding; `init_project` is the separate approved operation that creates canonical project JSON. Never use plugin-cache or process `cwd` as an initialization target. Do not continue a write until the returned binding matches the intended project.
 
 ## Operating strategy
 

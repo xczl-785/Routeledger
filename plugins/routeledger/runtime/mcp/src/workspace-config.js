@@ -2,18 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { PROJECT_DOCUMENT_PATH } from "../../json/src/index.js";
 import { ROUTELEDGER_DB_DIRECTORY, ROUTELEDGER_DB_FILENAME, ROUTELEDGER_DIRECTORY } from "./storage-paths.js";
+import { isPhysicalPathContainedWithinSync } from "./physical-path.js";
 export const WORKSPACE_CONFIG_VERSION = 1;
 export const WORKSPACE_CONFIG_FILENAME = "config.json";
 export const DEFAULT_WORKSPACE_DATA_DIR = ".";
-const normalizeWorkspaceRoot = (workspaceRoot) => path.resolve(workspaceRoot);
+const normalizeWorkspaceRoot = (workspaceRoot) => workspaceRoot;
 export const getWorkspaceConfigDirectory = (workspaceRoot) => path.join(normalizeWorkspaceRoot(workspaceRoot), ROUTELEDGER_DIRECTORY);
 export const getWorkspaceConfigPath = (workspaceRoot) => path.join(getWorkspaceConfigDirectory(workspaceRoot), WORKSPACE_CONFIG_FILENAME);
 export const resolveDefaultRouteLedgerDataDir = (workspaceRoot) => path.resolve(normalizeWorkspaceRoot(workspaceRoot), DEFAULT_WORKSPACE_DATA_DIR);
-const isContainedWithin = (root, candidate) => {
-    const relativePath = path.relative(root, candidate);
-    return (relativePath.length === 0 ||
-        (!relativePath.startsWith("..") && !path.isAbsolute(relativePath)));
-};
 const buildResolution = (workspaceRoot, dataRoot, config, status, diagnostics) => ({
     status,
     workspaceRoot,
@@ -109,8 +105,8 @@ const parseWorkspaceConfig = (workspaceRoot, rawContent) => {
             }
         ]);
     }
-    const dataRoot = path.resolve(workspaceRoot, configRecord.dataDir);
-    if (!isContainedWithin(workspaceRoot, dataRoot)) {
+    const dataRootInput = `${workspaceRoot}${path.sep}${configRecord.dataDir}`;
+    if (!isPhysicalPathContainedWithinSync(workspaceRoot, dataRootInput)) {
         return toInvalidResolution(workspaceRoot, [
             {
                 code: "WORKSPACE_CONFIG_DATA_DIR_OUTSIDE_WORKSPACE",
@@ -119,6 +115,7 @@ const parseWorkspaceConfig = (workspaceRoot, rawContent) => {
             }
         ]);
     }
+    const dataRoot = path.resolve(workspaceRoot, configRecord.dataDir);
     try {
         const stat = fs.statSync(dataRoot);
         if (!stat.isDirectory()) {

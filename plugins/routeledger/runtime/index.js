@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { ApplicationError, BATCH_CREATE_VERSIONS_MODES, BATCH_PREVIOUS_CURRENT_POLICIES, DomainError, ROUTE_OPERATION_WORKFLOW_MODES, RouteLedgerService, isBatchCreateVersionsMode, isBatchPreviousCurrentPolicy, isRouteOperationWorkflowMode } from "./core/src/index.js";
 import { JsonFirstStorageAdapter, JsonFirstStorageError } from "./json-first-storage.js";
 import { discoverRouteLedgerRoots, planRouteLedgerBinding, renderHostBindingConfig, writeHostBindingConfig } from "./binding-assist.js";
 import { runBindingPreflight, getBindingRecommendedNextActions, isBindingToolKindAllowed } from "./binding-preflight.js";
 import { resolveRouteLedgerBinding } from "./binding.js";
+import { isPhysicalPathContainedWithinSync, resolvePhysicalPathForContainmentSync } from "./physical-path.js";
 import { RouteLedgerDebugLogger } from "./debug-log.js";
 import { adaptCheckDocDriftInput, adaptDeferWorkInput, adaptGetCurrentContextInput, adaptListVersionsWindowInput, adaptRecordConstraintInput, adaptRetireConstraintInput, adaptReviewDeferredInput, InvalidToolInputError } from "./input-adapter.js";
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
@@ -36,7 +35,6 @@ const serverCapabilities = {
         listChanged: false
     }
 };
-const DEFAULT_CODEX_SOURCE_ROOT = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const stringSchema = (description, extra = {}) => ({
     type: "string",
     description,
@@ -533,7 +531,7 @@ const createInstructions = (options) => {
     return [
         "RouteLedger exposes project state and route transitions through MCP tools.",
         "Before route operations, call get_runtime_context to verify workspaceRoot and routeledgerRoot.",
-        "If binding is missing, invalid, or not initialized, use discover_routeledger_roots, plan_routeledger_binding, and render_host_binding_config before route operations.",
+        "If binding is missing, invalid, or low-confidence, pass the host project absolute workspaceRoot to activate_routeledger_binding before route operations; never treat the MCP process cwd as an initialization target. When MCP Roots/rootUri are provided they remain the preferred binding source. Use discover_routeledger_roots and plan_routeledger_binding with explicit workspaceRoot only for read-only inspection/planning.",
         "Use read-only tools first to inspect current context, versions, gates, and pending L3 proposals.",
         "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
         "Use defer_work to defer new work or an existing Todo, review_deferred to activate, defer again, or resolve Deferred work, record_constraint to record a rule, and retire_constraint when a rule no longer applies.",
@@ -691,8 +689,8 @@ const loadMissionControlSourceModule = async () => {
     }
 };
 const resolveMissionControlRoots = (input, binding) => {
-    const workspaceRoot = typeof input.workspaceRoot === "string" && input.workspaceRoot.length > 0
-        ? path.resolve(input.workspaceRoot)
+    const workspaceRootInput = typeof input.workspaceRoot === "string" && input.workspaceRoot.length > 0
+        ? input.workspaceRoot
         : binding.workspaceRoot ?? binding.processCwd;
     const routeledgerRootInput = typeof input.routeledgerRoot === "string" && input.routeledgerRoot.length > 0
         ? input.routeledgerRoot
@@ -703,17 +701,15 @@ const resolveMissionControlRoots = (input, binding) => {
             path: "$.routeledgerRoot",
             expected: "absolute routeledgerRoot string or current MCP binding routeledgerRoot",
             bindingStatus: binding.status,
-            workspaceRoot,
+            workspaceRoot: workspaceRootInput,
             routeledgerRoot: binding.routeledgerRoot ?? null,
             receivedType: routeledgerRootInput === undefined ? "undefined" : typeof routeledgerRootInput,
             receivedValue: routeledgerRootInput ?? null
         });
     }
-    const routeledgerRoot = path.resolve(routeledgerRootInput);
-    const relativeRoot = path.relative(workspaceRoot, routeledgerRoot);
-    const outsideWorkspace = relativeRoot === ".." ||
-        relativeRoot.startsWith(`..${path.sep}`) ||
-        path.isAbsolute(relativeRoot);
+    const workspaceRoot = resolvePhysicalPathForContainmentSync(workspaceRootInput) ?? workspaceRootInput;
+    const routeledgerRoot = resolvePhysicalPathForContainmentSync(routeledgerRootInput) ?? routeledgerRootInput;
+    const outsideWorkspace = !isPhysicalPathContainedWithinSync(workspaceRootInput, routeledgerRootInput);
     if (outsideWorkspace) {
         throw new InvalidToolInputError("Mission Control source tool 要求 routeledgerRoot 位于 workspaceRoot 内。", {
             toolName: "mission_control_roots",
@@ -808,6 +804,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
     };
     let toolDefinitions = [];
     let guardedTools = [];
+    let pendingSessionRebind = null;
     const withCurrentRuntimeContextMeta = (options) => withRuntimeContextMeta({
         ...options,
         binding: readBinding(),
@@ -890,18 +887,25 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 })
             };
         }),
-        defineTool("discover_routeledger_roots", "Scan workspaceRoot for .routeledger candidates without modifying data or switching the active MCP binding.", objectSchema({}), {
+        defineTool("discover_routeledger_roots", "Scan an explicit or trusted workspaceRoot for .routeledger candidates without modifying data or switching the active MCP binding.", objectSchema({
+            workspaceRoot: stringSchema("Optional absolute host workspaceRoot. It is required when the current binding only knows an untrusted process cwd.")
+        }), {
             title: "Discover RouteLedger Roots",
             riskLevel: "read-only",
             toolKind: "discovery"
-        }, async () => ({
+        }, async (input) => ({
             ok: true,
             data: await discoverRouteLedgerRoots({
-                workspaceRoot: readBinding().workspaceRoot ?? readBinding().processCwd
+                workspaceRoot: input.workspaceRoot ??
+                    (readBinding().workspaceRootConfidence === "low" ||
+                        readBinding().workspaceRootConfidence === "none"
+                        ? undefined
+                        : readBinding().workspaceRoot ?? undefined)
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
-        defineTool("plan_routeledger_binding", "Generate a read-only binding plan for an explicit or discovered routeledgerRoot.", objectSchema({
+        defineTool("plan_routeledger_binding", "Generate a read-only binding plan for an explicit workspaceRoot and/or routeledgerRoot.", objectSchema({
+            workspaceRoot: stringSchema("Optional absolute host workspaceRoot. It is required when the current binding only knows an untrusted process cwd."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot to plan. When omitted, the tool uses the current binding or a discovered single candidate.")
         }), {
             title: "Plan RouteLedger Binding",
@@ -911,11 +915,78 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ok: true,
             data: await planRouteLedgerBinding({
                 binding: readBinding(),
+                workspaceRoot: input.workspaceRoot,
                 routeledgerRoot: input.routeledgerRoot
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
+        defineTool("activate_routeledger_binding", "Prompt before explicitly activating one workspaceRoot + routeledgerRoot for this MCP stdio session. It may create or normalize .routeledger/config.json for that explicit binding, never creates canonical project JSON, and refuses to switch an established project.", objectSchema({
+            workspaceRoot: stringSchema("Required absolute host workspaceRoot."),
+            routeledgerRoot: stringSchema("Optional absolute RouteLedger root inside workspaceRoot. Defaults to workspaceRoot.")
+        }, ["workspaceRoot"]), {
+            title: "Activate RouteLedger Binding",
+            riskLevel: "write",
+            toolKind: "planning",
+            recommendedApprovalMode: "prompt"
+        }, async (input) => {
+            const previousBinding = readBinding();
+            const canBootstrap = previousBinding.status === "unbound" ||
+                previousBinding.status === "invalid" ||
+                previousBinding.workspaceRootConfidence === "low" ||
+                previousBinding.workspaceRootConfidence === "none";
+            if (!canBootstrap) {
+                return {
+                    ok: true,
+                    data: {
+                        status: "blocked",
+                        code: previousBinding.status === "bound" &&
+                            previousBinding.workspaceRootConfidence === "high"
+                            ? "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED"
+                            : "BINDING_BOOTSTRAP_NOT_ALLOWED",
+                        message: "Binding activation only starts from an unbound, invalid, or low-confidence session; do not switch an established project.",
+                        previousBinding
+                    },
+                    meta: withCurrentRuntimeContextMeta({ data: null })
+                };
+            }
+            const bindingPlan = await planRouteLedgerBinding({
+                binding: previousBinding,
+                workspaceRoot: input.workspaceRoot,
+                routeledgerRoot: input.routeledgerRoot ?? input.workspaceRoot
+            });
+            if ((bindingPlan.status !== "ready" && bindingPlan.status !== "needs_init") ||
+                bindingPlan.targetBinding === null) {
+                return {
+                    ok: true,
+                    data: { status: "blocked", bindingPlan },
+                    meta: withCurrentRuntimeContextMeta({ data: null })
+                };
+            }
+            pendingSessionRebind = {
+                workspaceRoot: bindingPlan.targetBinding.workspaceRoot,
+                routeledgerRoot: bindingPlan.targetBinding.routeledgerRoot
+            };
+            return {
+                ok: true,
+                data: {
+                    status: "activated",
+                    rebound: true,
+                    previousBinding,
+                    nextBinding: bindingPlan.targetBinding,
+                    requiresInit: bindingPlan.requiresInit,
+                    bindingPlan
+                },
+                meta: withRuntimeContextMeta({
+                    data: null,
+                    binding: resolveRouteLedgerBinding(pendingSessionRebind, {
+                        autoCreateWorkspaceConfig: false
+                    }),
+                    hostProfile
+                })
+            };
+        }),
         defineTool("render_host_binding_config", "Render a Codex host binding config or fragment for a planned routeledgerRoot without writing user config files.", objectSchema({
+            workspaceRoot: stringSchema("Optional absolute host workspaceRoot. Required when the current binding only knows an untrusted process cwd."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot to render. When omitted, the tool uses the current binding or a discovered single candidate."),
             routeLedgerWorkspaceRoot: stringSchema("Optional absolute RouteLedger source repo root used as the Codex MCP cwd in source mode."),
             serverName: stringSchema("Optional MCP server name override."),
@@ -932,17 +1003,19 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ok: true,
             data: await renderHostBindingConfig({
                 binding: readBinding(),
+                workspaceRoot: input.workspaceRoot,
                 routeledgerRoot: input.routeledgerRoot,
                 routeLedgerWorkspaceRoot: typeof input.routeLedgerWorkspaceRoot === "string" &&
                     input.routeLedgerWorkspaceRoot.length > 0
                     ? input.routeLedgerWorkspaceRoot
-                    : DEFAULT_CODEX_SOURCE_ROOT,
+                    : undefined,
                 serverName: input.serverName,
                 existingConfigStrategy: input.existingConfigStrategy
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
         defineTool("write_host_binding_config", "Write a Codex project-level host binding config or fragment for a planned routeledgerRoot.", objectSchema({
+            workspaceRoot: stringSchema("Optional absolute host workspaceRoot. Required when the current binding only knows an untrusted process cwd."),
             routeledgerRoot: stringSchema("Optional absolute routeledgerRoot to write. When omitted, the tool uses the current binding or a discovered single candidate."),
             routeLedgerWorkspaceRoot: stringSchema("Optional absolute RouteLedger source repo root used as the Codex MCP cwd in source mode."),
             serverName: stringSchema("Optional MCP server name override."),
@@ -961,11 +1034,12 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ok: true,
             data: await writeHostBindingConfig({
                 binding: readBinding(),
+                workspaceRoot: input.workspaceRoot,
                 routeledgerRoot: input.routeledgerRoot,
                 routeLedgerWorkspaceRoot: typeof input.routeLedgerWorkspaceRoot === "string" &&
                     input.routeLedgerWorkspaceRoot.length > 0
                     ? input.routeLedgerWorkspaceRoot
-                    : DEFAULT_CODEX_SOURCE_ROOT,
+                    : undefined,
                 serverName: input.serverName,
                 outputPath: input.outputPath,
                 existingConfigStrategy: input.existingConfigStrategy
@@ -2165,6 +2239,23 @@ export const createRouteLedgerMcpRegistry = (options) => {
     toolDefinitions = guardedTools
         .filter((tool) => tool.visibility === "default")
         .map((tool) => tool.definition);
+    let reboundRegistry = null;
+    const activatePendingRebindForDirectRegistry = () => {
+        if (options.deferSessionRebind || pendingSessionRebind === null) {
+            return;
+        }
+        const nextBinding = pendingSessionRebind;
+        pendingSessionRebind = null;
+        reboundRegistry?.close();
+        reboundRegistry = createRouteLedgerMcpRegistry({
+            ...options,
+            workspaceRoot: nextBinding.workspaceRoot,
+            workspaceRootSource: "explicit_arg",
+            routeledgerRoot: nextBinding.routeledgerRoot,
+            mcpRoots: undefined,
+            deferSessionRebind: false
+        });
+    };
     return {
         tools: toolDefinitions,
         serverInfo: SERVER_INFO,
@@ -2173,6 +2264,9 @@ export const createRouteLedgerMcpRegistry = (options) => {
         instructions,
         getTool: (toolName) => toolDefinitions.find((tool) => tool.name === toolName),
         invoke: async (toolName, input) => {
+            if (reboundRegistry !== null) {
+                return reboundRegistry.invoke(toolName, input);
+            }
             const handler = handlers.get(toolName);
             if (handler === undefined) {
                 return {
@@ -2184,7 +2278,9 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 };
             }
             try {
-                return await handler(input);
+                const response = await handler(input);
+                activatePendingRebindForDirectRegistry();
+                return response;
             }
             catch (error) {
                 const response = toToolError(error);
@@ -2202,6 +2298,13 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 return response;
             }
         },
-        close
+        peekPendingSessionRebind: () => pendingSessionRebind,
+        clearPendingSessionRebind: () => {
+            pendingSessionRebind = null;
+        },
+        close: () => {
+            reboundRegistry?.close();
+            close();
+        }
     };
 };
