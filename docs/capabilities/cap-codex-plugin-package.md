@@ -4,8 +4,12 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. The current plugin is version `0.3.1` and is a release
-candidate: no release tag, release branch, or immutable release is implied.
+distribution. `routeledger@routeledger-team` version `0.3.1` is published
+through the Git marketplace: `main`, the canonical remote's
+`codex-marketplace` branch, and the immutable `routeledger-plugin-v0.3.1` tag
+resolve to the same released source. The
+published path is covered by tag CI on Ubuntu, macOS, and Windows plus an
+isolated anonymous Codex marketplace installation workflow.
 
 ## Current Rules
 
@@ -26,11 +30,14 @@ candidate: no release tag, release branch, or immutable release is implied.
    select a managed project.
 6. Any distribution-byte change relative to a Git baseline requires a SemVer
    increase. `release.json` must be regenerated to match the new distribution
-   bytes.
+   bytes before a release is tagged.
 7. `pnpm check:codex-plugin-release --previous-ref <ref>` rejects a version
    regression and rejects changed distribution bytes under the same released
    version. `--require-tag-ref` additionally requires
    `routeledger-plugin-v<version>` to resolve to `HEAD`.
+8. Git marketplace publication is distinct from npm publication. The plugin
+   carries a generated JSON-only runtime, but this capability does not publish
+   `@routeledger/mcp` to an npm registry.
 
 ## Impact Surface
 
@@ -47,9 +54,13 @@ candidate: no release tag, release branch, or immutable release is implied.
 
 ## Uncertainties
 
-`0.3.1` has no release tag or release branch yet. The previous-ref and
-tag-to-HEAD gates become release evidence only after an authorized release
-commit and tag exist; the candidate checks do not manufacture that evidence.
+GitHub Actions currently emits a Node 20 deprecation warning. It is a release
+automation maintenance constraint, not evidence of a failed plugin release;
+the workflow runtime should be migrated before that platform warning becomes a
+hard failure. Future releases must rebuild a new SemVer distribution, pass the
+previous-ref and tag-to-HEAD gates, obtain tag CI, and repeat clean-home Git
+marketplace installation/reinstallation verification. npm publication of
+`@routeledger/mcp` remains outside this capability.
 
 ## Verification
 
@@ -59,4 +70,5 @@ Run `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
 [the installation guide](../guides/codex-plugin-installation.md) and
 [the release guide](../guides/plugin-release.md) for operator instructions.
 The Git smoke creates branch and tag data only inside a temporary fixture
-repository; it does not create a canonical repository tag or release branch.
+repository; it validates installation mechanics and does not replace the
+published canonical tag as release evidence.

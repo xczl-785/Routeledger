@@ -43,21 +43,24 @@ For a normal release, the tag is exactly:
 routeledger-plugin-v<plugin-semver>
 ```
 
-Create that tag on the final release commit in
+For each future release, create that tag on the final release commit in
 `xczl-785/Routeledger` and validate it with:
 
 ```bash
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-For the current 0.3.1 release candidate, the prospective tag is
-`routeledger-plugin-v0.3.1`. It has not been created and must not be created
-merely to make a candidate checkout look published.
+The current plugin release is `routeledger-plugin-v0.3.1`; it resolves to the
+same released source as `main` and the canonical remote's
+`codex-marketplace` branch. Future releases use the same tag format with their
+new SemVer and must not reuse or move an existing tag.
 
 ## Install verification
 
-Use a clean Codex home and the final repository URL to add the marketplace,
+Use a clean Codex home and the canonical repository URL to add the marketplace,
 install `routeledger@routeledger-team`, run an MCP initialization and binding
-smoke, then remove it. The repository's hermetic Git marketplace smoke covers
-the equivalent install, upgrade, tag-based reinstall, hash, and JSON-only
-runtime behavior without modifying a user profile.
+smoke, then remove it. The released 0.3.1 path has been verified with branch
+install, no-op upgrade, tag-based reinstall, release-hash verification,
+Apache-2.0 distribution files, and the JSON-only runtime workflow. The
+repository's hermetic Git marketplace smoke covers the equivalent mechanics
+without modifying a user profile.

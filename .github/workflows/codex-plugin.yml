@@ -2,18 +2,6 @@ name: Codex plugin
 
 on:
   pull_request:
-    paths:
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "packages/**"
-      - "scripts/**"
-      - "tsconfig*.json"
-      - "eslint.config.js"
-      - ".agents/plugins/marketplace.json"
-      - "plugins/routeledger/**"
-      - ".gitattributes"
-      - ".github/workflows/codex-plugin.yml"
   push:
     branches:
       - "**"
