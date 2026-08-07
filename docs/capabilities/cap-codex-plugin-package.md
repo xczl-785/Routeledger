@@ -107,7 +107,7 @@ Run `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
 `pnpm check:codex-plugin-release`, and
 `pnpm smoke:codex-git-marketplace`. See
 [the installation guide](../guides/codex-plugin-installation.md) and
-[the release guide](../guides/plugin-release.md) for operator instructions.
+[the release guide](../release/plugin-release.md) for operator instructions.
 The Git smoke creates branch and tag data only inside a temporary fixture
 repository; it validates installation mechanics and does not replace the
 published canonical tag as release evidence.

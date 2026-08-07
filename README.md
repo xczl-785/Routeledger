@@ -148,7 +148,7 @@ pnpm smoke:codex-git-marketplace
 - [Capability index](docs/capabilities/capability-index.md) — 已实现能力与源码 / 测试对应关系
 - [Agent-host integration](docs/guides/agent-host-integration.md) — MCP 单绑定运行时契约
 - [Codex plugin installation](docs/guides/codex-plugin-installation.md) — 插件安装与运行边界
-- [Release policy](docs/release-policy.md) 与 [0.3.5 release note](docs/release-notes/0.3.5.md) — 发布状态
+- [Release policy](docs/release/release-policy.md) 与 [0.3.5 release note](docs/release/release-notes/0.3.5.md) — 发布状态
 
 ## License
 

@@ -24,7 +24,7 @@ pnpm lint
 For plugin changes also run `pnpm build:codex-plugin`,
 `pnpm smoke:codex-plugin`, and `pnpm smoke:codex-git-marketplace`. Distribution
 byte changes require a plugin SemVer increase and regenerated `release.json`;
-see `docs/guides/plugin-release.md`.
+see `docs/release/plugin-release.md`.
 
 Contributions to this repository are made under the
 [Apache License 2.0](LICENSE).

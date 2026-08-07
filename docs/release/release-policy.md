@@ -14,7 +14,7 @@ Codex plugin release path only;
 `@routeledger/mcp` remains unpublished to npm.
 
 RouteLedger source and plugin distribution are licensed under
-[Apache License 2.0](../LICENSE). This policy does not change the licenses of
+[Apache License 2.0](../../LICENSE). This policy does not change the licenses of
 third-party dependencies.
 
 Plugin distribution bytes require a plugin SemVer increase. A normal release
@@ -32,5 +32,5 @@ CI run the previous-ref SemVer/distribution replay guard. After the verified
 commit is on `main`, create the immutable version tag; the tag-triggered CI is
 the stage that runs `--require-tag-ref`.
 
-See [the plugin release guide](guides/plugin-release.md) for commands and
+See [the plugin release guide](plugin-release.md) for commands and
 verification scope.
