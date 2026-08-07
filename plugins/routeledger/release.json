@@ -12,7 +12,7 @@
     "runtimePackageVersion": "0.0.0-package-prep",
     "runtimeProfile": "json-only",
     "pluginVersion": "0.3.5",
-    "sourceTreeState": "dirty",
+    "sourceTreeState": "clean",
     "buildCommit": null,
     "artifactDigest": null,
     "runtimePayloadDigest": "f2ae643e7792711abadacff1bced6a5a6bc90c84dc93def59d4d277511176151",
@@ -20,8 +20,8 @@
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "0af65b0da2286031ae20e363631db91bbacc7c446b0fafd9f1399a5fc24e9969",
-    "runtimeSha256": "80aa5667afe4621556012724b6b74c9f1597af9b44745d756f8604c6cd941d39",
+    "pluginDistributionSha256": "c4db1efe264cc9a4a295d99723edb42a07606cd25d0a5f7fb6483f856589646a",
+    "runtimeSha256": "22d968831f0e9866d56d7b470e8e29d87a2cc1ca07a3809d021848aeb6b6076c",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }
