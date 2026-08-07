@@ -6,10 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import {
-  isResolvableCommit as isResolvableBuildCommit,
-  isReusableCleanBuildCommit
-} from "./runtime-build-provenance.mjs";
+import { collectRegularFiles } from "./regular-file-tree.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const routeledgerRoot = path.resolve(scriptDir, "..");
@@ -28,6 +25,34 @@ const releaseMetadataPath = path.join(pluginRoot, "release.json");
 const fail = (message) => {
   throw new Error(`Codex plugin release check failed: ${message}`);
 };
+
+export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity, pluginVersion, runtimePayloadDigest }) =>
+  runtimeIdentity?.runtimePackageVersion === "0.0.0-package-prep" &&
+  runtimeIdentity?.runtimeProfile === "json-only" &&
+  runtimeIdentity?.artifactKind === "plugin" &&
+  runtimeIdentity?.pluginVersion === pluginVersion &&
+  ["clean", "dirty", "unavailable"].includes(runtimeIdentity?.sourceTreeState) &&
+  runtimeIdentity?.buildCommit === null &&
+  runtimeIdentity?.artifactDigest === null &&
+  runtimeIdentity?.runtimePayloadDigest === runtimePayloadDigest &&
+  releaseIdentity?.runtimePackageVersion === runtimeIdentity.runtimePackageVersion &&
+  releaseIdentity?.runtimeProfile === runtimeIdentity.runtimeProfile &&
+  releaseIdentity?.pluginVersion === runtimeIdentity.pluginVersion &&
+  releaseIdentity?.sourceTreeState === runtimeIdentity.sourceTreeState &&
+  releaseIdentity?.buildCommit === null &&
+  releaseIdentity?.artifactDigest === null &&
+  releaseIdentity?.runtimePayloadDigest === runtimeIdentity.runtimePayloadDigest &&
+  releaseIdentity?.runtimePayloadCoverage ===
+    "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js.";
+
+export const hasValidReleaseContentHashes = ({ releaseContent, pluginDistributionSha256, runtimeSha256 }) =>
+  releaseContent?.algorithm === "sha256" &&
+  /^[a-f0-9]{64}$/.test(releaseContent?.pluginDistributionSha256 ?? "") &&
+  /^[a-f0-9]{64}$/.test(releaseContent?.runtimeSha256 ?? "") &&
+  releaseContent?.pluginDistributionCoverage === "All regular files under plugins/routeledger, excluding release.json." &&
+  releaseContent?.runtimeCoverage === "All regular files under plugins/routeledger/runtime." &&
+  releaseContent.pluginDistributionSha256 === pluginDistributionSha256 &&
+  releaseContent.runtimeSha256 === runtimeSha256;
 
 const parseArguments = (argv) => {
   const options = { requireTagRef: false };
@@ -91,21 +116,6 @@ const compareSemver = (leftVersion, rightVersion) => {
   return 0;
 };
 
-const collectRelativeFiles = async (directory, relativeDirectory = "") => {
-  const entries = await fs.readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const relativePath = path.posix.join(relativeDirectory, entry.name);
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await collectRelativeFiles(entryPath, relativePath)));
-    } else if (entry.isFile()) {
-      files.push({ absolutePath: entryPath, relativePath });
-    }
-  }
-  return files;
-};
-
 const hashEntries = (entries) => {
   const hash = createHash("sha256");
   for (const { relativePath, content } of entries.sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en"))) {
@@ -119,7 +129,12 @@ const hashEntries = (entries) => {
 };
 
 const hashWorkingTree = async (root, shouldInclude = () => true) => {
-  const files = (await collectRelativeFiles(root)).filter(({ relativePath }) => shouldInclude(relativePath));
+  let files;
+  try {
+    files = (await collectRegularFiles(root)).filter(({ relativePath }) => shouldInclude(relativePath));
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   return hashEntries(
     await Promise.all(
       files.map(async ({ absolutePath, relativePath }) => ({ relativePath, content: await fs.readFile(absolutePath) }))
@@ -136,18 +151,26 @@ const git = (args) => {
   }
 };
 
-export const isResolvableCommit = (workingDirectory, commit) => {
-  return isResolvableBuildCommit({ repositoryRoot: workingDirectory, commit });
+const parseGitTreeRecord = (ref, record) => {
+  const match = /^(?<mode>[0-7]{6}) (?<type>\S+) [0-9a-f]+\t(?<filePath>[\s\S]+)$/.exec(record);
+  if (!match?.groups) {
+    fail(`Previous ref ${JSON.stringify(ref)} has an unreadable plugin tree entry.`);
+  }
+  return match.groups;
 };
 
-const previousPluginRootType = (ref) => {
+const previousPluginRootEntry = (ref) => {
   git(["rev-parse", "--verify", `${ref}^{commit}`]);
   try {
-    return execFileSync("git", ["cat-file", "-t", `${ref}:${pluginRelativeRoot}`], {
+    const output = execFileSync("git", ["ls-tree", "-z", ref, "--", pluginRelativeRoot], {
       cwd: repositoryRoot,
-      encoding: "utf8",
+      encoding: "buffer",
       stdio: ["ignore", "pipe", "pipe"]
-    }).trim();
+    })
+      .toString("utf8")
+      .split("\0")
+      .filter(Boolean);
+    return output.length === 1 ? parseGitTreeRecord(ref, output[0]) : null;
   } catch {
     return null;
   }
@@ -155,7 +178,7 @@ const previousPluginRootType = (ref) => {
 
 const hashPreviousDistribution = (ref) => {
   git(["rev-parse", "--verify", `${ref}^{commit}`]);
-  const output = execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", ref, "--", pluginRelativeRoot], {
+  const output = execFileSync("git", ["ls-tree", "-r", "-z", ref, "--", pluginRelativeRoot], {
     cwd: repositoryRoot,
     encoding: "buffer",
     stdio: ["ignore", "pipe", "pipe"]
@@ -164,9 +187,19 @@ const hashPreviousDistribution = (ref) => {
     .toString("utf8")
     .split("\0")
     .filter(Boolean)
-    .filter((filePath) => filePath !== `${pluginRelativeRoot}/release.json`)
-    .map((filePath) => ({
-      relativePath: filePath.slice(`${pluginRelativeRoot}/`.length),
+    .map((record) => {
+      const { mode, type, filePath } = parseGitTreeRecord(ref, record);
+      const relativePath = filePath.startsWith(`${pluginRelativeRoot}/`)
+        ? filePath.slice(`${pluginRelativeRoot}/`.length)
+        : filePath;
+      if ((mode !== "100644" && mode !== "100755") || type !== "blob") {
+        fail(`Previous ref ${JSON.stringify(ref)} has unsupported plugin entry ${JSON.stringify(relativePath)}: git mode ${mode} / type ${type}.`);
+      }
+      return { relativePath, filePath };
+    })
+    .filter(({ relativePath }) => relativePath !== "release.json")
+    .map(({ relativePath, filePath }) => ({
+      relativePath,
       content: execFileSync("git", ["show", `${ref}:${filePath}`], { cwd: repositoryRoot, encoding: "buffer" })
     }));
   if (files.length === 0) {
@@ -205,57 +238,28 @@ const assertMetadata = async () => {
     `${pathToFileURL(path.join(pluginRoot, "runtime", "mcp", "src", "runtime-identity.js")).href}?release-check=${Date.now()}`
   );
   const runtimeIdentity = runtimeIdentityModule.resolveRuntimeIdentity("json-only");
-  const hasVerifiedBuildCommit =
-    runtimeIdentity?.sourceTreeState === "clean" &&
-    isReusableCleanBuildCommit({ repositoryRoot, buildCommit: runtimeIdentity?.buildCommit });
-  const hasNoBuildCommit =
-    (runtimeIdentity?.sourceTreeState === "dirty" || runtimeIdentity?.sourceTreeState === "unavailable") &&
-    runtimeIdentity?.buildCommit === null;
   const runtimePayloadDigest = await hashWorkingTree(
     path.join(pluginRoot, "runtime"),
     (relativePath) => relativePath !== "mcp/src/runtime-identity.js"
   );
-  if (!hasVerifiedBuildCommit && runtimeIdentity?.sourceTreeState === "clean") {
-    fail("Runtime identity buildCommit must be HEAD or an ancestor separated from HEAD only by generated provenance files when sourceTreeState is clean.");
-  }
-  if (
-    runtimeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
-    runtimeIdentity?.runtimeProfile !== "json-only" ||
-    runtimeIdentity?.artifactKind !== "plugin" ||
-    runtimeIdentity?.pluginVersion !== manifest.version ||
-    (!hasVerifiedBuildCommit && !hasNoBuildCommit) ||
-    runtimeIdentity?.artifactDigest !== null ||
-    runtimeIdentity?.runtimePayloadDigest !== runtimePayloadDigest ||
-    release.runtimeIdentity?.runtimePackageVersion !== runtimeIdentity.runtimePackageVersion ||
-    release.runtimeIdentity?.runtimeProfile !== runtimeIdentity.runtimeProfile ||
-    release.runtimeIdentity?.pluginVersion !== runtimeIdentity.pluginVersion ||
-    release.runtimeIdentity?.sourceTreeState !== runtimeIdentity.sourceTreeState ||
-    release.runtimeIdentity?.buildCommit !== runtimeIdentity.buildCommit ||
-    release.runtimeIdentity?.artifactDigest !== null ||
-    release.runtimeIdentity?.runtimePayloadDigest !== runtimeIdentity.runtimePayloadDigest ||
-    release.runtimeIdentity?.runtimePayloadCoverage !==
-      "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
-  ) {
+  if (!hasValidPluginRuntimeIdentity({
+    runtimeIdentity,
+    releaseIdentity: release.runtimeIdentity,
+    pluginVersion: manifest.version,
+    runtimePayloadDigest
+  })) {
     fail("Runtime identity does not match the generated JSON-only plugin runtime and manifest.");
-  }
-  if (
-    release.content?.algorithm !== "sha256" ||
-    !/^[a-f0-9]{64}$/.test(release.content?.pluginDistributionSha256 ?? "") ||
-    !/^[a-f0-9]{64}$/.test(release.content?.runtimeSha256 ?? "") ||
-    release.content?.pluginDistributionCoverage !== "All regular files under plugins/routeledger, excluding release.json." ||
-    release.content?.runtimeCoverage !== "All regular files under plugins/routeledger/runtime."
-  ) {
-    fail("Release metadata hash contract is missing or invalid.");
   }
   const [pluginDistributionSha256, runtimeSha256] = await Promise.all([
     hashWorkingTree(pluginRoot, (relativePath) => relativePath !== "release.json"),
     hashWorkingTree(path.join(pluginRoot, "runtime"))
   ]);
-  if (release.content.pluginDistributionSha256 !== pluginDistributionSha256) {
-    fail("Release metadata pluginDistributionSha256 does not match the current distribution bytes.");
-  }
-  if (release.content.runtimeSha256 !== runtimeSha256) {
-    fail("Release metadata runtimeSha256 does not match the current runtime bytes.");
+  if (!hasValidReleaseContentHashes({
+    releaseContent: release.content,
+    pluginDistributionSha256,
+    runtimeSha256
+  })) {
+    fail("Release metadata hashes do not match the generated plugin distribution and runtime bytes.");
   }
   return { manifest, pluginDistributionSha256 };
 };
@@ -286,14 +290,14 @@ const main = async () => {
     fail(`Tag must be ${JSON.stringify(expectedTag)} for plugin version ${manifest.version}; received ${JSON.stringify(tag)}.`);
   }
   if (options.previousRef) {
-    const previousRootType = previousPluginRootType(options.previousRef);
-    if (previousRootType === null) {
+    const previousRootEntry = previousPluginRootEntry(options.previousRef);
+    if (previousRootEntry === null) {
       console.log(
         `Codex plugin release check: ${options.previousRef} has no ${pluginRelativeRoot}; treating this as the initial plugin release.`
       );
     } else {
-      if (previousRootType !== "tree") {
-        fail(`Previous ref ${JSON.stringify(options.previousRef)} has a non-directory plugin root (${previousRootType}).`);
+      if (previousRootEntry.mode !== "040000" || previousRootEntry.type !== "tree") {
+        fail(`Previous ref ${JSON.stringify(options.previousRef)} has unsupported plugin entry ${JSON.stringify(pluginRelativeRoot)}: git mode ${previousRootEntry.mode} / type ${previousRootEntry.type}.`);
       }
       const previousVersion = readPreviousVersion(options.previousRef);
       const comparison = compareSemver(manifest.version, previousVersion);

@@ -6,7 +6,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { resolveRuntimeBuildProvenance } from "./runtime-build-provenance.mjs";
+import { PROVENANCE_GENERATED_PATHS, resolveRuntimeBuildProvenance } from "./runtime-build-provenance.mjs";
+import { collectRegularFiles } from "./regular-file-tree.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const routeledgerRoot = path.resolve(scriptDir, "..");
@@ -17,26 +18,9 @@ const bundledRuntime = path.join(pluginRoot, "runtime");
 const releaseMetadataPath = path.join(pluginRoot, "release.json");
 const buildMcpPackagePath = path.join(routeledgerRoot, "packages", "mcp", "scripts", "build-package.mjs");
 
-const toPortablePath = (filePath) => filePath.split(path.sep).join("/");
-
-const collectRelativeFiles = async (directory, relativeDirectory = "") => {
-  const entries = await fs.readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const relativePath = path.posix.join(relativeDirectory, entry.name);
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await collectRelativeFiles(entryPath, relativePath)));
-    } else if (entry.isFile()) {
-      files.push({ absolutePath: entryPath, relativePath: toPortablePath(relativePath) });
-    }
-  }
-  return files;
-};
-
 const hashFileSet = async (root, shouldInclude = () => true) => {
   const hash = createHash("sha256");
-  const files = (await collectRelativeFiles(root)).filter(({ relativePath }) => shouldInclude(relativePath));
+  const files = (await collectRegularFiles(root)).filter(({ relativePath }) => shouldInclude(relativePath));
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en"));
   for (const { absolutePath, relativePath } of files) {
     const content = await fs.readFile(absolutePath);
@@ -124,21 +108,8 @@ const writeReleaseMetadata = async (runtimeIdentity, buildProvenance) => {
   await fs.writeFile(releaseMetadataPath, `${JSON.stringify(releaseMetadata, null, 2)}\n`, "utf8");
 };
 
-const collectFiles = async (directory) => {
-  const entries = await fs.readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await collectFiles(entryPath)));
-    } else if (entry.isFile()) {
-      files.push(entryPath);
-    }
-  }
-  return files;
-};
-
 const assertPortableRuntime = async (runtimeRoot) => {
+  const runtimeFiles = await collectRegularFiles(runtimeRoot);
   const packagePath = path.join(runtimeRoot, "package.json");
   const runtimePackage = JSON.parse(await fs.readFile(packagePath, "utf8"));
   if (
@@ -169,8 +140,7 @@ const assertPortableRuntime = async (runtimeRoot) => {
   }
 
   const nativeReference = Buffer.from("better-sqlite3");
-  for (const filePath of await collectFiles(runtimeRoot)) {
-    const relativePath = path.relative(runtimeRoot, filePath);
+  for (const { absolutePath: filePath, relativePath } of runtimeFiles) {
     if (relativePath === "README.md") {
       continue;
     }
@@ -209,7 +179,11 @@ const synchronizeRuntime = async () => {
 };
 
 const main = async () => {
-  const buildProvenance = resolveRuntimeBuildProvenance({ repositoryRoot });
+  const buildProvenance = resolveRuntimeBuildProvenance({
+    repositoryRoot,
+    ignoredChangedPaths: PROVENANCE_GENERATED_PATHS,
+    includeHeadCommit: false
+  });
   execFileSync(process.execPath, [buildMcpPackagePath, "--profile", "json-only"], {
     cwd: routeledgerRoot,
     stdio: "inherit"

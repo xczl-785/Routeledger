@@ -1,7 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { Buffer } from "node:buffer";
-import fs from "node:fs";
-import path from "node:path";
 
 export const SOURCE_TREE_STATES = ["clean", "dirty", "unavailable"];
 export const PROVENANCE_GENERATED_PATHS = [
@@ -25,72 +23,32 @@ const runGitRaw = ({ repositoryRoot, execFile, args }) => {
   return Buffer.isBuffer(output) ? output : Buffer.from(output, "utf8");
 };
 
-const parseRuntimeIdentityProvenance = (source) => {
-  const match = /sourceTreeState:\s*("(?:clean|dirty|unavailable)"),\s*buildCommit:\s*(null|"[0-9a-fA-F]+")/.exec(source);
-  if (!match) return null;
-  return { sourceTreeState: JSON.parse(match[1]), buildCommit: JSON.parse(match[2]) };
-};
-
-/** Read the paired generated records; partial or disagreeing records are not reusable. */
-export const readRecordedPluginBuildProvenance = ({ repositoryRoot }) => {
-  try {
-    const pluginRoot = path.join(repositoryRoot, "plugins", "routeledger");
-    const release = JSON.parse(fs.readFileSync(path.join(pluginRoot, "release.json"), "utf8"));
-    const runtimeIdentity = parseRuntimeIdentityProvenance(
-      fs.readFileSync(path.join(pluginRoot, "runtime", "mcp", "src", "runtime-identity.js"), "utf8")
-    );
-    const releaseIdentity = release.runtimeIdentity;
-    if (
-      runtimeIdentity === null ||
-      releaseIdentity?.sourceTreeState !== "clean" ||
-      typeof releaseIdentity.buildCommit !== "string" ||
-      runtimeIdentity.sourceTreeState !== releaseIdentity.sourceTreeState ||
-      runtimeIdentity.buildCommit !== releaseIdentity.buildCommit
-    ) {
-      return null;
-    }
-    return runtimeIdentity;
-  } catch {
-    return null;
-  }
-};
-
-export const isResolvableCommit = ({ repositoryRoot, commit, execFile = execFileSync }) => {
-  if (typeof commit !== "string" || commit.length === 0) return false;
-  try {
-    runGit({ repositoryRoot, execFile, args: ["rev-parse", "--verify", "--end-of-options", `${commit}^{commit}`] });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /**
- * A generated release commit may carry the source commit that produced it,
- * only when every intervening tracked path is itself generated provenance.
+ * Return whether the working tree contains source changes. `git status -z`
+ * preserves whitespace and newline pathnames; malformed records fail closed.
  */
-export const isReusableCleanBuildCommit = ({
-  repositoryRoot,
-  buildCommit,
-  headCommit,
-  execFile = execFileSync
-}) => {
-  if (!isResolvableCommit({ repositoryRoot, commit: buildCommit, execFile })) return false;
-  try {
-    const head = headCommit ?? runGit({ repositoryRoot, execFile, args: ["rev-parse", "HEAD"] });
-    runGit({ repositoryRoot, execFile, args: ["merge-base", "--is-ancestor", buildCommit, head] });
-    const changedPaths = runGitRaw({
-      repositoryRoot,
-      execFile,
-      args: ["diff", "--name-only", "-z", `${buildCommit}..${head}`]
-    })
-      .toString("utf8")
-      .split("\0")
-      .filter(Boolean);
-    return changedPaths.every((changedPath) => PROVENANCE_GENERATED_PATHS.includes(changedPath));
-  } catch {
-    return false;
+const hasSourceChanges = ({ repositoryRoot, execFile, ignoredChangedPaths }) => {
+  const records = runGitRaw({
+    repositoryRoot,
+    execFile,
+    args: ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=no"]
+  })
+    .toString("utf8")
+    .split("\0");
+  const ignored = new Set(ignoredChangedPaths);
+
+  for (let index = 0; index < records.length - 1; index += 1) {
+    const record = records[index];
+    if (record.length < 4 || record[2] !== " ") return true;
+    const status = record.slice(0, 2);
+    const pathname = record.slice(3);
+    const renamedOrCopied = status[0] === "R" || status[0] === "C" || status[1] === "R" || status[1] === "C";
+    const originalPathname = renamedOrCopied ? records[++index] : null;
+    if ((originalPathname === null && !ignored.has(pathname)) || (originalPathname !== null && (!ignored.has(pathname) || !ignored.has(originalPathname)))) {
+      return true;
+    }
   }
+  return false;
 };
 
 /**
@@ -101,15 +59,13 @@ export const isReusableCleanBuildCommit = ({
 export const resolveRuntimeBuildProvenance = ({
   repositoryRoot,
   execFile = execFileSync,
-  recordedProvenance = readRecordedPluginBuildProvenance({ repositoryRoot })
+  /** Generated paths excluded only when determining plugin source-tree state. */
+  ignoredChangedPaths = [],
+  /** Plugin provenance is content-addressed and must not claim a mutable Git commit. */
+  includeHeadCommit = true
 }) => {
   try {
-    const status = runGit({
-      repositoryRoot,
-      execFile,
-      args: ["status", "--porcelain=v1", "--untracked-files=normal", "--ignored=no"]
-    });
-    if (status.length > 0) {
+    if (hasSourceChanges({ repositoryRoot, execFile, ignoredChangedPaths })) {
       return { sourceTreeState: "dirty", buildCommit: null };
     }
 
@@ -117,17 +73,10 @@ export const resolveRuntimeBuildProvenance = ({
     if (headCommit.length === 0) {
       return { sourceTreeState: "unavailable", buildCommit: null };
     }
-    const reusableBuildCommit =
-      recordedProvenance?.sourceTreeState === "clean" &&
-      isReusableCleanBuildCommit({
-        repositoryRoot,
-        buildCommit: recordedProvenance.buildCommit,
-        headCommit,
-        execFile
-      })
-        ? recordedProvenance.buildCommit
-        : null;
-    return { sourceTreeState: "clean", buildCommit: reusableBuildCommit ?? headCommit };
+    if (!includeHeadCommit) {
+      return { sourceTreeState: "clean", buildCommit: null };
+    }
+    return { sourceTreeState: "clean", buildCommit: headCommit };
   } catch {
     return { sourceTreeState: "unavailable", buildCommit: null };
   }

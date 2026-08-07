@@ -1,44 +1,113 @@
+/* global process */
+
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { isResolvableCommit } from "../check-codex-plugin-release.mjs";
-import { isReusableCleanBuildCommit } from "../runtime-build-provenance.mjs";
+import {
+  hasValidPluginRuntimeIdentity,
+  hasValidReleaseContentHashes
+} from "../check-codex-plugin-release.mjs";
+import { collectRegularFiles } from "../regular-file-tree.mjs";
 
-const run = (command, args, cwd) => execFileSync(command, args, { cwd, encoding: "utf8" }).trim();
+const digest = "a".repeat(64);
+const distributionDigest = "b".repeat(64);
+const runtimeDigest = "c".repeat(64);
+const identity = {
+  runtimePackageVersion: "0.0.0-package-prep",
+  runtimeProfile: "json-only",
+  artifactKind: "plugin",
+  pluginVersion: "0.3.5",
+  sourceTreeState: "clean",
+  buildCommit: null,
+  artifactDigest: null,
+  runtimePayloadDigest: digest
+};
+const releaseIdentity = {
+  ...identity,
+  runtimePayloadCoverage: "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
+};
+const content = {
+  algorithm: "sha256",
+  pluginDistributionSha256: distributionDigest,
+  runtimeSha256: runtimeDigest,
+  pluginDistributionCoverage: "All regular files under plugins/routeledger, excluding release.json.",
+  runtimeCoverage: "All regular files under plugins/routeledger/runtime."
+};
 
-const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release-check-"));
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), true);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, buildCommit: "f".repeat(40) }, releaseIdentity, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, buildCommit: "f".repeat(40) }, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, runtimePayloadDigest: "d".repeat(64) }, releaseIdentity, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, runtimePayloadDigest: "d".repeat(64) }, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidReleaseContentHashes({ releaseContent: content, pluginDistributionSha256: distributionDigest, runtimeSha256: runtimeDigest }), true);
+assert.equal(hasValidReleaseContentHashes({ releaseContent: { ...content, runtimeSha256: "d".repeat(64) }, pluginDistributionSha256: distributionDigest, runtimeSha256: runtimeDigest }), false);
+
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(scriptDirectory, "..", "..");
+const checkerPath = path.join("scripts", "check-codex-plugin-release.mjs");
+const run = (command, args, cwd, options = {}) =>
+  spawnSync(command, args, { cwd, encoding: "utf8", ...options });
+const runOrThrow = (command, args, cwd, options = {}) => {
+  const result = run(command, args, cwd, options);
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+  }
+  return result.stdout;
+};
+const assertFailure = (command, args, cwd, expected) => {
+  const result = run(command, args, cwd);
+  assert.notEqual(result.status, 0, `${command} ${args.join(" ")} unexpectedly passed.`);
+  assert.match(`${result.stderr}${result.stdout}`, expected);
+};
+
+const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release-check-symlink-"));
 try {
-  run("git", ["init", "--quiet"], repositoryRoot);
-  run("git", ["config", "user.email", "release-check@example.test"], repositoryRoot);
-  run("git", ["config", "user.name", "Release Check"], repositoryRoot);
-  await fs.writeFile(path.join(repositoryRoot, "fixture.txt"), "fixture\n", "utf8");
-  run("git", ["add", "fixture.txt"], repositoryRoot);
-  run("git", ["commit", "--quiet", "-m", "fixture"], repositoryRoot);
-  const commit = run("git", ["rev-parse", "HEAD"], repositoryRoot);
-  const tree = run("git", ["rev-parse", "HEAD^{tree}"], repositoryRoot);
-  const blob = run("git", ["rev-parse", "HEAD:fixture.txt"], repositoryRoot);
+  runOrThrow("git", ["clone", "--shared", repositoryRoot, fixtureRoot], repositoryRoot);
+  const patch = execFileSync("git", ["diff", "--binary"], { cwd: repositoryRoot, encoding: "buffer" });
+  runOrThrow("git", ["apply", "--whitespace=nowarn"], fixtureRoot, { input: patch });
+  await fs.copyFile(
+    path.join(repositoryRoot, "scripts", "regular-file-tree.mjs"),
+    path.join(fixtureRoot, "scripts", "regular-file-tree.mjs")
+  );
+  runOrThrow(process.execPath, [checkerPath], fixtureRoot);
 
-  assert.equal(isResolvableCommit(repositoryRoot, commit), true);
-  assert.equal(isResolvableCommit(repositoryRoot, tree), false);
-  assert.equal(isResolvableCommit(repositoryRoot, blob), false);
-  assert.equal(isResolvableCommit(repositoryRoot, "does-not-exist"), false);
-  assert.equal(isResolvableCommit(repositoryRoot, null), false);
+  const pluginRoot = path.join(fixtureRoot, "plugins", "routeledger");
+  const runtimeRoot = path.join(pluginRoot, "runtime");
+  const trySymlink = async (relativePath) => {
+    try {
+      await fs.symlink(path.join(runtimeRoot, "package.json"), path.join(pluginRoot, relativePath), "file");
+      return true;
+    } catch (error) {
+      if (["EPERM", "EACCES", "ENOTSUP"].includes(error?.code)) return false;
+      throw error;
+    }
+  };
 
-  await fs.mkdir(path.join(repositoryRoot, "plugins", "routeledger"), { recursive: true });
-  await fs.writeFile(path.join(repositoryRoot, "plugins", "routeledger", "release.json"), "{}\n", "utf8");
-  run("git", ["add", "plugins/routeledger/release.json"], repositoryRoot);
-  run("git", ["commit", "--quiet", "-m", "generated release metadata"], repositoryRoot);
-  const generatedHead = run("git", ["rev-parse", "HEAD"], repositoryRoot);
-  assert.equal(isReusableCleanBuildCommit({ repositoryRoot, buildCommit: commit, headCommit: generatedHead }), true);
+  if (await trySymlink(path.join("runtime", "runtime-check-link.js"))) {
+    assertFailure(process.execPath, [checkerPath], fixtureRoot, /runtime-check-link\.js": symbolic link/);
+    await fs.rm(path.join(runtimeRoot, "runtime-check-link.js"));
+  }
+  if (await trySymlink(path.join("skills", "plugin-check-link"))) {
+    assertFailure(process.execPath, [checkerPath], fixtureRoot, /skills\/plugin-check-link": symbolic link/);
+    await assert.rejects(() => collectRegularFiles(pluginRoot), /skills\/plugin-check-link": symbolic link/);
+    await fs.rm(path.join(pluginRoot, "skills", "plugin-check-link"));
+  }
 
-  await fs.writeFile(path.join(repositoryRoot, "fixture.txt"), "changed source\n", "utf8");
-  run("git", ["add", "fixture.txt"], repositoryRoot);
-  run("git", ["commit", "--quiet", "-m", "source change"], repositoryRoot);
-  assert.equal(isReusableCleanBuildCommit({ repositoryRoot, buildCommit: commit }), false);
-  assert.equal(isReusableCleanBuildCommit({ repositoryRoot, buildCommit: "does-not-exist" }), false);
+  runOrThrow("git", ["config", "user.email", "release-check@example.test"], fixtureRoot);
+  runOrThrow("git", ["config", "user.name", "Release Check"], fixtureRoot);
+  runOrThrow("git", ["add", "."], fixtureRoot);
+  runOrThrow("git", ["commit", "--quiet", "-m", "valid plugin fixture"], fixtureRoot);
+  const baseline = runOrThrow("git", ["rev-parse", "HEAD"], fixtureRoot).trim();
+  const linkBlob = runOrThrow("git", ["hash-object", "-w", "--stdin"], fixtureRoot, { input: "runtime/package.json\n" }).trim();
+  runOrThrow("git", ["update-index", "--add", "--cacheinfo", `120000,${linkBlob},plugins/routeledger/previous-check-link`], fixtureRoot);
+  runOrThrow("git", ["commit", "--quiet", "-m", "previous plugin symlink"], fixtureRoot);
+  runOrThrow("git", ["branch", "symlink-previous"], fixtureRoot);
+  runOrThrow("git", ["checkout", "--quiet", "--detach", baseline], fixtureRoot);
+  assertFailure(process.execPath, [checkerPath, "--previous-ref", "symlink-previous"], fixtureRoot, /previous-check-link": git mode 120000 \/ type blob/);
 } finally {
-  await fs.rm(repositoryRoot, { recursive: true, force: true });
+  await fs.rm(fixtureRoot, { recursive: true, force: true });
 }

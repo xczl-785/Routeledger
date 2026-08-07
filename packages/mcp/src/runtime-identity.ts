@@ -14,6 +14,11 @@ export interface RuntimeIdentity {
   artifactKind: RouteLedgerRuntimeArtifactKind;
   pluginVersion: string | null;
   sourceTreeState: RuntimeSourceTreeState;
+  /**
+   * Source/package artifacts may report the clean Git HEAD that built them.
+   * Plugin artifacts always use null: squash/rebase makes branch commit IDs
+   * non-authoritative, so their identity is content-addressed instead.
+   */
   buildCommit: string | null;
   /**
    * Reserved for an externally supplied immutable artifact digest. It is null
@@ -21,8 +26,9 @@ export interface RuntimeIdentity {
    */
   artifactDigest: string | null;
   /**
-   * SHA-256 of runtime files excluding this generated identity module. This
-   * stays stable when the digest itself is injected into this module.
+   * SHA-256 of the actual built runtime files, excluding this generated
+   * identity module. This is the authoritative identity for plugin runtime
+   * payload bytes and stays stable when the digest itself is injected.
    */
   runtimePayloadDigest: string | null;
 }

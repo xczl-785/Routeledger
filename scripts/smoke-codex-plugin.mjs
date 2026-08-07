@@ -241,8 +241,7 @@ const runPluginStdioSmoke = async () => {
       initializeIdentity?.artifactKind !== "plugin" ||
       initializeIdentity?.pluginVersion !== manifest.version ||
       !["clean", "dirty", "unavailable"].includes(initializeIdentity?.sourceTreeState) ||
-      (initializeIdentity?.sourceTreeState === "clean" && typeof initializeIdentity?.buildCommit !== "string") ||
-      (initializeIdentity?.sourceTreeState !== "clean" && initializeIdentity?.buildCommit !== null) ||
+      initializeIdentity?.buildCommit !== null ||
       typeof initializeIdentity?.runtimePayloadDigest !== "string"
     ) {
       throw new Error("Bundled runtime initialize did not expose the plugin artifact identity.");

@@ -5,196 +5,110 @@ import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
-import { resolveRuntimeBuildProvenance } from "../../../../scripts/runtime-build-provenance.mjs";
+import {
+  PROVENANCE_GENERATED_PATHS,
+  resolveRuntimeBuildProvenance
+} from "../../../../scripts/runtime-build-provenance.mjs";
 
 const createGitRepository = (): string => {
   const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-build-provenance-"));
   fs.mkdirSync(path.join(repositoryRoot, "source"));
-  fs.writeFileSync(path.join(repositoryRoot, ".gitignore"), "dist/\n", "utf8");
   fs.writeFileSync(path.join(repositoryRoot, "source", "tracked.ts"), "export {};\n", "utf8");
   execFileSync("git", ["init"], { cwd: repositoryRoot, stdio: "ignore" });
-  execFileSync("git", ["config", "user.email", "test@example.invalid"], {
-    cwd: repositoryRoot,
-    stdio: "ignore"
-  });
-  execFileSync("git", ["config", "user.name", "RouteLedger Test"], {
-    cwd: repositoryRoot,
-    stdio: "ignore"
-  });
+  execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd: repositoryRoot, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "RouteLedger Test"], { cwd: repositoryRoot, stdio: "ignore" });
   execFileSync("git", ["add", "."], { cwd: repositoryRoot, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", "fixture"], { cwd: repositoryRoot, stdio: "ignore" });
   return repositoryRoot;
 };
 
-const commitAll = (repositoryRoot: string, message: string): string => {
+const headCommit = (repositoryRoot: string): string =>
+  execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
+
+const commitAll = (repositoryRoot: string, message: string): void => {
   execFileSync("git", ["add", "."], { cwd: repositoryRoot, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", message], { cwd: repositoryRoot, stdio: "ignore" });
-  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
 };
 
-const writeRecordedPluginProvenance = (repositoryRoot: string, buildCommit: string): void => {
-  const pluginRoot = path.join(repositoryRoot, "plugins", "routeledger");
-  fs.mkdirSync(path.join(pluginRoot, "runtime", "mcp", "src"), { recursive: true });
-  fs.writeFileSync(
-    path.join(pluginRoot, "runtime", "mcp", "src", "runtime-identity.js"),
-    `export const resolveRuntimeIdentity = () => ({\n  sourceTreeState: "clean",\n  buildCommit: ${JSON.stringify(buildCommit)}\n});\n`,
-    "utf8"
-  );
-  fs.writeFileSync(
-    path.join(pluginRoot, "release.json"),
-    `${JSON.stringify({ runtimeIdentity: { sourceTreeState: "clean", buildCommit } }, null, 2)}\n`,
-    "utf8"
-  );
+const writeGeneratedPluginProvenance = (repositoryRoot: string, content = "generated\n"): void => {
+  for (const relativePath of PROVENANCE_GENERATED_PATHS) {
+    const target = path.join(repositoryRoot, relativePath);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${relativePath}:${content}`, "utf8");
+  }
 };
 
 describe("resolveRuntimeBuildProvenance", () => {
-  it("keeps HEAD only for a clean tree", () => {
+  it("reports the clean HEAD commit for a standalone package artifact", () => {
     const repositoryRoot = createGitRepository();
     try {
-      fs.mkdirSync(path.join(repositoryRoot, "dist"));
-      fs.writeFileSync(path.join(repositoryRoot, "dist", "generated.js"), "generated\n", "utf8");
       expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
         sourceTreeState: "clean",
-        buildCommit: execFileSync("git", ["rev-parse", "HEAD"], {
-          cwd: repositoryRoot,
-          encoding: "utf8"
-        }).trim()
+        buildCommit: headCommit(repositoryRoot)
       });
     } finally {
       fs.rmSync(repositoryRoot, { recursive: true, force: true });
     }
   });
 
-  it("marks tracked or non-ignored untracked changes dirty without reading HEAD", () => {
+  it("reports a clean content-addressed plugin build with no commit claim", () => {
     const repositoryRoot = createGitRepository();
     try {
-      fs.writeFileSync(path.join(repositoryRoot, "source", "new-file.ts"), "export {};\n", "utf8");
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
-        sourceTreeState: "dirty",
-        buildCommit: null
-      });
+      expect(
+        resolveRuntimeBuildProvenance({
+          repositoryRoot,
+          ignoredChangedPaths: PROVENANCE_GENERATED_PATHS,
+          includeHeadCommit: false
+        })
+      ).toEqual({ sourceTreeState: "clean", buildCommit: null });
     } finally {
       fs.rmSync(repositoryRoot, { recursive: true, force: true });
     }
   });
 
-  it("marks a tracked source modification dirty", () => {
+  it("keeps a second plugin build clean when only its generated provenance changes", () => {
     const repositoryRoot = createGitRepository();
     try {
-      fs.appendFileSync(path.join(repositoryRoot, "source", "tracked.ts"), "export const changed = true;\n");
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
-        sourceTreeState: "dirty",
-        buildCommit: null
-      });
-    } finally {
-      fs.rmSync(repositoryRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("reuses a clean source commit across a generated-only release commit, keeping consecutive builds stable", () => {
-    const repositoryRoot = createGitRepository();
-    try {
-      const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
-      writeRecordedPluginProvenance(repositoryRoot, sourceCommit);
-      commitAll(repositoryRoot, "generated provenance");
-
-      const expected = {
-        sourceTreeState: "clean",
-        buildCommit: sourceCommit
+      writeGeneratedPluginProvenance(repositoryRoot, "first\n");
+      commitAll(repositoryRoot, "generated plugin provenance");
+      writeGeneratedPluginProvenance(repositoryRoot, "second\n");
+      const options = {
+        repositoryRoot,
+        ignoredChangedPaths: PROVENANCE_GENERATED_PATHS,
+        includeHeadCommit: false
       };
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual(expected);
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual(expected);
+      expect(resolveRuntimeBuildProvenance(options)).toEqual({ sourceTreeState: "clean", buildCommit: null });
+      expect(resolveRuntimeBuildProvenance(options)).toEqual({ sourceTreeState: "clean", buildCommit: null });
     } finally {
       fs.rmSync(repositoryRoot, { recursive: true, force: true });
     }
   });
 
-  it("does not reuse recorded provenance after source changes", () => {
-    const repositoryRoot = createGitRepository();
-    try {
-      const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
-      writeRecordedPluginProvenance(repositoryRoot, sourceCommit);
-      commitAll(repositoryRoot, "generated provenance");
-      fs.writeFileSync(path.join(repositoryRoot, "source", "tracked.ts"), "export const changed = true;\n", "utf8");
-      const sourceChangeCommit = commitAll(repositoryRoot, "source change");
-
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
-        sourceTreeState: "clean",
-        buildCommit: sourceChangeCommit
-      });
-    } finally {
-      fs.rmSync(repositoryRoot, { recursive: true, force: true });
-    }
-  });
-
-  it.each([" leading-source.ts", "\nnewline-source.ts"])(
-    "does not reuse recorded provenance when a changed pathname begins with whitespace: %j",
+  it.each(["source/new-file.ts", " leading-source.ts", "\nnewline-source.ts"])(
+    "marks source changes dirty without pathname parsing exceptions: %j",
     (sourcePath) => {
       const repositoryRoot = createGitRepository();
       try {
-        fs.writeFileSync(path.join(repositoryRoot, sourcePath), "before\n", "utf8");
-        const sourceCommit = commitAll(repositoryRoot, "source pathname fixture");
-        writeRecordedPluginProvenance(repositoryRoot, sourceCommit);
-        commitAll(repositoryRoot, "generated provenance");
-        fs.writeFileSync(path.join(repositoryRoot, sourcePath), "after\n", "utf8");
-        const sourceChangeCommit = commitAll(repositoryRoot, "source pathname change");
-
-        expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
-          sourceTreeState: "clean",
-          buildCommit: sourceChangeCommit
-        });
+        fs.mkdirSync(path.dirname(path.join(repositoryRoot, sourcePath)), { recursive: true });
+        fs.writeFileSync(path.join(repositoryRoot, sourcePath), "export {};\n", "utf8");
+        expect(
+          resolveRuntimeBuildProvenance({
+            repositoryRoot,
+            ignoredChangedPaths: PROVENANCE_GENERATED_PATHS,
+            includeHeadCommit: false
+          })
+        ).toEqual({ sourceTreeState: "dirty", buildCommit: null });
       } finally {
         fs.rmSync(repositoryRoot, { recursive: true, force: true });
       }
     }
   );
 
-  it("does not reuse non-ancestor or nonexistent recorded commits", () => {
-    const repositoryRoot = createGitRepository();
-    try {
-      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
-      expect(
-        resolveRuntimeBuildProvenance({
-          repositoryRoot,
-          recordedProvenance: { sourceTreeState: "clean", buildCommit: "does-not-exist" }
-        })
-      ).toEqual({ sourceTreeState: "clean", buildCommit: head });
-
-      execFileSync("git", ["checkout", "--quiet", "-b", "unrelated"], { cwd: repositoryRoot });
-      fs.writeFileSync(path.join(repositoryRoot, "source", "unrelated.ts"), "export {};\n", "utf8");
-      const unrelatedCommit = commitAll(repositoryRoot, "unrelated commit");
-      execFileSync("git", ["checkout", "--quiet", head], { cwd: repositoryRoot });
-      expect(
-        resolveRuntimeBuildProvenance({
-          repositoryRoot,
-          recordedProvenance: { sourceTreeState: "clean", buildCommit: unrelatedCommit }
-        })
-      ).toEqual({ sourceTreeState: "clean", buildCommit: head });
-    } finally {
-      fs.rmSync(repositoryRoot, { recursive: true, force: true });
-    }
-  });
-
   it("reports unavailable for an unborn Git repository", () => {
     const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-build-provenance-unborn-"));
     try {
       execFileSync("git", ["init"], { cwd: repositoryRoot, stdio: "ignore" });
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
-        sourceTreeState: "unavailable",
-        buildCommit: null
-      });
-    } finally {
-      fs.rmSync(repositoryRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("reports unavailable when git metadata cannot be read", () => {
-    const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-build-provenance-unavailable-"));
-    try {
-      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({
-        sourceTreeState: "unavailable",
-        buildCommit: null
-      });
+      expect(resolveRuntimeBuildProvenance({ repositoryRoot })).toEqual({ sourceTreeState: "unavailable", buildCommit: null });
     } finally {
       fs.rmSync(repositoryRoot, { recursive: true, force: true });
     }
