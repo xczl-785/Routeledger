@@ -363,6 +363,11 @@ const summarizeConstraintForAgent = (constraint: Constraint) => ({
   retireNote: constraint.retireNote
 });
 
+/**
+ * @deprecated Legacy Undo tool names. Hidden from agent-facing tools/list
+ *   and kept only for direct-invoke compatibility with pre-existing Undo
+ *   records. Prefer Todo / Deferred / Constraint for all new work.
+ */
 const LEGACY_HIDDEN_TOOL_NAMES = [
   "create_undo",
   "reassign_undo",
@@ -2898,6 +2903,15 @@ export const createRouteLedgerMcpRegistry = (
         }
       )
     ),
+    /**
+     * @deprecated Legacy Undo tool family. These tools are hidden from
+     *   agent-facing tools/list via visibility "legacy-hidden" and exist only
+     *   for direct-invoke compatibility with pre-existing
+     *   .routeledger/undos/ documents and their carry-forward/closeout
+     *   semantics. New work must use Todo, Deferred, or Constraint tools;
+     *   resolve_undo_as_downstream_input and carry_forward_undo are retained
+     *   solely to keep historical version-closeout routes auditable.
+     */
     defineTool(
       "create_undo",
       { what: "Create a legacy Undo record.", parameter: "origin and preferred resolution versions" },
