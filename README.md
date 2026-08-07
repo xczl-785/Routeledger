@@ -58,7 +58,7 @@ your-project/
 
 ## 快速开始（安装 Codex 插件）
 
-当前推荐通过 Codex 插件使用 RouteLedger。以下命令安装当前稳定版 0.3.3（发布在 `codex-marketplace` 分支；从 0.3.4 起 `main` 为发布分支，0.3.5 仍为候选版本）：
+当前推荐通过 Codex 插件使用 RouteLedger。以下命令安装当前稳定版 0.3.3（`codex-marketplace` 是 0.3.3 的历史锚点分支；从 0.3.4 起 `main` 是唯一发布干线，0.3.5 仍为候选版本）：
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref codex-marketplace --json
@@ -136,6 +136,7 @@ pnpm smoke:codex-git-marketplace
 
 ## 当前状态与边界
 
+- 发布干线：`main` 是唯一发布干线，`codex-marketplace` 保留为 0.3.3 历史锚点；Codex 插件与未来的 MCP / npm 包各自使用独立版本号和标签；
 - 安装：当前只通过 Codex 插件（Git marketplace）分发；稳定版为 0.3.3，0.3.5 是 release candidate，位于 `main` 分支；
 - npm：`@routeledger/mcp` 等包正在支持中（coming soon），暂不提供 npm 安装；
 - 数据：JSON-first，SQLite 仅为查询缓存；
@@ -149,6 +150,7 @@ pnpm smoke:codex-git-marketplace
 - [Agent-host integration](docs/guides/agent-host-integration.md) — MCP 单绑定运行时契约
 - [Codex plugin installation](docs/guides/codex-plugin-installation.md) — 插件安装与运行边界
 - [Release policy](docs/release/release-policy.md) 与 [0.3.5 release note](docs/release/release-notes/0.3.5.md) — 发布状态
+- [Distribution and tag conventions](docs/release/distribution-and-tags.md) — 插件与 MCP / npm 的版本与标签约定
 
 ## License
 

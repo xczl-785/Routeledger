@@ -34,3 +34,6 @@ the stage that runs `--require-tag-ref`.
 
 See [the plugin release guide](plugin-release.md) for commands and
 verification scope.
+
+See [Distribution and tag conventions](distribution-and-tags.md) for
+per-artifact versioning and tag namespaces.
