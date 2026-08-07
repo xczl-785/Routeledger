@@ -97,7 +97,7 @@ const DEFAULT_MCP_PACKAGE_FILTER = "@routeledger/mcp";
 const DEFAULT_MCP_ENTRY_SCRIPT = "src/bin.ts";
 const DEFAULT_FRAGMENT_SUFFIX = ".fragment.toml";
 
-const AUTO_APPROVAL_TOOLS = [
+export const AUTO_APPROVAL_TOOLS = [
   "get_current_context",
   "get_runtime_context",
   "discover_routeledger_roots",
@@ -109,17 +109,42 @@ const AUTO_APPROVAL_TOOLS = [
   "check_start_gate",
   "check_close_gate",
   "list_l3_proposals",
-  "get_l3_proposal"
+  "get_l3_proposal",
+  "open_mission_control",
+  "get_mission_control_status",
+  "check_doc_drift",
+  "summarize_version_closeout",
+  "plan_version_closeout",
+  "get_version_structure",
+  "get_version_transition_guide"
 ] as const;
 
-const PROMPT_APPROVAL_TOOLS = [
+export const PROMPT_APPROVAL_TOOLS = [
   "activate_routeledger_binding",
   "write_host_binding_config",
   "approve_l3_operation",
-  "reject_l3_operation"
+  "reject_l3_operation",
+  "init_project",
+  "batch_create_versions",
+  "transition_version",
+  "close_version",
+  "shutdown_version",
+  "create_todo",
+  "close_todo",
+  "defer_work",
+  "review_deferred",
+  "record_constraint",
+  "retire_constraint",
+  "prepare_version",
+  "mark_version_complete",
+  "create_version",
+  "insert_version",
+  "create_child_version",
+  "reorder_versions",
+  "propose_l3_operation"
 ] as const;
 
-const APPROVE_APPROVAL_TOOLS = ["commit_l3_operation"] as const;
+export const APPROVE_APPROVAL_TOOLS = ["commit_l3_operation"] as const;
 
 const assertAbsolutePath = (value: string, fieldName: string): string => {
   if (value.trim().length === 0) {
