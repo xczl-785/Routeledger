@@ -1012,6 +1012,235 @@ describe("route ledger service", () => {
     expect(snapshot?.pendingOperations.filter((operation) => operation.status === "pending")).toEqual([]);
   });
 
+  it("get_version_transition_guide 覆盖 current 自身目标的完整 lifecycle，且不创建 proposal", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const created = await service.initProject({
+      name: "RouteLedger",
+      actor: TEST_ACTOR
+    });
+    const projectId = created.project.id;
+    const versionId = created.initialVersion.id;
+
+    const waitGuide = await service.getVersionTransitionGuide({
+      projectId,
+      targetVersionId: versionId
+    });
+
+    expect(waitGuide).toMatchObject({
+      status: "ready",
+      closeGate: { applicable: false, allowed: false },
+      startGate: { applicable: false, allowed: false }
+    });
+    expect(waitGuide.recommendedSteps).toEqual([
+      expect.objectContaining({
+        stepId: "prepare-current-version",
+        status: "ready",
+        recommendedTool: "prepare_version",
+        actionType: "prepare_version",
+        createsL3Proposal: false
+      })
+    ]);
+
+    await service.prepareVersion({ projectId, versionId, actor: TEST_ACTOR });
+
+    const readyGuide = await service.getVersionTransitionGuide({
+      projectId,
+      targetVersionId: versionId
+    });
+
+    expect(readyGuide).toMatchObject({
+      status: "ready",
+      closeGate: { applicable: false, allowed: false },
+      startGate: { applicable: true, allowed: true }
+    });
+    expect(readyGuide.recommendedSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepId: "start-current-version",
+          status: "ready",
+          recommendedTool: "transition_version",
+          actionType: "start_version"
+        })
+      ])
+    );
+    expect(readyGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+      "close_version"
+    );
+
+    await startPreparedVersion(service, projectId, versionId);
+    const runningGuide = await service.getVersionTransitionGuide({
+      projectId,
+      targetVersionId: versionId
+    });
+
+    expect(runningGuide).toMatchObject({
+      status: "noop",
+      closeGate: { applicable: false, allowed: false },
+      startGate: { applicable: false, allowed: true }
+    });
+    expect(runningGuide.recommendedSteps).toEqual([]);
+
+    await service.markVersionComplete({
+      projectId,
+      versionId,
+      actor: TEST_ACTOR
+    });
+    const completeGuide = await service.getVersionTransitionGuide({
+      projectId,
+      targetVersionId: versionId,
+      residualAudit: [
+        {
+          kind: "debt",
+          summary: "no residual work",
+          destination: "close"
+        }
+      ]
+    });
+
+    expect(completeGuide).toMatchObject({
+      status: "ready",
+      closeGate: { applicable: true, allowed: true },
+      startGate: { applicable: false, allowed: false }
+    });
+    expect(completeGuide.recommendedSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepId: "close-current-version",
+          status: "ready",
+          recommendedTool: "close_version",
+          actionType: "close_version"
+        })
+      ])
+    );
+    expect(completeGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+      "start_version"
+    );
+
+    await closeVersionThroughL3(service, projectId, versionId);
+    const closedGuide = await service.getVersionTransitionGuide({
+      projectId,
+      targetVersionId: versionId
+    });
+
+    expect(closedGuide).toMatchObject({
+      status: "noop",
+      closeGate: { applicable: false, allowed: true },
+      startGate: { applicable: false, allowed: false }
+    });
+    expect(closedGuide.recommendedSteps).toEqual([]);
+
+    const snapshot = await storage.loadProjectAggregate(projectId);
+    expect(snapshot?.pendingOperations.filter((operation) => operation.status === "pending")).toEqual([]);
+  });
+
+  it("get_version_transition_guide resolves existing pending proposals before self ready or complete guidance", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const prepared = await createPreparedProject(service, storage);
+
+    const readyPending = await service.proposeL3Operation({
+      projectId: prepared.projectId,
+      actionType: "start_version",
+      targetId: prepared.versionId,
+      reason: "existing ready start proposal",
+      actor: TEST_ACTOR
+    });
+    const readyGuide = await service.getVersionTransitionGuide({
+      projectId: prepared.projectId,
+      targetVersionId: prepared.versionId
+    });
+
+    expect(readyGuide).toMatchObject({
+      status: "manual_review",
+      pendingProposalIds: [readyPending.id],
+      recommendedSteps: [
+        expect.objectContaining({
+          stepId: "review-pending-proposals",
+          recommendedTool: "list_l3_proposals",
+          createsL3Proposal: false
+        })
+      ]
+    });
+    expect(readyGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+      "start_version"
+    );
+    expect(readyGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+      "close_version"
+    );
+
+    const completeStorage = new MemoryStorageAdapter();
+    const completeService = new RouteLedgerService({
+      storage: completeStorage,
+      deps: createTestDependencies()
+    });
+    const completePrepared = await createPreparedProject(completeService, completeStorage);
+    await startPreparedVersion(
+      completeService,
+      completePrepared.projectId,
+      completePrepared.versionId
+    );
+    await completeService.markVersionComplete({
+      projectId: completePrepared.projectId,
+      versionId: completePrepared.versionId,
+      actor: TEST_ACTOR
+    });
+    const completePending = await completeService.closeVersionWorkflow({
+      projectId: completePrepared.projectId,
+      versionId: completePrepared.versionId,
+      mode: "propose",
+      residualAudit: [
+        {
+          kind: "debt",
+          summary: "no residual work",
+          destination: "close"
+        }
+      ],
+      actor: TEST_ACTOR
+    });
+    const completeGuide = await completeService.getVersionTransitionGuide({
+      projectId: completePrepared.projectId,
+      targetVersionId: completePrepared.versionId,
+      residualAudit: [
+        {
+          kind: "debt",
+          summary: "no residual work",
+          destination: "close"
+        }
+      ]
+    });
+
+    expect(completeGuide).toMatchObject({
+      status: "manual_review",
+      pendingProposalIds: [completePending.pendingOperationId],
+      recommendedSteps: [
+        expect.objectContaining({
+          stepId: "review-pending-proposals",
+          recommendedTool: "list_l3_proposals",
+          createsL3Proposal: false
+        })
+      ]
+    });
+    expect(completeGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+      "close_version"
+    );
+
+    const readySnapshot = await storage.loadProjectAggregate(prepared.projectId);
+    const completeSnapshot = await completeStorage.loadProjectAggregate(completePrepared.projectId);
+    expect(readySnapshot?.pendingOperations.filter((operation) => operation.status === "pending")).toEqual([
+      expect.objectContaining({ id: readyPending.id })
+    ]);
+    expect(completeSnapshot?.pendingOperations.filter((operation) => operation.status === "pending")).toEqual([
+      expect.objectContaining({ id: completePending.pendingOperationId })
+    ]);
+  });
+
   it("get_version_transition_guide 浼氭樉绀虹洰鏍?start gate 鐨?due undo blocker", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
@@ -1122,7 +1351,7 @@ describe("route ledger service", () => {
     expect(summary.meta).toMatchObject({
       eventLimit: 10,
       relatedPendingOperationCount: 1,
-      residualAuditSource: "assumed_none",
+      residualAuditSource: "missing",
       residualAuditProposalId: null
     });
 
@@ -1622,6 +1851,94 @@ describe("route ledger service", () => {
     ).rejects.toMatchObject({
       code: "PENDING_OPERATION_NOT_PENDING"
     });
+  });
+
+  it("direct closeVersion uses the ordinary close gate before creating a pending proposal", async () => {
+    const assertNoPendingClose = async (
+      setup: (input: {
+        service: RouteLedgerService;
+        storage: MemoryStorageAdapter;
+        projectId: string;
+        versionId: string;
+      }) => Promise<void>,
+      residualAudit?: Parameters<RouteLedgerService["closeVersion"]>[0]["residualAudit"]
+    ) => {
+      const storage = new MemoryStorageAdapter();
+      const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+      const prepared = await completeCurrentVersion(service, storage);
+      await setup({ ...prepared, service, storage });
+
+      await expect(
+        service.closeVersion({
+          projectId: prepared.projectId,
+          versionId: prepared.versionId,
+          residualAudit,
+          actor: TEST_ACTOR
+        })
+      ).rejects.toMatchObject({ code: "CLOSE_GATE_FAILED" });
+      expect(
+        (await storage.loadProjectAggregate(prepared.projectId))?.pendingOperations.filter(
+          (operation) =>
+            operation.status === "pending" && operation.actionType === "close_version"
+        )
+      ).toEqual([]);
+    };
+
+    await assertNoPendingClose(async () => undefined);
+    await assertNoPendingClose(async () => undefined, {
+      status: "reviewed",
+      items: [{ kind: "debt", summary: "missing destination", destination: null }]
+    });
+    await assertNoPendingClose(
+      async ({ service, projectId, versionId }) => {
+        await service.createTodo({
+          projectId,
+          versionId,
+          title: "still open",
+          actor: TEST_ACTOR
+        });
+      },
+      { status: "reviewed", items: [] }
+    );
+    await assertNoPendingClose(
+      async ({ service, storage, projectId, versionId }) => {
+        await createUnresolvedDeferredForCloseout(service, storage, projectId, versionId);
+      },
+      { status: "reviewed", items: [] }
+    );
+
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await completeCurrentVersion(service, storage);
+    const originalCheckCloseGate = service.checkCloseGate.bind(service);
+    service.checkCloseGate = async () => ({
+      allowed: false,
+      blockers: [
+        {
+          code: "CONSTRAINT_VIOLATED",
+          message: "constraint proof failed",
+          recordIds: ["constraint-1"]
+        }
+      ],
+      unresolvedTodoIds: [],
+      unresolvedUndoIds: [],
+      unresolvedDeferredIds: [],
+      blockedConstraintIds: ["constraint-1"]
+    });
+    await expect(
+      service.closeVersion({
+        projectId: prepared.projectId,
+        versionId: prepared.versionId,
+        residualAudit: { status: "reviewed", items: [] },
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({ code: "CLOSE_GATE_FAILED" });
+    service.checkCloseGate = originalCheckCloseGate;
+    expect(
+      (await storage.loadProjectAggregate(prepared.projectId))?.pendingOperations.filter(
+        (operation) => operation.status === "pending" && operation.actionType === "close_version"
+      )
+    ).toEqual([]);
   });
 
   it("reopen_version 璧板畬鏁?L3 闂幆", async () => {
@@ -3519,19 +3836,20 @@ describe("route ledger service", () => {
       };
     };
 
-    expect(data.canClose).toBe(true);
-    expect(data.closeGate.ok).toBe(true);
-    expect(data.closeGate.blockers).toEqual([]);
+    expect(data.canClose).toBe(false);
+    expect(data.closeGate.ok).toBe(false);
+    expect(data.closeGate.blockers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "MISSING_RESIDUAL_AUDIT" })])
+    );
     expect(data.nextAction).toMatchObject({
-      actionType: "close_version",
-      recommendedTool: "close_version",
-      mode: "propose",
+      actionType: "review_residual_audit",
+      recommendedTool: "check_close_gate",
       targetId: prepared.versionId
     });
     expect(summary.meta).toMatchObject({
       eventLimit: 10,
       relatedPendingOperationCount: 1,
-      residualAuditSource: "assumed_none",
+      residualAuditSource: "missing",
       residualAuditProposalId: null
     });
   });
@@ -3804,31 +4122,13 @@ describe("route ledger service", () => {
       }>;
     };
 
-    expect(data.status).toBe("ready_to_close");
-    expect(data.steps.map((step) => step.kind)).toEqual([
-      "close_version",
-      "approve_l3_operation",
-      "commit_l3_operation"
-    ]);
+    expect(data.status).toBe("blocked");
+    expect(data.steps.map((step) => step.kind)).toEqual(["review_residual_audit"]);
     expect(data.steps[0]?.requiredInputs).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ field: "mode", value: "propose" }),
-        expect.objectContaining({ field: "residualAudit", value: expect.any(Array) })
-      ])
-    );
-    expect(data.steps[1]?.requiredInputs).toEqual(
-      expect.arrayContaining([
         expect.objectContaining({
-          field: "pendingOperationId",
-          value: "<from close_version.pendingOperationId>"
-        })
-      ])
-    );
-    expect(data.steps[2]?.requiredInputs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          field: "approvalArtifactId",
-          value: "<from approve_l3_operation.id>"
+          field: "residualAudit",
+          value: { status: "reviewed", items: [] }
         })
       ])
     );
@@ -4763,7 +5063,7 @@ describe("route ledger service", () => {
     );
   });
 
-  it("shutdown_version ordinaryCloseGate treats default none->close residual audit as close-ready", async () => {
+  it("shutdown_version ordinaryCloseGate keeps missing residual audit visible", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
@@ -4781,11 +5081,11 @@ describe("route ledger service", () => {
 
     expect(workflow.status).toBe("ready");
     expect(workflow.ordinaryCloseGate).toMatchObject({
-      allowed: true,
+      allowed: false,
       unresolvedTodoIds: [],
       unresolvedUndoIds: []
     });
-    expect(workflow.ordinaryCloseGate.blockers).not.toEqual(
+    expect(workflow.ordinaryCloseGate.blockers).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "MISSING_RESIDUAL_AUDIT" })])
     );
   });

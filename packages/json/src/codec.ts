@@ -309,6 +309,7 @@ type JsonGateSnapshot =
       unresolved_deferred_ids?: string[];
       blocked_constraint_ids?: string[];
       residual_audit: JsonResidualAuditItem[] | null;
+      residual_audit_reviewed?: boolean;
     }
   | {
       kind: "shutdown";
@@ -615,7 +616,10 @@ const encodeGateSnapshot = (snapshot: GateSnapshot): JsonGateSnapshot => {
         destination: item.destination,
         preferred_resolution_version_id: item.preferredResolutionVersionId,
         target_review_version_id: item.targetReviewVersionId
-      })) ?? null
+      })) ?? null,
+      ...(snapshot.residualAuditReviewed === true
+        ? { residual_audit_reviewed: true }
+        : {})
     };
   }
 
@@ -693,7 +697,10 @@ const decodeGateSnapshot = (snapshot: JsonGateSnapshot): GateSnapshot => {
         destination: item.destination,
         preferredResolutionVersionId: item.preferred_resolution_version_id,
         targetReviewVersionId: item.target_review_version_id
-      })) ?? null
+      })) ?? null,
+      ...(snapshot.residual_audit_reviewed === true
+        ? { residualAuditReviewed: true }
+        : {})
     };
   }
 
@@ -903,6 +910,9 @@ const encodePendingOperationPayload = (
         preferred_resolution_version_id: item.preferredResolutionVersionId,
         target_review_version_id: item.targetReviewVersionId
       })) ?? undefined,
+    ...(payload.residualAuditReviewed === true
+      ? { residual_audit_reviewed: true }
+      : {}),
     shutdown_reason: payload.shutdownReason,
     title: payload.title,
     description: payload.description,
@@ -969,6 +979,9 @@ const decodePendingOperationPayload = (
       : payload.residual_audit === null
         ? null
         : undefined,
+    ...(payload.residual_audit_reviewed === true
+      ? { residualAuditReviewed: true }
+      : {}),
     shutdownReason:
       typeof payload.shutdown_reason === "string"
         ? payload.shutdown_reason

@@ -4,10 +4,11 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. The manifest declares the next patch distribution as `0.3.4`;
+distribution. The manifest declares the next patch distribution as `0.3.5`;
 the last published Git marketplace release remains immutable
 `routeledger-plugin-v0.3.3` at commit `437a958` until the new version is merged,
-tagged, and verified. `main` is the release branch for 0.3.4 and later.
+tagged, and verified. `main` became the release branch in 0.3.4 and remains
+the release branch for 0.3.5 and later.
 `codex-marketplace` remains only the historical 0.3.3 branch anchor.
 
 ## Current Rules
@@ -89,7 +90,7 @@ digest before activation. Unsupported elicitation, cancellation, timeout, or
 any response other than explicit acceptance must fail closed. Because this
 would make activation unavailable to older hosts, it requires separate
 Desktop/CLI interoperability evidence and a compatibility release (expected
-`0.4.0`), rather than being folded into the advisory behavior of `0.3.4`.
+`0.4.0`), rather than being folded into the advisory behavior of `0.3.5`.
 
 ## Verification
 

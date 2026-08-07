@@ -23,9 +23,10 @@ import {
   assertDeferredRouteTarget,
   evaluateCloseGate,
   evaluateStartGate,
+  resolveResidualAudit,
   type GateBlocker,
   type CloseGateResult,
-  type ResidualAuditItem,
+  type ResidualAuditInput,
   type StartGateResult
 } from "../services/gate-service.js";
 import { createDomainContext, type DomainDependencies } from "../services/operation.js";
@@ -145,7 +146,7 @@ export interface VersionCommandInput {
 }
 
 export interface CloseVersionCommandInput extends VersionCommandInput {
-  residualAudit: ResidualAuditItem[];
+  residualAudit?: ResidualAuditInput;
 }
 
 export interface ShutdownVersionCommandInput extends VersionCommandInput {
@@ -171,7 +172,7 @@ export interface GetVersionTransitionGuideInput {
   projectId: string;
   fromVersionId?: string;
   targetVersionId: string;
-  residualAudit?: ResidualAuditItem[];
+  residualAudit?: ResidualAuditInput;
 }
 
 export interface CreateTodoCommandInput {
@@ -481,7 +482,7 @@ export interface CarryForwardUndoInput {
 export interface GetVersionStructureInput {
   projectId: string;
   versionId?: string;
-  residualAudit?: ResidualAuditItem[];
+  residualAudit?: ResidualAuditInput;
 }
 
 export interface BatchCreateVersionsPreflightSuccess {
@@ -617,6 +618,8 @@ export interface VersionTransitionGuideCloseGate {
   blockedConstraintIds: string[];
   residualAuditProvided: boolean;
   residualAuditRequired: boolean;
+  residualAuditSource: "input" | "proposal_payload" | "missing";
+  residualAuditProposalId: string | null;
   blockers: GateBlocker[];
 }
 
@@ -1094,12 +1097,36 @@ const buildTransitionWorkflowEvaluation = (
   };
 };
 
+const resolveCloseResidualAudit = (
+  snapshot: ProjectAggregateSnapshot,
+  versionId: string,
+  input: ResidualAuditInput
+) =>
+  resolveResidualAudit(
+    input,
+    snapshot.pendingOperations
+      .filter(
+        (operation) =>
+          operation.status === "pending" &&
+          operation.actionType === "close_version" &&
+          operation.targetId === versionId
+      )
+      .slice()
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((operation) => ({
+        id: operation.id,
+        residualAudit: operation.payload.residualAudit,
+        residualAuditReviewed: operation.payload.residualAuditReviewed
+      }))
+  );
+
 const buildVersionStructureLegalOperations = (
   snapshot: ProjectAggregateSnapshot,
   focusVersion: Version,
-  residualAudit: ResidualAuditItem[]
+  residualAudit: ResidualAuditInput
 ): VersionStructureLegalOperation[] => {
   const transition = buildTransitionWorkflowEvaluation(snapshot, focusVersion.id);
+  const resolvedAudit = resolveCloseResidualAudit(snapshot, focusVersion.id, residualAudit);
   const closeGate = evaluateCloseGate({
     version: focusVersion,
     todos: snapshot.todos.filter((todo) => todo.versionId === focusVersion.id),
@@ -1109,7 +1136,7 @@ const buildVersionStructureLegalOperations = (
         undo.originVersionId === focusVersion.id ||
         undo.preferredResolutionVersionId === focusVersion.id
     ),
-    residualAudit,
+    residualAudit: resolvedAudit.audit,
     knownVersions: snapshot.versions,
     deferredItems: snapshot.deferredItems,
     constraints: snapshot.constraints,
@@ -1287,7 +1314,11 @@ const buildVersionTransitionGuide = (
             (todo.status === "wait" || todo.status === "running")
         );
   const dueUndos = snapshot.undos.filter((undo) => undo.status === "wait");
-  const residualAudit = input.residualAudit ?? [];
+  const residualAudit = resolveCloseResidualAudit(
+    snapshot,
+    fromVersion.id,
+    input.residualAudit
+  );
   const closeGateEvaluation = evaluateCloseGate({
     version: fromVersion,
     todos: snapshot.todos.filter((todo) => todo.versionId === fromVersion.id),
@@ -1297,7 +1328,7 @@ const buildVersionTransitionGuide = (
         undo.originVersionId === fromVersion.id ||
         undo.preferredResolutionVersionId === fromVersion.id
     ),
-    residualAudit,
+    residualAudit: residualAudit.audit,
     knownVersions: snapshot.versions,
     deferredItems: snapshot.deferredItems,
     constraints: snapshot.constraints,
@@ -1341,8 +1372,10 @@ const buildVersionTransitionGuide = (
     openUndoIds: closeGateEvaluation.unresolvedUndoIds,
     unresolvedDeferredIds: closeGateEvaluation.unresolvedDeferredIds,
     blockedConstraintIds: closeGateEvaluation.blockedConstraintIds,
-    residualAuditProvided: residualAudit.length > 0,
+    residualAuditProvided: residualAudit.audit !== null,
     residualAuditRequired: fromVersion.state !== "close",
+    residualAuditSource: residualAudit.source,
+    residualAuditProposalId: residualAudit.proposalId,
     blockers: fromVersion.state === "close" ? [] : closeGateEvaluation.blockers
   };
   const startGate: VersionTransitionGuideStartGate = {
@@ -1369,24 +1402,197 @@ const buildVersionTransitionGuide = (
     recommendedSteps.push(step);
   };
 
+  const buildGuide = (
+    status: VersionTransitionGuideStatus,
+    steps: VersionTransitionGuideStep[],
+    guideCloseGate = closeGate,
+    guideStartGate = startGate
+  ): VersionTransitionGuide => ({
+    project: {
+      id: snapshot.project.id,
+      name: snapshot.project.name,
+      currentVersionId: snapshot.project.currentVersionId
+    },
+    workflowMode: "read_only",
+    status,
+    fromVersion: summarizeGuideVersion(fromVersion),
+    currentVersion: currentVersion === null ? null : summarizeGuideVersion(currentVersion),
+    targetVersion: summarizeGuideVersion(targetVersion),
+    pendingProposalIds,
+    closeGate: guideCloseGate,
+    startGate: guideStartGate,
+    recommendedSteps: steps,
+    notes
+  });
+
+  const selfTargetIsCurrent =
+    currentVersion?.id === fromVersion.id && fromVersion.id === targetVersion.id;
+
   if (pendingProposalIds.length > 0) {
     notes.push("Pending L3 proposals already exist. Resolve them first so the live route and approval chain stay unambiguous.");
-    addStep({
-      stepId: "review-pending-proposals",
-      label: "Review pending L3 proposals",
-      status: "ready",
-      recommendedTool: "list_l3_proposals",
-      createsL3Proposal: false,
-      actionType: "review_pending_proposals",
-      reason: "现有 pending proposal 会改变 live route，guide 不会替你裁决或复用它们。",
-      blockerIds: pendingProposalIds
-    });
+    return buildGuide("manual_review", [
+      {
+        stepId: "review-pending-proposals",
+        label: "Review pending L3 proposals",
+        status: "ready",
+        recommendedTool: "list_l3_proposals",
+        createsL3Proposal: false,
+        actionType: "review_pending_proposals",
+        reason: "现有 pending proposal 会改变 live route，guide 不会替你裁决、复用或生成新的 proposal。",
+        blockerIds: pendingProposalIds
+      }
+    ]);
+  }
+
+  if (selfTargetIsCurrent) {
+    const selfCloseGate: VersionTransitionGuideCloseGate =
+      fromVersion.state === "complete" || fromVersion.state === "close"
+        ? closeGate
+        : {
+            ...closeGate,
+            allowed: false,
+            applicable: false,
+            residualAuditRequired: false,
+            blockers: []
+          };
+    const selfStartGate: VersionTransitionGuideStartGate =
+      targetVersion.state === "ready"
+        ? startGate
+        : {
+            ...startGate,
+            allowed: targetVersion.state === "running",
+            applicable: false,
+            blockers: []
+          };
+
+    if (targetVersion.state === "wait") {
+      return buildGuide(
+        "ready",
+        [
+          {
+            stepId: "prepare-current-version",
+            label: "Prepare current version",
+            status: "ready",
+            recommendedTool: "prepare_version",
+            createsL3Proposal: false,
+            actionType: "prepare_version",
+            reason: "current version 仍是 wait；先用 prepare_version 进入 ready，再重新读取 guide。",
+            blockerIds: []
+          }
+        ],
+        selfCloseGate,
+        selfStartGate
+      );
+    }
+
+    if (targetVersion.state === "running") {
+      notes.push("fromVersion and targetVersion already identify the current running version; no route operation is needed.");
+      return buildGuide("noop", [], selfCloseGate, selfStartGate);
+    }
+
+    if (targetVersion.state === "close") {
+      notes.push("fromVersion and targetVersion already identify the current closed version; no route operation is needed.");
+      return buildGuide("noop", [], selfCloseGate, selfStartGate);
+    }
+
+    if (targetVersion.state === "ready") {
+      const startStatus: VersionTransitionGuideStepStatus = startGate.allowed
+        ? "ready"
+        : "blocked";
+      const selfStartSteps: VersionTransitionGuideStep[] = [
+        {
+          stepId: "start-current-version",
+          label: "Start current version",
+          status: startStatus,
+          recommendedTool: "transition_version",
+          createsL3Proposal: true,
+          actionType: "start_version",
+          reason: startGate.allowed
+            ? "current version 已 ready；用 transition_version 生成 start_version proposal。"
+            : "current version start gate 仍有 blockers，transition_version 目前不会创建 proposal。",
+          blockerIds: collectBlockerIds(startGate.blockers)
+        },
+        {
+          stepId: "approve-start-current-proposal",
+          label: "Approve start proposal",
+          status: startStatus === "ready" ? "waiting" : "not_needed",
+          recommendedTool: "approve_l3_operation",
+          createsL3Proposal: false,
+          actionType: "start_version",
+          reason: "start_version proposal 创建后，再走现有 approve_l3_operation 审批链。",
+          blockerIds: startStatus === "blocked" ? collectBlockerIds(startGate.blockers) : []
+        },
+        {
+          stepId: "commit-start-current-proposal",
+          label: "Commit start proposal",
+          status: startStatus === "ready" ? "waiting" : "not_needed",
+          recommendedTool: "commit_l3_operation",
+          createsL3Proposal: false,
+          actionType: "start_version",
+          reason: "审批通过后，再提交 start_version proposal。",
+          blockerIds: startStatus === "blocked" ? collectBlockerIds(startGate.blockers) : []
+        }
+      ];
+
+      return buildGuide(
+        startStatus === "ready" ? "ready" : "blocked",
+        selfStartSteps,
+        selfCloseGate,
+        selfStartGate
+      );
+    }
+
+    if (targetVersion.state === "complete") {
+      const closeStatus: VersionTransitionGuideStepStatus = closeGate.allowed
+        ? "ready"
+        : "blocked";
+      const selfCloseSteps: VersionTransitionGuideStep[] = [
+        {
+          stepId: "close-current-version",
+          label: "Close current version boundary",
+          status: closeStatus,
+          recommendedTool: "close_version",
+          createsL3Proposal: true,
+          actionType: "close_version",
+          reason: closeGate.allowed
+            ? "current version 已满足 close gate；用 close_version 生成 close proposal。"
+            : "current version close gate 仍未通过，需先处理 blockers 或补 residual audit。",
+          blockerIds: collectBlockerIds(closeGate.blockers)
+        },
+        {
+          stepId: "approve-close-current-proposal",
+          label: "Approve close proposal",
+          status: closeStatus === "ready" ? "waiting" : "not_needed",
+          recommendedTool: "approve_l3_operation",
+          createsL3Proposal: false,
+          actionType: "close_version",
+          reason: "close_version proposal 创建后，再走现有 approve_l3_operation 审批链。",
+          blockerIds: closeStatus === "blocked" ? collectBlockerIds(closeGate.blockers) : []
+        },
+        {
+          stepId: "commit-close-current-proposal",
+          label: "Commit close proposal",
+          status: closeStatus === "ready" ? "waiting" : "not_needed",
+          recommendedTool: "commit_l3_operation",
+          createsL3Proposal: false,
+          actionType: "close_version",
+          reason: "拿到 approval artifact 后，再用 commit_l3_operation 落地 close。",
+          blockerIds: closeStatus === "blocked" ? collectBlockerIds(closeGate.blockers) : []
+        }
+      ];
+
+      return buildGuide(
+        closeStatus === "ready" ? "ready" : "blocked",
+        selfCloseSteps,
+        selfCloseGate,
+        selfStartGate
+      );
+    }
   }
 
   const fromIsCurrent = currentVersion?.id === fromVersion.id;
   const manualTargetStates: Version["state"][] = ["suspend", "complete", "close"];
   const requiresManualReview =
-    pendingProposalIds.length > 0 ||
     !fromIsCurrent ||
     manualTargetStates.includes(targetVersion.state);
 
@@ -1610,23 +1816,7 @@ const buildVersionTransitionGuide = (
           ? "ready"
           : "noop";
 
-  return {
-    project: {
-      id: snapshot.project.id,
-      name: snapshot.project.name,
-      currentVersionId: snapshot.project.currentVersionId
-    },
-    workflowMode: "read_only",
-    status,
-    fromVersion: summarizeGuideVersion(fromVersion),
-    currentVersion: currentVersion === null ? null : summarizeGuideVersion(currentVersion),
-    targetVersion: summarizeGuideVersion(targetVersion),
-    pendingProposalIds,
-    closeGate,
-    startGate,
-    recommendedSteps,
-    notes
-  };
+  return buildGuide(status, recommendedSteps);
 };
 
 const requireProject = async (
@@ -1883,18 +2073,23 @@ const buildStartGateSnapshot = (
 const buildCloseGateSnapshot = (
   result: CloseGateResult,
   evaluatedAt: string,
-  residualAudit: ResidualAuditItem[] | null
-): CloseGateSnapshot => ({
-  kind: "close",
-  evaluatedAt,
-  allowed: result.allowed,
-  blockers: result.blockers,
-  unresolvedTodoIds: result.unresolvedTodoIds,
-  unresolvedUndoIds: result.unresolvedUndoIds,
-  unresolvedDeferredIds: result.unresolvedDeferredIds,
-  blockedConstraintIds: result.blockedConstraintIds,
-  residualAudit
-});
+  residualAudit: ResidualAuditInput
+): CloseGateSnapshot => {
+  const resolved = resolveResidualAudit(residualAudit);
+
+  return {
+    kind: "close",
+    evaluatedAt,
+    allowed: result.allowed,
+    blockers: result.blockers,
+    unresolvedTodoIds: result.unresolvedTodoIds,
+    unresolvedUndoIds: result.unresolvedUndoIds,
+    unresolvedDeferredIds: result.unresolvedDeferredIds,
+    blockedConstraintIds: result.blockedConstraintIds,
+    residualAudit: resolved.audit?.items ?? null,
+    residualAuditReviewed: resolved.audit !== null
+  };
+};
 
 const buildShutdownGateSnapshot = (
   result: {
@@ -1927,14 +2122,6 @@ const buildNoopGateSnapshot = (evaluatedAt: string): NoopGateSnapshot => ({
   allowed: true,
   blockers: []
 });
-
-const DEFAULT_SHUTDOWN_ORDINARY_CLOSE_RESIDUAL_AUDIT: ResidualAuditItem[] = [
-  {
-    kind: "debt",
-    summary: "none",
-    destination: "close"
-  }
-];
 
 const DEFAULT_BATCH_PREVIOUS_CURRENT_POLICY: BatchPreviousCurrentPolicy = "leave_as_is";
 
@@ -2461,7 +2648,8 @@ const buildDigestGateSnapshot = (
             blockedConstraintIds: gateSnapshot.blockedConstraintIds
           }
         : {}),
-      residualAudit: gateSnapshot.residualAudit
+      residualAudit: gateSnapshot.residualAudit,
+      residualAuditReviewed: gateSnapshot.residualAuditReviewed === true
     };
   }
 
@@ -2636,7 +2824,23 @@ const buildOperationDescription = (
     }
     case "close_version": {
       const version = requireVersion(snapshot, targetId);
-      const residualAudit = payload.residualAudit ?? null;
+      const payloadAudit: ResidualAuditInput =
+        payload.residualAuditReviewed === true
+          ? { status: "reviewed", items: payload.residualAudit ?? [] }
+          : payload.residualAudit;
+      const resolvedAudit = resolveCloseResidualAudit(
+        snapshot,
+        targetId,
+        payloadAudit
+      );
+      const normalizedPayload: PendingOperationPayload =
+        resolvedAudit.audit === null
+          ? payload
+          : {
+              ...payload,
+              residualAudit: resolvedAudit.audit.items,
+              residualAuditReviewed: true
+            };
       const gate = evaluateCloseGate({
         version,
         todos: snapshot.todos.filter((todo) => todo.versionId === version.id),
@@ -2646,20 +2850,26 @@ const buildOperationDescription = (
             undo.originVersionId === version.id ||
             undo.preferredResolutionVersionId === version.id
         ),
-        residualAudit,
+        residualAudit: resolvedAudit.audit,
         knownVersions: snapshot.versions,
         deferredItems: snapshot.deferredItems,
         constraints: snapshot.constraints,
         constraintChecks: []
       });
-      const gateSnapshot = buildCloseGateSnapshot(gate, evaluatedAt, residualAudit);
+      const gateSnapshot = buildCloseGateSnapshot(gate, evaluatedAt, resolvedAudit.audit);
 
       return {
         actionType,
         targetId,
-        payload,
+        payload: normalizedPayload,
         gateSnapshot,
-        digest: buildDigest(snapshot.project.id, actionType, targetId, payload, gateSnapshot)
+        digest: buildDigest(
+          snapshot.project.id,
+          actionType,
+          targetId,
+          normalizedPayload,
+          gateSnapshot
+        )
       };
     }
     case "shutdown_version": {
@@ -2677,8 +2887,15 @@ const buildOperationDescription = (
         );
       }
 
-      const ordinaryCloseResidualAudit =
-        payload.residualAudit ?? DEFAULT_SHUTDOWN_ORDINARY_CLOSE_RESIDUAL_AUDIT;
+      const payloadAudit: ResidualAuditInput =
+        payload.residualAuditReviewed === true
+          ? { status: "reviewed", items: payload.residualAudit ?? [] }
+          : payload.residualAudit;
+      const ordinaryCloseResidualAudit = resolveCloseResidualAudit(
+        snapshot,
+        targetId,
+        payloadAudit
+      );
       const ordinaryCloseGate = evaluateCloseGate({
         version,
         todos: snapshot.todos.filter((todo) => todo.versionId === version.id),
@@ -2688,7 +2905,7 @@ const buildOperationDescription = (
             undo.originVersionId === version.id ||
             undo.preferredResolutionVersionId === version.id
         ),
-        residualAudit: ordinaryCloseResidualAudit,
+        residualAudit: ordinaryCloseResidualAudit.audit,
         knownVersions: snapshot.versions,
         deferredItems: snapshot.deferredItems,
         constraints: snapshot.constraints,
@@ -3400,13 +3617,20 @@ export class RouteLedgerService {
       return baseResult;
     }
 
+    const resolvedAudit = resolveCloseResidualAudit(
+      await requireProject(this.storage, input.projectId),
+      input.versionId,
+      input.residualAudit
+    );
+
     const proposal = await this.proposeL3Operation({
       projectId: input.projectId,
       actionType: "close_version",
       targetId: input.versionId,
       reason: input.reason ?? "close version requested",
       payload: {
-        residualAudit: input.residualAudit
+        residualAudit: resolvedAudit.audit?.items ?? null,
+        residualAuditReviewed: resolvedAudit.audit !== null
       },
       actor: input.actor
     });
@@ -3552,7 +3776,7 @@ export class RouteLedgerService {
       legalOperations: buildVersionStructureLegalOperations(
         snapshot,
         focusVersion,
-        input.residualAudit ?? []
+        input.residualAudit
       )
     };
   }
@@ -3592,12 +3816,18 @@ export class RouteLedgerService {
 
   async checkCloseGate(input: CloseVersionCommandInput): Promise<CloseGateResult> {
     const snapshot = await requireProject(this.storage, input.projectId);
+    const resolvedAudit = resolveCloseResidualAudit(
+      snapshot,
+      input.versionId,
+      input.residualAudit
+    );
     const description = buildOperationDescription(
       snapshot,
       "close_version",
       input.versionId,
       {
-        residualAudit: input.residualAudit
+        residualAudit: resolvedAudit.audit?.items ?? null,
+        residualAuditReviewed: resolvedAudit.audit !== null
       },
       this.deps.clock.now()
     );
@@ -4657,6 +4887,26 @@ export class RouteLedgerService {
   }
 
   async closeVersion(input: CloseVersionCommandInput): Promise<never> {
+    const gate = await this.checkCloseGate(input);
+
+    if (!gate.allowed) {
+      throw new ApplicationError("CLOSE_GATE_FAILED", "close gate 校验失败", {
+        projectId: input.projectId,
+        versionId: input.versionId,
+        blockers: gate.blockers,
+        unresolvedTodoIds: gate.unresolvedTodoIds,
+        unresolvedUndoIds: gate.unresolvedUndoIds,
+        unresolvedDeferredIds: gate.unresolvedDeferredIds,
+        blockedConstraintIds: gate.blockedConstraintIds
+      });
+    }
+
+    const snapshot = await requireProject(this.storage, input.projectId);
+    const resolvedAudit = resolveCloseResidualAudit(
+      snapshot,
+      input.versionId,
+      input.residualAudit
+    );
     return this.requestConfirmation(
       input.projectId,
       "close_version",
@@ -4664,7 +4914,8 @@ export class RouteLedgerService {
       "close version requested",
       input.actor,
       {
-        residualAudit: input.residualAudit
+        residualAudit: resolvedAudit.audit?.items ?? null,
+        residualAuditReviewed: resolvedAudit.audit !== null
       }
     );
   }

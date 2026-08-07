@@ -7,13 +7,17 @@ import { resolveRouteLedgerBinding } from "./binding.js";
 import { isPhysicalPathContainedWithinSync, resolvePhysicalPathForContainmentSync } from "./physical-path.js";
 import { RouteLedgerDebugLogger } from "./debug-log.js";
 import { adaptCheckDocDriftInput, adaptDeferWorkInput, adaptGetCurrentContextInput, adaptListVersionsWindowInput, adaptRecordConstraintInput, adaptRetireConstraintInput, adaptReviewDeferredInput, InvalidToolInputError } from "./input-adapter.js";
+import { resolveRuntimeIdentity } from "./runtime-identity.js";
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
-const SERVER_INFO = {
+const createServerInfo = (runtimeIdentity) => ({
     name: "routeledger",
     title: "RouteLedger MCP",
-    version: "0.0.0-package-prep",
-    description: "Standard MCP stdio adapter for RouteLedger"
-};
+    // MCP's standard version field is the internal runtime package version,
+    // never a plugin manifest version.
+    version: runtimeIdentity.runtimePackageVersion,
+    description: "Standard MCP stdio adapter for RouteLedger",
+    runtimeIdentity
+});
 const HOST_PROFILE_LABELS = {
     generic: "generic MCP host",
     codex: "Codex",
@@ -395,7 +399,13 @@ const residualAuditItemSchema = objectSchema({
         anyOf: [
             {
                 type: "string",
-                enum: ["close", "create_todo", "defer_work", "record_constraint"]
+                enum: [
+                    "close",
+                    "create_undo",
+                    "create_todo",
+                    "defer_work",
+                    "record_constraint"
+                ]
             },
             {
                 type: "null"
@@ -410,12 +420,34 @@ const residualAuditItemSchema = objectSchema({
                 type: "null"
             }
         ]
+    },
+    preferredResolutionVersionId: {
+        anyOf: [
+            stringSchema("Required preferred resolution version when destination is create_undo."),
+            {
+                type: "null"
+            }
+        ]
     }
 }, ["kind", "summary", "destination"]);
 const residualAuditArraySchema = {
     type: "array",
-    description: "Residual audit items used by close gate and close-version L3 proposals.",
+    description: "Legacy residual-audit input. Only non-empty arrays assert review; use the reviewed declaration for an explicit empty audit.",
     items: residualAuditItemSchema
+};
+const reviewedResidualAuditSchema = objectSchema({
+    status: {
+        type: "string",
+        enum: ["reviewed"]
+    },
+    items: residualAuditArraySchema
+}, ["status", "items"]);
+const residualAuditInputSchema = {
+    anyOf: [
+        reviewedResidualAuditSchema,
+        residualAuditArraySchema,
+        { type: "null" }
+    ]
 };
 const payloadSchema = objectSchema({
     currentVersionId: {
@@ -427,12 +459,7 @@ const payloadSchema = objectSchema({
         ]
     },
     residualAudit: {
-        anyOf: [
-            residualAuditArraySchema,
-            {
-                type: "null"
-            }
-        ]
+        ...residualAuditInputSchema
     },
     title: stringSchema("Version title for create/insert/create-child proposals."),
     description: stringSchema("Optional version description for create/insert/create-child proposals."),
@@ -575,13 +602,22 @@ const createService = (workspaceRoot, routeledgerRoot, sqliteReadModel, storageT
     };
 };
 const buildRuntimeContext = (options) => {
-    const project = options.data !== null &&
+    const responseProject = options.data !== null &&
         typeof options.data === "object" &&
         "project" in options.data &&
         options.data.project !== null &&
         typeof options.data.project === "object"
         ? options.data.project
         : null;
+    // Success envelopes historically derive this compact summary from returned
+    // data. Error envelopes pass a storage-inspected identity instead so a
+    // request projectId can never become runtime truth.
+    const activeProject = options.activeProject;
+    const project = activeProject === undefined
+        ? responseProject
+        : activeProject === null
+            ? null
+            : activeProject;
     return {
         binding: summarizeRuntimeBinding(options.binding),
         dataRoot: options.binding.dataRoot,
@@ -591,7 +627,9 @@ const buildRuntimeContext = (options) => {
         sqliteDbPath: options.binding.sqliteDbPath,
         projectId: project?.id ?? null,
         projectName: project?.name ?? null,
+        ...(activeProject === undefined ? {} : { activeProject }),
         hostProfile: options.hostProfile,
+        runtimeIdentity: options.runtimeIdentity,
         serverWorkspaceRoot: options.binding.workspaceRoot,
         serverRouteLedgerRoot: options.binding.routeledgerRoot,
         processCwd: options.binding.processCwd
@@ -614,8 +652,11 @@ const withRuntimeContextMeta = (options) => ({
     runtimeContext: buildRuntimeContext({
         binding: options.binding,
         hostProfile: options.hostProfile,
-        data: options.data
-    })
+        runtimeIdentity: options.runtimeIdentity,
+        data: options.data,
+        activeProject: options.activeProject
+    }),
+    runtimeIdentity: options.runtimeIdentity
 });
 const toToolError = (error) => {
     if (error instanceof ApplicationError ||
@@ -729,7 +770,7 @@ const resolveMissionControlRoots = (input, binding) => {
         routeledgerRoot
     };
 };
-const expectedRouteLedgerRootSchema = stringSchema("Absolute routeledgerRoot assertion for write/high-risk tools. It must exactly match the MCP server routeledgerRoot.");
+const expectedRouteLedgerRootSchema = stringSchema("Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot.");
 const withExpectedRouteLedgerRootInputSchema = (inputSchema, riskLevel) => {
     if (riskLevel === "read-only") {
         return inputSchema;
@@ -795,6 +836,14 @@ export const createRouteLedgerMcpRegistry = (options) => {
     const approver = resolveActor(DEFAULT_APPROVER, options.approver);
     const hostProfile = options.hostProfile ?? "generic";
     const runtimeProfile = options.runtimeProfile ?? "full";
+    const configuredRuntimeIdentity = options.runtimeIdentity ?? resolveRuntimeIdentity(runtimeProfile);
+    const runtimeIdentity = {
+        ...configuredRuntimeIdentity,
+        // Caller-selected profile governs the executable capability surface; do not
+        // let a stale injected identity misreport it after a direct registry call.
+        runtimeProfile
+    };
+    const serverInfo = createServerInfo(runtimeIdentity);
     const instructions = createInstructions({
         hostProfile,
         actor,
@@ -823,7 +872,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
     const withCurrentRuntimeContextMeta = (options) => withRuntimeContextMeta({
         ...options,
         binding: readBinding(),
-        hostProfile
+        hostProfile,
+        runtimeIdentity
     });
     const getBlockedTools = (binding) => {
         return guardedTools
@@ -840,6 +890,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             processCwd: binding.processCwd,
             hostProfile,
             runtimeProfile,
+            runtimeIdentity,
             actor: {
                 id: actor.id,
                 displayName: actor.displayName ?? actor.id
@@ -869,6 +920,38 @@ export const createRouteLedgerMcpRegistry = (options) => {
             recommendedNextActions: binding.status === "bound" ? [] : getBindingRecommendedNextActions(binding)
         };
     };
+    const getRuntimeContextMeta = async () => {
+        const binding = readBinding();
+        let activeProject = null;
+        // Error reporting is best-effort: an inspection failure must not mask the
+        // original tool error. When it does succeed, its identity is the only
+        // source used for error runtimeContext.
+        try {
+            activeProject = (await storage?.inspectRuntimeBinding())?.activeProject ?? null;
+        }
+        catch {
+            activeProject = null;
+        }
+        return withRuntimeContextMeta({
+            data: null,
+            binding,
+            hostProfile,
+            runtimeIdentity,
+            activeProject
+        });
+    };
+    const attachRuntimeContextToError = async (response) => {
+        if (response.ok) {
+            return response;
+        }
+        return {
+            ...response,
+            meta: {
+                ...(response.meta ?? {}),
+                ...(await getRuntimeContextMeta())
+            }
+        };
+    };
     const tools = [
         defineTool("get_runtime_context", { what: "Inspect MCP binding, active project, and storage state." }, objectSchema({}), {
             title: "Get Runtime Context",
@@ -890,7 +973,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
                             }
                         },
                     binding,
-                    hostProfile
+                    hostProfile,
+                    runtimeIdentity
                 })
             };
         }),
@@ -1360,13 +1444,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             residualAudit: {
-                anyOf: [
-                    residualAuditArraySchema,
-                    {
-                        type: "null"
-                    }
-                ],
-                description: "Residual audit items used for close-gate evaluation."
+                ...residualAuditInputSchema,
+                description: "Explicit reviewed residual audit for close-gate evaluation; { status: reviewed, items: [] } means reviewed-empty."
             }
         }, ["projectId", "versionId"]), {
             title: "Check Close Gate",
@@ -1375,7 +1454,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             const gate = await service.checkCloseGate({
                 projectId: input.projectId,
                 versionId: input.versionId,
-                residualAudit: (input.residualAudit ?? []),
+                residualAudit: input.residualAudit,
                 actor
             });
             await appendDebugLog("check_close_gate", {
@@ -1385,7 +1464,11 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 payload: {
                     allowed: gate.allowed,
                     blockerCodes: gate.blockers.map((blocker) => blocker.code),
-                    residualAuditCount: Array.isArray(input.residualAudit) ? input.residualAudit.length : 0
+                    residualAuditCount: Array.isArray(input.residualAudit)
+                        ? input.residualAudit.length
+                        : Array.isArray(input.residualAudit?.items)
+                            ? (input.residualAudit.items.length)
+                            : 0
                 }
             });
             return {
@@ -1397,12 +1480,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Optional focus version ID. Defaults to currentVersionId."),
             residualAudit: {
-                anyOf: [
-                    residualAuditArraySchema,
-                    {
-                        type: "null"
-                    }
-                ],
+                ...residualAuditInputSchema,
                 description: "Optional residual audit sample used to evaluate close_version legality."
             }
         }, ["projectId"]), {
@@ -1412,7 +1490,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             const structure = await service.getVersionStructure({
                 projectId: input.projectId,
                 versionId: input.versionId,
-                residualAudit: (input.residualAudit ?? [])
+                residualAudit: input.residualAudit
             });
             return {
                 ok: true,
@@ -1424,12 +1502,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             fromVersionId: stringSchema("Optional from version ID. Defaults to currentVersionId."),
             targetVersionId: stringSchema("Target version ID."),
             residualAudit: {
-                anyOf: [
-                    residualAuditArraySchema,
-                    {
-                        type: "null"
-                    }
-                ],
+                ...residualAuditInputSchema,
                 description: "Optional residual audit sample used to preview the from-version close gate."
             }
         }, ["projectId", "targetVersionId"]), {
@@ -1440,7 +1513,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 projectId: input.projectId,
                 fromVersionId: input.fromVersionId,
                 targetVersionId: input.targetVersionId,
-                residualAudit: (input.residualAudit ?? [])
+                residualAudit: input.residualAudit
             });
             return {
                 ok: true,
@@ -1513,13 +1586,16 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("transition_version", { what: "Plan or propose the next step toward a target version.", parameter: "mode and targetVersionId" }, objectSchema({
+        defineTool("transition_version", {
+            what: "Binding-sensitive transition preview or proposal.",
+            parameter: "mode and targetVersionId"
+        }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             mode: {
                 type: "string",
                 enum: ["dry_run", "propose"],
-                description: "dry_run only inspects live legality; propose creates exactly one next-step proposal when the transition is actionable."
+                description: "dry_run is a binding-sensitive preview and still requires expectedRouteLedgerRoot; propose creates exactly one next-step proposal when actionable."
             },
             reason: stringSchema("Optional proposal reason override.")
         }, ["projectId", "versionId"]), {
@@ -1535,21 +1611,20 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 actor
             })
         })),
-        defineTool("close_version", { what: "Preview or propose a version close.", parameter: "mode and versionId", warning: "proposal needs a passing gate" }, objectSchema({
+        defineTool("close_version", {
+            what: "Binding-sensitive close preview or proposal.",
+            parameter: "mode and versionId",
+            warning: "proposal needs a passing gate"
+        }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             mode: {
                 type: "string",
                 enum: ["dry_run", "propose"],
-                description: "dry_run returns blockers only; propose creates a close_version proposal only when the gate passes."
+                description: "dry_run is a binding-sensitive preview and still requires expectedRouteLedgerRoot; propose creates a close_version proposal only when the gate passes."
             },
             residualAudit: {
-                anyOf: [
-                    residualAuditArraySchema,
-                    {
-                        type: "null"
-                    }
-                ],
+                ...residualAuditInputSchema,
                 description: "Residual audit items used for close preflight and, when allowed, the proposal payload."
             },
             reason: stringSchema("Optional proposal reason override.")
@@ -1561,7 +1636,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 projectId: input.projectId,
                 versionId: input.versionId,
                 mode: parseRouteOperationWorkflowMode(input.mode),
-                residualAudit: (input.residualAudit ?? []),
+                residualAudit: input.residualAudit,
                 reason: input.reason,
                 actor
             });
@@ -1582,13 +1657,17 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 data: result
             };
         }),
-        defineTool("shutdown_version", { what: "Preview or propose an emergency forced close.", parameter: "mode and versionId", warning: "bypasses ordinary blockers" }, objectSchema({
+        defineTool("shutdown_version", {
+            what: "Binding-sensitive forced-close preview or proposal.",
+            parameter: "mode and versionId",
+            warning: "bypasses ordinary blockers"
+        }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Target version ID."),
             mode: {
                 type: "string",
                 enum: ["dry_run", "propose"],
-                description: "dry_run previews the forced path; propose creates a shutdown_version proposal."
+                description: "dry_run is a binding-sensitive preview and still requires expectedRouteLedgerRoot; propose creates a shutdown_version proposal."
             },
             shutdownReason: stringSchema("Required shutdown reason suffix. RouteLedger stores it as version.stateReason with a shutdown: prefix."),
             reason: stringSchema("Optional proposal reason override shown in audit/review surfaces.")
@@ -2275,7 +2354,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
                         }
                     },
                 binding,
-                hostProfile
+                hostProfile,
+                runtimeIdentity
             })
         };
     };
@@ -2324,10 +2404,11 @@ export const createRouteLedgerMcpRegistry = (options) => {
     };
     return {
         tools: toolDefinitions,
-        serverInfo: SERVER_INFO,
+        serverInfo,
         serverCapabilities,
         hostProfile,
         runtimeProfile,
+        runtimeIdentity,
         instructions,
         getTool: (toolName) => toolDefinitions.find((tool) => tool.name === toolName),
         invoke: async (toolName, input) => {
@@ -2336,20 +2417,20 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }
             const handler = handlers.get(toolName);
             if (handler === undefined) {
-                return {
+                return attachRuntimeContextToError({
                     ok: false,
                     error: {
                         code: "ACTION_NOT_IMPLEMENTED",
                         message: `unknown tool ${toolName}`
                     }
-                };
+                });
             }
             try {
                 const response = await handler(input);
                 const activationResponse = toolName === "activate_routeledger_binding"
                     ? await activatePendingRebindForDirectRegistry()
                     : null;
-                return activationResponse ?? response;
+                return attachRuntimeContextToError(activationResponse ?? response);
             }
             catch (error) {
                 const response = toToolError(error);
@@ -2364,9 +2445,10 @@ export const createRouteLedgerMcpRegistry = (options) => {
                         inputKeys: Object.keys(input ?? {}).sort()
                     }
                 });
-                return response;
+                return attachRuntimeContextToError(response);
             }
         },
+        getRuntimeContextMeta,
         peekPendingSessionRebind: () => pendingSessionRebind,
         clearPendingSessionRebind: () => {
             pendingSessionRebind = null;

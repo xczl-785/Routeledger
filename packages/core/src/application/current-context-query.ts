@@ -13,6 +13,7 @@ import type { ProjectAggregateSnapshot } from "../ports/storage-port.js";
 import {
   evaluateCloseGate,
   evaluateStartGate,
+  resolveResidualAudit,
   type CloseGateResult,
   type StartGateResult
 } from "../services/gate-service.js";
@@ -879,6 +880,26 @@ export const buildDerivedCurrentContextData = (
           }),
           versionId: startTargetVersion.id
         };
+  const currentResidualAudit =
+    currentVersion === null
+      ? null
+      : resolveResidualAudit(
+          undefined,
+          snapshot.pendingOperations
+            .filter(
+              (operation) =>
+                operation.status === "pending" &&
+                operation.actionType === "close_version" &&
+                operation.targetId === currentVersion.id
+            )
+            .slice()
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+            .map((operation) => ({
+              id: operation.id,
+              residualAudit: operation.payload.residualAudit,
+              residualAuditReviewed: operation.payload.residualAuditReviewed
+            }))
+        );
   const closeGate =
     currentVersion === null
       ? null
@@ -894,13 +915,7 @@ export const buildDerivedCurrentContextData = (
                 undo.originVersionId === currentVersion.id ||
                 undo.preferredResolutionVersionId === currentVersion.id
             ),
-            residualAudit: [
-              {
-                kind: "debt",
-                summary: "context gate evaluation",
-                destination: "close"
-              }
-            ],
+            residualAudit: currentResidualAudit?.audit ?? null,
             knownVersions: snapshot.versions,
             deferredItems: snapshot.deferredItems,
             constraints: snapshot.constraints,

@@ -22,7 +22,8 @@ import {
   isBatchCreateVersionsMode,
   isBatchPreviousCurrentPolicy,
   isRouteOperationWorkflowMode,
-  type L3ActionType
+  type L3ActionType,
+  type ResidualAuditInput
 } from "@routeledger/core";
 import {
   RouteLedgerJsonImportError,
@@ -712,7 +713,7 @@ const handleCommand = async ({
           projectId: requireFlagValue(argv, "--project-id"),
           versionId: requireFlagValue(argv, "--version-id"),
           mode: parseRouteOperationWorkflowModeFlag(getFlagValue(argv, "--mode")),
-          residualAudit: parseJsonFlag(argv, "--residual-audit-json") ?? [],
+          residualAudit: parseJsonFlag(argv, "--residual-audit-json") as ResidualAuditInput,
           reason: getFlagValue(argv, "--reason"),
           actor: DEFAULT_ACTOR
         })
@@ -749,7 +750,7 @@ const handleCommand = async ({
           projectId: requireFlagValue(argv, "--project-id"),
           fromVersionId: getFlagValue(argv, "--from-version-id"),
           targetVersionId: requireFlagValue(argv, "--target-version-id"),
-          residualAudit: parseJsonFlag(argv, "--residual-audit-json") ?? []
+          residualAudit: parseJsonFlag(argv, "--residual-audit-json") as ResidualAuditInput
         }),
         meta: {
           source: "canonical_json",
@@ -800,7 +801,7 @@ const handleCommand = async ({
       const structure = await service.getVersionStructure({
         projectId: requireFlagValue(argv, "--project-id"),
         versionId: getFlagValue(argv, "--version-id"),
-        residualAudit: parseJsonFlag(argv, "--residual-audit-json") ?? []
+        residualAudit: parseJsonFlag(argv, "--residual-audit-json") as ResidualAuditInput
       });
 
       return {
@@ -832,7 +833,7 @@ const handleCommand = async ({
           data: await service.checkCloseGate({
             projectId,
             versionId,
-            residualAudit: parseJsonFlag(argv, "--residual-audit-json") ?? [],
+            residualAudit: parseJsonFlag(argv, "--residual-audit-json") as ResidualAuditInput,
             actor: DEFAULT_ACTOR
           })
         };
@@ -1202,7 +1203,7 @@ const handleCommand = async ({
           data: await service.closeVersion({
             projectId,
             versionId,
-            residualAudit: parseJsonFlag(argv, "--residual-audit-json") ?? [],
+            residualAudit: parseJsonFlag(argv, "--residual-audit-json") as ResidualAuditInput,
             actor: DEFAULT_ACTOR
           })
         };

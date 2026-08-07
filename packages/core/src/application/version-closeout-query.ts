@@ -11,7 +11,9 @@ import type { ProjectAggregateSnapshot } from "../ports/storage-port.js";
 import {
   evaluateCloseGate,
   type GateBlocker,
-  type LegacyResidualAuditItem
+  resolveResidualAudit,
+  type ResidualAuditSource,
+  type ResidualAuditItem
 } from "../services/gate-service.js";
 
 import { ApplicationError } from "./errors.js";
@@ -125,8 +127,6 @@ type CloseoutNextActionSummary = {
   blockerIds: string[];
 };
 
-type CloseoutResidualAuditSource = "assumed_none" | "proposal_payload";
-
 export interface VersionCloseoutSummary {
   projectId: string;
   version: CloseoutVersionSummary;
@@ -139,8 +139,9 @@ export interface VersionCloseoutSummary {
     unresolvedUndoIds: string[];
     unresolvedDeferredIds: string[];
     blockedConstraintIds: string[];
-    residualAuditSource: CloseoutResidualAuditSource;
+    residualAuditSource: ResidualAuditSource;
     residualAuditProposalId: string | null;
+    residualAuditReviewed: boolean;
   };
   openTodos: CloseoutOpenTodoSummary[];
   openUndos: CloseoutOpenUndoSummary[];
@@ -158,7 +159,7 @@ export interface VersionCloseoutSummary {
 
 export type VersionCloseoutView = {
   version: Version;
-  residualAudit: LegacyResidualAuditItem[];
+  residualAudit: ResidualAuditItem[];
   relatedPendingOperations: PendingOperation[];
   summary: VersionCloseoutSummary;
   meta: Record<string, unknown>;
@@ -183,14 +184,6 @@ const SELF_REFERENTIAL_CLEANUP_KEYWORDS = [
   "migrate",
   "follow-up"
 ] as const;
-const DEFAULT_CLOSEOUT_RESIDUAL_AUDIT: LegacyResidualAuditItem[] = [
-  {
-    kind: "debt",
-    summary: "none",
-    destination: "close"
-  }
-];
-
 const requireVersion = (snapshot: ProjectAggregateSnapshot, versionId: string): Version => {
   const version = snapshot.versions.find((item) => item.id === versionId);
 
@@ -416,35 +409,34 @@ const resolveCloseoutResidualAudit = (
   pendingOperations: PendingOperation[],
   versionId: string
 ): {
-  residualAudit: LegacyResidualAuditItem[];
-  source: CloseoutResidualAuditSource;
+  residualAudit: ResidualAuditItem[];
+  source: ResidualAuditSource;
   proposalId: string | null;
+  reviewed: boolean;
 } => {
-  const closeProposal = pendingOperations
+  const resolved = resolveResidualAudit(
+    undefined,
+    pendingOperations
     .filter(
       (operation) =>
+        operation.status === "pending" &&
         operation.actionType === "close_version" &&
-        operation.targetId === versionId &&
-        Array.isArray(operation.payload.residualAudit) &&
-        operation.payload.residualAudit.length > 0
+        operation.targetId === versionId
     )
     .slice()
-    .sort(comparePendingOperationsDesc)[0];
-
-  if (closeProposal !== undefined) {
-    return {
-      residualAudit: structuredClone(
-        closeProposal.payload.residualAudit as LegacyResidualAuditItem[]
-      ),
-      source: "proposal_payload",
-      proposalId: closeProposal.id
-    };
-  }
+    .sort(comparePendingOperationsDesc)
+    .map((operation) => ({
+      id: operation.id,
+      residualAudit: operation.payload.residualAudit,
+      residualAuditReviewed: operation.payload.residualAuditReviewed
+    }))
+  );
 
   return {
-    residualAudit: structuredClone(DEFAULT_CLOSEOUT_RESIDUAL_AUDIT),
-    source: "assumed_none",
-    proposalId: null
+    residualAudit: structuredClone(resolved.audit?.items ?? []),
+    source: resolved.source,
+    proposalId: resolved.proposalId,
+    reviewed: resolved.audit !== null
   };
 };
 
@@ -537,6 +529,22 @@ const buildCloseoutNextAction = (options: {
     };
   }
 
+  if (
+    version.state === "complete" &&
+    closeGate.blockers.some((blocker) => blocker.code === "MISSING_RESIDUAL_AUDIT")
+  ) {
+    return {
+      actionType: "review_residual_audit",
+      recommendedTool: "check_close_gate",
+      summary: "Review and declare the residual audit first.",
+      reason:
+        "No reviewed residual-audit declaration exists. Supply { status: reviewed, items: [] } only after reviewing that no residuals remain, or include routed residual items.",
+      targetId: version.id,
+      requiresL3Approval: false,
+      blockerIds: []
+    };
+  }
+
   if (version.state === "complete" && closeGate.ok) {
     return {
       actionType: "close_version",
@@ -621,7 +629,9 @@ export const collectVersionCloseoutView = (options: {
     version,
     todos: versionTodos,
     undos: versionUndos,
-    residualAudit: residualAudit.residualAudit,
+    residualAudit: residualAudit.reviewed
+      ? { status: "reviewed", items: residualAudit.residualAudit }
+      : null,
     knownVersions: snapshot.versions,
     deferredItems: snapshot.deferredItems,
     constraints: snapshot.constraints,
@@ -638,7 +648,8 @@ export const collectVersionCloseoutView = (options: {
     blockedConstraintIds:
       version.state === "close" ? [] : closeGateEvaluation.blockedConstraintIds,
     residualAuditSource: residualAudit.source,
-    residualAuditProposalId: residualAudit.proposalId
+    residualAuditProposalId: residualAudit.proposalId,
+    residualAuditReviewed: residualAudit.reviewed
   };
   const recentEvents = newestEvents
     .filter(

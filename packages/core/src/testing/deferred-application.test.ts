@@ -936,13 +936,7 @@ describe("RouteLedgerService Deferred and Constraint application commands", () =
       scope: { type: "project" },
       actor: TEST_ACTOR
     });
-    const residualAudit = [
-      {
-        kind: "debt" as const,
-        summary: "Deferred is routed",
-        destination: "close" as const
-      }
-    ];
+    const residualAudit = { status: "reviewed" as const, items: [] };
 
     await expect(
       service.checkCloseGate({
@@ -989,13 +983,13 @@ describe("RouteLedgerService Deferred and Constraint application commands", () =
         blockedConstraintIds: [],
         gates: {
           close: {
-            allowed: true,
+            allowed: false,
             unresolvedDeferredIds: [],
             blockedConstraintIds: []
           }
         },
         nextAction: {
-          actionType: "close_version"
+          actionType: "review_context"
         }
       }
     });

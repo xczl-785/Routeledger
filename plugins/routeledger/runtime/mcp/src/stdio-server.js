@@ -450,7 +450,10 @@ export const createRouteLedgerStdioServer = (options) => {
             });
         }
         catch (error) {
-            return createSessionRebindFailureResponse(nextBinding, error);
+            return {
+                ...createSessionRebindFailureResponse(nextBinding, error),
+                meta: await registry.getRuntimeContextMeta()
+            };
         }
         let activationResponse;
         try {
@@ -463,7 +466,10 @@ export const createRouteLedgerStdioServer = (options) => {
             catch {
                 // The old registry remains active; a failed candidate close is irrelevant.
             }
-            return createSessionRebindFailureResponse(nextBinding, error);
+            return {
+                ...createSessionRebindFailureResponse(nextBinding, error),
+                meta: await registry.getRuntimeContextMeta()
+            };
         }
         activeRegistry = nextRegistry;
         registry.clearPendingSessionRebind();
@@ -672,7 +678,12 @@ export const createRouteLedgerStdioServer = (options) => {
                             ? null
                             : validateToolInput(toolDefinition, toolCall.arguments);
                         const invocationRegistry = activeRegistry;
-                        const toolResponse = validationError ?? (await invocationRegistry.invoke(toolCall.name, toolCall.arguments));
+                        const toolResponse = validationError === null
+                            ? await invocationRegistry.invoke(toolCall.name, toolCall.arguments)
+                            : {
+                                ...validationError,
+                                meta: await invocationRegistry.getRuntimeContextMeta()
+                            };
                         const rebindResponse = validationError === null && toolCall.name === "activate_routeledger_binding"
                             ? await activatePendingSessionRebind(invocationRegistry)
                             : null;

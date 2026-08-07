@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const routeledgerRoot = path.resolve(scriptDir, "..");
@@ -131,6 +131,22 @@ const git = (args) => {
   }
 };
 
+export const isResolvableCommit = (workingDirectory, commit) => {
+  if (typeof commit !== "string" || commit.length === 0) {
+    return false;
+  }
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--end-of-options", `${commit}^{commit}`], {
+      cwd: workingDirectory,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const previousPluginRootType = (ref) => {
   git(["rev-parse", "--verify", `${ref}^{commit}`]);
   try {
@@ -191,6 +207,42 @@ const assertMetadata = async () => {
   }
   if (release.plugin?.name !== manifest.name || release.plugin?.version !== manifest.version) {
     fail("Release metadata plugin name/version does not match plugin.json.");
+  }
+  const runtimeIdentityModule = await import(
+    `${pathToFileURL(path.join(pluginRoot, "runtime", "mcp", "src", "runtime-identity.js")).href}?release-check=${Date.now()}`
+  );
+  const runtimeIdentity = runtimeIdentityModule.resolveRuntimeIdentity("json-only");
+  const hasVerifiedBuildCommit =
+    runtimeIdentity?.sourceTreeState === "clean" && isResolvableCommit(repositoryRoot, runtimeIdentity?.buildCommit);
+  const hasNoBuildCommit =
+    (runtimeIdentity?.sourceTreeState === "dirty" || runtimeIdentity?.sourceTreeState === "unavailable") &&
+    runtimeIdentity?.buildCommit === null;
+  const runtimePayloadDigest = await hashWorkingTree(
+    path.join(pluginRoot, "runtime"),
+    (relativePath) => relativePath !== "mcp/src/runtime-identity.js"
+  );
+  if (!hasVerifiedBuildCommit && runtimeIdentity?.sourceTreeState === "clean") {
+    fail("Runtime identity buildCommit must resolve to a commit in the current repository when sourceTreeState is clean.");
+  }
+  if (
+    runtimeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
+    runtimeIdentity?.runtimeProfile !== "json-only" ||
+    runtimeIdentity?.artifactKind !== "plugin" ||
+    runtimeIdentity?.pluginVersion !== manifest.version ||
+    (!hasVerifiedBuildCommit && !hasNoBuildCommit) ||
+    runtimeIdentity?.artifactDigest !== null ||
+    runtimeIdentity?.runtimePayloadDigest !== runtimePayloadDigest ||
+    release.runtimeIdentity?.runtimePackageVersion !== runtimeIdentity.runtimePackageVersion ||
+    release.runtimeIdentity?.runtimeProfile !== runtimeIdentity.runtimeProfile ||
+    release.runtimeIdentity?.pluginVersion !== runtimeIdentity.pluginVersion ||
+    release.runtimeIdentity?.sourceTreeState !== runtimeIdentity.sourceTreeState ||
+    release.runtimeIdentity?.buildCommit !== runtimeIdentity.buildCommit ||
+    release.runtimeIdentity?.artifactDigest !== null ||
+    release.runtimeIdentity?.runtimePayloadDigest !== runtimeIdentity.runtimePayloadDigest ||
+    release.runtimeIdentity?.runtimePayloadCoverage !==
+      "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
+  ) {
+    fail("Runtime identity does not match the generated JSON-only plugin runtime and manifest.");
   }
   if (
     release.content?.algorithm !== "sha256" ||
@@ -266,4 +318,6 @@ const main = async () => {
   console.log(`Codex plugin release check passed: ${manifest.name}@${manifest.version} (${tag}).`);
 };
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

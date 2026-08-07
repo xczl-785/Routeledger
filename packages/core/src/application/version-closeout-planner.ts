@@ -24,6 +24,7 @@ export type VersionCloseoutPlanStepKind =
   | "approve_l3_operation"
   | "commit_l3_operation"
   | "review_pending_proposal"
+  | "review_residual_audit"
   | "review_self_referential_undo"
   | "no_op";
 
@@ -399,12 +400,6 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
   }
 
   if (version.state === "complete" && summary.closeGate.ok) {
-    if (summary.closeGate.residualAuditSource === "assumed_none") {
-      warnings.push(
-        "Close gate preview used the default residual audit `none -> close`. If that is not the intended residual handling, provide a real residualAudit before proposing close."
-      );
-    }
-
     addStep(
       createStep({
         stepId: `close-version-${version.id}`,
@@ -415,7 +410,7 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
           { field: "projectId", value: summary.projectId },
           { field: "versionId", value: version.id },
           { field: "mode", value: "propose" },
-          { field: "residualAudit", value: residualAudit },
+          { field: "residualAudit", value: { status: "reviewed", items: residualAudit } },
           { field: "reason", value: "<optional proposal reason>" }
         ],
         governanceLayer: "l3_proposal",
@@ -484,6 +479,36 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
       version: summary.version,
       summary,
       status: "ready_to_close",
+      steps,
+      warnings
+    };
+  }
+
+  if (version.state === "complete" && !summary.closeGate.residualAuditReviewed) {
+    warnings.push("Close requires an explicit residual audit declaration; an omitted or empty legacy array is not a no-residuals result.");
+    addStep(
+      createStep({
+        stepId: `review-residual-audit-${version.id}`,
+        kind: "review_residual_audit",
+        recommendedTool: "check_close_gate",
+        targetId: version.id,
+        requiredInputs: [
+          { field: "projectId", value: summary.projectId },
+          { field: "versionId", value: version.id },
+          { field: "residualAudit", value: { status: "reviewed", items: [] } }
+        ],
+        governanceLayer: "manual",
+        requiresL3Approval: false,
+        writesRouteState: false,
+        summary: "Review and declare the residual audit before planning close.",
+        reason: "The ordinary close gate has no reviewed residual-audit evidence. Supply a reviewed declaration with either empty items or routed residual items, then rerun the plan."
+      })
+    );
+    return {
+      projectId: summary.projectId,
+      version: summary.version,
+      summary,
+      status: "blocked",
       steps,
       warnings
     };
