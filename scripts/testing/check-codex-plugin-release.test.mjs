@@ -68,7 +68,9 @@ const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release
 try {
   runOrThrow("git", ["clone", "--shared", repositoryRoot, fixtureRoot], repositoryRoot);
   const patch = execFileSync("git", ["diff", "--binary"], { cwd: repositoryRoot, encoding: "buffer" });
-  runOrThrow("git", ["apply", "--whitespace=nowarn"], fixtureRoot, { input: patch });
+  if (patch.length > 0) {
+    runOrThrow("git", ["apply", "--whitespace=nowarn"], fixtureRoot, { input: patch });
+  }
   await fs.copyFile(
     path.join(repositoryRoot, "scripts", "regular-file-tree.mjs"),
     path.join(fixtureRoot, "scripts", "regular-file-tree.mjs")
