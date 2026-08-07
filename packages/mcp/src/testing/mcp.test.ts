@@ -374,7 +374,17 @@ const initializeServer = async (
       },
       serverInfo: {
         name: "routeledger",
-        title: "RouteLedger MCP"
+        title: "RouteLedger MCP",
+        version: "0.0.0-package-prep",
+        runtimeIdentity: {
+          runtimePackageVersion: "0.0.0-package-prep",
+          artifactKind: "source",
+          pluginVersion: null,
+          sourceTreeState: "unavailable",
+          buildCommit: null,
+          artifactDigest: null,
+          runtimePayloadDigest: null
+        }
       }
     }
   });
@@ -460,7 +470,10 @@ const expectSingleRootsListRequest = (messages: JsonRpcMessage[]): JsonRpcMessag
 
 const expectRouteLedgerRootGuardError = (
   response: ToolResponse,
-  code: "MCP_EXPECTED_ROUTELEDGER_ROOT_INVALID" | "MCP_ROUTELEDGER_ROOT_MISMATCH",
+  code:
+    | "ROUTELEDGER_WRITE_BINDING_ASSERTION_REQUIRED"
+    | "MCP_EXPECTED_ROUTELEDGER_ROOT_INVALID"
+    | "MCP_ROUTELEDGER_ROOT_MISMATCH",
   projectRoot: string,
   toolName: string
 ): void => {
@@ -828,7 +841,7 @@ describe("routeledger mcp registry", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const server = await initializeServer(projectRoot);
+      const server = await initializeServer(projectRoot, { runtimeProfile: "json-only" });
       const badDecisionRefResponse = await callTool(
         server,
         "bad-decision-ref",
@@ -849,6 +862,11 @@ describe("routeledger mcp registry", () => {
         "list_versions",
         {}
       );
+      const runtimeContext = getStructuredData<{
+        activeProject: { id: string; name: string } | null;
+      }>(await callTool(server, "schema-validation-context", "get_runtime_context", {}));
+
+      expect(runtimeContext.activeProject).toBeNull();
 
       expect(badDecisionRefResponse).toMatchObject({
         jsonrpc: "2.0",
@@ -861,6 +879,13 @@ describe("routeledger mcp registry", () => {
               code: "INVALID_TOOL_INPUT",
               details: {
                 path: "$.decisionRef"
+              }
+            },
+            meta: {
+              runtimeContext: {
+                projectId: null,
+                projectName: null,
+                activeProject: null
               }
             }
           }
@@ -927,6 +952,97 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("registry error envelopes derive active project metadata from inspected runtime state", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      runtimeProfile: "json-only"
+    });
+
+    try {
+      const initialized = await registry.invoke("init_project", {
+        name: "Inspected Runtime Project",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const project = (initialized.data as { project: { id: string; name: string } }).project;
+      const expectedRuntimeContext = {
+        projectId: project.id,
+        projectName: project.name,
+        activeProject: expect.objectContaining({
+          id: project.id,
+          name: project.name,
+          source: "canonical_json"
+        })
+      };
+
+      const preflightError = await registry.invoke("create_todo", {
+        projectId: "untrusted-request-project",
+        versionId: "untrusted-request-version",
+        title: "must not write"
+      });
+      const applicationError = await registry.invoke("list_versions", {
+        projectId: "untrusted-request-project"
+      });
+      const inputError = await registry.invoke("get_current_context", {
+        projectId: 42
+      } as any);
+      const unknownToolError = await registry.invoke("not_a_routeledger_tool", {
+        projectId: "untrusted-request-project"
+      });
+
+      for (const response of [
+        preflightError,
+        applicationError,
+        inputError,
+        unknownToolError
+      ]) {
+        expect(response).toMatchObject({
+          ok: false,
+          meta: { runtimeContext: expectedRuntimeContext }
+        });
+      }
+      expect(preflightError.error?.code).toBe("ROUTELEDGER_WRITE_BINDING_ASSERTION_REQUIRED");
+      expect(applicationError.error?.code).toBe("PROJECT_NOT_FOUND");
+      expect(inputError.error?.code).toBe("INVALID_TOOL_INPUT");
+      expect(unknownToolError.error?.code).toBe("ACTION_NOT_IMPLEMENTED");
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("tools/call unknown tool remains a JSON-RPC boundary error without runtime metadata", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const server = await initializeServer(projectRoot, { runtimeProfile: "json-only" });
+      const response = await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "unknown-tool",
+        method: "tools/call",
+        params: {
+          name: "not_a_routeledger_tool",
+          arguments: { projectId: "untrusted-request-project" }
+        }
+      });
+
+      expect(response).toEqual({
+        jsonrpc: "2.0",
+        id: "unknown-tool",
+        error: {
+          code: -32602,
+          message: "Unknown tool 'not_a_routeledger_tool'."
+        }
+      });
+      expect(JSON.stringify(response)).not.toContain("runtimeContext");
+
+      server.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("write tools reject invalid relative expectedRouteLedgerRoot before mutating state", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);
@@ -967,6 +1083,62 @@ describe("routeledger mcp registry", () => {
 
       expect(response.ok).toBe(true);
       expect(fs.existsSync(getDefaultJsonProjectPath(projectRoot))).toBe(true);
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("dry-run route workflows retain the root assertion before previewing live state", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot
+    });
+
+    try {
+      const initialized = await registry.invoke("init_project", {
+        name: "RouteLedger",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(initialized.ok).toBe(true);
+      const data = initialized.data as {
+        project: { id: string };
+        initialVersion: { id: string };
+      };
+
+      const dryRunInputs: Array<{
+        toolName: "transition_version" | "close_version" | "shutdown_version";
+        input: Record<string, unknown>;
+      }> = [
+        {
+          toolName: "transition_version",
+          input: { projectId: data.project.id, versionId: data.initialVersion.id, mode: "dry_run" }
+        },
+        {
+          toolName: "close_version",
+          input: { projectId: data.project.id, versionId: data.initialVersion.id, mode: "dry_run" }
+        },
+        {
+          toolName: "shutdown_version",
+          input: {
+            projectId: data.project.id,
+            versionId: data.initialVersion.id,
+            mode: "dry_run",
+            shutdownReason: "test forced-path preview"
+          }
+        }
+      ];
+
+      for (const { toolName, input } of dryRunInputs) {
+        const response = await registry.invoke(toolName, input);
+        expectRouteLedgerRootGuardError(
+          response,
+          "ROUTELEDGER_WRITE_BINDING_ASSERTION_REQUIRED",
+          projectRoot,
+          toolName
+        );
+      }
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);
@@ -2630,6 +2802,52 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("direct session rebound error metadata inspects the new binding", async () => {
+    const cacheCwd = createTempProjectRoot();
+    const targetRoot = createTempProjectRoot();
+    const bootstrapRegistry = createRegistry(targetRoot);
+    const registry = createProcessCwdRegistry(cacheCwd, { runtimeProfile: "json-only" });
+    let bootstrapClosed = false;
+
+    try {
+      const initialized = await bootstrapRegistry.invoke("init_project", {
+        name: "Rebound Runtime Project"
+      });
+      const project = (initialized.data as { project: { id: string; name: string } }).project;
+      bootstrapRegistry.close();
+      bootstrapClosed = true;
+
+      const activated = await registry.invoke("activate_routeledger_binding", {
+        workspaceRoot: targetRoot
+      });
+      expect(activated).toMatchObject({ ok: true, data: { rebound: true } });
+
+      const error = await registry.invoke("list_versions", {
+        projectId: "untrusted-request-project"
+      });
+      expect(error).toMatchObject({
+        ok: false,
+        error: { code: "PROJECT_NOT_FOUND" },
+        meta: {
+          runtimeContext: {
+            binding: { workspaceRoot: targetRoot, routeledgerRoot: targetRoot },
+            projectId: project.id,
+            projectName: project.name,
+            activeProject: expect.objectContaining({ id: project.id, name: project.name })
+          }
+        }
+      });
+    } finally {
+      if (!bootstrapClosed) {
+        bootstrapRegistry.close();
+      }
+      registry.close();
+      registry.restore();
+      cleanupProjectRoot(cacheCwd);
+      cleanupProjectRoot(targetRoot);
+    }
+  });
+
   it("uses physical containment for links, missing in-workspace children, and workspace dataDir", async () => {
     const workspaceRoot = createTempProjectRoot();
     const outsideRoot = createTempProjectRoot();
@@ -2777,7 +2995,18 @@ describe("routeledger mcp registry", () => {
       expect(failedActivation).toMatchObject({
         result: {
           isError: true,
-          structuredContent: { ok: false, error: { code: "SESSION_REBIND_FAILED" } },
+          structuredContent: {
+            ok: false,
+            error: { code: "SESSION_REBIND_FAILED" },
+            meta: {
+              runtimeContext: {
+                binding: { status: "unbound" },
+                projectId: null,
+                projectName: null,
+                activeProject: null
+              }
+            }
+          },
           _meta: { routeledger: { toolName: "activate_routeledger_binding" } }
         }
       });
@@ -6289,6 +6518,190 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("get_version_transition_guide gives lifecycle-specific guidance when current is its own target", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const server = await initializeServer(projectRoot);
+      const initResponse = await callTool(server, "init-project", "init_project", {
+        name: "RouteLedger"
+      });
+      const initData = getStructuredData<{
+        project: { id: string };
+        initialVersion: { id: string };
+      }>(initResponse);
+
+      const waitGuide = getStructuredData<{
+        status: string;
+        closeGate: { applicable: boolean; allowed: boolean };
+        startGate: { applicable: boolean; allowed: boolean };
+        recommendedSteps: Array<{ stepId: string; actionType: string | null }>;
+      }>(
+        await callTool(server, "wait-self-guide", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId: initData.initialVersion.id
+        })
+      );
+      expect(waitGuide).toMatchObject({
+        status: "ready",
+        closeGate: { applicable: false, allowed: false },
+        startGate: { applicable: false, allowed: false },
+        recommendedSteps: [
+          expect.objectContaining({
+            stepId: "prepare-current-version",
+            actionType: "prepare_version"
+          })
+        ]
+      });
+
+      await callTool(server, "prepare-current", "prepare_version", {
+        projectId: initData.project.id,
+        versionId: initData.initialVersion.id
+      });
+      const readyGuide = getStructuredData<{
+        status: string;
+        closeGate: { applicable: boolean };
+        recommendedSteps: Array<{ stepId: string; actionType: string | null }>;
+      }>(
+        await callTool(server, "ready-self-guide", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId: initData.initialVersion.id
+        })
+      );
+      expect(readyGuide).toMatchObject({
+        status: "ready",
+        closeGate: { applicable: false }
+      });
+      expect(readyGuide.recommendedSteps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            stepId: "start-current-version",
+            actionType: "start_version"
+          })
+        ])
+      );
+      expect(readyGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+        "close_version"
+      );
+
+      const startProposal = getStructuredData<{ id: string }>(
+        await callTool(server, "start-current", "propose_l3_operation", {
+          projectId: initData.project.id,
+          actionType: "start_version",
+          targetId: initData.initialVersion.id,
+          reason: "start initial"
+        })
+      );
+      const startApproval = getStructuredData<{ id: string }>(
+        await callTool(server, "approve-start", "approve_l3_operation", {
+          projectId: initData.project.id,
+          pendingOperationId: startProposal.id
+        })
+      );
+      await callTool(server, "commit-start", "commit_l3_operation", {
+        projectId: initData.project.id,
+        pendingOperationId: startProposal.id,
+        approvalArtifactId: startApproval.id
+      });
+
+      const runningGuide = getStructuredData<{
+        status: string;
+        recommendedSteps: unknown[];
+      }>(
+        await callTool(server, "running-self-guide", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId: initData.initialVersion.id
+        })
+      );
+      expect(runningGuide).toMatchObject({ status: "noop", recommendedSteps: [] });
+
+      await callTool(server, "complete-current", "mark_version_complete", {
+        projectId: initData.project.id,
+        versionId: initData.initialVersion.id
+      });
+      const completeGuide = getStructuredData<{
+        status: string;
+        recommendedSteps: Array<{ stepId: string; actionType: string | null }>;
+      }>(
+        await callTool(server, "complete-self-guide", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId: initData.initialVersion.id,
+          residualAudit: { status: "reviewed", items: [] }
+        })
+      );
+      expect(completeGuide).toMatchObject({
+        status: "ready"
+      });
+      expect(completeGuide.recommendedSteps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            stepId: "close-current-version",
+            actionType: "close_version"
+          })
+        ])
+      );
+      expect(completeGuide.recommendedSteps.map((step) => step.actionType)).not.toContain(
+        "start_version"
+      );
+
+      const closeProposal = getStructuredData<{ pendingOperationId: string }>(
+        await callTool(server, "close-current", "close_version", {
+          projectId: initData.project.id,
+          versionId: initData.initialVersion.id,
+          mode: "propose",
+          residualAudit: [
+            {
+              kind: "debt",
+              summary: "legacy close routing remains accepted",
+              destination: "create_undo",
+              preferredResolutionVersionId: "legacy-downstream-version"
+            }
+          ]
+        })
+      );
+      const closeApproval = getStructuredData<{ id: string }>(
+        await callTool(server, "approve-close", "approve_l3_operation", {
+          projectId: initData.project.id,
+          pendingOperationId: closeProposal.pendingOperationId
+        })
+      );
+      await callTool(server, "commit-close", "commit_l3_operation", {
+        projectId: initData.project.id,
+        pendingOperationId: closeProposal.pendingOperationId,
+        approvalArtifactId: closeApproval.id
+      });
+
+      const closedGuide = getStructuredData<{
+        status: string;
+        closeGate: { applicable: boolean; allowed: boolean };
+        startGate: { applicable: boolean; allowed: boolean };
+        recommendedSteps: unknown[];
+      }>(
+        await callTool(server, "closed-self-guide", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId: initData.initialVersion.id
+        })
+      );
+      expect(closedGuide).toMatchObject({
+        status: "noop",
+        closeGate: { applicable: false, allowed: true },
+        startGate: { applicable: false, allowed: false },
+        recommendedSteps: []
+      });
+
+      const proposals = getStructuredData<Array<{ status: string }>>(
+        await callTool(server, "proposals-after-self-guides", "list_l3_proposals", {
+          projectId: initData.project.id
+        })
+      );
+      expect(proposals.filter((proposal) => proposal.status === "pending")).toEqual([]);
+
+      server.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("plan_version_closeout tool returns no_op for a closed version and keeps summary.canClose=false", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -7023,7 +7436,8 @@ describe("routeledger mcp registry", () => {
       const closeVersionSchema = registry.tools.find(
         (tool) => tool.name === "close_version"
       )!.inputSchema;
-      expect(JSON.stringify(closeVersionSchema)).not.toContain("create_undo");
+      expect(JSON.stringify(closeVersionSchema)).toContain("create_undo");
+      expect(JSON.stringify(closeVersionSchema)).toContain("preferredResolutionVersionId");
       expect(JSON.stringify(closeVersionSchema)).toContain("defer_work");
       expect(JSON.stringify(closeVersionSchema)).toContain("record_constraint");
 
@@ -7822,7 +8236,15 @@ describe("routeledger mcp registry", () => {
         jsonrpc: "2.0",
         id: "initialize",
         result: {
-          protocolVersion: MCP_PROTOCOL_VERSION
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          serverInfo: {
+            version: "0.0.0-package-prep",
+            runtimeIdentity: {
+              artifactKind: "source",
+              pluginVersion: null,
+              runtimeProfile: "full"
+            }
+          }
         }
       });
       expect(stdoutLines[1]).toMatchObject({
@@ -7847,6 +8269,16 @@ describe("routeledger mcp registry", () => {
                 routeledgerDir: getDefaultCanonicalJsonRoot(projectRoot)
               },
               processCwd: path.join(repoRoot, "packages/mcp"),
+              runtimeIdentity: {
+                runtimePackageVersion: "0.0.0-package-prep",
+                runtimeProfile: "full",
+                artifactKind: "source",
+                pluginVersion: null,
+                sourceTreeState: "unavailable",
+                buildCommit: null,
+                artifactDigest: null,
+                runtimePayloadDigest: null
+              },
               diagnostics: [],
               storage: {
                 mode: "uninitialized",

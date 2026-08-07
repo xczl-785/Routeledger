@@ -55,7 +55,7 @@ const assertPluginFiles = async () => {
 
   if (
     manifest.name !== "routeledger" ||
-    manifest.version !== "0.3.4" ||
+    manifest.version !== "0.3.5" ||
     manifest.repository !== "https://github.com/xczl-785/Routeledger"
   ) {
     throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");
@@ -232,6 +232,20 @@ const runPluginStdioSmoke = async () => {
     if (responses[0]?.result?.protocolVersion !== "2025-11-25") {
       throw new Error("Bundled runtime did not initialize with the canonical protocol version.");
     }
+    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    const initializeIdentity = responses[0]?.result?.serverInfo?.runtimeIdentity;
+    if (
+      responses[0]?.result?.serverInfo?.version !== "0.0.0-package-prep" ||
+      initializeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
+      initializeIdentity?.runtimeProfile !== "json-only" ||
+      initializeIdentity?.artifactKind !== "plugin" ||
+      initializeIdentity?.pluginVersion !== manifest.version ||
+      !["clean", "dirty", "unavailable"].includes(initializeIdentity?.sourceTreeState) ||
+      initializeIdentity?.buildCommit !== null ||
+      typeof initializeIdentity?.runtimePayloadDigest !== "string"
+    ) {
+      throw new Error("Bundled runtime initialize did not expose the plugin artifact identity.");
+    }
     if (!Array.isArray(responses[1]?.result?.tools) || responses[1].result.tools.length === 0) {
       throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
     }
@@ -306,6 +320,9 @@ const runPluginStdioSmoke = async () => {
       initializedRuntimeContext?.storage?.mode !== "json"
     ) {
       throw new Error("Bundled runtime did not initialize JSON-only storage after the explicit session rebound.");
+    }
+    if (JSON.stringify(initializedRuntimeContext?.runtimeIdentity) !== JSON.stringify(initializeIdentity)) {
+      throw new Error("Bundled runtime initialize and get_runtime_context reported different identities.");
     }
     if (!(await fs.stat(path.join(testRouteledgerRoot, ".routeledger", "project.json")).catch(() => null))) {
       throw new Error("Bundled runtime did not write canonical project JSON.");

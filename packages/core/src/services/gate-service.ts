@@ -51,6 +51,108 @@ export interface ResidualAuditItem {
   targetReviewVersionId?: string | null;
 }
 
+/**
+ * The close boundary is only satisfied after someone has explicitly reviewed
+ * residuals. `items: []` therefore means "reviewed and empty", not "missing".
+ */
+export interface ReviewedResidualAudit {
+  status: "reviewed";
+  items: ResidualAuditItem[];
+}
+
+/**
+ * Non-empty arrays are kept for old callers and stored proposals. Empty
+ * arrays deliberately carry no review assertion; new callers should send a
+ * ReviewedResidualAudit when they reviewed an empty result.
+ */
+export type ResidualAuditInput =
+  | ReviewedResidualAudit
+  | ResidualAuditItem[]
+  | null
+  | undefined;
+
+export interface ResidualAuditStoredEvidence {
+  id: string;
+  residualAudit?: ResidualAuditInput;
+  residualAuditReviewed?: boolean;
+}
+
+export type ResidualAuditSource = "input" | "proposal_payload" | "missing";
+
+export interface ResolvedResidualAudit {
+  audit: ReviewedResidualAudit | null;
+  source: ResidualAuditSource;
+  proposalId: string | null;
+  legacy: boolean;
+}
+
+const isReviewedResidualAudit = (value: unknown): value is ReviewedResidualAudit =>
+  value !== null &&
+  typeof value === "object" &&
+  (value as { status?: unknown }).status === "reviewed" &&
+  Array.isArray((value as { items?: unknown }).items);
+
+export const normalizeResidualAudit = (
+  value: ResidualAuditInput,
+  reviewed = false
+): { audit: ReviewedResidualAudit | null; legacy: boolean } => {
+  if (isReviewedResidualAudit(value)) {
+    return {
+      audit: { status: "reviewed", items: value.items },
+      legacy: false
+    };
+  }
+
+  if (Array.isArray(value) && (reviewed || value.length > 0)) {
+    return {
+      audit: { status: "reviewed", items: value },
+      legacy: !reviewed
+    };
+  }
+
+  return { audit: null, legacy: false };
+};
+
+/** Resolve the one close-audit truth without upgrading absent or empty legacy data. */
+export const resolveResidualAudit = (
+  input: ResidualAuditInput,
+  pendingCloseEvidence: ResidualAuditStoredEvidence[] = []
+): ResolvedResidualAudit => {
+  const direct = normalizeResidualAudit(input);
+
+  if (direct.audit !== null) {
+    return {
+      audit: direct.audit,
+      source: "input",
+      proposalId: null,
+      legacy: direct.legacy
+    };
+  }
+
+  for (const candidate of pendingCloseEvidence) {
+    const normalized = normalizeResidualAudit(
+      candidate.residualAudit,
+      candidate.residualAuditReviewed === true
+    );
+
+    if (normalized.audit !== null) {
+      return {
+        audit: normalized.audit,
+        source: "proposal_payload",
+        proposalId: candidate.id,
+        legacy: normalized.legacy
+      };
+    }
+  }
+
+  return {
+    audit: null,
+    source: "missing",
+    proposalId: null,
+    legacy: false
+  };
+};
+
 export type LegacyResidualAuditItem = Omit<
   ResidualAuditItem,
   "destination" | "targetReviewVersionId"
@@ -73,7 +175,7 @@ export interface CloseGateInput {
   version: Version;
   todos: Todo[];
   undos: Undo[];
-  residualAudit: ResidualAuditItem[] | null;
+  residualAudit: ResidualAuditInput;
   knownVersions?: Version[];
   deferredItems?: DeferredItem[];
   constraints?: Constraint[];
@@ -465,14 +567,16 @@ export const evaluateCloseGate = ({
     }
   }
 
-  if (residualAudit === null || residualAudit.length === 0) {
+  const resolvedAudit = normalizeResidualAudit(residualAudit);
+
+  if (resolvedAudit.audit === null) {
     blockers.push({
       code: "MISSING_RESIDUAL_AUDIT",
       message: "close gate 需要 residual audit",
       recordIds: []
     });
   } else {
-    const invalidAuditIndexes = residualAudit
+    const invalidAuditIndexes = resolvedAudit.audit.items
       .map((item, index) => ({ item, index }))
       .filter(
         ({ item }) =>
@@ -490,7 +594,7 @@ export const evaluateCloseGate = ({
       });
     }
 
-    for (const [index, item] of residualAudit.entries()) {
+    for (const [index, item] of resolvedAudit.audit.items.entries()) {
       if (item.destination !== "defer_work") {
         continue;
       }

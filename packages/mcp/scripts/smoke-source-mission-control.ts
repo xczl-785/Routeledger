@@ -89,6 +89,17 @@ const main = async (): Promise<void> => {
     assert(firstOpen.projectId === projectId, "open_mission_control should return the initialized projectId");
     assert(typeof firstOpen.url === "string" && firstOpen.url.startsWith("http://127.0.0.1:"), "open_mission_control should return a localhost URL");
     assert(Number.isInteger(firstOpen.port) && firstOpen.port > 0, "open_mission_control should return a listen(0) port");
+    assert(
+      typeof firstOpen.workspaceRoot === "string" && firstOpen.workspaceRoot.length > 0,
+      "open_mission_control should return the resolved workspaceRoot"
+    );
+    assert(
+      typeof firstOpen.routeledgerRoot === "string" && firstOpen.routeledgerRoot.length > 0,
+      "open_mission_control should return the resolved routeledgerRoot"
+    );
+
+    const resolvedWorkspaceRoot = firstOpen.workspaceRoot;
+    const resolvedRouteLedgerRoot = firstOpen.routeledgerRoot;
 
     const healthResponse = await fetch(`${firstOpen.url}/api/health`, {
       headers: {
@@ -111,20 +122,21 @@ const main = async (): Promise<void> => {
       "Mission Control state should expose the same projectId"
     );
     assert(
-      statePayload.binding?.workspaceRoot === workspaceRoot,
-      "Mission Control state should expose the bound workspaceRoot"
+      statePayload.binding?.workspaceRoot === resolvedWorkspaceRoot,
+      "Mission Control state should expose the MCP-resolved workspaceRoot"
     );
     assert(
       statePayload.binding?.workspaceRootSource === "explicit_arg",
       "Mission Control state should expose workspaceRootSource=explicit_arg for source launcher input"
     );
     assert(
-      statePayload.binding?.workspaceConfigPath === path.join(workspaceRoot, ".routeledger", "config.json"),
-      "Mission Control state should expose the workspace config path under workspaceRoot"
+      statePayload.binding?.workspaceConfigPath ===
+        path.join(resolvedWorkspaceRoot, ".routeledger", "config.json"),
+      "Mission Control state should expose the workspace config path under the MCP-resolved workspaceRoot"
     );
     assert(
-      statePayload.binding?.routeledgerRoot === routeledgerRoot,
-      "Mission Control state should expose the resolved routeledgerRoot"
+      statePayload.binding?.routeledgerRoot === resolvedRouteLedgerRoot,
+      "Mission Control state should expose the MCP-resolved routeledgerRoot"
     );
 
     const secondOpenResponse = await registry.invoke("open_mission_control", {});

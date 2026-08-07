@@ -1,5 +1,5 @@
 import { describeVersionState, isShutdownStateReason, isUndoBlockingCloseForVersion } from "../domain/route-semantics.js";
-import { evaluateCloseGate } from "../services/gate-service.js";
+import { evaluateCloseGate, resolveResidualAudit } from "../services/gate-service.js";
 import { ApplicationError } from "./errors.js";
 const DEFAULT_CLOSEOUT_EVENT_LIMIT = 10;
 const MAX_CLOSEOUT_EVENT_LIMIT = 50;
@@ -19,13 +19,6 @@ const SELF_REFERENTIAL_CLEANUP_KEYWORDS = [
     "delete",
     "migrate",
     "follow-up"
-];
-const DEFAULT_CLOSEOUT_RESIDUAL_AUDIT = [
-    {
-        kind: "debt",
-        summary: "none",
-        destination: "close"
-    }
 ];
 const requireVersion = (snapshot, versionId) => {
     const version = snapshot.versions.find((item) => item.id === versionId);
@@ -199,24 +192,22 @@ const summarizeSelfReferentialUndo = (undo) => {
     };
 };
 const resolveCloseoutResidualAudit = (pendingOperations, versionId) => {
-    const closeProposal = pendingOperations
-        .filter((operation) => operation.actionType === "close_version" &&
-        operation.targetId === versionId &&
-        Array.isArray(operation.payload.residualAudit) &&
-        operation.payload.residualAudit.length > 0)
+    const resolved = resolveResidualAudit(undefined, pendingOperations
+        .filter((operation) => operation.status === "pending" &&
+        operation.actionType === "close_version" &&
+        operation.targetId === versionId)
         .slice()
-        .sort(comparePendingOperationsDesc)[0];
-    if (closeProposal !== undefined) {
-        return {
-            residualAudit: structuredClone(closeProposal.payload.residualAudit),
-            source: "proposal_payload",
-            proposalId: closeProposal.id
-        };
-    }
+        .sort(comparePendingOperationsDesc)
+        .map((operation) => ({
+        id: operation.id,
+        residualAudit: operation.payload.residualAudit,
+        residualAuditReviewed: operation.payload.residualAuditReviewed
+    })));
     return {
-        residualAudit: structuredClone(DEFAULT_CLOSEOUT_RESIDUAL_AUDIT),
-        source: "assumed_none",
-        proposalId: null
+        residualAudit: structuredClone(resolved.audit?.items ?? []),
+        source: resolved.source,
+        proposalId: resolved.proposalId,
+        reviewed: resolved.audit !== null
     };
 };
 const buildCloseoutNextAction = (options) => {
@@ -290,6 +281,18 @@ const buildCloseoutNextAction = (options) => {
             blockerIds: []
         };
     }
+    if (version.state === "complete" &&
+        closeGate.blockers.some((blocker) => blocker.code === "MISSING_RESIDUAL_AUDIT")) {
+        return {
+            actionType: "review_residual_audit",
+            recommendedTool: "check_close_gate",
+            summary: "Review and declare the residual audit first.",
+            reason: "No reviewed residual-audit declaration exists. Supply { status: reviewed, items: [] } only after reviewing that no residuals remain, or include routed residual items.",
+            targetId: version.id,
+            requiresL3Approval: false,
+            blockerIds: []
+        };
+    }
     if (version.state === "complete" && closeGate.ok) {
         return {
             actionType: "close_version",
@@ -355,7 +358,9 @@ export const collectVersionCloseoutView = (options) => {
         version,
         todos: versionTodos,
         undos: versionUndos,
-        residualAudit: residualAudit.residualAudit,
+        residualAudit: residualAudit.reviewed
+            ? { status: "reviewed", items: residualAudit.residualAudit }
+            : null,
         knownVersions: snapshot.versions,
         deferredItems: snapshot.deferredItems,
         constraints: snapshot.constraints,
@@ -370,7 +375,8 @@ export const collectVersionCloseoutView = (options) => {
         unresolvedDeferredIds: version.state === "close" ? [] : closeGateEvaluation.unresolvedDeferredIds,
         blockedConstraintIds: version.state === "close" ? [] : closeGateEvaluation.blockedConstraintIds,
         residualAuditSource: residualAudit.source,
-        residualAuditProposalId: residualAudit.proposalId
+        residualAuditProposalId: residualAudit.proposalId,
+        residualAuditReviewed: residualAudit.reviewed
     };
     const recentEvents = newestEvents
         .filter((event) => (event.targetType === "version" && event.targetId === version.id) ||

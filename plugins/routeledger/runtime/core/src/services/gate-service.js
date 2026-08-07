@@ -1,5 +1,53 @@
 import { DomainError } from "../domain/errors.js";
 import { isUndoBlockingCloseForVersion } from "../domain/route-semantics.js";
+const isReviewedResidualAudit = (value) => value !== null &&
+    typeof value === "object" &&
+    value.status === "reviewed" &&
+    Array.isArray(value.items);
+export const normalizeResidualAudit = (value, reviewed = false) => {
+    if (isReviewedResidualAudit(value)) {
+        return {
+            audit: { status: "reviewed", items: value.items },
+            legacy: false
+        };
+    }
+    if (Array.isArray(value) && (reviewed || value.length > 0)) {
+        return {
+            audit: { status: "reviewed", items: value },
+            legacy: !reviewed
+        };
+    }
+    return { audit: null, legacy: false };
+};
+/** Resolve the one close-audit truth without upgrading absent or empty legacy data. */
+export const resolveResidualAudit = (input, pendingCloseEvidence = []) => {
+    const direct = normalizeResidualAudit(input);
+    if (direct.audit !== null) {
+        return {
+            audit: direct.audit,
+            source: "input",
+            proposalId: null,
+            legacy: direct.legacy
+        };
+    }
+    for (const candidate of pendingCloseEvidence) {
+        const normalized = normalizeResidualAudit(candidate.residualAudit, candidate.residualAuditReviewed === true);
+        if (normalized.audit !== null) {
+            return {
+                audit: normalized.audit,
+                source: "proposal_payload",
+                proposalId: candidate.id,
+                legacy: normalized.legacy
+            };
+        }
+    }
+    return {
+        audit: null,
+        source: "missing",
+        proposalId: null,
+        legacy: false
+    };
+};
 export const validateDeferredRouteTarget = (sourceVersion, targetReviewVersionId, knownVersions) => {
     const targetId = targetReviewVersionId?.trim() ?? "";
     if (targetId.length === 0) {
@@ -246,7 +294,8 @@ export const evaluateCloseGate = ({ version, todos, undos, residualAudit, knownV
             addDeferredRouteFailure(routeFailures, failure, deferred.id);
         }
     }
-    if (residualAudit === null || residualAudit.length === 0) {
+    const resolvedAudit = normalizeResidualAudit(residualAudit);
+    if (resolvedAudit.audit === null) {
         blockers.push({
             code: "MISSING_RESIDUAL_AUDIT",
             message: "close gate 需要 residual audit",
@@ -254,7 +303,7 @@ export const evaluateCloseGate = ({ version, todos, undos, residualAudit, knownV
         });
     }
     else {
-        const invalidAuditIndexes = residualAudit
+        const invalidAuditIndexes = resolvedAudit.audit.items
             .map((item, index) => ({ item, index }))
             .filter(({ item }) => item.destination === null ||
             (item.destination === "create_undo" &&
@@ -267,7 +316,7 @@ export const evaluateCloseGate = ({ version, todos, undos, residualAudit, knownV
                 recordIds: invalidAuditIndexes
             });
         }
-        for (const [index, item] of residualAudit.entries()) {
+        for (const [index, item] of resolvedAudit.audit.items.entries()) {
             if (item.destination !== "defer_work") {
                 continue;
             }

@@ -49,6 +49,8 @@ export interface CloseGateSnapshot {
   unresolvedDeferredIds: string[];
   blockedConstraintIds: string[];
   residualAudit: ResidualAuditItem[] | null;
+  /** Absent on historical snapshots; true preserves a reviewed empty audit. */
+  residualAuditReviewed?: boolean;
 }
 
 export interface ShutdownGateSnapshot {
@@ -172,6 +174,8 @@ export interface BatchCreateVersionsNotice {
 export interface PendingOperationPayload {
   currentVersionId?: string | null;
   residualAudit?: ResidualAuditItem[] | null;
+  /** Explicit evidence that residualAudit was reviewed even when it is empty. */
+  residualAuditReviewed?: boolean;
   shutdownReason?: string;
   title?: string;
   description?: string;

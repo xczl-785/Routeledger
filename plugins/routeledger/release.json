@@ -6,12 +6,22 @@
   },
   "plugin": {
     "name": "routeledger",
-    "version": "0.3.4"
+    "version": "0.3.5"
+  },
+  "runtimeIdentity": {
+    "runtimePackageVersion": "0.0.0-package-prep",
+    "runtimeProfile": "json-only",
+    "pluginVersion": "0.3.5",
+    "sourceTreeState": "clean",
+    "buildCommit": null,
+    "artifactDigest": null,
+    "runtimePayloadDigest": "f2ae643e7792711abadacff1bced6a5a6bc90c84dc93def59d4d277511176151",
+    "runtimePayloadCoverage": "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "b816f08e046a58e8b8335a0419c8ecad9946362fa20c483aaa81566da7298b95",
-    "runtimeSha256": "3fa93bc0e1e51a38cd8278e61dde8bad266f137dc4070dc99de214afb401c708",
+    "pluginDistributionSha256": "c4db1efe264cc9a4a295d99723edb42a07606cd25d0a5f7fb6483f856589646a",
+    "runtimeSha256": "22d968831f0e9866d56d7b470e8e29d87a2cc1ca07a3809d021848aeb6b6076c",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }

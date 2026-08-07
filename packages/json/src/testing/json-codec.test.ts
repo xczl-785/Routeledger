@@ -513,6 +513,27 @@ describe("@routeledger/json canonical codec", () => {
     ).toBeNull();
   });
 
+  it("pending close payload roundtrips the reviewed marker for an empty audit", () => {
+    const snapshot = createJsonCodecSnapshot();
+    const pendingOperation: PendingOperation = {
+      ...snapshot.pendingOperations[0]!,
+      payload: {
+        residualAudit: [],
+        residualAuditReviewed: true
+      }
+    };
+    const encoded = encodeProjectAggregateToJsonDocuments({
+      ...snapshot,
+      pendingOperations: [pendingOperation]
+    });
+    const decoded = decodeProjectAggregateFromJsonDocuments(encoded);
+
+    expect(decoded.pendingOperations[0]?.payload).toEqual(pendingOperation.payload);
+    expect(
+      encoded.find((document) => document.path.includes("pending_operations/"))?.content
+    ).toContain("\"residual_audit_reviewed\": true");
+  });
+
   it("pending operation payload roundtrips Deferred and Constraint residual destinations", () => {
     const snapshot = createJsonCodecSnapshot();
     const pendingOperation: PendingOperation = {

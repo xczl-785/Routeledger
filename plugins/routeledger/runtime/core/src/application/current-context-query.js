@@ -1,5 +1,5 @@
 import { describeVersionState, isShutdownStateReason, isUndoBlockingCloseForVersion } from "../domain/route-semantics.js";
-import { evaluateCloseGate, evaluateStartGate } from "../services/gate-service.js";
+import { evaluateCloseGate, evaluateStartGate, resolveResidualAudit } from "../services/gate-service.js";
 import { ApplicationError } from "./errors.js";
 const CONTEXT_MIN_BYTES = 8 * 1024;
 const CONTEXT_DEFAULT_BYTES = 32 * 1024;
@@ -551,6 +551,19 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
             }),
             versionId: startTargetVersion.id
         };
+    const currentResidualAudit = currentVersion === null
+        ? null
+        : resolveResidualAudit(undefined, snapshot.pendingOperations
+            .filter((operation) => operation.status === "pending" &&
+            operation.actionType === "close_version" &&
+            operation.targetId === currentVersion.id)
+            .slice()
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+            .map((operation) => ({
+            id: operation.id,
+            residualAudit: operation.payload.residualAudit,
+            residualAuditReviewed: operation.payload.residualAuditReviewed
+        })));
     const closeGate = currentVersion === null
         ? null
         : {
@@ -560,13 +573,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
                 undos: snapshot.undos.filter((undo) => undo.versionId === currentVersion.id ||
                     undo.originVersionId === currentVersion.id ||
                     undo.preferredResolutionVersionId === currentVersion.id),
-                residualAudit: [
-                    {
-                        kind: "debt",
-                        summary: "context gate evaluation",
-                        destination: "close"
-                    }
-                ],
+                residualAudit: currentResidualAudit?.audit ?? null,
                 knownVersions: snapshot.versions,
                 deferredItems: snapshot.deferredItems,
                 constraints: snapshot.constraints,

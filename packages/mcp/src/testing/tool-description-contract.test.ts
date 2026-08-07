@@ -39,6 +39,20 @@ describe("MCP tool description contract", () => {
         expect(properties).toHaveProperty("expectedRouteLedgerRoot");
         expect(required).not.toContain("expectedRouteLedgerRoot");
       }
+      for (const name of ["transition_version", "close_version", "shutdown_version"]) {
+        const tool = getTool(tools, name);
+        const properties = (tool.inputSchema.properties ?? {}) as Record<
+          string,
+          { description?: string }
+        >;
+        const mode = properties.mode;
+        const rootAssertion = properties.expectedRouteLedgerRoot;
+
+        expect(tool.description).toContain("Binding-sensitive");
+        expect(mode?.description).toContain("dry_run is a binding-sensitive preview");
+        expect(mode?.description).toContain("expectedRouteLedgerRoot");
+        expect(rootAssertion?.description).toContain("including dry_run previews");
+      }
       for (const legacyTool of LEGACY_HIDDEN_TOOLS) {
         expect(tools.find((tool) => tool.name === legacyTool)).toBeUndefined();
       }
@@ -75,6 +89,32 @@ describe("MCP tool description contract", () => {
     }
   });
 
+  it("keeps close residual-audit schemas compatible with legacy create_undo routing", () => {
+    const registry = createRouteLedgerMcpRegistry({});
+
+    try {
+      const closeVersion = getTool(registry.tools, "close_version");
+      const properties = closeVersion.inputSchema.properties as Record<string, Record<string, unknown>>;
+      const residualAudit = properties.residualAudit;
+      const alternatives = residualAudit?.anyOf as Array<Record<string, unknown>>;
+      const legacyArray = alternatives.find((candidate) => candidate.type === "array");
+      if (legacyArray === undefined) {
+        throw new Error("Missing legacy residual audit array schema.");
+      }
+      const itemProperties = (legacyArray.items as { properties: Record<string, Record<string, unknown>> })
+        .properties;
+      const destinationEnums = (itemProperties.destination?.anyOf as Array<Record<string, unknown>>)
+        .flatMap((candidate) =>
+          Array.isArray(candidate.enum) ? (candidate.enum as string[]) : []
+        );
+
+      expect(destinationEnums).toContain("create_undo");
+      expect(itemProperties).toHaveProperty("preferredResolutionVersionId");
+    } finally {
+      registry.close();
+    }
+  });
+
   it("snapshots representative descriptions and keeps shared discipline in instructions", () => {
     const registry = createRouteLedgerMcpRegistry({});
 
@@ -93,7 +133,7 @@ describe("MCP tool description contract", () => {
       ).toMatchInlineSnapshot(`
         {
           "activate_routeledger_binding": "Activate an explicit MCP binding. Input: workspaceRoot. Warning: writes config only; cannot switch an established binding.",
-          "close_version": "Preview or propose a version close. Input: mode and versionId. Warning: proposal needs a passing gate.",
+          "close_version": "Binding-sensitive close preview or proposal. Input: mode and versionId. Warning: proposal needs a passing gate.",
           "commit_l3_operation": "Commit an approved L3 proposal. Input: pendingOperationId and approvalArtifactId. Warning: consumes approval artifact.",
           "create_version": "Propose a top-level version. Warning: returns a pending L3 operation.",
           "defer_work": "Create Deferred work for a future review. Input: mode, targetReviewVersionId, and Todo or new-work fields.",

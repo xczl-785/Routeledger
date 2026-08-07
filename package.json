@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run && node ./scripts/testing/check-codex-plugin-release.test.mjs && node ./scripts/testing/codex-plugin-workflow.test.mjs",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --ignore-pattern \"packages/*/dist/**\" --ignore-pattern \"packages/*/dist-plugin-runtime/**\" --ignore-pattern \"plugins/*/runtime/**\"",
     "build:ui": "pnpm --filter @routeledger/ui run build",

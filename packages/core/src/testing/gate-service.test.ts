@@ -172,6 +172,33 @@ describe("gate service", () => {
     );
   });
 
+  it("close gate distinguishes missing audit from an explicit reviewed-empty audit", () => {
+    const base = {
+      version: createVersionFixture({ state: "complete" }),
+      todos: [],
+      undos: []
+    };
+
+    expect(evaluateCloseGate({ ...base, residualAudit: undefined })).toMatchObject({
+      allowed: false,
+      blockers: [expect.objectContaining({ code: "MISSING_RESIDUAL_AUDIT" })]
+    });
+    expect(
+      evaluateCloseGate({
+        ...base,
+        residualAudit: { status: "reviewed", items: [] }
+      })
+    ).toMatchObject({ allowed: true, blockers: [] });
+    expect(
+      evaluateCloseGate({
+        ...base,
+        residualAudit: [
+          { kind: "debt", summary: "legacy residual", destination: "close" }
+        ]
+      })
+    ).toMatchObject({ allowed: true, blockers: [] });
+  });
+
   it("start gate allows the target when all due undos are already handled", () => {
     const result = evaluateStartGate({
       targetVersion: createVersionFixture({

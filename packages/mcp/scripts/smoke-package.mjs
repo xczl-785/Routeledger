@@ -372,6 +372,27 @@ const runStdioSmoke = async ({
   if (runtimeContext?.runtimeProfile !== profileName) {
     throw new Error(`get_runtime_context did not report runtimeProfile=${profileName}.`);
   }
+  if (
+    runtimeContext?.runtimeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
+    runtimeContext?.runtimeIdentity?.runtimeProfile !== profileName ||
+    runtimeContext?.runtimeIdentity?.artifactKind !== "package" ||
+    runtimeContext?.runtimeIdentity?.pluginVersion !== null ||
+    typeof runtimeContext?.runtimeIdentity?.runtimePayloadDigest !== "string"
+  ) {
+    throw new Error("get_runtime_context did not report the generated package runtime identity.");
+  }
+  const sourceTreeState = runtimeContext.runtimeIdentity.sourceTreeState;
+  if (
+    !["clean", "dirty", "unavailable"].includes(sourceTreeState) ||
+    (sourceTreeState === "clean" && typeof runtimeContext.runtimeIdentity.buildCommit !== "string") ||
+    (sourceTreeState !== "clean" && runtimeContext.runtimeIdentity.buildCommit !== null)
+  ) {
+    throw new Error("Generated package runtime identity reported an unverifiable build commit.");
+  }
+  const initializeIdentity = stdoutLines[0]?.result?.serverInfo?.runtimeIdentity;
+  if (JSON.stringify(initializeIdentity) !== JSON.stringify(runtimeContext.runtimeIdentity)) {
+    throw new Error("initialize serverInfo and get_runtime_context reported different runtime identities.");
+  }
 
   return runtimeContext;
 };

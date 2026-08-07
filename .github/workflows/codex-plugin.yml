@@ -66,7 +66,7 @@ jobs:
           zero_ref='0000000000000000000000000000000000000000'
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.before }}" != "$zero_ref" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event.before }}" != "$zero_ref" ]; then
             echo "ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
           fi
       - name: Build bundled plugin artifact
