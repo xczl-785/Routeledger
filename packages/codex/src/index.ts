@@ -165,6 +165,8 @@ const assertServerName = (serverName: string): string => {
   return normalized;
 };
 
+const toForwardSlashes = (value: string): string => value.replace(/\\/gu, "/");
+
 const quoteTomlString = (value: string): string => JSON.stringify(value);
 
 const renderArray = (values: readonly string[]): string =>
@@ -368,9 +370,9 @@ const buildCommandShape = (
 } => {
   const sharedArgs = [
     "--workspace-root",
-    input.workspaceRoot,
+    toForwardSlashes(input.workspaceRoot),
     "--routeledger-root",
-    input.routeledgerRoot,
+    toForwardSlashes(input.routeledgerRoot),
     "--profile",
     input.hostProfile,
     "--actor-id",
@@ -386,13 +388,13 @@ const buildCommandShape = (
   if (input.source.kind === "workspace") {
     return {
       command: input.source.command ?? "pnpm",
-      cwd: input.source.routeLedgerWorkspaceRoot,
+      cwd: toForwardSlashes(input.source.routeLedgerWorkspaceRoot),
       args: [
         "--filter",
         input.source.packageFilter ?? DEFAULT_MCP_PACKAGE_FILTER,
         "exec",
         "tsx",
-        input.source.entryScript ?? DEFAULT_MCP_ENTRY_SCRIPT,
+        toForwardSlashes(input.source.entryScript ?? DEFAULT_MCP_ENTRY_SCRIPT),
         ...sharedArgs
       ]
     };
@@ -400,8 +402,8 @@ const buildCommandShape = (
 
   return {
     command: input.source.command ?? "node",
-    cwd: input.source.installRoot,
-    args: [input.source.binPath, ...sharedArgs]
+    cwd: toForwardSlashes(input.source.installRoot),
+    args: [toForwardSlashes(input.source.binPath), ...sharedArgs]
   };
 };
 
@@ -607,7 +609,7 @@ export const writeCodexProjectConfig = async (
     created,
     content,
       warnings: [
-        `Existing ${path.relative(normalized.workspaceRoot, defaultConfigPath)} was left untouched.`,
+        `Existing ${toForwardSlashes(path.relative(normalized.workspaceRoot, defaultConfigPath))} was left untouched.`,
       "Merge the generated fragment into .codex/config.toml only when explicit workspace fallback/bootstrap is still needed."
     ]
   };
@@ -661,7 +663,7 @@ export const planCodexProjectConfigWrite = async (
     kind: "fragment",
     content,
     warnings: [
-      `Existing ${path.relative(normalized.workspaceRoot, defaultConfigPath)} was left untouched.`,
+      `Existing ${toForwardSlashes(path.relative(normalized.workspaceRoot, defaultConfigPath))} was left untouched.`,
       "Merge the generated fragment into .codex/config.toml before expecting Codex to load it."
     ]
   };

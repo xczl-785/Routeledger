@@ -29,9 +29,14 @@ export const openRouteLedgerDatabase = ({
   const databasePath = path.join(databaseDirectory, ROUTELEDGER_DB_FILENAME);
   const db = new BetterSqlite3(databasePath);
 
-  db.pragma("foreign_keys = ON");
-  db.pragma("journal_mode = WAL");
-  applyMigrations(db);
+  try {
+    db.pragma("foreign_keys = ON");
+    db.pragma("journal_mode = WAL");
+    applyMigrations(db);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 
   return {
     db,

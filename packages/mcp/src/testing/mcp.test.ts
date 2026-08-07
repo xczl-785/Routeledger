@@ -97,6 +97,8 @@ const WRITE_TOOL_NAMES = new Set([
 
 const createTempProjectRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-mcp-"));
 
+const toForwardSlashes = (value: string): string => value.replace(/\\/gu, "/");
+
 const ensureDefaultWorkspaceConfig = (projectRoot: string): void => {
   resolveWorkspaceConfigSync({
     projectRoot,
@@ -225,7 +227,12 @@ const createCapturedServer = (
 };
 
 const cleanupProjectRoot = (projectRoot: string): void => {
-  fs.rmSync(projectRoot, { recursive: true, force: true });
+  fs.rmSync(projectRoot, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100
+  });
 };
 
 const collectJsonlFiles = (rootPath: string): string[] => {
@@ -2572,8 +2579,7 @@ describe("routeledger mcp registry", () => {
   });
 
   it("MCP runtimeContext reports invalid binding when workspaceRoot or routeledgerRoot are relative", async () => {
-    const absoluteProjectRoot = createTempProjectRoot();
-    const relativeProjectRoot = path.relative(process.cwd(), absoluteProjectRoot);
+    const relativeProjectRoot = path.join("relative-root", "project");
     const registry = createRouteLedgerMcpRegistry({
       workspaceRoot: relativeProjectRoot,
       routeledgerRoot: relativeProjectRoot
@@ -2600,7 +2606,6 @@ describe("routeledger mcp registry", () => {
       ).toBe(true);
     } finally {
       registry.close();
-      cleanupProjectRoot(absoluteProjectRoot);
     }
   });
 
@@ -3562,9 +3567,9 @@ describe("routeledger mcp registry", () => {
         }
       });
       expect(fs.readFileSync(configPath, "utf8")).toContain('"--workspace-root"');
-      expect(fs.readFileSync(configPath, "utf8")).toContain(`"${resolvedWorkspaceRoot}"`);
+      expect(fs.readFileSync(configPath, "utf8")).toContain(`"${toForwardSlashes(resolvedWorkspaceRoot)}"`);
       expect(fs.readFileSync(configPath, "utf8")).toContain('"--routeledger-root"');
-      expect(fs.readFileSync(configPath, "utf8")).toContain(`"${resolvedRouteledgerRoot}"`);
+      expect(fs.readFileSync(configPath, "utf8")).toContain(`"${toForwardSlashes(resolvedRouteledgerRoot)}"`);
     } finally {
       registry.close();
       registry.restore();
@@ -8160,7 +8165,8 @@ describe("routeledger mcp registry", () => {
         ],
         {
           cwd: repoRoot,
-          stdio: ["pipe", "pipe", "pipe"]
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: process.platform === "win32"
         }
       );
 
@@ -8312,7 +8318,8 @@ describe("routeledger mcp registry", () => {
       ],
       {
         cwd: repoRoot,
-        stdio: ["ignore", "pipe", "pipe"]
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: process.platform === "win32"
       }
     );
     const stderrChunks: Buffer[] = [];

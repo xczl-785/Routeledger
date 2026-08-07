@@ -84,11 +84,34 @@ describe("resolveRuntimeBuildProvenance", () => {
     }
   });
 
-  it.each(["source/new-file.ts", " leading-source.ts", "\nnewline-source.ts"])(
+  it.each(["source/new-file.ts", " leading-source.ts"])(
     "marks source changes dirty without pathname parsing exceptions: %j",
     (sourcePath) => {
       const repositoryRoot = createGitRepository();
       try {
+        fs.mkdirSync(path.dirname(path.join(repositoryRoot, sourcePath)), { recursive: true });
+        fs.writeFileSync(path.join(repositoryRoot, sourcePath), "export {};\n", "utf8");
+        expect(
+          resolveRuntimeBuildProvenance({
+            repositoryRoot,
+            ignoredChangedPaths: PROVENANCE_GENERATED_PATHS,
+            includeHeadCommit: false
+          })
+        ).toEqual({ sourceTreeState: "dirty", buildCommit: null });
+      } finally {
+        fs.rmSync(repositoryRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
+  // A newline is not a legal filename character on Windows, so this case is
+  // only exercised on POSIX platforms.
+  it.skipIf(process.platform === "win32")(
+    "marks source changes dirty for a newline-containing pathname without pathname parsing exceptions",
+    () => {
+      const repositoryRoot = createGitRepository();
+      try {
+        const sourcePath = "\nnewline-source.ts";
         fs.mkdirSync(path.dirname(path.join(repositoryRoot, sourcePath)), { recursive: true });
         fs.writeFileSync(path.join(repositoryRoot, sourcePath), "export {};\n", "utf8");
         expect(
