@@ -102,7 +102,9 @@ try {
   runOrThrow("git", ["config", "user.email", "release-check@example.test"], fixtureRoot);
   runOrThrow("git", ["config", "user.name", "Release Check"], fixtureRoot);
   runOrThrow("git", ["add", "."], fixtureRoot);
-  runOrThrow("git", ["commit", "--quiet", "-m", "valid plugin fixture"], fixtureRoot);
+  if (runOrThrow("git", ["status", "--porcelain"], fixtureRoot).trim().length > 0) {
+    runOrThrow("git", ["commit", "--quiet", "-m", "valid plugin fixture"], fixtureRoot);
+  }
   const baseline = runOrThrow("git", ["rev-parse", "HEAD"], fixtureRoot).trim();
   const linkBlob = runOrThrow("git", ["hash-object", "-w", "--stdin"], fixtureRoot, { input: "runtime/package.json\n" }).trim();
   runOrThrow("git", ["update-index", "--add", "--cacheinfo", `120000,${linkBlob},plugins/routeledger/previous-check-link`], fixtureRoot);
