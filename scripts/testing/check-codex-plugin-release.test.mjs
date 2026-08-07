@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { isResolvableCommit } from "../check-codex-plugin-release.mjs";
+import { isReusableCleanBuildCommit } from "../runtime-build-provenance.mjs";
 
 const run = (command, args, cwd) => execFileSync(command, args, { cwd, encoding: "utf8" }).trim();
 
@@ -25,6 +26,19 @@ try {
   assert.equal(isResolvableCommit(repositoryRoot, blob), false);
   assert.equal(isResolvableCommit(repositoryRoot, "does-not-exist"), false);
   assert.equal(isResolvableCommit(repositoryRoot, null), false);
+
+  await fs.mkdir(path.join(repositoryRoot, "plugins", "routeledger"), { recursive: true });
+  await fs.writeFile(path.join(repositoryRoot, "plugins", "routeledger", "release.json"), "{}\n", "utf8");
+  run("git", ["add", "plugins/routeledger/release.json"], repositoryRoot);
+  run("git", ["commit", "--quiet", "-m", "generated release metadata"], repositoryRoot);
+  const generatedHead = run("git", ["rev-parse", "HEAD"], repositoryRoot);
+  assert.equal(isReusableCleanBuildCommit({ repositoryRoot, buildCommit: commit, headCommit: generatedHead }), true);
+
+  await fs.writeFile(path.join(repositoryRoot, "fixture.txt"), "changed source\n", "utf8");
+  run("git", ["add", "fixture.txt"], repositoryRoot);
+  run("git", ["commit", "--quiet", "-m", "source change"], repositoryRoot);
+  assert.equal(isReusableCleanBuildCommit({ repositoryRoot, buildCommit: commit }), false);
+  assert.equal(isReusableCleanBuildCommit({ repositoryRoot, buildCommit: "does-not-exist" }), false);
 } finally {
   await fs.rm(repositoryRoot, { recursive: true, force: true });
 }

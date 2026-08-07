@@ -6,6 +6,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  isResolvableCommit as isResolvableBuildCommit,
+  isReusableCleanBuildCommit
+} from "./runtime-build-provenance.mjs";
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const routeledgerRoot = path.resolve(scriptDir, "..");
 const repositoryRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -132,19 +137,7 @@ const git = (args) => {
 };
 
 export const isResolvableCommit = (workingDirectory, commit) => {
-  if (typeof commit !== "string" || commit.length === 0) {
-    return false;
-  }
-  try {
-    execFileSync("git", ["rev-parse", "--verify", "--end-of-options", `${commit}^{commit}`], {
-      cwd: workingDirectory,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return isResolvableBuildCommit({ repositoryRoot: workingDirectory, commit });
 };
 
 const previousPluginRootType = (ref) => {
@@ -213,7 +206,8 @@ const assertMetadata = async () => {
   );
   const runtimeIdentity = runtimeIdentityModule.resolveRuntimeIdentity("json-only");
   const hasVerifiedBuildCommit =
-    runtimeIdentity?.sourceTreeState === "clean" && isResolvableCommit(repositoryRoot, runtimeIdentity?.buildCommit);
+    runtimeIdentity?.sourceTreeState === "clean" &&
+    isReusableCleanBuildCommit({ repositoryRoot, buildCommit: runtimeIdentity?.buildCommit });
   const hasNoBuildCommit =
     (runtimeIdentity?.sourceTreeState === "dirty" || runtimeIdentity?.sourceTreeState === "unavailable") &&
     runtimeIdentity?.buildCommit === null;
@@ -222,7 +216,7 @@ const assertMetadata = async () => {
     (relativePath) => relativePath !== "mcp/src/runtime-identity.js"
   );
   if (!hasVerifiedBuildCommit && runtimeIdentity?.sourceTreeState === "clean") {
-    fail("Runtime identity buildCommit must resolve to a commit in the current repository when sourceTreeState is clean.");
+    fail("Runtime identity buildCommit must be HEAD or an ancestor separated from HEAD only by generated provenance files when sourceTreeState is clean.");
   }
   if (
     runtimeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
