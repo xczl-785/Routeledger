@@ -13,10 +13,12 @@ export {
 export {
   RouteLedgerJsonBusyError,
   RouteLedgerJsonWriteError,
+  ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS,
   acquireRouteLedgerJsonWriteLock,
   exportProjectAggregateToJsonDirectory,
   getActiveRouteLedgerJsonWriteLockInfo,
   getRouteLedgerJsonWriteLockInfo,
+  isCanonicalRouteLedgerJsonPath,
   recoverRouteLedgerJsonReplacement,
   readRouteLedgerJsonDocuments,
   replaceRouteLedgerJsonDocuments,

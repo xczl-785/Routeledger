@@ -102,7 +102,7 @@ export interface RouteLedgerJsonWriteLockHandle extends RouteLedgerJsonWriteLock
 
 const compareByString = (left: string, right: string): number => left.localeCompare(right, "en");
 
-const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
+export const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
   /^\.routeledger\/schema\/routeledger\.schema\.json$/,
   /^\.routeledger\/project\.json$/,
   /^\.routeledger\/refs\/current\.json$/,
@@ -145,7 +145,7 @@ const DEFAULT_WRITE_LOCK_STALE_AFTER_MS = 30_000;
 const TRANSIENT_FILESYSTEM_ERROR_CODES = new Set(["EPERM", "EACCES"]);
 const TRANSIENT_FILESYSTEM_RETRY_DELAYS_MS = [100, 300, 1_000, 2_000] as const;
 
-const isCanonicalRouteLedgerJsonPath = (documentPath: string): boolean =>
+export const isCanonicalRouteLedgerJsonPath = (documentPath: string): boolean =>
   ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS.some((pattern) => pattern.test(documentPath));
 
 type RouteLedgerJsonReplacementState = "staged" | "backup_created" | "applied";
