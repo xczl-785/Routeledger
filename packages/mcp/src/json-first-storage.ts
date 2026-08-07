@@ -389,7 +389,8 @@ export class JsonFirstStorageAdapter implements StoragePort {
         await replaceRouteLedgerJsonDocuments({
           outputRoot: this.dataRoot,
           documents: encodedDocuments,
-          writeLockOwnerId: writerLock.ownerId ?? undefined
+          writeLockOwnerId: writerLock.ownerId ?? undefined,
+          renewLock: writerLock.renew
         });
       } catch (error) {
         if (error instanceof RouteLedgerJsonBusyError) {

@@ -295,6 +295,34 @@ describe("@routeledger/json validate", () => {
     }
   });
 
+  it("replaceRouteLedgerJsonDocuments invokes renewLock between transaction phases", async () => {
+    const root = createTempRoot();
+    let renewCalls = 0;
+
+    try {
+      const snapshot = createJsonCodecSnapshot();
+      const expectedDocuments = encodeProjectAggregateToJsonDocuments(snapshot);
+
+      await exportProjectAggregateToJsonDirectory({
+        outputRoot: root,
+        snapshot
+      });
+
+      await replaceRouteLedgerJsonDocuments({
+        outputRoot: root,
+        documents: expectedDocuments,
+        renewLock: async () => {
+          renewCalls += 1;
+        }
+      });
+
+      expect(renewCalls).toBeGreaterThanOrEqual(2);
+      expect(await readRouteLedgerJsonDocuments(root)).toEqual(expectedDocuments);
+    } finally {
+      cleanupRoot(root);
+    }
+  });
+
   it("readRouteLedgerJsonDocuments discards staged replacement leftovers before reading canonical documents", async () => {
     const root = createTempRoot();
 
@@ -405,6 +433,58 @@ describe("@routeledger/json validate", () => {
 
       expect(await readRouteLedgerJsonDocuments(root)).toEqual(expectedDocuments);
       expect(fs.existsSync(writeLock.lockPath)).toBe(false);
+    } finally {
+      cleanupRoot(root);
+    }
+  });
+
+  it("acquired write lock renew refreshes updatedAt so the lock is not reaped as stale", async () => {
+    const root = createTempRoot();
+
+    try {
+      const writeLock = await acquireRouteLedgerJsonWriteLock(root, {
+        ownerId: "heartbeat-writer",
+        staleAfterMs: 5
+      });
+      const metadataPath = path.join(writeLock.lockPath, "metadata.json");
+
+      await writeLock.renew();
+
+      const refreshed = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as {
+        ownerId: string;
+        updatedAt: string;
+        staleAfterMs: number;
+      };
+
+      expect(refreshed.ownerId).toBe("heartbeat-writer");
+      expect(refreshed.staleAfterMs).toBe(5);
+      expect(Date.now() - Date.parse(refreshed.updatedAt)).toBeLessThan(5_000);
+      expect(fs.existsSync(writeLock.lockPath)).toBe(true);
+      await writeLock.release();
+      expect(fs.existsSync(writeLock.lockPath)).toBe(false);
+    } finally {
+      cleanupRoot(root);
+    }
+  });
+
+  it("renew after the lock was reaped reports the reclaim instead of silently succeeding", async () => {
+    const root = createTempRoot();
+
+    try {
+      const writeLock = await acquireRouteLedgerJsonWriteLock(root, {
+        ownerId: "reaped-writer",
+        staleAfterMs: 5
+      });
+      const metadataPath = path.join(writeLock.lockPath, "metadata.json");
+      const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as {
+        ownerId: string;
+      };
+      metadata.ownerId = "other-owner";
+      fs.writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+      await expect(writeLock.renew()).rejects.toMatchObject({
+        code: "WRITE_IN_PROGRESS"
+      });
     } finally {
       cleanupRoot(root);
     }
