@@ -19,6 +19,7 @@ on:
       - "plugins/routeledger/**"
       - ".gitattributes"
       - ".github/workflows/codex-plugin.yml"
+      - "docs/release/**"
 
 permissions:
   contents: read
