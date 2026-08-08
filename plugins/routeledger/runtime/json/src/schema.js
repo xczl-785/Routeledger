@@ -1,4 +1,9 @@
 import { ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, SCHEMA_DOCUMENT_PATH } from "./constants.js";
+// Human-readable canonical document manifest for the generated
+// routeledger.schema.json. The machine-checked path whitelist that mirrors
+// these entries lives in one place: ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS
+// in filesystem.ts (exported as isCanonicalRouteLedgerJsonPath). Keep the
+// kind set here in sync with that single source when adding a document type.
 const schemaEntries = [
     {
         kind: "project",

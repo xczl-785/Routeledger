@@ -14,7 +14,6 @@ const manifestPath = path.join(pluginRoot, ".codex-plugin", "plugin.json");
 const mcpManifestPath = path.join(pluginRoot, ".mcp.json");
 const marketplacePath = path.join(workspaceRoot, ".agents", "plugins", "marketplace.json");
 const releaseCheckerPath = path.join(routeledgerRoot, "scripts", "check-codex-plugin-release.mjs");
-const buildPluginPath = path.join(routeledgerRoot, "scripts", "build-codex-plugin.mjs");
 const validatorPath = path.join(
   os.homedir(),
   ".codex",
@@ -168,6 +167,12 @@ const runPluginStdioSmoke = async () => {
   write({ jsonrpc: "2.0", id: "tools-list", method: "tools/list", params: {} });
   write({
     jsonrpc: "2.0",
+    id: "legacy-undo-tool-removed",
+    method: "tools/call",
+    params: { name: "create_undo", arguments: {} }
+  });
+  write({
+    jsonrpc: "2.0",
     id: "runtime-context-unbound",
     method: "tools/call",
     params: { name: "get_runtime_context", arguments: {} }
@@ -226,7 +231,7 @@ const runPluginStdioSmoke = async () => {
     .map((line) => JSON.parse(line));
 
   try {
-    if (exitCode !== 0 || stderr !== "" || responses.length !== 8) {
+    if (exitCode !== 0 || stderr !== "" || responses.length !== 9) {
       throw new Error(`Bundled plugin stdio smoke failed (exit=${exitCode}, responses=${responses.length}): ${stderr}`);
     }
     if (responses[0]?.result?.protocolVersion !== "2025-11-25") {
@@ -255,7 +260,13 @@ const runPluginStdioSmoke = async () => {
         throw new Error(`Bundled JSON-only runtime unexpectedly exposed ${sourceOnlyTool}.`);
       }
     }
-    const unboundRuntimeContext = responses[2]?.result?.structuredContent?.data;
+    if (
+      responses[2]?.error?.code !== -32602 ||
+      responses[2]?.error?.message !== "Unknown tool 'create_undo'."
+    ) {
+      throw new Error("Bundled runtime still exposes removed legacy Undo write tools.");
+    }
+    const unboundRuntimeContext = responses[3]?.result?.structuredContent?.data;
     const expectedCacheRoot = await normalizeRealPathForComparison(cachedPluginRoot);
     const runtimeProcessCwd = unboundRuntimeContext?.processCwd;
     const normalizedRuntimeProcessCwd =
@@ -281,14 +292,14 @@ const runPluginStdioSmoke = async () => {
         })}`
       );
     }
-    const unboundInit = responses[3]?.result;
+    const unboundInit = responses[4]?.result;
     if (
       unboundInit?.isError !== true ||
       unboundInit?.structuredContent?.error?.code !== "ROUTELEDGER_BINDING_REQUIRED"
     ) {
       throw new Error("Bundled runtime allowed init_project before an explicit workspace binding.");
     }
-    const activation = responses[4]?.result?.structuredContent?.data;
+    const activation = responses[5]?.result?.structuredContent?.data;
     if (
       activation?.status !== "activated" ||
       activation?.rebound !== true ||
@@ -298,7 +309,7 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime did not activate and rebind the explicit host workspace.");
     }
-    const runtimeContext = responses[5]?.result?.structuredContent?.data;
+    const runtimeContext = responses[6]?.result?.structuredContent?.data;
     if (
       runtimeContext?.binding?.workspaceRoot !== testWorkspaceRoot ||
       runtimeContext?.binding?.workspaceRootSource !== "explicit_arg" ||
@@ -308,10 +319,10 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime context did not preserve the explicit rebound binding before initialization.");
     }
-    if (responses[6]?.result?.structuredContent?.ok !== true) {
+    if (responses[7]?.result?.structuredContent?.ok !== true) {
       throw new Error("Bundled runtime init_project did not report a successful canonical JSON write after session rebound.");
     }
-    const initializedRuntimeContext = responses[7]?.result?.structuredContent?.data;
+    const initializedRuntimeContext = responses[8]?.result?.structuredContent?.data;
     if (
       initializedRuntimeContext?.binding?.workspaceRoot !== testWorkspaceRoot ||
       initializedRuntimeContext?.binding?.workspaceRootSource !== "explicit_arg" ||
@@ -344,7 +355,6 @@ const runPluginStdioSmoke = async () => {
 };
 
 const main = async () => {
-  run(process.execPath, [buildPluginPath], { cwd: routeledgerRoot });
   await assertPluginFiles();
   run(process.execPath, [releaseCheckerPath], { cwd: routeledgerRoot });
   await runOptionalExternalValidator();
