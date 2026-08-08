@@ -7,5 +7,5 @@ export const resolveRuntimeIdentity = (runtimeProfile) => ({
   sourceTreeState: "clean",
   buildCommit: null,
   artifactDigest: null,
-  runtimePayloadDigest: "a9dd3003ee540b4d34a610e9dedd10ba1fed1956302c147f0328a37d58ebc55f"
+  runtimePayloadDigest: "3ac15f6faf1ee09de705ccb564bdda9fa2a6892dc2ceeefbef209766dbc1ea23"
 });
