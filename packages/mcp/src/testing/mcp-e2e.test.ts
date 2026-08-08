@@ -33,7 +33,13 @@ describe("routeledger mcp registry", () => {
     };
 
     try {
-      const cliInit = await runCliJson(cliRoot, ["init_project", "--name", "RouteLedger"]);
+      const cliInit = await runCliJson(cliRoot, [
+        "init_project",
+        "--name",
+        "RouteLedger",
+        "--content-locale",
+        "en"
+      ]);
       const cliProjectId = cliInit.stdoutJson.data.project.id as string;
       const cliVersionId = cliInit.stdoutJson.data.initialVersion.id as string;
       await runCliJson(cliRoot, [
@@ -170,7 +176,7 @@ describe("routeledger mcp registry", () => {
       const tools = (response as ToolListResult).result.tools;
       const toolNames = tools.map((tool) => tool.name);
 
-      expect(tools).toHaveLength(40);
+      expect(tools).toHaveLength(41);
       expect(toolNames).not.toContain("open_mission_control");
       expect(toolNames).not.toContain("get_mission_control_status");
       expect(toolNames).toContain("get_runtime_context");

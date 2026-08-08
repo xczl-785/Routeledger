@@ -12,6 +12,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -97,6 +98,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -153,6 +155,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -199,6 +202,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -238,6 +242,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -278,6 +283,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -358,6 +364,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });
@@ -399,6 +406,7 @@ describe("route ledger service", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });

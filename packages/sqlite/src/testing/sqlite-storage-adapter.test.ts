@@ -63,6 +63,7 @@ const cleanupProjectRoot = (projectRoot: string): void => {
 const createEmptyAggregate = (): ProjectAggregateSnapshot => {
   const deps = createTestDependencies();
   const creation = createProject({
+      contentLocale: "en",
     name: "RouteLedger",
     actor: TEST_ACTOR,
     deps
@@ -113,6 +114,7 @@ const expectConfirmationRequired = async (
 const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
   const deps = createTestDependencies();
   const created = createProject({
+      contentLocale: "en",
     name: "RouteLedger",
     actor: TEST_ACTOR,
     deps
@@ -640,6 +642,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR,
         deps
@@ -776,6 +779,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "Lifecycle baseline",
         actor: TEST_ACTOR,
         deps
@@ -977,6 +981,7 @@ describe("sqlite storage adapter", () => {
         deps: createTestDependencies()
       });
       const created = await service.initProject({
+      contentLocale: "en",
         name: "Application command persistence",
         actor: TEST_ACTOR
       });
@@ -1072,6 +1077,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR,
         deps
@@ -1136,6 +1142,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR,
         deps
@@ -1207,6 +1214,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR,
         deps
@@ -1258,6 +1266,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR,
         deps
@@ -1548,6 +1557,7 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR,
         deps
@@ -1647,6 +1657,7 @@ describe("sqlite storage adapter", () => {
         deps: createTestDependencies()
       });
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR
       });
@@ -1825,6 +1836,7 @@ describe("sqlite storage adapter", () => {
         deps: createTestDependencies()
       });
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: TEST_ACTOR
       });

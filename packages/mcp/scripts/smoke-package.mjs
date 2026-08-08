@@ -288,6 +288,7 @@ const runStdioSmoke = async ({
         name: "init_project",
         arguments: {
           name: "Packaged MCP Runtime Smoke",
+          contentLocale: "en",
           expectedRouteLedgerRoot: routeledgerRoot
         }
       }

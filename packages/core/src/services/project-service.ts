@@ -6,10 +6,12 @@ import { createTransitionEvents } from "./transition-event-service.js";
 import { createDomainContext, type DomainDependencies } from "./operation.js";
 import { suspendVersion } from "./version-service.js";
 import type { Actor } from "../domain/actor.js";
+import { isChineseLocale, requireConcreteContentLocale } from "../domain/locale.js";
 
 export interface CreateProjectInput {
   name: string;
   description?: string;
+  contentLocale: string;
   actor: Actor;
   deps: DomainDependencies;
 }
@@ -39,10 +41,12 @@ const validateVersionId = (versionId: string): void => {
 export const createProject = ({
   name,
   description = "",
+  contentLocale,
   actor,
   deps
 }: CreateProjectInput): ProjectCreation => {
   const context = createDomainContext(deps, actor);
+  const normalizedContentLocale = requireConcreteContentLocale(contentLocale);
   const projectId = deps.idGenerator.nextId();
   const initialVersionId = deps.idGenerator.nextId();
   validateVersionId(initialVersionId);
@@ -61,15 +65,18 @@ export const createProject = ({
     settings: {
       enforceStartGate: true,
       enforceCloseGate: true,
-      contextBudgetBytes: 32768
+      contextBudgetBytes: 32768,
+      contentLocale: normalizedContentLocale
     }
   };
 
   const initialVersion: Version = {
     id: initialVersionId,
     projectId,
-    title: "Initial Version",
-    description: "Project bootstrap version",
+    title: isChineseLocale(normalizedContentLocale) ? "初始 Version" : "Initial Version",
+    description: isChineseLocale(normalizedContentLocale)
+      ? "项目初始化 Version"
+      : "Project bootstrap version",
     state: "wait",
     parentVersionId: null,
     previousVersionId: null,
@@ -102,6 +109,66 @@ export const createProject = ({
       ],
       {
         projectId,
+        operationId: context.operationId,
+        actor,
+        now: context.now
+      },
+      deps.idGenerator
+    )
+  };
+};
+
+export interface SetProjectContentLocaleInput {
+  project: Project;
+  contentLocale: string;
+  reason: string;
+  actor: Actor;
+  deps: DomainDependencies;
+}
+
+export interface ProjectContentLocaleUpdate {
+  project: Project;
+  events: TransitionEvent[];
+}
+
+export const setProjectContentLocale = ({
+  project,
+  contentLocale,
+  reason,
+  actor,
+  deps
+}: SetProjectContentLocaleInput): ProjectContentLocaleUpdate => {
+  const normalizedContentLocale = requireConcreteContentLocale(contentLocale);
+  const context = createDomainContext(deps, actor);
+  const previousContentLocale = project.settings.contentLocale;
+  const updatedProject: Project = {
+    ...project,
+    settings: {
+      ...project.settings,
+      contentLocale: normalizedContentLocale
+    },
+    updatedAt: context.now
+  };
+
+  return {
+    project: updatedProject,
+    events: createTransitionEvents(
+      [
+        {
+          targetType: "project",
+          targetId: project.id,
+          eventType: "project.content_locale_changed",
+          fromState: previousContentLocale,
+          toState: normalizedContentLocale,
+          note: reason,
+          metadata: {
+            previousContentLocale,
+            contentLocale: normalizedContentLocale
+          }
+        }
+      ],
+      {
+        projectId: project.id,
         operationId: context.operationId,
         actor,
         now: context.now

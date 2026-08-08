@@ -113,6 +113,7 @@ export const createPreparedProject = async (
   storage: MemoryStorageAdapter
 ) => {
   const created = await service.initProject({
+      contentLocale: "en",
     name: "RouteLedger",
     actor: TEST_ACTOR
   });

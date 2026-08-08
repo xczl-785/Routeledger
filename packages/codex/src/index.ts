@@ -125,6 +125,7 @@ export const PROMPT_APPROVAL_TOOLS = [
   "approve_l3_operation",
   "reject_l3_operation",
   "init_project",
+  "set_project_content_locale",
   "batch_create_versions",
   "transition_version",
   "close_version",

@@ -128,6 +128,7 @@ type DerivedCurrentContextData = {
     name: string;
     status: Project["status"];
     currentVersionId: string | null;
+    contentLocale: string | null;
     updatedAt: string;
   };
   currentVersion: ContextCurrentVersionSummary | null;
@@ -955,6 +956,7 @@ export const buildDerivedCurrentContextData = (
       name: snapshot.project.name,
       status: snapshot.project.status,
       currentVersionId: snapshot.project.currentVersionId,
+      contentLocale: snapshot.project.settings.contentLocale,
       updatedAt: snapshot.project.updatedAt
     },
     currentVersion: currentVersion === null ? null : summarizeCurrentVersion(currentVersion),
@@ -1005,7 +1007,8 @@ export const buildVersionsWindowResult = (
       project: {
         id: snapshot.project.id,
         name: snapshot.project.name,
-        currentVersionId: snapshot.project.currentVersionId
+        currentVersionId: snapshot.project.currentVersionId,
+        contentLocale: snapshot.project.settings.contentLocale
       },
       aroundVersionId: versionWindow.summary.aroundVersionId,
       versions: versionWindow.versions

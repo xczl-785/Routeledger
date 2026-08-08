@@ -54,7 +54,7 @@ const assertPluginFiles = async () => {
 
   if (
     manifest.name !== "routeledger" ||
-    manifest.version !== "0.3.6" ||
+    manifest.version !== "0.4.0" ||
     manifest.repository !== "https://github.com/xczl-785/Routeledger"
   ) {
     throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");
@@ -183,7 +183,11 @@ const runPluginStdioSmoke = async () => {
     method: "tools/call",
     params: {
       name: "init_project",
-      arguments: { name: "Codex Plugin Smoke", expectedRouteLedgerRoot: testRouteledgerRoot }
+      arguments: {
+        name: "Codex Plugin Smoke",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: testRouteledgerRoot
+      }
     }
   });
   write({
@@ -207,7 +211,11 @@ const runPluginStdioSmoke = async () => {
     method: "tools/call",
     params: {
       name: "init_project",
-      arguments: { name: "Codex Plugin Smoke", expectedRouteLedgerRoot: testRouteledgerRoot }
+      arguments: {
+        name: "Codex Plugin Smoke",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: testRouteledgerRoot
+      }
     }
   });
   write({

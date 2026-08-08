@@ -52,7 +52,7 @@ pnpm check:codex-plugin-release --require-tag-ref
 
 The last published plugin release is `routeledger-plugin-v0.3.3` at commit
 `437a958`; `codex-marketplace` remains its historical branch anchor. The
-manifest now declares the 0.3.6 patch candidate. Starting with 0.3.4, `main` is
+manifest now declares the 0.4.0 feature candidate. Starting with 0.3.4, `main` is
 the release branch: merge the verified distribution to `main`, create the
 immutable version tag on that commit, and never reuse or move an existing tag.
 The `main` push validates the previous-ref SemVer/distribution replay; it does

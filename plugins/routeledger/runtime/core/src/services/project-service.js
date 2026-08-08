@@ -2,6 +2,7 @@ import { DomainError } from "../domain/errors.js";
 import { createTransitionEvents } from "./transition-event-service.js";
 import { createDomainContext } from "./operation.js";
 import { suspendVersion } from "./version-service.js";
+import { isChineseLocale, requireConcreteContentLocale } from "../domain/locale.js";
 const validateVersionId = (versionId) => {
     if (versionId === "0") {
         throw new DomainError("MISSING_REQUIRED_FIELD", "version_id 不允许使用 0", {
@@ -9,8 +10,9 @@ const validateVersionId = (versionId) => {
         });
     }
 };
-export const createProject = ({ name, description = "", actor, deps }) => {
+export const createProject = ({ name, description = "", contentLocale, actor, deps }) => {
     const context = createDomainContext(deps, actor);
+    const normalizedContentLocale = requireConcreteContentLocale(contentLocale);
     const projectId = deps.idGenerator.nextId();
     const initialVersionId = deps.idGenerator.nextId();
     validateVersionId(initialVersionId);
@@ -28,14 +30,17 @@ export const createProject = ({ name, description = "", actor, deps }) => {
         settings: {
             enforceStartGate: true,
             enforceCloseGate: true,
-            contextBudgetBytes: 32768
+            contextBudgetBytes: 32768,
+            contentLocale: normalizedContentLocale
         }
     };
     const initialVersion = {
         id: initialVersionId,
         projectId,
-        title: "Initial Version",
-        description: "Project bootstrap version",
+        title: isChineseLocale(normalizedContentLocale) ? "初始 Version" : "Initial Version",
+        description: isChineseLocale(normalizedContentLocale)
+            ? "项目初始化 Version"
+            : "Project bootstrap version",
         state: "wait",
         parentVersionId: null,
         previousVersionId: null,
@@ -65,6 +70,41 @@ export const createProject = ({ name, description = "", actor, deps }) => {
             }
         ], {
             projectId,
+            operationId: context.operationId,
+            actor,
+            now: context.now
+        }, deps.idGenerator)
+    };
+};
+export const setProjectContentLocale = ({ project, contentLocale, reason, actor, deps }) => {
+    const normalizedContentLocale = requireConcreteContentLocale(contentLocale);
+    const context = createDomainContext(deps, actor);
+    const previousContentLocale = project.settings.contentLocale;
+    const updatedProject = {
+        ...project,
+        settings: {
+            ...project.settings,
+            contentLocale: normalizedContentLocale
+        },
+        updatedAt: context.now
+    };
+    return {
+        project: updatedProject,
+        events: createTransitionEvents([
+            {
+                targetType: "project",
+                targetId: project.id,
+                eventType: "project.content_locale_changed",
+                fromState: previousContentLocale,
+                toState: normalizedContentLocale,
+                note: reason,
+                metadata: {
+                    previousContentLocale,
+                    contentLocale: normalizedContentLocale
+                }
+            }
+        ], {
+            projectId: project.id,
             operationId: context.operationId,
             actor,
             now: context.now

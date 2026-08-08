@@ -67,6 +67,7 @@ const main = async (): Promise<void> => {
   try {
     const initProject = await registry.invoke("init_project", {
       name: "Mission Control Source Smoke",
+      contentLocale: "en",
       expectedRouteLedgerRoot: routeledgerRoot
     });
     const initialized = expectOk(initProject, "init_project");

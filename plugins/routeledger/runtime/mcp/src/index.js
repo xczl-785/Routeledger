@@ -8,6 +8,7 @@ import { isPhysicalPathContainedWithinSync, resolvePhysicalPathForContainmentSyn
 import { RouteLedgerDebugLogger } from "./debug-log.js";
 import { adaptCheckDocDriftInput, adaptDeferWorkInput, adaptGetCurrentContextInput, adaptListVersionsWindowInput, adaptRecordConstraintInput, adaptRetireConstraintInput, adaptReviewDeferredInput, InvalidToolInputError } from "./input-adapter.js";
 import { resolveRuntimeIdentity } from "./runtime-identity.js";
+import { localizeToolResponse, resolveResponseLocale, suggestContentLocale } from "./locale.js";
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
 const createServerInfo = (runtimeIdentity) => ({
     name: "routeledger",
@@ -613,6 +614,19 @@ const resolveMissionControlRoots = (input, binding) => {
     };
 };
 const expectedRouteLedgerRootSchema = stringSchema("Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot.");
+const responseLocaleSchema = stringSchema("Optional BCP 47 locale for human-readable tool messages. It is not persisted as project content_locale.");
+const withResponseLocaleInputSchema = (inputSchema) => {
+    const properties = inputSchema.properties !== null && typeof inputSchema.properties === "object"
+        ? inputSchema.properties
+        : {};
+    return {
+        ...inputSchema,
+        properties: {
+            ...properties,
+            responseLocale: responseLocaleSchema
+        }
+    };
+};
 const withExpectedRouteLedgerRootInputSchema = (inputSchema, riskLevel) => {
     if (riskLevel === "read-only") {
         return inputSchema;
@@ -643,7 +657,7 @@ const defineTool = (name, narrative, inputSchema, options, handler) => ({
     definition: {
         name,
         description: formatToolNarrative(narrative),
-        inputSchema: withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel),
+        inputSchema: withResponseLocaleInputSchema(withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel)),
         ...createToolMetadata(options)
     },
     toolKind: options.toolKind ??
@@ -724,9 +738,68 @@ export const createRouteLedgerMcpRegistry = (options) => {
             !isBindingToolKindAllowed(binding, tool.toolKind))
             .map((tool) => tool.definition.name);
     };
-    const getRuntimeContextData = async (binding = readBinding()) => {
+    const getRuntimeContextData = async (binding = readBinding(), requestedResponseLocale) => {
         const storageInspection = storage === null ? null : await storage.inspectRuntimeBinding();
         const activeProject = storageInspection?.activeProject ?? null;
+        const resolvedResponseLocale = resolveResponseLocale(requestedResponseLocale, options.defaultResponseLocale);
+        const suggestedContentLocale = suggestContentLocale(resolvedResponseLocale.requested ?? resolvedResponseLocale.resolved);
+        const contentLocale = activeProject?.contentLocale !== null && activeProject?.contentLocale !== undefined
+            ? {
+                status: "configured",
+                configuredValue: activeProject.contentLocale,
+                suggestedValue: null,
+                suggestionSource: null,
+                requiresUserDecision: false
+            }
+            : binding.status === "uninitialized" || activeProject !== null
+                ? {
+                    status: "confirmation_required",
+                    configuredValue: null,
+                    suggestedValue: suggestedContentLocale,
+                    suggestionSource: suggestedContentLocale === null ? null : "response_locale",
+                    requiresUserDecision: true
+                }
+                : {
+                    status: "unavailable",
+                    configuredValue: null,
+                    suggestedValue: null,
+                    suggestionSource: null,
+                    requiresUserDecision: false
+                };
+        const bindingActions = binding.status === "bound" ? [] : getBindingRecommendedNextActions(binding);
+        const localeBlockedTools = activeProject?.contentLocale === null
+            ? guardedTools
+                .filter((tool) => tool.definition.name !== "set_project_content_locale" &&
+                (tool.toolKind === "write" || tool.toolKind === "bootstrap"))
+                .map((tool) => tool.definition.name)
+            : [];
+        const recommendedNextActions = contentLocale.status !== "confirmation_required"
+            ? bindingActions
+            : activeProject === null
+                ? [
+                    {
+                        type: "confirm_content_locale",
+                        proposedValue: suggestedContentLocale,
+                        description: "Confirm a concrete project content_locale with the user before initialization.",
+                        requiresUserDecision: true
+                    },
+                    ...bindingActions.map((action) => action.type === "initialize_routeledger"
+                        ? {
+                            ...action,
+                            requiredFields: ["name", "contentLocale"],
+                            blockedBy: ["content_locale_confirmation"]
+                        }
+                        : action)
+                ]
+                : [
+                    {
+                        type: "set_project_content_locale",
+                        tool: "set_project_content_locale",
+                        proposedValue: suggestedContentLocale,
+                        description: "Set the existing project to the concrete content_locale confirmed by the user.",
+                        requiresUserDecision: true
+                    }
+                ];
         return {
             binding: summarizeRuntimeBinding(binding),
             processCwd: binding.processCwd,
@@ -758,8 +831,9 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 writeLock: storageInspection?.writeLock ?? null
             },
             activeProject,
-            blockedTools: getBlockedTools(binding),
-            recommendedNextActions: binding.status === "bound" ? [] : getBindingRecommendedNextActions(binding)
+            contentLocale,
+            blockedTools: [...new Set([...getBlockedTools(binding), ...localeBlockedTools])],
+            recommendedNextActions
         };
     };
     const getRuntimeContextMeta = async () => {
@@ -799,9 +873,9 @@ export const createRouteLedgerMcpRegistry = (options) => {
             title: "Get Runtime Context",
             riskLevel: "read-only",
             toolKind: "diagnostic"
-        }, async () => {
+        }, async (input) => {
             const binding = readBinding();
-            const runtimeContext = await getRuntimeContextData(binding);
+            const runtimeContext = await getRuntimeContextData(binding, input.responseLocale);
             return {
                 ok: true,
                 data: runtimeContext,
@@ -1033,8 +1107,9 @@ export const createRouteLedgerMcpRegistry = (options) => {
         }),
         defineTool("init_project", { what: "Initialize canonical RouteLedger project data." }, objectSchema({
             name: stringSchema("Project name."),
-            description: stringSchema("Optional project description.")
-        }, ["name"]), {
+            description: stringSchema("Optional project description."),
+            contentLocale: stringSchema("Concrete BCP 47 locale confirmed by the user for future project content. null and auto are not allowed.")
+        }, ["name", "contentLocale"]), {
             title: "Init Project",
             riskLevel: "write",
             toolKind: "bootstrap"
@@ -1043,6 +1118,28 @@ export const createRouteLedgerMcpRegistry = (options) => {
             data: await service.initProject({
                 name: input.name,
                 description: input.description,
+                contentLocale: input.contentLocale,
+                actor
+            })
+        })),
+        defineTool("set_project_content_locale", {
+            what: "Set a user-confirmed content locale for an existing project.",
+            parameter: "projectId, contentLocale, reason",
+            warning: "Affects future writes only"
+        }, objectSchema({
+            projectId: stringSchema("RouteLedger project ID."),
+            contentLocale: stringSchema("Concrete BCP 47 locale confirmed by the user. null and auto are not allowed."),
+            reason: stringSchema("Why the project content locale was selected or changed.")
+        }, ["projectId", "contentLocale", "reason"]), {
+            title: "Set Project Content Locale",
+            riskLevel: "write",
+            recommendedApprovalMode: "prompt"
+        }, async (input) => ({
+            ok: true,
+            data: await service.setProjectContentLocale({
+                projectId: input.projectId,
+                contentLocale: input.contentLocale,
+                reason: input.reason,
                 actor
             })
         })),
@@ -2113,22 +2210,23 @@ export const createRouteLedgerMcpRegistry = (options) => {
             if (reboundRegistry !== null) {
                 return reboundRegistry.invoke(toolName, input);
             }
+            const responseLocale = resolveResponseLocale(input?.responseLocale, options.defaultResponseLocale);
             const handler = handlers.get(toolName);
             if (handler === undefined) {
-                return attachRuntimeContextToError({
+                return localizeToolResponse(await attachRuntimeContextToError({
                     ok: false,
                     error: {
                         code: "ACTION_NOT_IMPLEMENTED",
                         message: `unknown tool ${toolName}`
                     }
-                });
+                }), responseLocale, toolName);
             }
             try {
                 const response = await handler(input);
                 const activationResponse = toolName === "activate_routeledger_binding"
                     ? await activatePendingRebindForDirectRegistry()
                     : null;
-                return attachRuntimeContextToError(activationResponse ?? response);
+                return localizeToolResponse(await attachRuntimeContextToError(activationResponse ?? response), responseLocale, toolName);
             }
             catch (error) {
                 const response = toToolError(error);
@@ -2142,7 +2240,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                         inputKeys: Object.keys(input ?? {}).sort()
                     }
                 });
-                return attachRuntimeContextToError(response);
+                return localizeToolResponse(await attachRuntimeContextToError(response), responseLocale, toolName);
             }
         },
         getRuntimeContextMeta,

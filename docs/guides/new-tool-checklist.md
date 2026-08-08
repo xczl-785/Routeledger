@@ -10,7 +10,7 @@ checklist for every new tool.
    binding preflight, and debug hooks all come from the registry.
 2. Update the tool budget assertions in
    `packages/mcp/src/testing/tool-description-contract.test.ts` (currently
-   42 tools: 19 read-only / 19 write / 4 high-risk). The budget is a
+   43 tools: 19 read-only / 20 write / 4 high-risk). The budget is a
    deliberate gate against silent surface growth.
 3. Add at least one behavior test in
    `packages/mcp/src/testing/mcp.test.ts`; for write tools, include a
@@ -30,6 +30,6 @@ checklist for every new tool.
    `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
    `pnpm check:codex-plugin-release`, and add a release note under
    `docs/release/release-notes/`.
-8. Verify the json-only runtime exposes the expected tool count (full 42,
-   json-only 40, difference is exactly `open_mission_control` and
+8. Verify the json-only runtime exposes the expected tool count (full 43,
+   json-only 41, difference is exactly `open_mission_control` and
    `get_mission_control_status`).

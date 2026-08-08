@@ -62,6 +62,11 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     "ROUTELEDGER_MCP_ROUTELEDGER_ROOT"
   );
   const hostProfile = getConfigValue(argv, "--profile", "ROUTELEDGER_MCP_PROFILE");
+  const defaultResponseLocale = getConfigValue(
+    argv,
+    "--response-locale",
+    "ROUTELEDGER_MCP_RESPONSE_LOCALE"
+  );
   const actorId = getConfigValue(argv, "--actor-id", "ROUTELEDGER_MCP_ACTOR_ID");
   const actorName = getConfigValue(argv, "--actor-name", "ROUTELEDGER_MCP_ACTOR_NAME");
   const approverId = getConfigValue(
@@ -93,6 +98,7 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     routeledgerRoot,
     sqliteReadModel,
     runtimeProfile,
+    defaultResponseLocale,
     hostProfile:
       hostProfile === "generic" ||
       hostProfile === "codex" ||

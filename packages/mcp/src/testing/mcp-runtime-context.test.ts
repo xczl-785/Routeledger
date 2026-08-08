@@ -327,6 +327,52 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("get_runtime_context asks for content_locale and proposes the response language", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRegistry(projectRoot);
+
+    try {
+      const response = await registry.invoke("get_runtime_context", {
+        responseLocale: "zh-CN"
+      });
+
+      expect(response).toMatchObject({
+        ok: true,
+        data: {
+          contentLocale: {
+            status: "confirmation_required",
+            configuredValue: null,
+            suggestedValue: "zh-CN",
+            suggestionSource: "response_locale",
+            requiresUserDecision: true
+          },
+          recommendedNextActions: expect.arrayContaining([
+            expect.objectContaining({
+              type: "confirm_content_locale",
+              proposedValue: "zh-CN",
+              requiresUserDecision: true,
+              description: "初始化或继续写入前，与用户确认具体 content_locale。"
+            }),
+            expect.objectContaining({
+              type: "initialize_routeledger",
+              requiredFields: ["name", "contentLocale"],
+              blockedBy: ["content_locale_confirmation"]
+            })
+          ])
+        },
+        meta: {
+          language: {
+            responseLocale: "zh-CN",
+            requestedResponseLocale: "zh-CN"
+          }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("get_runtime_context stays unbound on process.cwd fallback and does not auto-create workspace config", async () => {
     const workspaceRoot = createTempProjectRoot();
     const previousCwd = process.cwd();
@@ -543,12 +589,100 @@ describe("routeledger mcp registry", () => {
             source: "canonical_json",
             id: initData.project.id,
             name: initData.project.name,
-            currentVersionId: initData.project.currentVersionId
+            currentVersionId: initData.project.currentVersionId,
+            contentLocale: "en"
+          },
+          contentLocale: {
+            status: "configured",
+            configuredValue: "en",
+            requiresUserDecision: false
           }
         }
       });
     } finally {
       registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("legacy null content_locale stays readable, blocks ordinary writes, and can be resolved", async () => {
+    const projectRoot = createTempProjectRoot();
+    const initialRegistry = createRegistry(projectRoot);
+
+    try {
+      const initialized = await initialRegistry.invoke("init_project", {
+        name: "Legacy Locale Project",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const initializedData = initialized.data as {
+        project: { id: string };
+        initialVersion: { id: string };
+      };
+      initialRegistry.close();
+
+      const projectPath = getDefaultJsonProjectPath(projectRoot);
+      const projectDocument = JSON.parse(fs.readFileSync(projectPath, "utf8")) as {
+        settings: Record<string, unknown>;
+      };
+      delete projectDocument.settings.content_locale;
+      fs.writeFileSync(projectPath, `${JSON.stringify(projectDocument, null, 2)}\n`);
+      removeSqliteFiles(projectRoot);
+
+      const legacyRegistry = createRegistry(projectRoot);
+      try {
+        const context = await legacyRegistry.invoke("get_runtime_context", {
+          responseLocale: "zh-CN"
+        });
+        expect(context).toMatchObject({
+          ok: true,
+          data: {
+            activeProject: { contentLocale: null },
+            contentLocale: {
+              status: "confirmation_required",
+              suggestedValue: "zh-CN",
+              requiresUserDecision: true
+            },
+            blockedTools: expect.arrayContaining(["create_todo"]),
+            recommendedNextActions: [
+              expect.objectContaining({
+                type: "set_project_content_locale",
+                proposedValue: "zh-CN"
+              })
+            ]
+          }
+        });
+
+        const blockedWrite = await legacyRegistry.invoke("create_todo", {
+          projectId: initializedData.project.id,
+          versionId: initializedData.initialVersion.id,
+          title: "应被阻止",
+          expectedRouteLedgerRoot: projectRoot
+        });
+        expect(blockedWrite).toMatchObject({
+          ok: false,
+          error: { code: "CONTENT_LOCALE_REQUIRED" }
+        });
+
+        const resolved = await legacyRegistry.invoke("set_project_content_locale", {
+          projectId: initializedData.project.id,
+          contentLocale: "zh-cn",
+          reason: "用户确认项目内容使用中文",
+          expectedRouteLedgerRoot: projectRoot
+        });
+        expect(resolved).toMatchObject({
+          ok: true,
+          data: {
+            project: {
+              settings: { contentLocale: "zh-CN" }
+            }
+          }
+        });
+      } finally {
+        legacyRegistry.close();
+      }
+    } finally {
+      initialRegistry.close();
       cleanupProjectRoot(projectRoot);
     }
   });

@@ -17,6 +17,9 @@ export interface RouteLedgerRecommendedNextAction {
   tool?: string;
   field?: string;
   fields?: string[];
+  requiredFields?: string[];
+  blockedBy?: string[];
+  proposedValue?: string | null;
   routeledgerRoot?: string;
   requiresUserDecision?: boolean;
 }

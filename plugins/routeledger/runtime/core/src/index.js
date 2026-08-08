@@ -3,6 +3,7 @@ export * from "./domain/asset.js";
 export * from "./domain/constraint.js";
 export * from "./domain/deferred-item.js";
 export * from "./domain/errors.js";
+export * from "./domain/locale.js";
 export * from "./domain/project.js";
 export * from "./domain/states.js";
 export * from "./domain/todo.js";

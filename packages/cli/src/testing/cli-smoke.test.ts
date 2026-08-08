@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import Database from "better-sqlite3";
 
 import { expect, it, describe } from "vitest";
 
@@ -9,11 +10,100 @@ import { decodeProjectAggregateFromJsonDocuments } from "@routeledger/json";
 
 import { createTempProjectRoot, cleanupProjectRoot, removeSqliteFiles, readJsonDocuments, readDocumentBytesByPaths, runCliJson, createVersionViaL3, setCurrentVersionViaL3 } from "./cli-test-helpers.js";
 describe("routeledger cli", () => {
+  it("init_project requires a concrete content locale and rejects auto", async () => {
+    const missingRoot = createTempProjectRoot();
+    const autoRoot = createTempProjectRoot();
+
+    try {
+      const missing = await runCliJson(missingRoot, [
+        "init_project",
+        "--name",
+        "Missing Locale"
+      ]);
+      const automatic = await runCliJson(autoRoot, [
+        "init_project",
+        "--name",
+        "Auto Locale",
+        "--content-locale",
+        "auto"
+      ]);
+
+      expect(missing).toMatchObject({
+        exitCode: 1,
+        stderrJson: {
+          ok: false,
+          error: { code: "CONTENT_LOCALE_REQUIRED" }
+        }
+      });
+      expect(automatic).toMatchObject({
+        exitCode: 1,
+        stderrJson: {
+          ok: false,
+          error: { code: "CONTENT_LOCALE_MUST_BE_CONCRETE" }
+        }
+      });
+    } finally {
+      cleanupProjectRoot(missingRoot);
+      cleanupProjectRoot(autoRoot);
+    }
+  });
+
+  it("set_project_content_locale resolves a legacy null project", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const initialized = await runCliJson(projectRoot, [
+        "init_project",
+        "--name",
+        "Legacy Locale",
+        "--content-locale",
+        "en"
+      ]);
+      const projectId = initialized.stdoutJson.data.project.id as string;
+      const database = new Database(
+        path.join(projectRoot, ".routeledger", "db", "routeledger.sqlite3")
+      );
+      const row = database
+        .prepare("SELECT settings_json FROM projects WHERE id = ?")
+        .get(projectId) as { settings_json: string };
+      const settings = JSON.parse(row.settings_json) as Record<string, unknown>;
+      delete settings.contentLocale;
+      database
+        .prepare("UPDATE projects SET settings_json = ? WHERE id = ?")
+        .run(JSON.stringify(settings), projectId);
+      database.close();
+
+      const resolved = await runCliJson(projectRoot, [
+        "set_project_content_locale",
+        "--project-id",
+        projectId,
+        "--content-locale",
+        "zh-cn",
+        "--reason",
+        "用户确认使用中文"
+      ]);
+
+      expect(resolved).toMatchObject({
+        exitCode: 0,
+        stdoutJson: {
+          ok: true,
+          data: {
+            project: {
+              settings: { contentLocale: "zh-CN" }
+            }
+          }
+        }
+      });
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("smoke: init/context/versions 与 L3 approve/commit 链路可用", async () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -94,7 +184,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const createdVersionIds = [initResult.stdoutJson.data.initialVersion.id as string];
 
@@ -197,7 +287,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -304,7 +394,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -456,7 +546,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -616,7 +706,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
       const invalidPreflight = await runCliJson(projectRoot, [
@@ -677,7 +767,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const invalidMode = await runCliJson(projectRoot, [
         "batch_create_versions",
@@ -718,7 +808,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const invalidPolicy = await runCliJson(projectRoot, [
         "batch_create_versions",
@@ -761,7 +851,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
       const targetVersionId = await createVersionViaL3(projectRoot, projectId, "Next Version");
@@ -856,7 +946,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
       const downstreamVersionId = await createVersionViaL3(projectRoot, projectId, "Downstream");
@@ -1055,7 +1145,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -1197,7 +1287,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -1289,7 +1379,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
       const targetVersionId = await createVersionViaL3(projectRoot, projectId, "Next Version");
@@ -1458,7 +1548,7 @@ describe("routeledger cli", () => {
     const outputDir = path.join(projectRoot, "exports");
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 

@@ -18,6 +18,7 @@
   "settings": {
     "enforce_start_gate": true,
     "enforce_close_gate": true,
-    "context_budget_bytes": 32768
+    "context_budget_bytes": 32768,
+    "content_locale": "en"
   }
 }

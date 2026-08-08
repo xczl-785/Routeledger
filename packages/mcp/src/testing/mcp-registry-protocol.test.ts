@@ -5,6 +5,46 @@ import { createRouteLedgerStdioServer, type JsonRpcResponse } from "../stdio-ser
 
 import { createTempProjectRoot, getDefaultCanonicalJsonRoot, getDefaultSqliteDbPath, createRegistry, createServer, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, runTranscript, type ToolListResult } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
+  it("init_project requires a concrete contentLocale and localizes human-readable errors", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot
+    });
+
+    try {
+      const missing = await registry.invoke("init_project", {
+        name: "RouteLedger",
+        expectedRouteLedgerRoot: projectRoot,
+        responseLocale: "zh-CN"
+      });
+      const automatic = await registry.invoke("init_project", {
+        name: "RouteLedger",
+        contentLocale: "auto",
+        expectedRouteLedgerRoot: projectRoot,
+        responseLocale: "zh-CN"
+      });
+
+      expect(missing).toMatchObject({
+        ok: false,
+        error: {
+          code: "CONTENT_LOCALE_REQUIRED",
+          message: "项目的 content_locale 尚未确认；请先与用户确认具体语言。"
+        }
+      });
+      expect(automatic).toMatchObject({
+        ok: false,
+        error: {
+          code: "CONTENT_LOCALE_MUST_BE_CONCRETE",
+          message: "content_locale 必须是具体语言，不能使用 auto。"
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("tools/list uses standard annotations and host policy metadata", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -33,7 +73,7 @@ describe("routeledger mcp registry", () => {
       const highRiskTools = tools.filter(
         (tool) => tool._meta.routeledger.riskLevel === "high-risk"
       );
-      expect(tools).toHaveLength(42);
+      expect(tools).toHaveLength(43);
       const runtimeContextTool = tools.find((tool) => tool.name === "get_runtime_context");
       const openMissionControlTool = tools.find((tool) => tool.name === "open_mission_control");
       const writeHostBindingConfigTool = tools.find(
@@ -95,7 +135,7 @@ describe("routeledger mcp registry", () => {
         outputPath: expect.objectContaining({ type: "string" }),
         expectedRouteLedgerRoot: expect.objectContaining({ type: "string" })
       });
-      expect(writeTools).toHaveLength(19);
+      expect(writeTools).toHaveLength(20);
       expect(highRiskTools).toHaveLength(4);
       for (const tool of [...writeTools, ...highRiskTools]) {
         expect(tool.inputSchema.properties).toHaveProperty("expectedRouteLedgerRoot");
@@ -297,6 +337,7 @@ describe("routeledger mcp registry", () => {
     try {
       const initialized = await registry.invoke("init_project", {
         name: "Inspected Runtime Project",
+        contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       const project = (initialized.data as { project: { id: string; name: string } }).project;

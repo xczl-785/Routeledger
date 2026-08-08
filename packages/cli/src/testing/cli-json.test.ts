@@ -15,7 +15,7 @@ describe("routeledger cli", () => {
     const outputDir = path.join(projectRoot, "exports");
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -691,7 +691,7 @@ describe("routeledger cli", () => {
       runGit(projectRoot, ["config", "user.email", "routeledger-test@example.com"]);
       runGit(projectRoot, ["config", "user.name", "RouteLedger Test"]);
 
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
       const version2Id = await createVersionViaL3(projectRoot, projectId, "Version 2");
@@ -886,7 +886,7 @@ describe("routeledger cli", () => {
       runGit(projectRoot, ["add", "README.md"]);
       runGit(projectRoot, ["commit", "-m", "plain repo"]);
 
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       expect(initResult.exitCode).toBe(0);
 
       const exportResult = await runCliJson(projectRoot, [
@@ -932,7 +932,7 @@ describe("routeledger cli", () => {
       runGit(projectRoot, ["config", "user.email", "routeledger-test@example.com"]);
       runGit(projectRoot, ["config", "user.name", "RouteLedger Test"]);
 
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       expect(initResult.exitCode).toBe(0);
 
       const exportResult = await runCliJson(projectRoot, [
@@ -979,7 +979,7 @@ describe("routeledger cli", () => {
       runGit(projectRoot, ["config", "user.email", "routeledger-test@example.com"]);
       runGit(projectRoot, ["config", "user.name", "RouteLedger Test"]);
 
-      const firstInit = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger A"]);
+      const firstInit = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger A", "--content-locale", "en"]);
       expect(firstInit.exitCode).toBe(0);
 
       const firstExport = await runCliJson(projectRoot, [
@@ -998,7 +998,7 @@ describe("routeledger cli", () => {
 
       fs.rmSync(path.join(projectRoot, ".routeledger"), { recursive: true, force: true });
 
-      const secondInit = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger B"]);
+      const secondInit = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger B", "--content-locale", "en"]);
       expect(secondInit.exitCode).toBe(0);
 
       const secondExport = await runCliJson(projectRoot, [
