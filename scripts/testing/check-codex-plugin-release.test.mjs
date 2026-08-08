@@ -20,7 +20,7 @@ const identity = {
   runtimePackageVersion: "0.0.0-package-prep",
   runtimeProfile: "json-only",
   artifactKind: "plugin",
-  pluginVersion: "0.3.5",
+  pluginVersion: "0.3.6",
   sourceTreeState: "clean",
   buildCommit: null,
   artifactDigest: null,
@@ -38,11 +38,11 @@ const content = {
   runtimeCoverage: "All regular files under plugins/routeledger/runtime."
 };
 
-assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), true);
-assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, buildCommit: "f".repeat(40) }, releaseIdentity, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
-assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, buildCommit: "f".repeat(40) }, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
-assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, runtimePayloadDigest: "d".repeat(64) }, releaseIdentity, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
-assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, runtimePayloadDigest: "d".repeat(64) }, pluginVersion: "0.3.5", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), true);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, buildCommit: "f".repeat(40) }, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, buildCommit: "f".repeat(40) }, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, runtimePayloadDigest: "d".repeat(64) }, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, runtimePayloadDigest: "d".repeat(64) }, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
 assert.equal(hasValidReleaseContentHashes({ releaseContent: content, pluginDistributionSha256: distributionDigest, runtimeSha256: runtimeDigest }), true);
 assert.equal(hasValidReleaseContentHashes({ releaseContent: { ...content, runtimeSha256: "d".repeat(64) }, pluginDistributionSha256: distributionDigest, runtimeSha256: runtimeDigest }), false);
 

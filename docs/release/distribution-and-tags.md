@@ -36,12 +36,12 @@ block each other.
 
 Each distribution form keeps its own release notes under
 `docs/release/release-notes/`. The current Codex plugin candidate is
-[0.3.5](release-notes/0.3.5.md).
+[0.3.6](release-notes/0.3.6.md).
 
 ## Current status
 
 - Published: Codex plugin 0.3.3 (tag `routeledger-plugin-v0.3.3`, branch
   anchor `codex-marketplace`).
-- Candidate: Codex plugin 0.3.5 on `main`; not yet tagged.
+- Candidate: Codex plugin 0.3.6 on `main`; not yet tagged.
 - Not published: `@routeledger/mcp` on npm. Documentation must not present it
   as installable until the first npm release exists.

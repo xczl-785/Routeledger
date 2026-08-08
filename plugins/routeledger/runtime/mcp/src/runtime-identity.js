@@ -3,7 +3,7 @@ export const resolveRuntimeIdentity = (runtimeProfile) => ({
   runtimePackageVersion: "0.0.0-package-prep",
   runtimeProfile,
   artifactKind: "plugin",
-  pluginVersion: "0.3.5",
+  pluginVersion: "0.3.6",
   sourceTreeState: "dirty",
   buildCommit: null,
   artifactDigest: null,

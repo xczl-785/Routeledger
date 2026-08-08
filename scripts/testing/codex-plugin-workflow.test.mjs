@@ -70,9 +70,9 @@ assert.equal(
   null
 );
 assert.equal(
-  resolvePreviousRef({ eventName: "push", ref: "refs/tags/routeledger-plugin-v0.3.5", before, baseSha: "" }),
+  resolvePreviousRef({ eventName: "push", ref: "refs/tags/routeledger-plugin-v0.3.6", before, baseSha: "" }),
   null
 );
 assert.deepEqual(releaseArguments({ previousRef: before, ref: "refs/heads/main" }), ["--previous-ref", before]);
 assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/heads/feature/provenance" }), []);
-assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/tags/routeledger-plugin-v0.3.5" }), ["--require-tag-ref"]);
+assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/tags/routeledger-plugin-v0.3.6" }), ["--require-tag-ref"]);

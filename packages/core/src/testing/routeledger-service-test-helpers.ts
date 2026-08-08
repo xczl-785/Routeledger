@@ -339,4 +339,3 @@ export const expectConfirmationRequired = async (
     return details;
   }
 };
-

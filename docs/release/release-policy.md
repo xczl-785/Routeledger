@@ -7,8 +7,8 @@ and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.3.3 is the last published Git
 marketplace release, fixed by `routeledger-plugin-v0.3.3` at commit `437a958`.
-The manifest now declares the 0.3.5 patch candidate. `main` became the release
-branch in 0.3.4 and remains the release branch for 0.3.5 and later;
+The manifest now declares the 0.3.6 patch candidate. `main` became the release
+branch in 0.3.4 and remains the release branch for 0.3.6 and later;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
 `@routeledger/mcp` remains unpublished to npm.
