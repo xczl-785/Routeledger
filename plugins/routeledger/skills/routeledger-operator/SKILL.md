@@ -10,9 +10,11 @@ Use this Skill only for work governed by the RouteLedger MCP server. Do not use 
 ## Binding and preflight
 
 1. Call `get_runtime_context` first. Confirm the returned workspace root, RouteLedger root, active project, and JSON-only storage mode match the intended project.
+   Also inspect `contentLocale`. When its status is `confirmation_required`, propose the returned `suggestedValue` based on the conversation language and ask the user to confirm a concrete BCP 47 locale. Do not treat the proposal as consent.
 2. Keep an MCP Roots/rootUri binding when the host supplied one. If it reports `WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`, obtain the host project's current absolute `workspaceRoot`; never infer it from the plugin cache or MCP process `cwd`.
 3. Call `activate_routeledger_binding` with that absolute `workspaceRoot` (and the in-workspace `routeledgerRoot` only when needed), then read `get_runtime_context` again to confirm the session rebound. Use `discover_routeledger_roots` and `plan_routeledger_binding` only when the target root is ambiguous.
 4. Activation may create or normalize only `.routeledger/config.json` for the explicit binding. `init_project` is the separate approved operation that creates canonical project JSON. Never use plugin-cache or process `cwd` as an initialization target.
+   `init_project` must include the confirmed `contentLocale`; never send `auto`, `null`, or omit it. If an existing project reports unresolved `null`, keep reads available and call `set_project_content_locale` only after confirmation; other writes must wait.
 5. Before every write/high-risk route operation, use the returned RouteLedger root assertion. This includes `dry_run` calls to `transition_version`, `close_version`, and `shutdown_version`: they are binding-sensitive previews, not read-only MCP tools. Do not continue until the returned binding matches the intended project.
 
 Host approval metadata is an operator-flow hint, not a server-enforced prompt or a replacement for RouteLedger binding and L3 safeguards.

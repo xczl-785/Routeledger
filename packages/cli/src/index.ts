@@ -618,15 +618,37 @@ const handleCommand = async ({
       const service = getService();
       const name = requireFlagValue(argv, "--name");
       const description = getFlagValue(argv, "--description");
+      const contentLocale = getFlagValue(argv, "--content-locale");
+      if (contentLocale === undefined || contentLocale.startsWith("--")) {
+        throw new ApplicationError(
+          "CONTENT_LOCALE_REQUIRED",
+          "init_project requires an explicit --content-locale BCP 47 value."
+        );
+      }
       const created = await service.initProject({
         name,
         description,
+        contentLocale,
         actor: DEFAULT_ACTOR
       });
 
       return {
         ok: true,
         data: created
+      };
+    }
+    case "set_project_content_locale": {
+      const service = getService();
+      const updated = await service.setProjectContentLocale({
+        projectId: requireFlagValue(argv, "--project-id"),
+        contentLocale: requireFlagValue(argv, "--content-locale"),
+        reason: requireFlagValue(argv, "--reason"),
+        actor: DEFAULT_ACTOR
+      });
+
+      return {
+        ok: true,
+        data: updated
       };
     }
     case "context": {

@@ -4,7 +4,7 @@ import { buildShutdownStateReason, describeVersionState } from "../domain/route-
 import { attachProjectAggregateHeadRevision, getProjectAggregateHeadRevision } from "../ports/storage-port.js";
 import { assertDeferredRouteTarget, evaluateCloseGate, evaluateStartGate, resolveResidualAudit } from "../services/gate-service.js";
 import { createDomainContext } from "../services/operation.js";
-import { createProject, setCurrentVersion as setCurrentVersionDomain } from "../services/project-service.js";
+import { createProject, setCurrentVersion as setCurrentVersionDomain, setProjectContentLocale as setProjectContentLocaleDomain } from "../services/project-service.js";
 import { createTransitionEvents } from "../services/transition-event-service.js";
 import { closeVersion as closeVersionDomain, markVersionComplete as markVersionCompleteDomain, prepareVersion as prepareVersionDomain, reopenVersion as reopenVersionDomain, shutdownVersion as shutdownVersionDomain, startVersion as startVersionDomain } from "../services/version-service.js";
 import { applyVersionTreeMutation, normalizeVersionTreePayload } from "../services/version-tree-service.js";
@@ -1653,10 +1653,17 @@ export class RouteLedgerService {
         this.deps = options.deps;
         this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     }
+    async saveProjectAggregate(snapshot) {
+        if (snapshot.project.settings.contentLocale === null) {
+            throw new ApplicationError("CONTENT_LOCALE_REQUIRED", "Project content_locale is null. Confirm and set a concrete locale before writing project state.", { projectId: snapshot.project.id });
+        }
+        await this.storage.saveProjectAggregate(snapshot);
+    }
     async initProject(input) {
         const created = createProject({
             name: input.name,
             description: input.description,
+            contentLocale: input.contentLocale,
             actor: input.actor,
             deps: this.deps
         });
@@ -1673,8 +1680,22 @@ export class RouteLedgerService {
             pendingOperations: [],
             approvalArtifacts: []
         };
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return created;
+    }
+    async setProjectContentLocale(input) {
+        const snapshot = await requireProject(this.storage, input.projectId);
+        const updated = setProjectContentLocaleDomain({
+            project: snapshot.project,
+            contentLocale: input.contentLocale,
+            reason: input.reason,
+            actor: input.actor,
+            deps: this.deps
+        });
+        snapshot.project = updated.project;
+        snapshot.events = snapshot.events.concat(updated.events);
+        await this.saveProjectAggregate(snapshot);
+        return updated;
     }
     async listVersions(projectId) {
         const snapshot = await requireProject(this.storage, projectId);
@@ -1691,7 +1712,7 @@ export class RouteLedgerService {
         const prepared = prepareVersionDomain(version, context, this.deps);
         snapshot.versions = replaceRecord(snapshot.versions, prepared.version);
         snapshot.events = snapshot.events.concat(prepared.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return prepared;
     }
     async markVersionComplete(input) {
@@ -1701,7 +1722,7 @@ export class RouteLedgerService {
         const completed = markVersionCompleteDomain(version, context, this.deps);
         snapshot.versions = replaceRecord(snapshot.versions, completed.version);
         snapshot.events = snapshot.events.concat(completed.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return completed;
     }
     async createTodo(input) {
@@ -1718,7 +1739,7 @@ export class RouteLedgerService {
         snapshot.workItems = snapshot.workItems.concat(created.workItem);
         snapshot.todos = snapshot.todos.concat(created.todo);
         snapshot.events = snapshot.events.concat(created.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return created;
     }
     async closeTodo(input) {
@@ -1736,7 +1757,7 @@ export class RouteLedgerService {
         snapshot.todos = replaceRecord(snapshot.todos, closed.todo);
         snapshot.workItems = replaceRecord(snapshot.workItems, closed.workItem);
         snapshot.events = snapshot.events.concat(closed.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return closed;
     }
     async deferWork(input) {
@@ -1765,7 +1786,7 @@ export class RouteLedgerService {
             snapshot.workItems = appendRecord(snapshot.workItems, deferred.workItem);
             snapshot.deferredItems = appendRecord(snapshot.deferredItems, deferred.deferred);
             snapshot.events = snapshot.events.concat(deferred.events);
-            await this.storage.saveProjectAggregate(snapshot);
+            await this.saveProjectAggregate(snapshot);
             return deferred;
         }
         const todo = requireTodo(snapshot, input.todoId);
@@ -1792,7 +1813,7 @@ export class RouteLedgerService {
         snapshot.workItems = replaceRecord(snapshot.workItems, deferred.workItem);
         snapshot.deferredItems = appendRecord(snapshot.deferredItems, deferred.deferred);
         snapshot.events = snapshot.events.concat(deferred.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return deferred;
     }
     async reviewDeferred(input) {
@@ -1828,7 +1849,7 @@ export class RouteLedgerService {
             snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
             snapshot.todos = appendRecord(snapshot.todos, reviewed.todo);
             snapshot.events = snapshot.events.concat(reviewed.events);
-            await this.storage.saveProjectAggregate(snapshot);
+            await this.saveProjectAggregate(snapshot);
             return reviewed;
         }
         if (input.action === "defer_again") {
@@ -1850,7 +1871,7 @@ export class RouteLedgerService {
             snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
             snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
             snapshot.events = snapshot.events.concat(reviewed.events);
-            await this.storage.saveProjectAggregate(snapshot);
+            await this.saveProjectAggregate(snapshot);
             return reviewed;
         }
         const reviewed = reviewDeferredWorkflow({
@@ -1869,7 +1890,7 @@ export class RouteLedgerService {
         snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
         snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
         snapshot.events = snapshot.events.concat(reviewed.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return reviewed;
     }
     async recordConstraint(input) {
@@ -1887,7 +1908,7 @@ export class RouteLedgerService {
         });
         snapshot.constraints = appendRecord(snapshot.constraints, recorded.constraint);
         snapshot.events = snapshot.events.concat(recorded.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return recorded;
     }
     async retireConstraint(input) {
@@ -1902,7 +1923,7 @@ export class RouteLedgerService {
         });
         snapshot.constraints = replaceRecord(snapshot.constraints, retired.constraint);
         snapshot.events = snapshot.events.concat(retired.events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return retired;
     }
     async transitionVersion(input) {
@@ -2290,7 +2311,7 @@ export class RouteLedgerService {
         ], snapshot.project.id, input.actor, now, context.operationId, this.deps);
         const updatedSnapshot = applyPendingOperation(snapshot, proposal);
         updatedSnapshot.events = updatedSnapshot.events.concat(proposalEvents);
-        await this.storage.saveProjectAggregate(updatedSnapshot);
+        await this.saveProjectAggregate(updatedSnapshot);
         return proposal;
     }
     async listL3Proposals(projectId) {
@@ -2346,7 +2367,7 @@ export class RouteLedgerService {
         ], snapshot.project.id, input.actor, now, context.operationId, this.deps);
         const updatedSnapshot = applyApprovalArtifact(snapshot, artifact);
         updatedSnapshot.events = updatedSnapshot.events.concat(events);
-        await this.storage.saveProjectAggregate(updatedSnapshot);
+        await this.saveProjectAggregate(updatedSnapshot);
         return artifact;
     }
     async rejectL3Operation(input) {
@@ -2379,7 +2400,7 @@ export class RouteLedgerService {
         ], snapshot.project.id, input.actor, now, context.operationId, this.deps);
         snapshot.pendingOperations = replaceRecord(snapshot.pendingOperations, rejected);
         snapshot.events = snapshot.events.concat(events);
-        await this.storage.saveProjectAggregate(snapshot);
+        await this.saveProjectAggregate(snapshot);
         return rejected;
     }
     async commitL3Operation(input) {
@@ -2454,7 +2475,7 @@ export class RouteLedgerService {
                 status: "expired"
             };
             snapshot.approvalArtifacts = replaceRecord(snapshot.approvalArtifacts, expiredArtifact);
-            await this.storage.saveProjectAggregate(snapshot);
+            await this.saveProjectAggregate(snapshot);
             throw new ApplicationError("APPROVAL_ARTIFACT_EXPIRED", "approval artifact 已过期", {
                 approvalArtifactId: artifact.id,
                 expiresAt: artifact.expiresAt
@@ -2542,7 +2563,7 @@ export class RouteLedgerService {
         applied.snapshot.events = applied.snapshot.events
             .concat(applied.events)
             .concat(auditEvents);
-        await this.storage.saveProjectAggregate(applied.snapshot);
+        await this.saveProjectAggregate(applied.snapshot);
         return {
             pendingOperation: committedOperation,
             approvalArtifact: consumedArtifact

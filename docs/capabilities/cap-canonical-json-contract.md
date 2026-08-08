@@ -23,6 +23,10 @@ RouteLedger project.
    anymore.
 5. CLI JSON commands expose validation, import/export, merge-check, and
    ref-based review summary without changing the canonical schema.
+6. `project.json` persists `settings.content_locale` as a concrete BCP 47
+   locale. Missing legacy values decode as `null` and produce a non-fatal
+   `PROJECT_CONTENT_LOCALE_UNRESOLVED` warning; they are never inferred or
+   silently stored as `auto`.
 
 ## Evidence
 

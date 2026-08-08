@@ -58,7 +58,8 @@ export const createProjectFixture = (overrides: Partial<Project> = {}): Project 
   settings: {
     enforceStartGate: true,
     enforceCloseGate: true,
-    contextBudgetBytes: 32768
+    contextBudgetBytes: 32768,
+    contentLocale: "en"
   },
   ...overrides
 });

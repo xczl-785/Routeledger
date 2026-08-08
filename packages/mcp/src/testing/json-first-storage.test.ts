@@ -148,6 +148,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "Legacy digest",
         actor: {
           id: "primary-agent",
@@ -309,6 +310,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "Legacy manifest",
         actor: {
           id: "primary-agent",
@@ -364,6 +366,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "Legacy JSON only",
         actor: {
           id: "primary-agent",
@@ -406,6 +409,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -511,6 +515,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await runtime.service.initProject({
+      contentLocale: "en",
         name: "JSON-first application commands",
         actor: {
           id: "primary-agent",
@@ -637,6 +642,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -676,6 +682,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -719,6 +726,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "Split Root",
         actor: {
           id: "split-root-agent",
@@ -785,6 +793,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -837,6 +846,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -875,6 +885,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -916,6 +927,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",
@@ -1012,6 +1024,7 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
+      contentLocale: "en",
         name: "RouteLedger",
         actor: {
           id: "primary-agent",

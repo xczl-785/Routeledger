@@ -57,6 +57,7 @@ export type ToolListResult = {
 export const WRITE_TOOL_NAMES = new Set([
   "write_host_binding_config",
   "init_project",
+  "set_project_content_locale",
   "batch_create_versions",
   "transition_version",
   "close_version",
@@ -136,9 +137,16 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
           !Object.prototype.hasOwnProperty.call(input ?? {}, "expectedRouteLedgerRoot")
           ? {
               ...(input ?? {}),
+              ...(toolName === "init_project" &&
+              !Object.prototype.hasOwnProperty.call(input ?? {}, "contentLocale")
+                ? { contentLocale: "en" }
+                : {}),
               expectedRouteLedgerRoot: routeledgerRoot
             }
-          : input
+          : toolName === "init_project" &&
+              !Object.prototype.hasOwnProperty.call(input ?? {}, "contentLocale")
+            ? { ...(input ?? {}), contentLocale: "en" }
+            : input
       )
   };
 };
@@ -286,6 +294,7 @@ export const createSqliteOnlyProject = async (
 
   try {
     const created = await service.initProject({
+      contentLocale: "en",
       name: "SQLite Only Project",
       description: "",
       actor: {
@@ -405,9 +414,16 @@ export const callTool = async (
     !Object.prototype.hasOwnProperty.call(args, "expectedRouteLedgerRoot")
       ? {
           ...args,
+          ...(name === "init_project" &&
+          !Object.prototype.hasOwnProperty.call(args, "contentLocale")
+            ? { contentLocale: "en" }
+            : {}),
           expectedRouteLedgerRoot: routeledgerRoot
         }
-      : args;
+      : name === "init_project" &&
+          !Object.prototype.hasOwnProperty.call(args, "contentLocale")
+        ? { ...args, contentLocale: "en" }
+        : args;
 
   return (await server.handleMessage({
     jsonrpc: "2.0",

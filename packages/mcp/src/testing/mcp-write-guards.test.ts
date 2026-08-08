@@ -63,6 +63,7 @@ describe("routeledger mcp registry", () => {
     try {
       const initialized = await registry.invoke("init_project", {
         name: "RouteLedger",
+        contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       expect(initialized.ok).toBe(true);

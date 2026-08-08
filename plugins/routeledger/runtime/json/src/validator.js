@@ -1,5 +1,5 @@
 import path from "node:path";
-import { collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, validateWorkItemActive } from "../../core/src/index.js";
+import { canonicalizeLocale, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, validateWorkItemActive } from "../../core/src/index.js";
 import { decodeProjectAggregateFromJsonDocumentsForValidation } from "./codec.js";
 import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, SCHEMA_DOCUMENT_PATH } from "./constants.js";
 const KNOWN_DOCUMENT_PREFIXES = [
@@ -627,6 +627,24 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
         };
     }
     const { project } = snapshot;
+    if (project.settings.contentLocale === null) {
+        issues.push(createIssue("warning", "PROJECT_CONTENT_LOCALE_UNRESOLVED", "Project.settings.content_locale 尚未确认；项目保持可读，但写操作必须先设置具体 locale。", { path: PROJECT_DOCUMENT_PATH, details: { projectId: project.id } }));
+    }
+    else {
+        try {
+            canonicalizeLocale(project.settings.contentLocale);
+        }
+        catch (error) {
+            issues.push(createIssue("error", "PROJECT_CONTENT_LOCALE_INVALID", "Project.settings.content_locale 必须是具体且有效的 BCP 47 locale。", {
+                path: PROJECT_DOCUMENT_PATH,
+                details: {
+                    projectId: project.id,
+                    contentLocale: project.settings.contentLocale,
+                    error: error instanceof Error ? error.message : String(error)
+                }
+            }));
+        }
+    }
     const versionsById = new Map(snapshot.versions.map((version) => [version.id, version]));
     const workItemsById = new Map(snapshot.workItems.map((workItem) => [workItem.id, workItem]));
     const todosById = new Map(snapshot.todos.map((todo) => [todo.id, todo]));

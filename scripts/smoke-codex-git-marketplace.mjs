@@ -25,7 +25,7 @@ const pluginName = "routeledger";
 const marketplaceName = "routeledger-team";
 const releaseBranch = "main";
 const baselineVersion = "0.3.3";
-const upgradedVersion = "0.3.6";
+const upgradedVersion = "0.4.0";
 const baselineTag = "routeledger-plugin-v0.3.3";
 const fixtureAttributes = "plugins/routeledger/** -text\n";
 const codexCommand = process.platform === "win32" ? "codex.cmd" : "codex";
@@ -407,7 +407,7 @@ const runInstalledRuntimeSmoke = async (installedPluginRoot, temporaryRoot, rele
   write({ jsonrpc: "2.0", id: "initialize", method: "initialize", params: { protocolVersion: "2025-11-25", rootUri: pathToFileURL(testWorkspaceRoot).href, capabilities: {}, clientInfo: { name: "routeledger-git-marketplace-smoke", version: "1" } } });
   write({ jsonrpc: "2.0", method: "notifications/initialized" });
   write({ jsonrpc: "2.0", id: "tools-list", method: "tools/list", params: {} });
-  write({ jsonrpc: "2.0", id: "init-project", method: "tools/call", params: { name: "init_project", arguments: { name: "Git Marketplace Smoke", expectedRouteLedgerRoot: testRouteledgerRoot } } });
+  write({ jsonrpc: "2.0", id: "init-project", method: "tools/call", params: { name: "init_project", arguments: { name: "Git Marketplace Smoke", contentLocale: "en", expectedRouteLedgerRoot: testRouteledgerRoot } } });
   write({ jsonrpc: "2.0", id: "runtime-context", method: "tools/call", params: { name: "get_runtime_context", arguments: {} } });
   child.stdin.end();
   const exitCode = await new Promise((resolve, reject) => {

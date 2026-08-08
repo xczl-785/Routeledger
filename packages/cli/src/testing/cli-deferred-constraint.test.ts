@@ -12,7 +12,9 @@ describe("routeledger cli", () => {
       const initResult = await runCliJson(projectRoot, [
         "init_project",
         "--name",
-        "Deferred CLI"
+        "Deferred CLI",
+        "--content-locale",
+        "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const version1Id = initResult.stdoutJson.data.initialVersion.id as string;
@@ -208,7 +210,9 @@ describe("routeledger cli", () => {
       const initResult = await runCliJson(projectRoot, [
         "init_project",
         "--name",
-        "Constraint CLI"
+        "Constraint CLI",
+        "--content-locale",
+        "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
@@ -318,7 +322,9 @@ describe("routeledger cli", () => {
       const initResult = await runCliJson(projectRoot, [
         "init_project",
         "--name",
-        "Semantic validation"
+        "Semantic validation",
+        "--content-locale",
+        "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const invalidOutcome = await runCliJson(projectRoot, [
@@ -427,7 +433,9 @@ describe("routeledger cli", () => {
       const initResult = await runCliJson(projectRoot, [
         "init_project",
         "--name",
-        "Legacy audit"
+        "Legacy audit",
+        "--content-locale",
+        "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;

@@ -232,6 +232,26 @@ describe("@routeledger/json canonical codec", () => {
     expect(decoded.constraints).toEqual([]);
   });
 
+  it("decodes a legacy project without content_locale as unresolved null", () => {
+    const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()).map(
+      (document) => {
+        if (!document.path.endsWith("/project.json")) {
+          return document;
+        }
+
+        const project = JSON.parse(document.content) as {
+          settings: Record<string, unknown>;
+        };
+        delete project.settings.content_locale;
+        return { ...document, content: `${JSON.stringify(project, null, 2)}\n` };
+      }
+    );
+
+    const decoded = decodeProjectAggregateFromJsonDocuments(documents);
+
+    expect(decoded.project.settings.contentLocale).toBeNull();
+  });
+
   it("fails closed when direct decode receives malformed DeferredItem or Constraint documents", () => {
     const documents = encodeProjectAggregateToJsonDocuments(
       createDeferredConstraintJsonSnapshot()
@@ -578,6 +598,7 @@ describe("@routeledger/json canonical codec", () => {
       deps: createTestDependencies()
     });
     const created = await service.initProject({
+      contentLocale: "en",
       name: "RouteLedger",
       actor: TEST_ACTOR
     });

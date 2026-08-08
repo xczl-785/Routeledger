@@ -12,6 +12,7 @@ import {
   RouteLedgerJsonBusyError,
   RouteLedgerJsonImportError,
   RouteLedgerJsonWriteError,
+  PROJECT_DOCUMENT_PATH,
   SCHEMA_DOCUMENT_PATH,
   acquireRouteLedgerJsonWriteLock,
   decodeProjectAggregateFromJsonDocuments,
@@ -76,6 +77,7 @@ export interface RuntimeBindingActiveProject {
   id: string;
   name: string;
   currentVersionId: string | null;
+  contentLocale: string | null;
 }
 
 export interface RuntimeBindingInspection {
@@ -136,6 +138,38 @@ const getSemanticDocuments = (
 ): RouteLedgerJsonDocument[] =>
   documents.filter((document) => document.path !== SCHEMA_DOCUMENT_PATH);
 
+const getComparableDocumentContent = (document: RouteLedgerJsonDocument): string => {
+  if (document.path !== PROJECT_DOCUMENT_PATH) {
+    return document.content;
+  }
+
+  try {
+    const project = JSON.parse(document.content) as {
+      settings?: Record<string, unknown>;
+    };
+    if (
+      project.settings === undefined ||
+      Object.prototype.hasOwnProperty.call(project.settings, "content_locale")
+    ) {
+      return document.content;
+    }
+
+    return `${JSON.stringify(
+      {
+        ...project,
+        settings: {
+          ...project.settings,
+          content_locale: null
+        }
+      },
+      null,
+      2
+    )}\n`;
+  } catch {
+    return document.content;
+  }
+};
+
 const documentSetsEqual = (
   left: RouteLedgerJsonDocument[],
   right: RouteLedgerJsonDocument[]
@@ -154,7 +188,8 @@ const documentSetsEqual = (
     (document, index) => {
       return (
         document.path === sortedRight[index]!.path &&
-        document.content === sortedRight[index]!.content
+        getComparableDocumentContent(document) ===
+          getComparableDocumentContent(sortedRight[index]!)
       );
     }
   );
@@ -167,22 +202,16 @@ const collectDocumentDiffPaths = (
   const semanticLeft = getSemanticDocuments(left);
   const semanticRight = getSemanticDocuments(right);
   const leftMap = new Map(
-    semanticLeft.map((document) => [document.path, document.content])
+    semanticLeft.map((document) => [document.path, getComparableDocumentContent(document)])
   );
   const rightMap = new Map(
-    semanticRight.map((document) => [document.path, document.content])
+    semanticRight.map((document) => [document.path, getComparableDocumentContent(document)])
   );
   const allPaths = new Set([...leftMap.keys(), ...rightMap.keys()]);
 
   return [...allPaths]
     .filter((documentPath) => {
-      const leftDocument = semanticLeft.find(
-        (document) => document.path === documentPath
-      );
-      const rightDocument = semanticRight.find(
-        (document) => document.path === documentPath
-      );
-      return leftDocument?.content !== rightDocument?.content;
+      return leftMap.get(documentPath) !== rightMap.get(documentPath);
     })
     .sort((a, b) => a.localeCompare(b, "en"));
 };
@@ -768,7 +797,8 @@ export class JsonFirstStorageAdapter implements StoragePort {
       source,
       id: snapshot.project.id,
       name: snapshot.project.name,
-      currentVersionId: snapshot.project.currentVersionId
+      currentVersionId: snapshot.project.currentVersionId,
+      contentLocale: snapshot.project.settings.contentLocale
     };
   }
 

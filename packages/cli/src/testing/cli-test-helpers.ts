@@ -141,7 +141,7 @@ export const getIssueCodesFromCliError = (result: {
   result.stderrJson.error.details?.issues?.map((issue) => issue.code) ?? [];
 
 export const seedJsonRoundTripProject = async (projectRoot: string) => {
-  const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger"]);
+  const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
   const projectId = initResult.stdoutJson.data.project.id as string;
   const versionId = initResult.stdoutJson.data.initialVersion.id as string;
 
@@ -366,7 +366,8 @@ export const createValidateSnapshot = (): ProjectAggregateSnapshot => ({
     settings: {
       enforceStartGate: true,
       enforceCloseGate: true,
-      contextBudgetBytes: 65536
+      contextBudgetBytes: 65536,
+      contentLocale: "en"
     }
   },
   versions: [

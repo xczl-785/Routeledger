@@ -1220,6 +1220,11 @@ describe("routeledger mcp registry", () => {
           },
           recommendedNextActions: [
             expect.objectContaining({
+              type: "confirm_content_locale",
+              proposedValue: "en",
+              requiresUserDecision: true
+            }),
+            expect.objectContaining({
               type: "inspect_runtime",
               tool: "get_runtime_context"
             }),

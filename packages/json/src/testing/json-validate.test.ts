@@ -167,6 +167,32 @@ describe("@routeledger/json validate", () => {
     });
   });
 
+  it("keeps legacy missing content_locale readable but reports confirmation required", () => {
+    const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()).map(
+      (document) => {
+        if (!document.path.endsWith("/project.json")) {
+          return document;
+        }
+
+        const project = JSON.parse(document.content) as {
+          settings: Record<string, unknown>;
+        };
+        delete project.settings.content_locale;
+        return { ...document, content: `${JSON.stringify(project, null, 2)}\n` };
+      }
+    );
+
+    const result = validateRouteLedgerJsonDocuments(documents);
+
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        severity: "warning",
+        code: "PROJECT_CONTENT_LOCALE_UNRESOLVED"
+      })
+    ]);
+  });
+
   it("accepts valid sibling groups when version ids include __root__ and ::", () => {
     const result = validateRouteLedgerJsonDocuments(createSiblingGroupingEdgeCaseDocuments());
 

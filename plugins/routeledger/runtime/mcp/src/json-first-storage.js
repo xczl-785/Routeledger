@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { attachProjectAggregateHeadRevision, getProjectAggregateHeadRevision } from "../../core/src/index.js";
-import { RouteLedgerJsonBusyError, RouteLedgerJsonImportError, RouteLedgerJsonWriteError, SCHEMA_DOCUMENT_PATH, acquireRouteLedgerJsonWriteLock, decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments, getActiveRouteLedgerJsonWriteLockInfo, isCanonicalRouteLedgerJsonPath, loadValidatedProjectAggregateFromJsonDirectory, replaceRouteLedgerJsonDocuments, validateRouteLedgerJsonDocuments } from "../../json/src/index.js";
+import { RouteLedgerJsonBusyError, RouteLedgerJsonImportError, RouteLedgerJsonWriteError, PROJECT_DOCUMENT_PATH, SCHEMA_DOCUMENT_PATH, acquireRouteLedgerJsonWriteLock, decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments, getActiveRouteLedgerJsonWriteLockInfo, isCanonicalRouteLedgerJsonPath, loadValidatedProjectAggregateFromJsonDirectory, replaceRouteLedgerJsonDocuments, validateRouteLedgerJsonDocuments } from "../../json/src/index.js";
 import { ROUTELEDGER_DIRECTORY } from "./storage-paths.js";
 import { resolveWorkspaceConfigSync } from "./workspace-config.js";
 export class JsonFirstStorageError extends Error {
@@ -17,6 +17,28 @@ export class JsonFirstStorageError extends Error {
 }
 const compareByPath = (left, right) => left.path.localeCompare(right.path, "en");
 const getSemanticDocuments = (documents) => documents.filter((document) => document.path !== SCHEMA_DOCUMENT_PATH);
+const getComparableDocumentContent = (document) => {
+    if (document.path !== PROJECT_DOCUMENT_PATH) {
+        return document.content;
+    }
+    try {
+        const project = JSON.parse(document.content);
+        if (project.settings === undefined ||
+            Object.prototype.hasOwnProperty.call(project.settings, "content_locale")) {
+            return document.content;
+        }
+        return `${JSON.stringify({
+            ...project,
+            settings: {
+                ...project.settings,
+                content_locale: null
+            }
+        }, null, 2)}\n`;
+    }
+    catch {
+        return document.content;
+    }
+};
 const documentSetsEqual = (left, right) => {
     const semanticLeft = getSemanticDocuments(left);
     const semanticRight = getSemanticDocuments(right);
@@ -27,20 +49,19 @@ const documentSetsEqual = (left, right) => {
     const sortedRight = semanticRight.slice().sort(compareByPath);
     return sortedLeft.every((document, index) => {
         return (document.path === sortedRight[index].path &&
-            document.content === sortedRight[index].content);
+            getComparableDocumentContent(document) ===
+                getComparableDocumentContent(sortedRight[index]));
     });
 };
 const collectDocumentDiffPaths = (left, right) => {
     const semanticLeft = getSemanticDocuments(left);
     const semanticRight = getSemanticDocuments(right);
-    const leftMap = new Map(semanticLeft.map((document) => [document.path, document.content]));
-    const rightMap = new Map(semanticRight.map((document) => [document.path, document.content]));
+    const leftMap = new Map(semanticLeft.map((document) => [document.path, getComparableDocumentContent(document)]));
+    const rightMap = new Map(semanticRight.map((document) => [document.path, getComparableDocumentContent(document)]));
     const allPaths = new Set([...leftMap.keys(), ...rightMap.keys()]);
     return [...allPaths]
         .filter((documentPath) => {
-        const leftDocument = semanticLeft.find((document) => document.path === documentPath);
-        const rightDocument = semanticRight.find((document) => document.path === documentPath);
-        return leftDocument?.content !== rightDocument?.content;
+        return leftMap.get(documentPath) !== rightMap.get(documentPath);
     })
         .sort((a, b) => a.localeCompare(b, "en"));
 };
@@ -489,7 +510,8 @@ export class JsonFirstStorageAdapter {
             source,
             id: snapshot.project.id,
             name: snapshot.project.name,
-            currentVersionId: snapshot.project.currentVersionId
+            currentVersionId: snapshot.project.currentVersionId,
+            contentLocale: snapshot.project.settings.contentLocale
         };
     }
     toInspectionError(error) {

@@ -62,7 +62,8 @@ const createSnapshot = (includeLegacyUndo = true): ProjectAggregateSnapshot => (
     settings: {
       enforceStartGate: true,
       enforceCloseGate: true,
-      contextBudgetBytes: 32768
+      contextBudgetBytes: 32768,
+      contentLocale: "en"
     }
   },
   versions: [

@@ -71,6 +71,7 @@ interface JsonProjectSettings {
   enforce_start_gate: boolean;
   enforce_close_gate: boolean;
   context_budget_bytes: number;
+  content_locale?: string | null;
 }
 
 interface JsonProject {
@@ -568,13 +569,16 @@ const decodeActor = (actor: JsonActor): Actor => ({
 const encodeProjectSettings = (settings: ProjectSettings): JsonProjectSettings => ({
   enforce_start_gate: settings.enforceStartGate,
   enforce_close_gate: settings.enforceCloseGate,
-  context_budget_bytes: settings.contextBudgetBytes
+  context_budget_bytes: settings.contextBudgetBytes,
+  content_locale: settings.contentLocale
 });
 
 const decodeProjectSettings = (settings: JsonProjectSettings): ProjectSettings => ({
   enforceStartGate: settings.enforce_start_gate,
   enforceCloseGate: settings.enforce_close_gate,
-  contextBudgetBytes: settings.context_budget_bytes
+  contextBudgetBytes: settings.context_budget_bytes,
+  contentLocale:
+    typeof settings.content_locale === "string" ? settings.content_locale : null
 });
 
 const encodeGateSnapshot = (snapshot: GateSnapshot): JsonGateSnapshot => {

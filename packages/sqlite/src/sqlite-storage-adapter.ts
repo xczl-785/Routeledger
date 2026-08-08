@@ -755,6 +755,9 @@ export class SQLiteStorageAdapter implements StoragePort {
       return null;
     }
 
+    const parsedSettings = parseJson<Partial<Project["settings"]>>(
+      projectRow.settings_json
+    );
     const project: Project = {
       id: projectRow.id,
       name: projectRow.name,
@@ -766,7 +769,15 @@ export class SQLiteStorageAdapter implements StoragePort {
       createdAt: projectRow.created_at,
       updatedAt: projectRow.updated_at,
       archivedAt: projectRow.archived_at,
-      settings: parseJson<Project["settings"]>(projectRow.settings_json)
+      settings: {
+        enforceStartGate: parsedSettings.enforceStartGate ?? true,
+        enforceCloseGate: parsedSettings.enforceCloseGate ?? true,
+        contextBudgetBytes: parsedSettings.contextBudgetBytes ?? 32768,
+        contentLocale:
+          typeof parsedSettings.contentLocale === "string"
+            ? parsedSettings.contentLocale
+            : null
+      }
     };
 
     const versions = this.db
