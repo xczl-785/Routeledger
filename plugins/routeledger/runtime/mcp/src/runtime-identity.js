@@ -4,7 +4,7 @@ export const resolveRuntimeIdentity = (runtimeProfile) => ({
   runtimeProfile,
   artifactKind: "plugin",
   pluginVersion: "0.3.6",
-  sourceTreeState: "dirty",
+  sourceTreeState: "clean",
   buildCommit: null,
   artifactDigest: null,
   runtimePayloadDigest: "27e11a1a1ed09af3b8bf11190531381eea072ae00ddca5ff5981c0c6024fe57e"
