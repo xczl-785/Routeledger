@@ -9,13 +9,12 @@ import {
   RouteLedgerService,
   activateDeferred,
   closeVersion,
-  convertTodoToUndo,
-  convertUndoToTodo,
   createAsset,
   createConstraint,
   createDeferred,
   createProject,
   createTodo,
+  createTransitionEvents,
   evaluateCloseGate,
   evaluateStartGate,
   markVersionComplete,
@@ -30,6 +29,7 @@ import {
 import {
   TEST_ACTOR,
   createTestDependencies,
+  createTodoFixture,
   createUndoFixture,
   createWorkItemFixture,
   createVersionFixture
@@ -83,9 +83,6 @@ const createEmptyAggregate = (): ProjectAggregateSnapshot => {
   };
 };
 
-const collectOperationIds = (events: ProjectAggregateSnapshot["events"]): string[] =>
-  [...new Set(events.map((event) => event.operationId))];
-
 const expectConfirmationRequired = async (
   promise: Promise<unknown>
 ): Promise<{
@@ -120,33 +117,78 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
     actor: TEST_ACTOR,
     deps
   });
-  const todoCreation = createTodo({
+  const convertedTodo = createTodoFixture({
+    id: "todo-retained",
     projectId: created.project.id,
     versionId: created.initialVersion.id,
-    title: "Track retained history",
-    actor: TEST_ACTOR,
-    deps
+    workItemId: "work-item-retained",
+    status: "converted",
+    closeReason: "defer",
+    closeNote: "defer history"
   });
-  const todoToUndo = convertTodoToUndo({
-    todo: todoCreation.todo,
-    workItem: todoCreation.workItem,
+  const convertedUndo = createUndoFixture({
+    id: "undo-retained",
+    projectId: created.project.id,
+    versionId: created.initialVersion.id,
+    originVersionId: created.initialVersion.id,
     preferredResolutionVersionId: created.initialVersion.id,
-    reason: "defer",
-    note: "defer history",
-    actor: TEST_ACTOR,
-    deps
+    workItemId: "work-item-retained",
+    status: "converted",
+    closeReason: "resume",
+    closeNote: "resume history"
   });
-  const undoToTodo = convertUndoToTodo({
-    undo: todoToUndo.undo,
-    workItem: todoToUndo.workItem,
-    reason: "resume",
-    note: "resume history",
-    actor: TEST_ACTOR,
-    deps
+  const resumedTodo = createTodoFixture({
+    id: "todo-resumed",
+    projectId: created.project.id,
+    versionId: created.initialVersion.id,
+    workItemId: "work-item-retained",
+    status: "wait"
   });
+  const workItem = createWorkItemFixture({
+    id: "work-item-retained",
+    projectId: created.project.id,
+    originVersionId: created.initialVersion.id,
+    activeRecordType: "todo",
+    activeRecordId: resumedTodo.id
+  });
+  const historyEvents = createTransitionEvents(
+    [
+      {
+        targetType: "todo" as const,
+        targetId: convertedTodo.id,
+        eventType: "todo.converted_to_undo",
+        fromState: "wait",
+        toState: "converted",
+        note: "defer history"
+      },
+      {
+        targetType: "undo" as const,
+        targetId: convertedUndo.id,
+        eventType: "undo.converted_to_todo",
+        fromState: "wait",
+        toState: "converted",
+        note: "resume history"
+      },
+      {
+        targetType: "work_item" as const,
+        targetId: workItem.id,
+        eventType: "work_item.active_changed",
+        fromState: "undo",
+        toState: "todo",
+        note: "resume history"
+      }
+    ],
+    {
+      projectId: created.project.id,
+      operationId: deps.idGenerator.nextId(),
+      actor: TEST_ACTOR,
+      now: "2026-06-27T00:00:00.000Z"
+    },
+    deps.idGenerator
+  );
   const assetCreation = createAsset({
     projectId: created.project.id,
-    workItemIds: [undoToTodo.workItem.id],
+    workItemIds: [workItem.id],
     pathBase: "project_root",
     relativePath: "docs/history.md",
     actor: TEST_ACTOR,
@@ -156,17 +198,13 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
   return {
     project: created.project,
     versions: [created.initialVersion],
-    workItems: [undoToTodo.workItem],
-    todos: [todoToUndo.todo, undoToTodo.todo],
-    undos: [undoToTodo.undo],
+    workItems: [workItem],
+    todos: [convertedTodo, resumedTodo],
+    undos: [convertedUndo],
     deferredItems: [],
     constraints: [],
     assets: [assetCreation.asset],
-    events: created.events
-      .concat(todoCreation.events)
-      .concat(todoToUndo.events)
-      .concat(undoToTodo.events)
-      .concat(assetCreation.events),
+    events: created.events.concat(historyEvents).concat(assetCreation.events),
     pendingOperations: [],
     approvalArtifacts: []
   };
@@ -1213,80 +1251,6 @@ describe("sqlite storage adapter", () => {
     }
   });
 
-  it("todo->undo / undo->todo conversion 重读一致并共享 operation_id", async () => {
-    const projectRoot = createTempProjectRoot();
-
-    try {
-      const adapter = new SQLiteStorageAdapter({ projectRoot });
-      const deps = createTestDependencies();
-      const created = createProject({
-        name: "RouteLedger",
-        actor: TEST_ACTOR,
-        deps
-      });
-      const todoCreation = createTodo({
-        projectId: created.project.id,
-        versionId: created.initialVersion.id,
-        title: "Track migration drift",
-        actor: TEST_ACTOR,
-        deps
-      });
-      const todoToUndo = convertTodoToUndo({
-        todo: todoCreation.todo,
-        workItem: todoCreation.workItem,
-        preferredResolutionVersionId: created.initialVersion.id,
-        reason: "defer",
-        note: "defer to later",
-        actor: TEST_ACTOR,
-        deps
-      });
-      const undoToTodo = convertUndoToTodo({
-        undo: todoToUndo.undo,
-        workItem: todoToUndo.workItem,
-        reason: "resume",
-        note: "resume now",
-        actor: TEST_ACTOR,
-        deps
-      });
-
-      const aggregate: ProjectAggregateSnapshot = {
-        project: created.project,
-        versions: [created.initialVersion],
-        workItems: [undoToTodo.workItem],
-        todos: [todoToUndo.todo, undoToTodo.todo],
-        undos: [undoToTodo.undo],
-        deferredItems: [],
-        constraints: [],
-        assets: [],
-        events: created.events
-          .concat(todoCreation.events)
-          .concat(todoToUndo.events)
-          .concat(undoToTodo.events),
-        pendingOperations: [],
-        approvalArtifacts: []
-      };
-
-      await adapter.saveProjectAggregate(aggregate);
-      const loaded = await adapter.loadProjectAggregate(aggregate.project.id);
-      const operationIds = collectOperationIds(aggregate.events).slice(-2);
-      const todoToUndoEvents = await adapter.listTransitionEventsByOperationId(operationIds[0]!);
-      const undoToTodoEvents = await adapter.listTransitionEventsByOperationId(operationIds[1]!);
-
-      expect(loaded?.workItems[0]?.activeRecordType).toBe("todo");
-      expect(loaded?.workItems[0]?.activeRecordId).toBe(undoToTodo.todo.id);
-      expect(loaded?.todos.find((todo) => todo.id === todoToUndo.todo.id)?.status).toBe("converted");
-      expect(loaded?.undos[0]?.status).toBe("converted");
-      expect(new Set(todoToUndoEvents.map((event) => event.operationId)).size).toBe(1);
-      expect(todoToUndoEvents.map((event) => event.operationSeq)).toEqual([1, 2, 3]);
-      expect(new Set(undoToTodoEvents.map((event) => event.operationId)).size).toBe(1);
-      expect(undoToTodoEvents.map((event) => event.operationSeq)).toEqual([1, 2, 3]);
-
-      adapter.close();
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
-  });
-
   it("Asset path/history/work_item_ids round trip", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -1588,39 +1552,77 @@ describe("sqlite storage adapter", () => {
         actor: TEST_ACTOR,
         deps
       });
-      const todoCreation = createTodo({
+      const todo = createTodoFixture({
+        id: "todo-query",
+        workItemId: "work-item-query",
+        projectId: created.project.id,
+        versionId: created.initialVersion.id
+      });
+      const undo = createUndoFixture({
+        id: "undo-query",
+        workItemId: "work-item-query",
         projectId: created.project.id,
         versionId: created.initialVersion.id,
-        title: "Track event query",
-        actor: TEST_ACTOR,
-        deps
+        originVersionId: created.initialVersion.id,
+        preferredResolutionVersionId: created.initialVersion.id
       });
-      const converted = convertTodoToUndo({
-        todo: todoCreation.todo,
-        workItem: todoCreation.workItem,
-        preferredResolutionVersionId: created.initialVersion.id,
-        reason: "query",
-        note: "query test",
-        actor: TEST_ACTOR,
-        deps
-      });
+      const workItem = createWorkItemFixture({
+        id: "work-item-query",
+        projectId: created.project.id,
+        originVersionId: created.initialVersion.id,
+        activeRecordType: "undo",
+        activeRecordId: undo.id
+      });      const convertedEvents = createTransitionEvents(
+        [
+          {
+            targetType: "todo" as const,
+            targetId: todo.id,
+            eventType: "todo.converted_to_undo",
+            fromState: "wait",
+            toState: "converted",
+            note: "query test"
+          },
+          {
+            targetType: "undo" as const,
+            targetId: undo.id,
+            eventType: "undo.created",
+            toState: "wait",
+            note: "query test"
+          },
+          {
+            targetType: "work_item" as const,
+            targetId: workItem.id,
+            eventType: "work_item.active_changed",
+            fromState: "todo",
+            toState: "undo",
+            note: "query test"
+          }
+        ],
+        {
+          projectId: created.project.id,
+          operationId: deps.idGenerator.nextId(),
+          actor: TEST_ACTOR,
+          now: "2026-06-27T00:00:00.000Z"
+        },
+        deps.idGenerator
+      );
 
       const aggregate: ProjectAggregateSnapshot = {
         project: created.project,
         versions: [created.initialVersion],
-        workItems: [converted.workItem],
-        todos: [converted.todo],
-        undos: [converted.undo],
+        workItems: [workItem],
+        todos: [{ ...todo, status: "converted" }],
+        undos: [undo],
         deferredItems: [],
         constraints: [],
         assets: [],
-        events: created.events.concat(todoCreation.events, converted.events),
+        events: created.events.concat(convertedEvents),
         pendingOperations: [],
         approvalArtifacts: []
       };
 
       await adapter.saveProjectAggregate(aggregate);
-      const events = await adapter.listTransitionEventsByOperationId(converted.events[0]!.operationId);
+      const events = await adapter.listTransitionEventsByOperationId(convertedEvents[0]!.operationId);
 
       expect(events.map((event) => event.eventType)).toEqual([
         "todo.converted_to_undo",

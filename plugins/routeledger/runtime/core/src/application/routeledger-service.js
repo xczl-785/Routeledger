@@ -8,7 +8,7 @@ import { createProject, setCurrentVersion as setCurrentVersionDomain } from "../
 import { createTransitionEvents } from "../services/transition-event-service.js";
 import { closeVersion as closeVersionDomain, markVersionComplete as markVersionCompleteDomain, prepareVersion as prepareVersionDomain, reopenVersion as reopenVersionDomain, shutdownVersion as shutdownVersionDomain, startVersion as startVersionDomain } from "../services/version-service.js";
 import { applyVersionTreeMutation, normalizeVersionTreePayload } from "../services/version-tree-service.js";
-import { closeTodo as closeTodoDomain, closeUndo as closeUndoDomain, createTodo as createTodoDomain, createUndo as createUndoDomain, reassignUndo as reassignUndoDomain } from "../services/work-item-service.js";
+import { closeTodo as closeTodoDomain, createTodo as createTodoDomain } from "../services/work-item-service.js";
 import { deferWork as deferWorkWorkflow, recordConstraint as recordConstraintWorkflow, retireRecordedConstraint, reviewDeferred as reviewDeferredWorkflow } from "../services/workflow-service.js";
 import { ApplicationError } from "./errors.js";
 import { buildCurrentContextResult, buildDerivedCurrentContextData, buildNextActionResult, buildVersionsWindowResult } from "./current-context-query.js";
@@ -390,18 +390,6 @@ const buildVersionStructureLegalOperations = (snapshot, focusVersion, residualAu
             actionType: "create_todo",
             allowed: true,
             summary: "为当前 version 补充待办。",
-            blockers: []
-        },
-        {
-            actionType: "create_undo",
-            allowed: true,
-            summary: "为当前 version 创建需下游解决的 undo。",
-            blockers: []
-        },
-        {
-            actionType: "carry_forward_undo",
-            allowed: true,
-            summary: "将 open undo 的 preferred resolution 结转到下游 version，保留 undo lineage。",
             blockers: []
         }
     ];
@@ -901,23 +889,6 @@ const requireTodo = (snapshot, todoId) => {
         });
     }
     return todo;
-};
-const requireUndo = (snapshot, undoId) => {
-    const undo = snapshot.undos.find((item) => item.id === undoId);
-    if (undo === undefined) {
-        throw new ApplicationError("UNDO_NOT_FOUND", "undo 不存在", {
-            projectId: snapshot.project.id,
-            undoId
-        });
-    }
-    if (undo.projectId !== snapshot.project.id) {
-        throw new ApplicationError("UNDO_OWNERSHIP_MISMATCH", "undo 不属于当前 project", {
-            projectId: snapshot.project.id,
-            undoId,
-            actualProjectId: undo.projectId
-        });
-    }
-    return undo;
 };
 const requireWorkItem = (snapshot, workItemId) => {
     const workItem = snapshot.workItems.find((item) => item.id === workItemId);
@@ -1768,63 +1739,6 @@ export class RouteLedgerService {
         await this.storage.saveProjectAggregate(snapshot);
         return closed;
     }
-    async createUndo(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        requireVersion(snapshot, input.versionId);
-        requireVersion(snapshot, input.originVersionId);
-        requireVersion(snapshot, input.preferredResolutionVersionId);
-        const created = createUndoDomain({
-            projectId: input.projectId,
-            versionId: input.versionId,
-            originVersionId: input.originVersionId,
-            preferredResolutionVersionId: input.preferredResolutionVersionId,
-            title: input.title,
-            reason: input.reason,
-            description: input.description,
-            actor: input.actor,
-            deps: this.deps
-        });
-        snapshot.workItems = snapshot.workItems.concat(created.workItem);
-        snapshot.undos = snapshot.undos.concat(created.undo);
-        snapshot.events = snapshot.events.concat(created.events);
-        await this.storage.saveProjectAggregate(snapshot);
-        return created;
-    }
-    async reassignUndo(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        requireVersion(snapshot, input.preferredResolutionVersionId);
-        const undo = requireUndo(snapshot, input.undoId);
-        const reassigned = reassignUndoDomain({
-            undo,
-            preferredResolutionVersionId: input.preferredResolutionVersionId,
-            reason: input.reason,
-            note: input.note,
-            actor: input.actor,
-            deps: this.deps
-        });
-        snapshot.undos = replaceRecord(snapshot.undos, reassigned.undo);
-        snapshot.events = snapshot.events.concat(reassigned.events);
-        await this.storage.saveProjectAggregate(snapshot);
-        return reassigned;
-    }
-    async closeUndo(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        const undo = requireUndo(snapshot, input.undoId);
-        const workItem = requireWorkItem(snapshot, undo.workItemId);
-        const closed = closeUndoDomain({
-            undo,
-            workItem,
-            reason: input.reason,
-            note: input.note,
-            actor: input.actor,
-            deps: this.deps
-        });
-        snapshot.undos = replaceRecord(snapshot.undos, closed.undo);
-        snapshot.workItems = replaceRecord(snapshot.workItems, closed.workItem);
-        snapshot.events = snapshot.events.concat(closed.events);
-        await this.storage.saveProjectAggregate(snapshot);
-        return closed;
-    }
     async deferWork(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
         if (input.mode === "new") {
@@ -1990,43 +1904,6 @@ export class RouteLedgerService {
         snapshot.events = snapshot.events.concat(retired.events);
         await this.storage.saveProjectAggregate(snapshot);
         return retired;
-    }
-    async carryForwardUndo(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        requireVersion(snapshot, input.preferredResolutionVersionId);
-        const undo = requireUndo(snapshot, input.undoId);
-        if (undo.preferredResolutionVersionId === input.preferredResolutionVersionId) {
-            return {
-                status: "noop",
-                undo,
-                previousPreferredResolutionVersionId: undo.preferredResolutionVersionId,
-                preferredResolutionVersionId: undo.preferredResolutionVersionId,
-                versionId: undo.versionId,
-                originVersionId: undo.originVersionId
-            };
-        }
-        const reassigned = reassignUndoDomain({
-            undo,
-            preferredResolutionVersionId: input.preferredResolutionVersionId,
-            reason: input.reason,
-            note: input.note,
-            actor: input.actor,
-            deps: this.deps
-        });
-        snapshot.undos = replaceRecord(snapshot.undos, reassigned.undo);
-        snapshot.events = snapshot.events.concat(reassigned.events);
-        await this.storage.saveProjectAggregate(snapshot);
-        return {
-            status: "reassigned",
-            undo: reassigned.undo,
-            previousPreferredResolutionVersionId: undo.preferredResolutionVersionId,
-            preferredResolutionVersionId: reassigned.undo.preferredResolutionVersionId,
-            versionId: reassigned.undo.versionId,
-            originVersionId: reassigned.undo.originVersionId
-        };
-    }
-    async resolveUndoAsDownstreamInput(input) {
-        return this.carryForwardUndo(input);
     }
     async transitionVersion(input) {
         const mode = assertRouteOperationWorkflowMode(input.mode);

@@ -250,7 +250,6 @@ export type CurrentContextNextActionType =
   | "review_pending_proposal"
   | "review_deferred"
   | "close_todo"
-  | "close_undo"
   | "close_version"
   | "prepare_version"
   | "start_version"

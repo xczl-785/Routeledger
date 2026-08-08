@@ -14,6 +14,8 @@ import {
   writeCodexProjectConfig
 } from "../index.js";
 
+const toForwardSlashes = (value: string): string => value.replace(/\\/gu, "/");
+
 const tempDirs: string[] = [];
 
 const createTempDir = async (prefix: string): Promise<string> => {
@@ -68,8 +70,13 @@ const extractCommandShape = (
 
 const runRuntimeContextSmoke = async (config: string) => {
   const commandShape = extractCommandShape(config);
-  const child = spawn(commandShape.command, commandShape.args, {
-    cwd: commandShape.cwd
+  const spawnCommand =
+    process.platform === "win32" && commandShape.command === "pnpm"
+      ? "pnpm.cmd"
+      : commandShape.command;
+  const child = spawn(spawnCommand, commandShape.args, {
+    cwd: commandShape.cwd,
+    shell: process.platform === "win32"
   });
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
@@ -308,7 +315,7 @@ describe("@routeledger/codex", () => {
       'existing = "keep-me"\n'
     );
     expect(await fs.readFile(result.path, "utf8")).toContain(
-      `"${workspaceRoot}"`
+      `"${toForwardSlashes(workspaceRoot)}"`
     );
   });
 
@@ -376,9 +383,9 @@ describe("@routeledger/codex", () => {
     });
 
     expect(result.content).toContain('"--workspace-root"');
-    expect(result.content).toContain(`"${workspaceRoot}"`);
+    expect(result.content).toContain(`"${toForwardSlashes(workspaceRoot)}"`);
     expect(result.content).toContain('"--routeledger-root"');
-    expect(result.content).toContain(`"${routeledgerRoot}"`);
+    expect(result.content).toContain(`"${toForwardSlashes(routeledgerRoot)}"`);
 
     const smoke = await runRuntimeContextSmoke(result.content);
 
@@ -400,7 +407,7 @@ describe("@routeledger/codex", () => {
           data: {
             binding: {
               status: "uninitialized",
-              workspaceRoot,
+              workspaceRoot: toForwardSlashes(workspaceRoot),
               routeledgerRoot,
               workspaceConfigPath: path.join(workspaceRoot, ".routeledger", "config.json"),
               dataRoot: routeledgerRoot,

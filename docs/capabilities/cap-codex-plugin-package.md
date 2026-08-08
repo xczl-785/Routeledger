@@ -4,11 +4,11 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. The manifest declares the next patch distribution as `0.3.5`;
+distribution. The manifest declares the next patch distribution as `0.3.6`;
 the last published Git marketplace release remains immutable
 `routeledger-plugin-v0.3.3` at commit `437a958` until the new version is merged,
 tagged, and verified. `main` became the release branch in 0.3.4 and remains
-the release branch for 0.3.5 and later.
+the release branch for 0.3.6 and later.
 `codex-marketplace` remains only the historical 0.3.3 branch anchor.
 
 ## Current Rules
@@ -99,7 +99,7 @@ digest before activation. Unsupported elicitation, cancellation, timeout, or
 any response other than explicit acceptance must fail closed. Because this
 would make activation unavailable to older hosts, it requires separate
 Desktop/CLI interoperability evidence and a compatibility release (expected
-`0.4.0`), rather than being folded into the advisory behavior of `0.3.5`.
+`0.4.0`), rather than being folded into the advisory behavior of `0.3.6`.
 
 ## Verification
 
@@ -107,7 +107,7 @@ Run `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
 `pnpm check:codex-plugin-release`, and
 `pnpm smoke:codex-git-marketplace`. See
 [the installation guide](../guides/codex-plugin-installation.md) and
-[the release guide](../guides/plugin-release.md) for operator instructions.
+[the release guide](../release/plugin-release.md) for operator instructions.
 The Git smoke creates branch and tag data only inside a temporary fixture
 repository; it validates installation mechanics and does not replace the
 published canonical tag as release evidence.

@@ -1,7 +1,6 @@
 import type { GateBlocker } from "../services/gate-service.js";
 
 import type {
-  SelfReferentialUndoAlternative,
   VersionCloseoutSummary,
   VersionCloseoutView
 } from "./version-closeout-query.js";
@@ -16,16 +15,13 @@ export type VersionCloseoutPlanStatus =
 
 export type VersionCloseoutPlanStepKind =
   | "close_todo"
-  | "close_undo"
   | "create_todo"
-  | "carry_forward_undo"
   | "mark_version_complete"
   | "close_version"
   | "approve_l3_operation"
   | "commit_l3_operation"
   | "review_pending_proposal"
   | "review_residual_audit"
-  | "review_self_referential_undo"
   | "no_op";
 
 export type VersionCloseoutGovernanceLayer =
@@ -61,7 +57,6 @@ export interface VersionCloseoutPlanStep {
   reason: string;
   unlockPaths: VersionCloseoutPlanUnlockPath[];
   warnings?: string[];
-  alternatives?: SelfReferentialUndoAlternative[];
 }
 
 export interface VersionCloseoutPlan {
@@ -76,21 +71,6 @@ export interface VersionCloseoutPlan {
 const collectBlockerIds = (blockers: GateBlocker[]): string[] => [
   ...new Set(blockers.flatMap((blocker) => blocker.recordIds))
 ];
-
-const mapAlternativeToUnlockPath = (
-  alternative: SelfReferentialUndoAlternative
-): VersionCloseoutPlanUnlockPath => ({
-  actionType: alternative.actionType,
-  recommendedTool: alternative.recommendedTool,
-  governanceLayer:
-    alternative.actionType === "carry_forward_undo" ||
-    alternative.actionType === "close_undo" ||
-    alternative.actionType === "close_undo_then_create_todo"
-      ? "route_write"
-      : "manual",
-  requiresL3Approval: false,
-  summary: alternative.summary
-});
 
 const createUnlockPath = (
   actionType: string,
@@ -130,9 +110,6 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
   const warnings: string[] = [];
   const steps: VersionCloseoutPlanStep[] = [];
   const pendingProposal = relatedPendingOperations.find((operation) => operation.status === "pending");
-  const selfReferentialUndoMap = new Map(
-    summary.selfReferentialUndos.map((undo) => [undo.id, undo] as const)
-  );
 
   const addStep = (step: VersionCloseoutPlanStep): void => {
     steps.push(step);
@@ -220,142 +197,6 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
         reason: `todo ${todo.id} is still open, so the ordinary close gate cannot pass.`
       })
     );
-  }
-
-  if (summary.openUndos.length > 0) {
-    warnings.push(
-      "Open undo defaults to close_undo. If the issue truly belongs downstream, choose carry_forward_undo instead."
-    );
-  }
-
-  for (const undo of summary.openUndos) {
-    const selfReferentialUndo = selfReferentialUndoMap.get(undo.id);
-
-    if (selfReferentialUndo?.category === "uncertain") {
-      addStep(
-        createStep({
-          stepId: `review-self-referential-undo-${undo.id}`,
-          kind: "review_self_referential_undo",
-          recommendedTool: null,
-          targetId: undo.id,
-          requiredInputs: [
-            { field: "projectId", value: summary.projectId },
-            { field: "undoId", value: undo.id }
-          ],
-          governanceLayer: "manual",
-          requiresL3Approval: false,
-          writesRouteState: false,
-          summary: `Manually classify self-referential undo: ${undo.title}`,
-          reason: selfReferentialUndo.reason,
-          warnings: [
-            "Do not treat this as an ordinary close blocker until the controller classifies it.",
-            "Choose whether it should close in place, become a downstream todo, or stay as downstream undo."
-          ],
-          alternatives: selfReferentialUndo.alternatives,
-          unlockPaths: selfReferentialUndo.alternatives.map(mapAlternativeToUnlockPath)
-        })
-      );
-      continue;
-    }
-
-    const stepWarnings =
-      selfReferentialUndo === undefined
-        ? undefined
-        : [
-            `This undo is self-referential (${selfReferentialUndo.category}).`,
-            selfReferentialUndo.note
-          ];
-    const unlockPaths: VersionCloseoutPlanUnlockPath[] = [
-      createUnlockPath(
-        "close_undo",
-        "close_undo",
-        "route_write",
-        false,
-        "Close the undo in place so it stops blocking ordinary close."
-      )
-    ];
-
-    if (selfReferentialUndo !== undefined) {
-      unlockPaths.push(...selfReferentialUndo.alternatives.map(mapAlternativeToUnlockPath));
-    } else {
-      unlockPaths.push(
-        createUnlockPath(
-          "carry_forward_undo",
-          "carry_forward_undo",
-          "route_write",
-          false,
-          "If the undo truly belongs to a downstream version, carry it forward without converting lineage."
-        )
-      );
-    }
-
-    addStep(
-      createStep({
-        stepId: `close-undo-${undo.id}`,
-        kind: "close_undo",
-        recommendedTool: "close_undo",
-        targetId: undo.id,
-        requiredInputs: [
-          { field: "projectId", value: summary.projectId },
-          { field: "undoId", value: undo.id },
-          { field: "reason", value: "<close reason>" },
-          { field: "note", value: "<close note>" }
-        ],
-        governanceLayer: "route_write",
-        requiresL3Approval: false,
-        writesRouteState: true,
-        summary:
-          selfReferentialUndo === undefined
-            ? `Resolve open undo: ${undo.title}`
-            : `Resolve self-referential undo: ${undo.title}`,
-        reason:
-          selfReferentialUndo === undefined
-            ? `undo ${undo.id} is still open, so planner defaults to close_undo.`
-            : selfReferentialUndo.reason,
-        warnings: stepWarnings,
-        alternatives: selfReferentialUndo?.alternatives,
-        unlockPaths
-      })
-    );
-
-    if (selfReferentialUndo?.category === "cleanup_like") {
-      addStep(
-        createStep({
-          stepId: `create-followup-todo-${undo.id}`,
-          kind: "create_todo",
-          recommendedTool: "create_todo",
-          targetId: null,
-          requiredInputs: [
-            { field: "projectId", value: summary.projectId },
-            { field: "versionId", value: "<follow-up versionId>" },
-            { field: "title", value: undo.title },
-            {
-              field: "description",
-              value: `Follow-up todo converted from self-referential undo ${undo.id}: ${undo.description}`
-            }
-          ],
-          governanceLayer: "route_write",
-          requiresL3Approval: false,
-          writesRouteState: true,
-          summary: `Create follow-up todo after closing self-referential cleanup undo: ${undo.title}`,
-          reason:
-            "This undo reads like post-close cleanup, so it should move onto an explicit todo path after the blocker is closed.",
-          warnings: [
-            "Choose the real downstream owner/version before creating the todo.",
-            "This keeps the cleanup path visible after close_undo removes the blocker."
-          ],
-          unlockPaths: [
-            createUnlockPath(
-              "create_todo",
-              "create_todo",
-              "route_write",
-              false,
-              "Create the downstream follow-up todo explicitly."
-            )
-          ]
-        })
-      );
-    }
   }
 
   if (steps.length > 0) {

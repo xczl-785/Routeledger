@@ -17,8 +17,10 @@ RouteLedger project.
    Invalid inputs produce structured validation failures rather than partial
    state.
 4. Canonical encoding removes `undefined`, preserves permitted `null`, and is
-   round-trip tested. Legacy Undo documents remain decodable for compatibility
-   while Todo, Deferred, and Constraint remain the current work surface.
+   round-trip tested. Legacy Undo documents remain decodable for historical
+   audit and gate evaluation, while Todo, Deferred, and Constraint remain the
+   current work surface. No tool or CLI can create or modify Undo records
+   anymore.
 5. CLI JSON commands expose validation, import/export, merge-check, and
    ref-based review summary without changing the canonical schema.
 

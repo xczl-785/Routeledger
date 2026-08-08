@@ -8,6 +8,16 @@ const workflow = (await fs.readFile(path.join(repositoryRoot, ".github", "workfl
   "\r\n",
   "\n"
 );
+const smokeScript = await fs.readFile(
+  path.join(repositoryRoot, "scripts", "smoke-codex-plugin.mjs"),
+  "utf8"
+);
+
+assert.doesNotMatch(
+  smokeScript,
+  /build-codex-plugin\.mjs/,
+  "Codex plugin smoke must validate the committed artifact, not rebuild it first."
+);
 const previousRefStep = /- name: Resolve previous plugin ref\n[\s\S]*? {8}run: \|\n([\s\S]*?)(?= {6}- name: Build bundled plugin artifact)/.exec(
   workflow
 );
@@ -60,9 +70,9 @@ assert.equal(
   null
 );
 assert.equal(
-  resolvePreviousRef({ eventName: "push", ref: "refs/tags/routeledger-plugin-v0.3.5", before, baseSha: "" }),
+  resolvePreviousRef({ eventName: "push", ref: "refs/tags/routeledger-plugin-v0.3.6", before, baseSha: "" }),
   null
 );
 assert.deepEqual(releaseArguments({ previousRef: before, ref: "refs/heads/main" }), ["--previous-ref", before]);
 assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/heads/feature/provenance" }), []);
-assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/tags/routeledger-plugin-v0.3.5" }), ["--require-tag-ref"]);
+assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/tags/routeledger-plugin-v0.3.6" }), ["--require-tag-ref"]);

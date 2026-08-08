@@ -17,6 +17,7 @@ import {
   decodeProjectAggregateFromJsonDocuments,
   encodeProjectAggregateToJsonDocuments,
   getActiveRouteLedgerJsonWriteLockInfo,
+  isCanonicalRouteLedgerJsonPath,
   loadValidatedProjectAggregateFromJsonDirectory,
   replaceRouteLedgerJsonDocuments,
   validateRouteLedgerJsonDocuments,
@@ -129,25 +130,6 @@ export interface JsonFirstStorageTestHooks {
 
 const compareByPath = (left: RouteLedgerJsonDocument, right: RouteLedgerJsonDocument): number =>
   left.path.localeCompare(right.path, "en");
-
-const CANONICAL_JSON_DOCUMENT_PATTERNS = [
-  /^\.routeledger\/schema\/routeledger\.schema\.json$/,
-  /^\.routeledger\/project\.json$/,
-  /^\.routeledger\/refs\/current\.json$/,
-  /^\.routeledger\/versions\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/work_items\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/todos\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/undos\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/deferred_items\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/constraints\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/assets\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/events\/\d{4}\/\d{2}\/[^/]+\.json$/,
-  /^\.routeledger\/pending_operations\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/approval_artifacts\/[^/]+\/[^/]+\.json$/
-] as const;
-
-const isCanonicalJsonDocumentPath = (documentPath: string): boolean =>
-  CANONICAL_JSON_DOCUMENT_PATTERNS.some((pattern) => pattern.test(documentPath));
 
 const getSemanticDocuments = (
   documents: RouteLedgerJsonDocument[]
@@ -407,7 +389,8 @@ export class JsonFirstStorageAdapter implements StoragePort {
         await replaceRouteLedgerJsonDocuments({
           outputRoot: this.dataRoot,
           documents: encodedDocuments,
-          writeLockOwnerId: writerLock.ownerId ?? undefined
+          writeLockOwnerId: writerLock.ownerId ?? undefined,
+          renewLock: writerLock.renew
         });
       } catch (error) {
         if (error instanceof RouteLedgerJsonBusyError) {
@@ -843,7 +826,7 @@ export class JsonFirstStorageAdapter implements StoragePort {
 
         const documentPath = `${ROUTELEDGER_DIRECTORY}/${relativePath}`;
 
-        if (!isCanonicalJsonDocumentPath(documentPath)) {
+        if (!isCanonicalRouteLedgerJsonPath(documentPath)) {
           continue;
         }
 

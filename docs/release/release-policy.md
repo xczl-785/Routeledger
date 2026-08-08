@@ -7,14 +7,14 @@ and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.3.3 is the last published Git
 marketplace release, fixed by `routeledger-plugin-v0.3.3` at commit `437a958`.
-The manifest now declares the 0.3.5 patch candidate. `main` became the release
-branch in 0.3.4 and remains the release branch for 0.3.5 and later;
+The manifest now declares the 0.3.6 patch candidate. `main` became the release
+branch in 0.3.4 and remains the release branch for 0.3.6 and later;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
 `@routeledger/mcp` remains unpublished to npm.
 
 RouteLedger source and plugin distribution are licensed under
-[Apache License 2.0](../LICENSE). This policy does not change the licenses of
+[Apache License 2.0](../../LICENSE). This policy does not change the licenses of
 third-party dependencies.
 
 Plugin distribution bytes require a plugin SemVer increase. A normal release
@@ -32,5 +32,8 @@ CI run the previous-ref SemVer/distribution replay guard. After the verified
 commit is on `main`, create the immutable version tag; the tag-triggered CI is
 the stage that runs `--require-tag-ref`.
 
-See [the plugin release guide](guides/plugin-release.md) for commands and
+See [the plugin release guide](plugin-release.md) for commands and
 verification scope.
+
+See [Distribution and tag conventions](distribution-and-tags.md) for
+per-artifact versioning and tag namespaces.

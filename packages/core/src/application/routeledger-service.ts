@@ -46,10 +46,7 @@ import {
 } from "../services/version-tree-service.js";
 import {
   closeTodo as closeTodoDomain,
-  closeUndo as closeUndoDomain,
-  createTodo as createTodoDomain,
-  createUndo as createUndoDomain,
-  reassignUndo as reassignUndoDomain
+  createTodo as createTodoDomain
 } from "../services/work-item-service.js";
 import {
   deferWork as deferWorkWorkflow,
@@ -119,13 +116,7 @@ export type {
   VersionCloseoutPlanStep,
   VersionCloseoutPlanStepKind
 } from "./version-closeout-planner.js";
-export type {
-  SelfReferentialUndoAlternative,
-  SelfReferentialUndoCategory,
-  SelfReferentialUndoRecommendedResolution,
-  SelfReferentialUndoSummary,
-  VersionCloseoutSummary
-} from "./version-closeout-query.js";
+export type { VersionCloseoutSummary } from "./version-closeout-query.js";
 
 export interface RouteLedgerServiceOptions {
   storage: StoragePort;
@@ -186,34 +177,6 @@ export interface CreateTodoCommandInput {
 export interface CloseTodoCommandInput {
   projectId: string;
   todoId: string;
-  reason: string;
-  note: string;
-  actor: Actor;
-}
-
-export interface CreateUndoCommandInput {
-  projectId: string;
-  versionId: string;
-  originVersionId: string;
-  preferredResolutionVersionId: string;
-  title: string;
-  reason: string;
-  description?: string;
-  actor: Actor;
-}
-
-export interface ReassignUndoCommandInput {
-  projectId: string;
-  undoId: string;
-  preferredResolutionVersionId: string;
-  reason: string;
-  note: string;
-  actor: Actor;
-}
-
-export interface CloseUndoCommandInput {
-  projectId: string;
-  undoId: string;
   reason: string;
   note: string;
   actor: Actor;
@@ -470,15 +433,6 @@ export interface BatchCreateVersionsPreview {
   setCurrentTo: string | null;
 }
 
-export interface CarryForwardUndoInput {
-  projectId: string;
-  undoId: string;
-  preferredResolutionVersionId: string;
-  reason: string;
-  note: string;
-  actor: Actor;
-}
-
 export interface GetVersionStructureInput {
   projectId: string;
   versionId?: string;
@@ -665,15 +619,6 @@ export interface VersionTransitionGuide {
   notes: string[];
 }
 
-export interface CarryForwardUndoResult {
-  status: "reassigned" | "noop";
-  undo: Undo;
-  previousPreferredResolutionVersionId: string;
-  preferredResolutionVersionId: string;
-  versionId: string;
-  originVersionId: string;
-}
-
 export interface VersionStructureVersionSummary extends ContextCurrentVersionSummary {
   parentVersionId: string | null;
   previousVersionId: string | null;
@@ -693,9 +638,7 @@ export interface VersionStructureLegalOperation {
     | "shutdown_version"
     | "reopen_version"
     | "set_current_version"
-    | "create_todo"
-    | "create_undo"
-    | "carry_forward_undo";
+    | "create_todo";
   allowed: boolean;
   summary: string;
   blockers: GateBlocker[];
@@ -1264,18 +1207,6 @@ const buildVersionStructureLegalOperations = (
       actionType: "create_todo",
       allowed: true,
       summary: "为当前 version 补充待办。",
-      blockers: []
-    },
-    {
-      actionType: "create_undo",
-      allowed: true,
-      summary: "为当前 version 创建需下游解决的 undo。",
-      blockers: []
-    },
-    {
-      actionType: "carry_forward_undo",
-      allowed: true,
-      summary: "将 open undo 的 preferred resolution 结转到下游 version，保留 undo lineage。",
       blockers: []
     }
   ];
@@ -1885,27 +1816,6 @@ const requireTodo = (snapshot: ProjectAggregateSnapshot, todoId: string): Todo =
   }
 
   return todo;
-};
-
-const requireUndo = (snapshot: ProjectAggregateSnapshot, undoId: string): Undo => {
-  const undo = snapshot.undos.find((item) => item.id === undoId);
-
-  if (undo === undefined) {
-    throw new ApplicationError("UNDO_NOT_FOUND", "undo 不存在", {
-      projectId: snapshot.project.id,
-      undoId
-    });
-  }
-
-  if (undo.projectId !== snapshot.project.id) {
-    throw new ApplicationError("UNDO_OWNERSHIP_MISMATCH", "undo 不属于当前 project", {
-      projectId: snapshot.project.id,
-      undoId,
-      actualProjectId: undo.projectId
-    });
-  }
-
-  return undo;
 };
 
 const requireWorkItem = (snapshot: ProjectAggregateSnapshot, workItemId: string): WorkItem => {
@@ -3177,72 +3087,6 @@ export class RouteLedgerService {
     return closed;
   }
 
-  async createUndo(input: CreateUndoCommandInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    requireVersion(snapshot, input.versionId);
-    requireVersion(snapshot, input.originVersionId);
-    requireVersion(snapshot, input.preferredResolutionVersionId);
-    const created = createUndoDomain({
-      projectId: input.projectId,
-      versionId: input.versionId,
-      originVersionId: input.originVersionId,
-      preferredResolutionVersionId: input.preferredResolutionVersionId,
-      title: input.title,
-      reason: input.reason,
-      description: input.description,
-      actor: input.actor,
-      deps: this.deps
-    });
-
-    snapshot.workItems = snapshot.workItems.concat(created.workItem);
-    snapshot.undos = snapshot.undos.concat(created.undo);
-    snapshot.events = snapshot.events.concat(created.events);
-    await this.storage.saveProjectAggregate(snapshot);
-
-    return created;
-  }
-
-  async reassignUndo(input: ReassignUndoCommandInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    requireVersion(snapshot, input.preferredResolutionVersionId);
-    const undo = requireUndo(snapshot, input.undoId);
-    const reassigned = reassignUndoDomain({
-      undo,
-      preferredResolutionVersionId: input.preferredResolutionVersionId,
-      reason: input.reason,
-      note: input.note,
-      actor: input.actor,
-      deps: this.deps
-    });
-
-    snapshot.undos = replaceRecord(snapshot.undos, reassigned.undo);
-    snapshot.events = snapshot.events.concat(reassigned.events);
-    await this.storage.saveProjectAggregate(snapshot);
-
-    return reassigned;
-  }
-
-  async closeUndo(input: CloseUndoCommandInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const undo = requireUndo(snapshot, input.undoId);
-    const workItem = requireWorkItem(snapshot, undo.workItemId);
-    const closed = closeUndoDomain({
-      undo,
-      workItem,
-      reason: input.reason,
-      note: input.note,
-      actor: input.actor,
-      deps: this.deps
-    });
-
-    snapshot.undos = replaceRecord(snapshot.undos, closed.undo);
-    snapshot.workItems = replaceRecord(snapshot.workItems, closed.workItem);
-    snapshot.events = snapshot.events.concat(closed.events);
-    await this.storage.saveProjectAggregate(snapshot);
-
-    return closed;
-  }
-
   async deferWork(
     input: DeferWorkCommandInput
   ): Promise<DeferWorkCommandResult> {
@@ -3496,51 +3340,6 @@ export class RouteLedgerService {
     await this.storage.saveProjectAggregate(snapshot);
 
     return retired;
-  }
-
-  async carryForwardUndo(input: CarryForwardUndoInput): Promise<CarryForwardUndoResult> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    requireVersion(snapshot, input.preferredResolutionVersionId);
-    const undo = requireUndo(snapshot, input.undoId);
-
-    if (undo.preferredResolutionVersionId === input.preferredResolutionVersionId) {
-      return {
-        status: "noop",
-        undo,
-        previousPreferredResolutionVersionId: undo.preferredResolutionVersionId,
-        preferredResolutionVersionId: undo.preferredResolutionVersionId,
-        versionId: undo.versionId,
-        originVersionId: undo.originVersionId
-      };
-    }
-
-    const reassigned = reassignUndoDomain({
-      undo,
-      preferredResolutionVersionId: input.preferredResolutionVersionId,
-      reason: input.reason,
-      note: input.note,
-      actor: input.actor,
-      deps: this.deps
-    });
-
-    snapshot.undos = replaceRecord(snapshot.undos, reassigned.undo);
-    snapshot.events = snapshot.events.concat(reassigned.events);
-    await this.storage.saveProjectAggregate(snapshot);
-
-    return {
-      status: "reassigned",
-      undo: reassigned.undo,
-      previousPreferredResolutionVersionId: undo.preferredResolutionVersionId,
-      preferredResolutionVersionId: reassigned.undo.preferredResolutionVersionId,
-      versionId: reassigned.undo.versionId,
-      originVersionId: reassigned.undo.originVersionId
-    };
-  }
-
-  async resolveUndoAsDownstreamInput(
-    input: CarryForwardUndoInput
-  ): Promise<CarryForwardUndoResult> {
-    return this.carryForwardUndo(input);
   }
 
   async transitionVersion(input: TransitionVersionInput): Promise<TransitionVersionResult> {

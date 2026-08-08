@@ -4,12 +4,7 @@ import { DomainError } from "../domain/errors.js";
 import { createDeferred } from "../services/deferred-service.js";
 import {
   closeTodo,
-  closeUndo,
-  convertTodoToUndo,
-  convertUndoToTodo,
   createTodo,
-  createUndo,
-  reassignUndo,
   reopenTodo,
   startTodo,
   validateWorkItemActive
@@ -101,117 +96,6 @@ describe("todo / undo / work item service", () => {
     ).toThrow(DomainError);
   });
 
-  it("create undo 必须有 origin_version_id 和 preferred_resolution_version_id", () => {
-    const deps = createTestDependencies();
-
-    expect(() =>
-      createUndo({
-        projectId: "project-1",
-        versionId: "version-1",
-        originVersionId: "",
-        preferredResolutionVersionId: "version-2",
-        title: "undo-1",
-        reason: "deferred",
-        actor: TEST_ACTOR,
-        deps
-      })
-    ).toThrow(DomainError);
-
-    expect(() =>
-      createUndo({
-        projectId: "project-1",
-        versionId: "version-1",
-        originVersionId: "version-1",
-        preferredResolutionVersionId: "",
-        title: "undo-1",
-        reason: "deferred",
-        actor: TEST_ACTOR,
-        deps
-      })
-    ).toThrow(DomainError);
-  });
-
-  it("Undo 不进入 running，且 reassign 只改 preferred resolution version", () => {
-    const deps = createTestDependencies();
-    const undo = createUndoFixture();
-    const reassigned = reassignUndo({
-      undo,
-      preferredResolutionVersionId: "version-9",
-      reason: "defer again",
-      note: "defer again",
-      actor: TEST_ACTOR,
-      deps
-    });
-
-    expect(reassigned.undo.status).toBe("wait");
-    expect(reassigned.undo.preferredResolutionVersionId).toBe("version-9");
-    expect(reassigned.undo.carriedForwardAt).toBe("2026-06-27T00:00:00.000Z");
-    expect(reassigned.undo.carriedForwardToVersionId).toBe("version-9");
-  });
-
-  it("reassign undo 不允许把 preferred resolution version 改成空值", () => {
-    const deps = createTestDependencies();
-
-    expect(() =>
-      reassignUndo({
-        undo: createUndoFixture(),
-        preferredResolutionVersionId: "   ",
-        reason: "defer again",
-        note: "defer again",
-        actor: TEST_ACTOR,
-        deps
-      })
-    ).toThrow(DomainError);
-  });
-
-  it("todo -> undo 转换会复用 work_item_id 并切换 active 指针", () => {
-    const deps = createTestDependencies();
-    const todo = createTodoFixture();
-    const workItem = createWorkItemFixture();
-
-    const result = convertTodoToUndo({
-      todo,
-      workItem,
-      preferredResolutionVersionId: "version-2",
-      reason: "deferred",
-      note: "deferred",
-      actor: TEST_ACTOR,
-      deps
-    });
-
-    expect(result.todo.status).toBe("converted");
-    expect(result.undo.workItemId).toBe(todo.workItemId);
-    expect(result.workItem.activeRecordType).toBe("undo");
-    expect(result.workItem.activeRecordId).toBe(result.undo.id);
-    expect(result.events).toHaveLength(3);
-    expect(result.events.map((event) => event.operationSeq)).toEqual([1, 2, 3]);
-    expect(new Set(result.events.map((event) => event.operationId)).size).toBe(1);
-  });
-
-  it("undo -> todo 转换会复用 work_item_id 并切换 active 指针", () => {
-    const deps = createTestDependencies();
-    const undo = createUndoFixture();
-    const workItem = createWorkItemFixture({
-      activeRecordType: "undo",
-      activeRecordId: undo.id
-    });
-
-    const result = convertUndoToTodo({
-      undo,
-      workItem,
-      reason: "resume",
-      note: "resume",
-      actor: TEST_ACTOR,
-      deps
-    });
-
-    expect(result.undo.status).toBe("converted");
-    expect(result.todo.workItemId).toBe(undo.workItemId);
-    expect(result.todo.versionId).toBe(undo.preferredResolutionVersionId);
-    expect(result.workItem.activeRecordType).toBe("todo");
-    expect(result.workItem.activeRecordId).toBe(result.todo.id);
-  });
-
   it("active 指针不能指向 closed 或 converted 记录", () => {
     expect(() =>
       validateWorkItemActive(
@@ -279,26 +163,5 @@ describe("todo / undo / work item service", () => {
     expect(() =>
       validateWorkItemActive(creation.workItem, [], [], [])
     ).toThrow(DomainError);
-  });
-
-  it("close undo 会关闭 WorkItem active", () => {
-    const deps = createTestDependencies();
-    const undo = createUndoFixture();
-    const workItem = createWorkItemFixture({
-      activeRecordType: "undo",
-      activeRecordId: undo.id
-    });
-    const result = closeUndo({
-      undo,
-      workItem,
-      reason: "done",
-      note: "done",
-      actor: TEST_ACTOR,
-      deps
-    });
-
-    expect(result.undo.status).toBe("closed");
-    expect(result.workItem.status).toBe("closed");
-    expect(result.workItem.activeRecordId).toBeNull();
   });
 });

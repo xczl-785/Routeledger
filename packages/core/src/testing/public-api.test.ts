@@ -85,4 +85,18 @@ describe("@routeledger/core public application API", () => {
     expect(core).not.toHaveProperty("reviewDeferred");
     expect(core).not.toHaveProperty("recordConstraint");
   });
+
+  it("keeps test-only helpers and fixtures out of the public export surface", () => {
+    for (const leakedName of [
+      "createTestDependencies",
+      "TEST_ACTOR",
+      "createProjectFixture",
+      "createVersionFixture",
+      "createTodoFixture",
+      "createUndoFixture",
+      "MemoryStorageAdapter"
+    ]) {
+      expect(core).not.toHaveProperty(leakedName);
+    }
+  });
 });

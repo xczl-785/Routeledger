@@ -3,23 +3,6 @@ import { evaluateCloseGate, resolveResidualAudit } from "../services/gate-servic
 import { ApplicationError } from "./errors.js";
 const DEFAULT_CLOSEOUT_EVENT_LIMIT = 10;
 const MAX_CLOSEOUT_EVENT_LIMIT = 50;
-const SELF_REFERENTIAL_GUARDRAIL_KEYWORDS = [
-    "if",
-    "when",
-    "fail",
-    "rollback",
-    "routeback",
-    "qa failed",
-    "verification failed"
-];
-const SELF_REFERENTIAL_CLEANUP_KEYWORDS = [
-    "after close",
-    "afterwards",
-    "cleanup",
-    "delete",
-    "migrate",
-    "follow-up"
-];
 const requireVersion = (snapshot, versionId) => {
     const version = snapshot.versions.find((item) => item.id === versionId);
     if (version === undefined) {
@@ -105,92 +88,6 @@ const summarizeCloseoutRecentEvent = (event) => ({
 const isProjectCurrentVersionEventForVersion = (event, versionId) => event.targetType === "project" &&
     event.eventType === "project.current_version_changed" &&
     (event.fromState === versionId || event.toState === versionId);
-const collectKeywordMatches = (text, keywords) => {
-    const normalized = text.toLowerCase();
-    return keywords.filter((keyword) => normalized.includes(keyword.toLowerCase()));
-};
-const buildSelfReferentialUndoAlternatives = (category) => {
-    if (category === "guardrail_like") {
-        return [
-            {
-                actionType: "carry_forward_undo",
-                recommendedTool: "carry_forward_undo",
-                summary: "Only carry it forward if the rollback really belongs to a downstream version.",
-                reason: "Guardrail-like self undo usually closes better as a documented closeout condition than as a fresh downstream blocker."
-            }
-        ];
-    }
-    if (category === "cleanup_like") {
-        return [
-            {
-                actionType: "carry_forward_undo",
-                recommendedTool: "carry_forward_undo",
-                summary: "Keep it as undo only if the downstream owner and preferred resolution version are already explicit.",
-                reason: "Cleanup-like self undo usually reads more clearly as a follow-up todo than as an open undo pointing back to itself."
-            }
-        ];
-    }
-    return [
-        {
-            actionType: "close_undo",
-            recommendedTool: "close_undo",
-            summary: "Close the self-referential undo in place.",
-            reason: "Use this when the record is really a guardrail or a note that should stop blocking the route."
-        },
-        {
-            actionType: "close_undo_then_create_todo",
-            recommendedTool: null,
-            summary: "Close the undo, then create a downstream todo.",
-            reason: "Use this when the text actually describes post-close cleanup instead of a true rollback guardrail."
-        },
-        {
-            actionType: "carry_forward_undo",
-            recommendedTool: "carry_forward_undo",
-            summary: "Carry the undo forward unchanged.",
-            reason: "Use this only when the issue is still an undo and a downstream preferred resolution version is already clear."
-        }
-    ];
-};
-const summarizeSelfReferentialUndo = (undo) => {
-    const base = summarizeOpenUndo(undo);
-    const searchText = `${undo.title}\n${undo.reason}\n${undo.description}`;
-    const guardrailMatches = collectKeywordMatches(searchText, SELF_REFERENTIAL_GUARDRAIL_KEYWORDS);
-    const cleanupMatches = collectKeywordMatches(searchText, SELF_REFERENTIAL_CLEANUP_KEYWORDS);
-    if (guardrailMatches.length > 0 && cleanupMatches.length === 0) {
-        return {
-            ...base,
-            code: "SELF_REFERENTIAL_UNDO_GUARDRAIL",
-            category: "guardrail_like",
-            matchedKeywords: guardrailMatches,
-            recommendedResolution: "close_undo",
-            reason: "This self-referential undo reads like a guardrail. Close it and keep the conditional rollback in the closeout record instead of blocking start/close as a due undo.",
-            note: "Recommended path: close_undo, then copy the guardrail into residual audit or the closeout note so the controller still sees the rollback condition without treating it as an open undo.",
-            alternatives: buildSelfReferentialUndoAlternatives("guardrail_like")
-        };
-    }
-    if (cleanupMatches.length > 0 && guardrailMatches.length === 0) {
-        return {
-            ...base,
-            code: "SELF_REFERENTIAL_UNDO_CLEANUP",
-            category: "cleanup_like",
-            matchedKeywords: cleanupMatches,
-            recommendedResolution: "close_undo_then_create_todo",
-            reason: "This self-referential undo reads like post-close cleanup. It should stop blocking the current version and move onto an explicit follow-up todo path.",
-            note: "Recommended path: close_undo, then create_todo on the chosen follow-up version or backlog owner. Do not keep a cleanup note as a self-referential undo.",
-            alternatives: buildSelfReferentialUndoAlternatives("cleanup_like")
-        };
-    }
-    return {
-        ...base,
-        code: "SELF_REFERENTIAL_UNDO_NEEDS_REVIEW",
-        category: "uncertain",
-        matchedKeywords: [...guardrailMatches, ...cleanupMatches],
-        recommendedResolution: "manual_review",
-        reason: "This self-referential undo still blocks the route, but the text does not cleanly say whether it is a guardrail or a follow-up cleanup item.",
-        note: "Manual review required. Decide whether to close_undo, close_undo then create_todo, or carry_forward_undo before treating it as an ordinary blocker.",
-        alternatives: buildSelfReferentialUndoAlternatives("uncertain")
-    };
-};
 const resolveCloseoutResidualAudit = (pendingOperations, versionId) => {
     const resolved = resolveResidualAudit(undefined, pendingOperations
         .filter((operation) => operation.status === "pending" &&
@@ -211,7 +108,7 @@ const resolveCloseoutResidualAudit = (pendingOperations, versionId) => {
     };
 };
 const buildCloseoutNextAction = (options) => {
-    const { version, closeGate, openTodos, openUndos, pendingOperations } = options;
+    const { version, closeGate, openTodos, pendingOperations } = options;
     const pendingProposal = pendingOperations.find((operation) => operation.status === "pending");
     if (version.state === "close") {
         if (isShutdownStateReason(version.stateReason)) {
@@ -256,18 +153,6 @@ const buildCloseoutNextAction = (options) => {
             targetId: todo.id,
             requiresL3Approval: false,
             blockerIds: openTodos.map((item) => item.id)
-        };
-    }
-    if (openUndos.length > 0) {
-        const undo = openUndos[0];
-        return {
-            actionType: "close_undo",
-            recommendedTool: "close_undo",
-            summary: "Resolve the open undo first.",
-            reason: `undo ${undo.id} is still open. If it truly belongs downstream, carry_forward_undo is the alternative.`,
-            targetId: undo.id,
-            requiresL3Approval: false,
-            blockerIds: openUndos.map((item) => item.id)
         };
     }
     if (version.state === "running") {
@@ -334,9 +219,6 @@ export const collectVersionCloseoutView = (options) => {
     const openUndos = versionUndos
         .filter((undo) => isUndoBlockingCloseForVersion(undo, version.id))
         .map(summarizeOpenUndo);
-    const selfReferentialUndos = versionUndos
-        .filter((undo) => isSelfReferentialUndoForVersion(undo, version.id))
-        .map(summarizeSelfReferentialUndo);
     const relatedTodoIds = new Set(versionTodos.map((todo) => todo.id));
     const relatedUndoIds = new Set(versionUndos.map((undo) => undo.id));
     const relatedWorkItemIds = new Set([
@@ -406,7 +288,6 @@ export const collectVersionCloseoutView = (options) => {
         version,
         closeGate,
         openTodos,
-        openUndos,
         pendingOperations: relatedPendingOperations
     });
     const summary = {
@@ -416,7 +297,6 @@ export const collectVersionCloseoutView = (options) => {
         closeGate,
         openTodos,
         openUndos,
-        selfReferentialUndos,
         pendingOperations: relatedPendingOperations.map(summarizeCloseoutPendingOperation),
         recentEvents,
         reopenSummary: {

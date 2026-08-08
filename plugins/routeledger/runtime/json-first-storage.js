@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { attachProjectAggregateHeadRevision, getProjectAggregateHeadRevision } from "./core/src/index.js";
-import { RouteLedgerJsonBusyError, RouteLedgerJsonImportError, RouteLedgerJsonWriteError, SCHEMA_DOCUMENT_PATH, acquireRouteLedgerJsonWriteLock, decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments, getActiveRouteLedgerJsonWriteLockInfo, loadValidatedProjectAggregateFromJsonDirectory, replaceRouteLedgerJsonDocuments, validateRouteLedgerJsonDocuments } from "./json/src/index.js";
+import { RouteLedgerJsonBusyError, RouteLedgerJsonImportError, RouteLedgerJsonWriteError, SCHEMA_DOCUMENT_PATH, acquireRouteLedgerJsonWriteLock, decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments, getActiveRouteLedgerJsonWriteLockInfo, isCanonicalRouteLedgerJsonPath, loadValidatedProjectAggregateFromJsonDirectory, replaceRouteLedgerJsonDocuments, validateRouteLedgerJsonDocuments } from "./json/src/index.js";
 import { ROUTELEDGER_DIRECTORY } from "./storage-paths.js";
 import { resolveWorkspaceConfigSync } from "./workspace-config.js";
 export class JsonFirstStorageError extends Error {
@@ -16,22 +16,6 @@ export class JsonFirstStorageError extends Error {
     }
 }
 const compareByPath = (left, right) => left.path.localeCompare(right.path, "en");
-const CANONICAL_JSON_DOCUMENT_PATTERNS = [
-    /^\.routeledger\/schema\/routeledger\.schema\.json$/,
-    /^\.routeledger\/project\.json$/,
-    /^\.routeledger\/refs\/current\.json$/,
-    /^\.routeledger\/versions\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/work_items\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/todos\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/undos\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/deferred_items\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/constraints\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/assets\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/events\/\d{4}\/\d{2}\/[^/]+\.json$/,
-    /^\.routeledger\/pending_operations\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/approval_artifacts\/[^/]+\/[^/]+\.json$/
-];
-const isCanonicalJsonDocumentPath = (documentPath) => CANONICAL_JSON_DOCUMENT_PATTERNS.some((pattern) => pattern.test(documentPath));
 const getSemanticDocuments = (documents) => documents.filter((document) => document.path !== SCHEMA_DOCUMENT_PATH);
 const documentSetsEqual = (left, right) => {
     const semanticLeft = getSemanticDocuments(left);
@@ -199,7 +183,8 @@ export class JsonFirstStorageAdapter {
                 await replaceRouteLedgerJsonDocuments({
                     outputRoot: this.dataRoot,
                     documents: encodedDocuments,
-                    writeLockOwnerId: writerLock.ownerId ?? undefined
+                    writeLockOwnerId: writerLock.ownerId ?? undefined,
+                    renewLock: writerLock.renew
                 });
             }
             catch (error) {
@@ -548,7 +533,7 @@ export class JsonFirstStorageAdapter {
                     continue;
                 }
                 const documentPath = `${ROUTELEDGER_DIRECTORY}/${relativePath}`;
-                if (!isCanonicalJsonDocumentPath(documentPath)) {
+                if (!isCanonicalRouteLedgerJsonPath(documentPath)) {
                     continue;
                 }
                 documents.push({

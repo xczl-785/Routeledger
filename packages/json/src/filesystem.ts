@@ -78,6 +78,7 @@ export interface ReplaceRouteLedgerJsonDocumentsOptions {
   outputRoot: string;
   documents: Iterable<RouteLedgerJsonDocument>;
   writeLockOwnerId?: string;
+  renewLock?: () => Promise<void>;
 }
 
 export interface RecoverRouteLedgerJsonReplacementResult {
@@ -98,11 +99,12 @@ export interface AcquireRouteLedgerJsonWriteLockOptions {
 
 export interface RouteLedgerJsonWriteLockHandle extends RouteLedgerJsonWriteLockInfo {
   release: () => Promise<void>;
+  renew: () => Promise<void>;
 }
 
 const compareByString = (left: string, right: string): number => left.localeCompare(right, "en");
 
-const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
+export const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
   /^\.routeledger\/schema\/routeledger\.schema\.json$/,
   /^\.routeledger\/project\.json$/,
   /^\.routeledger\/refs\/current\.json$/,
@@ -145,7 +147,7 @@ const DEFAULT_WRITE_LOCK_STALE_AFTER_MS = 30_000;
 const TRANSIENT_FILESYSTEM_ERROR_CODES = new Set(["EPERM", "EACCES"]);
 const TRANSIENT_FILESYSTEM_RETRY_DELAYS_MS = [100, 300, 1_000, 2_000] as const;
 
-const isCanonicalRouteLedgerJsonPath = (documentPath: string): boolean =>
+export const isCanonicalRouteLedgerJsonPath = (documentPath: string): boolean =>
   ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS.some((pattern) => pattern.test(documentPath));
 
 type RouteLedgerJsonReplacementState = "staged" | "backup_created" | "applied";
@@ -990,8 +992,32 @@ export const acquireRouteLedgerJsonWriteLock = async (
 
   let released = false;
 
+  const assertLockStillOwned = async (): Promise<void> => {
+    const currentMetadata = await readWriteLockMetadata(absoluteOutputRoot);
+
+    if (currentMetadata !== null && currentMetadata.ownerId !== ownerId) {
+      throw new RouteLedgerJsonBusyError(
+        "RouteLedger canonical JSON write lock was reclaimed by another owner",
+        toWriteLockInfo(absoluteOutputRoot, currentMetadata)
+      );
+    }
+  };
+
   return {
     ...toWriteLockInfo(absoluteOutputRoot, metadata),
+    renew: async () => {
+      if (released) {
+        return;
+      }
+
+      await assertLockStillOwned();
+      const refreshed: RouteLedgerJsonWriteLockMetadata = {
+        ...metadata,
+        updatedAt: new Date().toISOString()
+      };
+      await writeWriteLockMetadata(absoluteOutputRoot, refreshed);
+      metadata.updatedAt = refreshed.updatedAt;
+    },
     release: async () => {
       if (released) {
         return;
@@ -1171,7 +1197,8 @@ export const writeRouteLedgerJsonDocuments = async ({
 export const replaceRouteLedgerJsonDocuments = async ({
   outputRoot,
   documents,
-  writeLockOwnerId
+  writeLockOwnerId,
+  renewLock
 }: ReplaceRouteLedgerJsonDocumentsOptions): Promise<WriteRouteLedgerJsonDocumentsResult> => {
   const absoluteOutputRoot = path.resolve(outputRoot);
   const normalizedDocuments = [...documents].map((document) => ({
@@ -1196,18 +1223,21 @@ export const replaceRouteLedgerJsonDocuments = async ({
 
   await writeReplacementManifest(absoluteOutputRoot, manifestBase);
   await stageReplacementDocumentSet(absoluteOutputRoot, normalizedDocuments);
+  await renewLock?.();
   await moveExistingCanonicalEntriesToBackup(absoluteOutputRoot);
   await writeReplacementManifest(absoluteOutputRoot, {
     ...manifestBase,
     state: "backup_created",
     updatedAt: new Date().toISOString()
   });
+  await renewLock?.();
   await moveReplacementEntriesIntoCanonicalRoot(absoluteOutputRoot);
   await writeReplacementManifest(absoluteOutputRoot, {
     ...manifestBase,
     state: "applied",
     updatedAt: new Date().toISOString()
   });
+  await renewLock?.();
   await clearReplacementDirectory(absoluteOutputRoot);
 
   return {

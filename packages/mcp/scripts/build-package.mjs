@@ -148,7 +148,7 @@ node /ABS/PATH/TO/install-root/node_modules/@routeledger/mcp/bin.js \\
 Keep \`--workspace-root\` and \`--routeledger-root\` explicit. Do not rely on \`cwd\` fallback.
 `;
 
-const rewriteWorkspaceImports = async (filePath, version, outDir) => {
+const rewriteWorkspaceImports = async (filePath, outDir) => {
   let content = await fs.readFile(filePath, "utf8");
 
   for (const [specifier, targetPath] of Object.entries(createWorkspaceEntryTargets(outDir))) {
@@ -165,7 +165,8 @@ const rewriteWorkspaceImports = async (filePath, version, outDir) => {
     content = content.replaceAll(`'${specifier}'`, `'${replacement}'`);
   }
 
-  content = content.replaceAll('"0.0.0-d3.6"', JSON.stringify(version));
+  // Package version is injected by renderArtifactRuntimeIdentity; no
+  // placeholder replacement is needed here.
 
   if (path.basename(filePath) === "bin.js" && content.startsWith("#!/usr/bin/env tsx")) {
     content = content.replace("#!/usr/bin/env tsx", "#!/usr/bin/env node");
@@ -334,7 +335,7 @@ const main = async () => {
   await pruneArtifactToRuntimeAllowlist(outDir, profile.runtimeDirectories);
 
   const jsFiles = await collectJsFiles(outDir);
-  await Promise.all(jsFiles.map((filePath) => rewriteWorkspaceImports(filePath, version, outDir)));
+  await Promise.all(jsFiles.map((filePath) => rewriteWorkspaceImports(filePath, outDir)));
   await fs.chmod(path.join(outDir, "bin.js"), 0o755);
 
   const distPackage = {

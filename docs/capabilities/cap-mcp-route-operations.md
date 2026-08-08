@@ -15,8 +15,9 @@ rules.
    binding preflight blocks unbound, invalid, or uninitialized operations
    before they enter a write path.
 3. Current work is presented as Todo, Deferred, and Constraint. Legacy Undo
-   details remain compatibility/audit data and are not the default agent work
-   surface.
+   details remain audit-only read data (`includeLegacyUndo=true`) and are not
+   part of the agent tool surface; the five legacy Undo tools were removed and
+   no write or recommendation surface remains.
 4. Deferred work has a target review version; a due item must be reviewed
    rather than silently carried forward. Constraints remain rules, not work
    completion counts.
