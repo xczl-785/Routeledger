@@ -105,6 +105,12 @@ describe("routeledger mcp registry", () => {
         };
         unreadableFiles: Array<{ path: string; code: string }>;
         warnings: Array<{ code: string; file: string | null; expected?: string }>;
+        checkedAssertions: Array<{ kind: string; file: string; status: string }>;
+        coverage: {
+          level: string;
+          recognizedAssertionCount: number;
+          notDetectedAssertionCount: number;
+        };
         summaryText: string;
       }>(response);
 
@@ -125,6 +131,17 @@ describe("routeledger mcp registry", () => {
       });
       expect(data.legacyAudit.guidance).toContain("includeLegacyUndo=true");
       expect(data.summaryText).not.toContain("open undos");
+      expect(data.coverage.level).toBe("partial");
+      expect(data.coverage.recognizedAssertionCount).toBe(0);
+      expect(data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "current_version_title",
+            file: "README.md",
+            status: "not_detected"
+          })
+        ])
+      );
       expect(data.warnings).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -304,10 +321,10 @@ describe("routeledger mcp registry", () => {
       });
       const projectData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
       const projectId = projectData.project.id;
-      const createdVersionIds = [projectData.initialVersion.id];
+      const createdVersionIds = [projectData.firstVersion!.id];
 
       for (const title of [
         "Version 2",
@@ -460,10 +477,10 @@ describe("routeledger mcp registry", () => {
       });
       const projectData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
       const projectId = projectData.project.id;
-      const createdVersionIds = [projectData.initialVersion.id];
+      const createdVersionIds = [projectData.firstVersion!.id];
 
       for (const title of [
         "Version 2",
@@ -614,7 +631,7 @@ describe("routeledger mcp registry", () => {
             structuredContent: {
               data: {
                 project: { id: string };
-                initialVersion: { id: string };
+                firstVersion: { id: string };
               };
             };
           };
@@ -637,7 +654,7 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id,
         mode: "propose",
         anchor: {
-          afterVersionId: initData.initialVersion.id
+          afterVersionId: initData.firstVersion!.id
         },
         items: [
           {
@@ -1027,7 +1044,7 @@ describe("routeledger mcp registry", () => {
             structuredContent: {
               data: {
                 project: { id: string };
-                initialVersion: { id: string };
+                firstVersion: { id: string };
               };
             };
           };
@@ -1036,12 +1053,12 @@ describe("routeledger mcp registry", () => {
 
       await callTool(server, "prepare-initial", "prepare_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const startProposal = await callTool(server, "start-proposal", "propose_l3_operation", {
         projectId: initData.project.id,
         actionType: "start_version",
-        targetId: initData.initialVersion.id,
+        targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
       const startProposalData = getStructuredData<{ id: string }>(startProposal);
@@ -1057,12 +1074,12 @@ describe("routeledger mcp registry", () => {
       });
       await callTool(server, "complete-initial", "mark_version_complete", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
 
       const blockedClose = await callTool(server, "blocked-close", "close_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         mode: "propose"
       });
       const blockedCloseData = getStructuredData<{
@@ -1076,9 +1093,9 @@ describe("routeledger mcp registry", () => {
       const legacyUndo = createUndoFixture({
         id: "legacy-version-undo-1",
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
-        originVersionId: initData.initialVersion.id,
-        preferredResolutionVersionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
+        originVersionId: initData.firstVersion!.id,
+        preferredResolutionVersionId: initData.firstVersion!.id,
         workItemId: "legacy-version-work-item-1",
         title: "route later",
         reason: "defer downstream"
@@ -1086,7 +1103,7 @@ describe("routeledger mcp registry", () => {
       const legacyWorkItem = createWorkItemFixture({
         id: "legacy-version-work-item-1",
         projectId: initData.project.id,
-        originVersionId: initData.initialVersion.id,
+        originVersionId: initData.firstVersion!.id,
         activeRecordType: "undo",
         activeRecordId: legacyUndo.id
       });
@@ -1105,7 +1122,7 @@ describe("routeledger mcp registry", () => {
         "get_version_structure",
         {
           projectId: initData.project.id,
-          versionId: initData.initialVersion.id
+          versionId: initData.firstVersion!.id
         }
       );
       const blockingStructureData = getStructuredData<{
@@ -1113,7 +1130,7 @@ describe("routeledger mcp registry", () => {
       }>(blockingStructureResponse);
       const structure = await callTool(server, "structure", "get_version_structure", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const structureData = getStructuredData<{
         legacyAudit: {
@@ -1203,7 +1220,7 @@ describe("routeledger mcp registry", () => {
             structuredContent: {
               data: {
                 project: { id: string };
-                initialVersion: { id: string };
+                firstVersion: { id: string };
               };
             };
           };
@@ -1217,12 +1234,12 @@ describe("routeledger mcp registry", () => {
 
       await callTool(server, "prepare-current", "prepare_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const startProposal = await callTool(server, "start-proposal", "propose_l3_operation", {
         projectId: initData.project.id,
         actionType: "start_version",
-        targetId: initData.initialVersion.id,
+        targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
       const startProposalData = getStructuredData<{ id: string }>(startProposal);
@@ -1238,7 +1255,7 @@ describe("routeledger mcp registry", () => {
       });
       await callTool(server, "complete-current", "mark_version_complete", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       await callTool(server, "prepare-target", "prepare_version", {
         projectId: initData.project.id,
@@ -1257,8 +1274,19 @@ describe("routeledger mcp registry", () => {
       const guideData = getStructuredData<{
         status: string;
         closeGate: { blockers: Array<{ code: string }> };
-        recommendedSteps: Array<{ stepId: string; status: string }>;
+        recommendedSteps: Array<{ stepId: string; status: string; label: string; reason: string }>;
+        notes: string[];
       }>(guideResponse);
+      const zhGuideData = getStructuredData<{
+        recommendedSteps: Array<{ label: string; reason: string }>;
+        notes: string[];
+      }>(
+        await callTool(server, "transition-guide-zh", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId,
+          responseLocale: "zh-CN"
+        })
+      );
       const proposalList = await callTool(server, "proposal-list-after-guide", "list_l3_proposals", {
         projectId: initData.project.id
       });
@@ -1297,6 +1325,20 @@ describe("routeledger mcp registry", () => {
           })
         ])
       );
+      expect(
+        guideData.recommendedSteps.every(
+          (step) => !/[\u3400-\u9fff]/u.test(`${step.label} ${step.reason}`)
+        )
+      ).toBe(true);
+      expect(guideData.notes.every((note) => !/[\u3400-\u9fff]/u.test(note))).toBe(true);
+      expect(zhGuideData.recommendedSteps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "关闭来源 Version 边界" })
+        ])
+      );
+      expect(zhGuideData.notes[0]).toBe(
+        "这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。"
+      );
       expect(proposalListData.filter((proposal) => proposal.status === "pending")).toEqual([]);
 
       server.close();
@@ -1315,7 +1357,7 @@ describe("routeledger mcp registry", () => {
       });
       const initData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
 
       const waitGuide = getStructuredData<{
@@ -1326,7 +1368,7 @@ describe("routeledger mcp registry", () => {
       }>(
         await callTool(server, "wait-self-guide", "get_version_transition_guide", {
           projectId: initData.project.id,
-          targetVersionId: initData.initialVersion.id
+          targetVersionId: initData.firstVersion!.id
         })
       );
       expect(waitGuide).toMatchObject({
@@ -1343,7 +1385,7 @@ describe("routeledger mcp registry", () => {
 
       await callTool(server, "prepare-current", "prepare_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const readyGuide = getStructuredData<{
         status: string;
@@ -1352,7 +1394,7 @@ describe("routeledger mcp registry", () => {
       }>(
         await callTool(server, "ready-self-guide", "get_version_transition_guide", {
           projectId: initData.project.id,
-          targetVersionId: initData.initialVersion.id
+          targetVersionId: initData.firstVersion!.id
         })
       );
       expect(readyGuide).toMatchObject({
@@ -1375,7 +1417,7 @@ describe("routeledger mcp registry", () => {
         await callTool(server, "start-current", "propose_l3_operation", {
           projectId: initData.project.id,
           actionType: "start_version",
-          targetId: initData.initialVersion.id,
+          targetId: initData.firstVersion!.id,
           reason: "start initial"
         })
       );
@@ -1397,14 +1439,14 @@ describe("routeledger mcp registry", () => {
       }>(
         await callTool(server, "running-self-guide", "get_version_transition_guide", {
           projectId: initData.project.id,
-          targetVersionId: initData.initialVersion.id
+          targetVersionId: initData.firstVersion!.id
         })
       );
       expect(runningGuide).toMatchObject({ status: "noop", recommendedSteps: [] });
 
       await callTool(server, "complete-current", "mark_version_complete", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const completeGuide = getStructuredData<{
         status: string;
@@ -1412,7 +1454,7 @@ describe("routeledger mcp registry", () => {
       }>(
         await callTool(server, "complete-self-guide", "get_version_transition_guide", {
           projectId: initData.project.id,
-          targetVersionId: initData.initialVersion.id,
+          targetVersionId: initData.firstVersion!.id,
           residualAudit: { status: "reviewed", items: [] }
         })
       );
@@ -1434,7 +1476,7 @@ describe("routeledger mcp registry", () => {
       const closeProposal = getStructuredData<{ pendingOperationId: string }>(
         await callTool(server, "close-current", "close_version", {
           projectId: initData.project.id,
-          versionId: initData.initialVersion.id,
+          versionId: initData.firstVersion!.id,
           mode: "propose",
           residualAudit: [
             {
@@ -1465,7 +1507,7 @@ describe("routeledger mcp registry", () => {
       }>(
         await callTool(server, "closed-self-guide", "get_version_transition_guide", {
           projectId: initData.project.id,
-          targetVersionId: initData.initialVersion.id
+          targetVersionId: initData.firstVersion!.id
         })
       );
       expect(closedGuide).toMatchObject({
@@ -1498,17 +1540,17 @@ describe("routeledger mcp registry", () => {
       });
       const initData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
 
       await callTool(server, "prepare-current", "prepare_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const startProposal = await callTool(server, "start-proposal", "propose_l3_operation", {
         projectId: initData.project.id,
         actionType: "start_version",
-        targetId: initData.initialVersion.id,
+        targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
       const startProposalData = getStructuredData<{ id: string }>(startProposal);
@@ -1524,11 +1566,11 @@ describe("routeledger mcp registry", () => {
       });
       await callTool(server, "complete-current", "mark_version_complete", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const closeProposal = await callTool(server, "close-proposal", "close_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         mode: "propose",
         residualAudit: [
           {
@@ -1552,7 +1594,7 @@ describe("routeledger mcp registry", () => {
 
       const planResponse = await callTool(server, "plan-closeout-closed", "plan_version_closeout", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const planData = getStructuredData<{
         status: string;
@@ -1623,7 +1665,7 @@ describe("routeledger mcp registry", () => {
       });
       const initData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
       const projectId = initData.project.id;
       const downstreamVersionId = await createAndCommitVersion(
@@ -1640,7 +1682,7 @@ describe("routeledger mcp registry", () => {
         "get_version_structure",
         {
           projectId,
-          versionId: initData.initialVersion.id
+          versionId: initData.firstVersion!.id
         }
       );
       const emptyLegacyOperations = (
@@ -1668,7 +1710,7 @@ describe("routeledger mcp registry", () => {
       const badDefer = await registry.invoke("defer_work", {
         mode: "new",
         projectId,
-        currentVersionId: initData.initialVersion.id,
+        currentVersionId: initData.firstVersion!.id,
         targetReviewVersionId: downstreamVersionId,
         reason: "missing title"
       });
@@ -1684,7 +1726,7 @@ describe("routeledger mcp registry", () => {
 
       const todoResponse = await callTool(server, "agent-todo", "create_todo", {
         projectId,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         title: "Existing work to defer"
       });
       const todoId = getStructuredData<{ todo: { id: string } }>(todoResponse).todo.id;
@@ -1742,7 +1784,7 @@ describe("routeledger mcp registry", () => {
         {
           mode: "new",
           projectId,
-          currentVersionId: initData.initialVersion.id,
+          currentVersionId: initData.firstVersion!.id,
           targetReviewVersionId: downstreamVersionId,
           title: "Review product boundary",
           description: "Keep this visible without internal records.",
@@ -1973,8 +2015,8 @@ describe("routeledger mcp registry", () => {
       const auditUndo = createUndoFixture({
         id: "legacy-audit-undo-1",
         projectId,
-        versionId: initData.initialVersion.id,
-        originVersionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
+        originVersionId: initData.firstVersion!.id,
         preferredResolutionVersionId: downstreamVersionId,
         workItemId: "legacy-audit-work-item-1",
         title: "Legacy audit record",
@@ -1983,16 +2025,16 @@ describe("routeledger mcp registry", () => {
       const auditWorkItem = createWorkItemFixture({
         id: "legacy-audit-work-item-1",
         projectId,
-        originVersionId: initData.initialVersion.id,
+        originVersionId: initData.firstVersion!.id,
         activeRecordType: "undo",
         activeRecordId: auditUndo.id
       });
       const verbatimUndo = createUndoFixture({
         id: "legacy-verbatim-undo-1",
         projectId,
-        versionId: initData.initialVersion.id,
-        originVersionId: initData.initialVersion.id,
-        preferredResolutionVersionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
+        originVersionId: initData.firstVersion!.id,
+        preferredResolutionVersionId: initData.firstVersion!.id,
         workItemId: "legacy-verbatim-work-item-1",
         title: "User text close_undo must remain verbatim",
         reason: "exercise default read sanitization"
@@ -2000,7 +2042,7 @@ describe("routeledger mcp registry", () => {
       const verbatimWorkItem = createWorkItemFixture({
         id: "legacy-verbatim-work-item-1",
         projectId,
-        originVersionId: initData.initialVersion.id,
+        originVersionId: initData.firstVersion!.id,
         activeRecordType: "undo",
         activeRecordId: verbatimUndo.id
       });
@@ -2028,15 +2070,15 @@ describe("routeledger mcp registry", () => {
       const defaultReadResponses = await Promise.all([
         registry.invoke("get_version_structure", {
           projectId,
-          versionId: initData.initialVersion.id
+          versionId: initData.firstVersion!.id
         }),
         registry.invoke("summarize_version_closeout", {
           projectId,
-          versionId: initData.initialVersion.id
+          versionId: initData.firstVersion!.id
         }),
         registry.invoke("plan_version_closeout", {
           projectId,
-          versionId: initData.initialVersion.id
+          versionId: initData.firstVersion!.id
         })
       ]);
       const structureRead = defaultReadResponses[0]!.data as Record<string, any>;
@@ -2210,7 +2252,7 @@ describe("routeledger mcp registry", () => {
             structuredContent: {
               data: {
                 project: { id: string };
-                initialVersion: { id: string };
+                firstVersion: { id: string };
               };
             };
           };
@@ -2269,7 +2311,7 @@ describe("routeledger mcp registry", () => {
       const insertVersionResponse = await callTool(server, "insert-version", "insert_version", {
         projectId: projectData.project.id,
         title: "Version 1.5",
-        afterVersionId: projectData.initialVersion.id
+        afterVersionId: projectData.firstVersion!.id
       });
       expect(insertVersionResponse).toMatchObject({
         jsonrpc: "2.0",
@@ -2322,7 +2364,7 @@ describe("routeledger mcp registry", () => {
         "create_child_version",
         {
           projectId: projectData.project.id,
-          parentVersionId: projectData.initialVersion.id,
+          parentVersionId: projectData.firstVersion!.id,
           title: "Child 1"
         }
       );
@@ -2444,7 +2486,7 @@ describe("routeledger mcp registry", () => {
       ).result.structuredContent.data.map((version) => version.id);
 
       expect(versionIds).toEqual([
-        projectData.initialVersion.id,
+        projectData.firstVersion!.id,
         childVersionDetails.proposal.targetId,
         createVersionDetails.proposal.targetId,
         insertVersionDetails.proposal.targetId
@@ -2466,17 +2508,17 @@ describe("routeledger mcp registry", () => {
       });
       const initData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
 
       await callTool(server, "prepare-current", "prepare_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const startProposal = await callTool(server, "start-current", "propose_l3_operation", {
         projectId: initData.project.id,
         actionType: "start_version",
-        targetId: initData.initialVersion.id,
+        targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
       const startProposalData = getStructuredData<{ id: string }>(startProposal);
@@ -2492,13 +2534,13 @@ describe("routeledger mcp registry", () => {
       });
       await callTool(server, "create-open-todo", "create_todo", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         title: "still open"
       });
 
       const shutdownProposal = await callTool(server, "shutdown-proposal", "shutdown_version", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         mode: "propose",
         shutdownReason: "emergency_stop",
         reason: "force close after runtime failure"
@@ -2533,7 +2575,7 @@ describe("routeledger mcp registry", () => {
 
       const structure = await callTool(server, "structure-after-shutdown", "get_version_structure", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const structureData = getStructuredData<{
         focusVersion: {
@@ -2546,7 +2588,7 @@ describe("routeledger mcp registry", () => {
       }>(structure);
       const closeoutPlan = await callTool(server, "plan-after-shutdown", "plan_version_closeout", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id
+        versionId: initData.firstVersion!.id
       });
       const closeoutPlanData = getStructuredData<{
         version: {

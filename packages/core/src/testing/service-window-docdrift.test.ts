@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { expect, it, describe } from "vitest";
 
-import { TEST_ACTOR, createTestDependencies, createProjectFixture, createUndoFixture, createVersionFixture } from "./builders.js";
+import { TEST_ACTOR, createTestDependencies, createProjectFixture, createTodoFixture, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, createTempProjectRoot, cleanupProjectRoot, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, setCurrentVersionForTest } from "./routeledger-service-test-helpers.js";
@@ -121,6 +121,96 @@ describe("route ledger service", () => {
         }
       }
     });
+  });
+
+  it("orders context todos by version order, creation time, and ID", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const versions = [
+      createVersionFixture({ id: "version-1", order: 1, isCurrent: true }),
+      createVersionFixture({ id: "version-2", order: 2 })
+    ];
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ currentVersionId: "version-1" }),
+      versions,
+      workItems: [],
+      todos: [
+        createTodoFixture({
+          id: "todo-version-2",
+          versionId: "version-2",
+          createdAt: "2026-06-26T00:00:00.000Z"
+        }),
+        createTodoFixture({
+          id: "todo-b",
+          versionId: "version-1",
+          createdAt: "2026-06-27T00:00:00.000Z"
+        }),
+        createTodoFixture({
+          id: "todo-a",
+          versionId: "version-1",
+          createdAt: "2026-06-27T00:00:00.000Z"
+        }),
+        createTodoFixture({
+          id: "todo-earlier",
+          versionId: "version-1",
+          createdAt: "2026-06-26T00:00:00.000Z"
+        })
+      ],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const context = await service.getCurrentContext({ projectId: "project-1" });
+
+    expect(
+      (context.data as { todos: Array<{ id: string }> }).todos.map((todo) => todo.id)
+    ).toEqual(["todo-earlier", "todo-a", "todo-b", "todo-version-2"]);
+  });
+
+  it("checkStartGate reports open todos for the requested target version", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ currentVersionId: "version-1" }),
+      versions: [
+        createVersionFixture({ id: "version-1", state: "close", order: 1, isCurrent: true }),
+        createVersionFixture({ id: "version-2", state: "ready", order: 2 })
+      ],
+      workItems: [],
+      todos: [
+        createTodoFixture({ id: "current-todo", versionId: "version-1" }),
+        createTodoFixture({ id: "target-todo", versionId: "version-2" })
+      ],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const gate = await service.checkStartGate({
+      projectId: "project-1",
+      versionId: "version-2",
+      actor: TEST_ACTOR
+    });
+
+    expect(gate.allowed).toBe(true);
+    expect(gate.openTodoIds).toEqual(["target-todo"]);
   });
 
   it("listVersionsWindow 鍦ㄥ熬閮?anchor 涓婅繑鍥炴纭殑 head-tail 杈圭晫缁熻", async () => {
@@ -256,6 +346,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const nextVersionId = await createCommittedVersion(
@@ -346,6 +437,35 @@ describe("route ledger service", () => {
           })
         ])
       );
+      expect(result.data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "current_version_title",
+            file: "README.md",
+            status: "mismatched",
+            actual: "still Initial Version."
+          }),
+          expect.objectContaining({
+            kind: "current_version_id",
+            file: "README.md",
+            status: "not_detected"
+          }),
+          expect.objectContaining({
+            kind: "current_version_state",
+            file: "AGENTS.md",
+            status: "not_detected"
+          })
+        ])
+      );
+      expect(result.data.coverage).toMatchObject({
+        level: "partial",
+        checkedFileCount: 2,
+        recognizedAssertionCount: 1,
+        matchedAssertionCount: 0,
+        mismatchedAssertionCount: 1,
+        notDetectedAssertionCount: 5,
+        unrecognizedFileCount: 1
+      });
       expect(result.data.suggestedTodos).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -367,6 +487,94 @@ describe("route ledger service", () => {
       expect(result.data.summaryText).toContain(
         "Found 2 warnings and 1 unreadable files."
       );
+      expect(result.data.summaryText).toContain("Coverage is partial:");
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("checkDocDrift compares explicit Chinese current-Version ID, title, and state declarations", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      projectRoot,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "zh-CN",
+        name: "PocketRead",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
+        actor: TEST_ACTOR
+      });
+      const currentVersion = created.firstVersion!;
+      const readmePath = path.join(projectRoot, "README.md");
+      fs.writeFileSync(
+        readmePath,
+        [
+          "当前 Version：V0.1 可靠本地核心",
+          "当前 Version ID：wrong-version-id",
+          "当前 Version 状态：running"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const stale = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+
+      expect(stale.data.warnings).toHaveLength(3);
+      expect(stale.data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "current_version_title", status: "mismatched" }),
+          expect.objectContaining({ kind: "current_version_id", status: "mismatched" }),
+          expect.objectContaining({ kind: "current_version_state", status: "mismatched" })
+        ])
+      );
+      expect(stale.data.coverage).toMatchObject({
+        level: "partial",
+        recognizedAssertionCount: 3,
+        matchedAssertionCount: 0,
+        mismatchedAssertionCount: 3,
+        notDetectedAssertionCount: 0,
+        unrecognizedFileCount: 0
+      });
+
+      fs.writeFileSync(
+        readmePath,
+        [
+          `当前 Version 标题：${currentVersion.title}`,
+          `当前 Version ID：${currentVersion.id}`,
+          `当前 Version 状态：${currentVersion.state}`,
+          "current pointer source: .routeledger/refs/current.json"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const aligned = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+
+      expect(aligned.data.warnings).toEqual([]);
+      expect(aligned.data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "current_version_title", status: "matched" }),
+          expect.objectContaining({ kind: "current_version_id", status: "matched" }),
+          expect.objectContaining({ kind: "current_version_state", status: "matched" })
+        ])
+      );
+      expect(aligned.data.coverage).toMatchObject({
+        level: "partial",
+        recognizedAssertionCount: 3,
+        matchedAssertionCount: 3,
+        mismatchedAssertionCount: 0,
+        notDetectedAssertionCount: 0
+      });
+      expect(aligned.data.summaryText).toContain("Coverage is partial:");
     } finally {
       cleanupProjectRoot(projectRoot);
     }
@@ -382,6 +590,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -406,6 +615,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -446,6 +656,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -455,7 +666,7 @@ describe("route ledger service", () => {
         [
           "# RouteLedger",
           "",
-          `褰撳墠鐗堟湰: Initial Version (${created.initialVersion.id})`,
+          `褰撳墠鐗堟湰: Initial Version (${created.firstVersion!.id})`,
           "Runtime truth lives in `.routeledger/` canonical JSON.",
           "Capability entrypoint: `docs/capabilities/cap-mcp-route-operations.md`."
         ].join("\n"),
@@ -498,6 +709,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const nextVersionId = await createCommittedVersion(
@@ -575,6 +787,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const nextVersionId = await createCommittedVersion(
@@ -596,7 +809,8 @@ describe("route ledger service", () => {
         [
           "# RouteLedger",
           "",
-          "Current version: see `.routeledger\\refs\\current.json`."
+          "Current version: see `.routeledger\\refs\\current.json`.",
+          "当前版本：参见 `.routeledger\\refs\\current.json`。"
         ].join("\n"),
         "utf8"
       );
@@ -619,6 +833,58 @@ describe("route ledger service", () => {
     }
   });
 
+  it("checkDocDrift rejects suffixed titles, negated states, and stale declarations beside canonical pointers", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      projectRoot,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
+        actor: TEST_ACTOR
+      });
+      fs.writeFileSync(
+        path.join(projectRoot, "README.md"),
+        [
+          "Current Version Title: Initial Version old; see `.routeledger/refs/current.json`.",
+          "Current Version: not currently wait"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const result = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+
+      expect(result.data.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            assertionKind: "current_version_title",
+            actual: expect.stringContaining("Initial Version old")
+          }),
+          expect.objectContaining({
+            assertionKind: "current_version_state",
+            actual: "not currently wait"
+          })
+        ])
+      );
+      expect(result.data.coverage).toMatchObject({
+        recognizedAssertionCount: 2,
+        matchedAssertionCount: 0,
+        mismatchedAssertionCount: 2
+      });
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("checkDocDrift 浼氭嫆缁濊秺鐣?entry file path", async () => {
     const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
@@ -632,6 +898,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -666,6 +933,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 

@@ -344,7 +344,12 @@ describe("routeledger mcp registry", () => {
             configuredValue: null,
             suggestedValue: "zh-CN",
             suggestionSource: "response_locale",
-            requiresUserDecision: true
+            requiresUserDecision: true,
+            effectiveScopes: [
+              "project_setting",
+              "agent_content_default",
+              "write_integrity_gate"
+            ]
           },
           recommendedNextActions: expect.arrayContaining([
             expect.objectContaining({
@@ -595,7 +600,12 @@ describe("routeledger mcp registry", () => {
           contentLocale: {
             status: "configured",
             configuredValue: "en",
-            requiresUserDecision: false
+            requiresUserDecision: false,
+            effectiveScopes: [
+              "project_setting",
+              "agent_content_default",
+              "write_integrity_gate"
+            ]
           }
         }
       });
@@ -613,11 +623,16 @@ describe("routeledger mcp registry", () => {
       const initialized = await initialRegistry.invoke("init_project", {
         name: "Legacy Locale Project",
         contentLocale: "en",
+        firstVersion: {
+          title: "Legacy Version",
+          description: "",
+          initialTodos: []
+        },
         expectedRouteLedgerRoot: projectRoot
       });
       const initializedData = initialized.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       };
       initialRegistry.close();
 
@@ -655,7 +670,7 @@ describe("routeledger mcp registry", () => {
 
         const blockedWrite = await legacyRegistry.invoke("create_todo", {
           projectId: initializedData.project.id,
-          versionId: initializedData.initialVersion.id,
+          versionId: initializedData.firstVersion!.id,
           title: "应被阻止",
           expectedRouteLedgerRoot: projectRoot
         });
@@ -903,7 +918,7 @@ describe("routeledger mcp registry", () => {
       expect(initResponse.ok).toBe(true);
       const initData = initResponse.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       };
 
       initialRegistry.close();
@@ -956,7 +971,7 @@ describe("routeledger mcp registry", () => {
           (versionsWindowResponse.data as { versions: Array<{ id: string }> }).versions.map(
             (version) => version.id
           )
-        ).toEqual([initData.initialVersion.id]);
+        ).toEqual([initData.firstVersion!.id]);
         expect(proposalsResponse.data).toEqual([]);
         expect(
           fs.existsSync(getDefaultSqliteDbPath(projectRoot))
@@ -1056,7 +1071,7 @@ describe("routeledger mcp registry", () => {
 
       const prepareResponse = await registry.invoke("prepare_version", {
         projectId,
-        versionId: (initResponse.data as { initialVersion: { id: string } }).initialVersion.id
+        versionId: (initResponse.data as { firstVersion: { id: string } }).firstVersion!.id
       });
       expect(prepareResponse.ok).toBe(true);
       expect(fs.existsSync(writeLock.lockPath)).toBe(false);
@@ -1153,6 +1168,21 @@ describe("routeledger mcp registry", () => {
         approvalArtifactId
       });
       expect(commitResponse.ok).toBe(true);
+      expect(commitResponse.data).toMatchObject({ replayed: false });
+
+      const replayResponse = await registry.invoke("commit_l3_operation", {
+        projectId: initData.project.id,
+        pendingOperationId,
+        approvalArtifactId
+      });
+      expect(replayResponse).toMatchObject({
+        ok: true,
+        data: {
+          pendingOperation: { id: pendingOperationId, status: "committed" },
+          approvalArtifact: { id: approvalArtifactId, status: "consumed" },
+          replayed: true
+        }
+      });
 
       const updatedDocuments = await readRouteLedgerJsonDocuments(getDefaultDataRoot(projectRoot));
       expect(updatedDocuments.length).toBeGreaterThan(baselineDocuments.length);
@@ -1521,7 +1551,7 @@ describe("routeledger mcp registry", () => {
                 project: {
                   id: string;
                 };
-                initialVersion: {
+                firstVersion: {
                   id: string;
                 };
               };
@@ -1532,13 +1562,13 @@ describe("routeledger mcp registry", () => {
 
       await callTool(server, "prepare-version", "prepare_version", {
         projectId: projectData.project.id,
-        versionId: projectData.initialVersion.id
+        versionId: projectData.firstVersion!.id
       });
 
       const proposalResponse = await callTool(server, "proposal", "propose_l3_operation", {
         projectId: projectData.project.id,
         actionType: "start_version",
-        targetId: projectData.initialVersion.id,
+        targetId: projectData.firstVersion!.id,
         reason: "start current version"
       });
       const pendingOperationId = (

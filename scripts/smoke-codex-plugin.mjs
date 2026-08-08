@@ -54,7 +54,7 @@ const assertPluginFiles = async () => {
 
   if (
     manifest.name !== "routeledger" ||
-    manifest.version !== "0.4.0" ||
+    manifest.version !== "0.4.1" ||
     manifest.repository !== "https://github.com/xczl-785/Routeledger"
   ) {
     throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");
@@ -248,11 +248,12 @@ const runPluginStdioSmoke = async () => {
     const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
     const initializeIdentity = responses[0]?.result?.serverInfo?.runtimeIdentity;
     if (
-      responses[0]?.result?.serverInfo?.version !== "0.0.0-package-prep" ||
-      initializeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
+      responses[0]?.result?.serverInfo?.version !== manifest.version ||
+      initializeIdentity?.runtimePackageVersion !== manifest.version ||
       initializeIdentity?.runtimeProfile !== "json-only" ||
       initializeIdentity?.artifactKind !== "plugin" ||
       initializeIdentity?.pluginVersion !== manifest.version ||
+      initializeIdentity?.releaseTag !== `routeledger-plugin-v${manifest.version}` ||
       !["clean", "dirty", "unavailable"].includes(initializeIdentity?.sourceTreeState) ||
       initializeIdentity?.buildCommit !== null ||
       typeof initializeIdentity?.runtimePayloadDigest !== "string"

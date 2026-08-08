@@ -662,6 +662,7 @@ export const buildMissionControlResponse = async (
 
   try {
     const loaded = await loadValidatedProjectAggregateFromJsonDirectory(binding.routeledgerRoot!);
+    const routeIsEmpty = loaded.snapshot.versions.length === 0;
     const screen: MissionControlScreen = loaded.snapshot.project.currentVersionId === null ? "current_closed" : "ready";
     const storage = buildStorageSummary({
       mode: sqlite.status === "ready" ? "json+sqlite" : sqlite.status === "degraded" ? "json+sqlite-degraded" : "json",
@@ -676,7 +677,9 @@ export const buildMissionControlResponse = async (
       storage,
       screen,
       screen === "current_closed"
-        ? "当前项目未设置 current version；可继续查看项目身份、路线与审计信息。"
+        ? routeIsEmpty
+          ? "项目已初始化，路线尚未定义；请创建首个真实 Version。"
+          : "当前项目未设置 current version；可继续查看项目身份、路线与审计信息。"
         : sqlite.status === "degraded"
           ? "canonical JSON 已加载；SQLite read model 退化，仅作为诊断警告展示。"
           : "canonical JSON 已加载；当前页面处于只读模式。"

@@ -29,6 +29,7 @@ export interface NormalizeVersionTreePayloadInput {
 }
 
 export interface ApplyVersionTreeMutationInput {
+  projectId: string;
   versions: Version[];
   actionType: VersionTreeActionType;
   targetId: string;
@@ -778,7 +779,7 @@ export const applyVersionTreeMutation = (
       const siblings = orderedByParent.get(parentVersionId) ?? [];
       const createdVersion: Version = {
         id: input.targetId,
-        projectId: input.versions[0]!.projectId,
+        projectId: input.projectId,
         title: normalizedPayload.title!,
         description: normalizedPayload.description ?? "",
         state: "wait",

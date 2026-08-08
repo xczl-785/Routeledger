@@ -23,7 +23,10 @@ rules.
    completion counts.
 5. L3 route changes follow proposal, approval or rejection, and commit.
    Commit consumes a valid approval artifact; `confirm=true` alone is not an
-   approval.
+   approval. A retry of an already committed operation is a read-like replay
+   only when the same consumed artifact still matches the operation ID,
+   action, target, and digest exactly; it returns `replayed: true` without
+   creating canonical events. Every mismatch fails closed.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
 7. `next_action` follows the version lifecycle: a current `wait` version
@@ -45,6 +48,26 @@ rules.
 10. A legacy project whose `contentLocale` is unresolved remains readable.
     All project writes except `set_project_content_locale` are blocked until a
     concrete BCP 47 locale is persisted.
+11. `get_runtime_context.contentLocale.effectiveScopes` reports the current
+    bounded effect of `contentLocale`: the persisted project setting, the
+    default language agents should use for new project content, and the
+    write-integrity gate. It does
+    not claim translation of user-authored or existing project content.
+12. `check_doc_drift` compares explicit Chinese or English declarations of the
+    current Version ID, title, and state. It returns every recognized,
+    mismatched, and non-detected assertion under `checkedAssertions`, and its
+    `coverage.level` remains `partial`; zero warnings never claims complete
+    document coverage.
+13. `init_project` distinguishes project initialization from route selection.
+    Omitting `firstVersion` creates a valid empty route with nullable current
+    and legacy-initial pointers. An explicit `firstVersion` creates the first
+    current `wait` node and its `initialTodos` in the same aggregate write.
+14. On an empty route, the first approved `create_version` commit creates the
+    node and assigns it as current atomically. Batch creation requires an
+    explicit `setCurrentTo`. For ordinary forward progress from a closed
+    current Version to its ready direct successor, `advance_to_version`
+    performs current-switch and start under one proposal, digest, approval
+    artifact, operation ID, and aggregate save.
 
 ## Evidence
 

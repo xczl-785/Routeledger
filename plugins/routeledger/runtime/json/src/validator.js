@@ -587,7 +587,8 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
         };
     }
     if (!isNonBlankString(rawSnapshot.project.id) ||
-        !isNonBlankString(rawSnapshot.project.initialVersionId) ||
+        (rawSnapshot.project.initialVersionId !== null &&
+            !isNonBlankString(rawSnapshot.project.initialVersionId)) ||
         (rawSnapshot.project.currentVersionId !== null &&
             !isNonBlankString(rawSnapshot.project.currentVersionId))) {
         return {
@@ -654,7 +655,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
     const assetsById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
     const pendingOperationsById = new Map(snapshot.pendingOperations.map((operation) => [operation.id, operation]));
     const approvalArtifactsById = new Map(snapshot.approvalArtifacts.map((artifact) => [artifact.id, artifact]));
-    if (project.currentVersionId === null || project.currentVersionId.trim().length === 0) {
+    if (project.currentVersionId === null && snapshot.versions.length > 0) {
         issues.push(createIssue("error", "PROJECT_CURRENT_VERSION_MISSING", "Project.current_version_id 不能为空", {
             path: PROJECT_DOCUMENT_PATH,
             details: {
@@ -662,7 +663,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
             }
         }));
     }
-    else if (!versionsById.has(project.currentVersionId)) {
+    else if (project.currentVersionId !== null && !versionsById.has(project.currentVersionId)) {
         issues.push(createIssue("error", "PROJECT_CURRENT_VERSION_NOT_FOUND", "Project.current_version_id 必须指向现有 version", {
             path: PROJECT_DOCUMENT_PATH,
             details: {
@@ -671,7 +672,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
             }
         }));
     }
-    if (!versionsById.has(project.initialVersionId)) {
+    if (project.initialVersionId !== null && !versionsById.has(project.initialVersionId)) {
         issues.push(createIssue("error", "PROJECT_INITIAL_VERSION_NOT_FOUND", "Project.initial_version_id 必须指向现有 version", {
             path: PROJECT_DOCUMENT_PATH,
             details: {

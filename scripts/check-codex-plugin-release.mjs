@@ -27,10 +27,11 @@ const fail = (message) => {
 };
 
 export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity, pluginVersion, runtimePayloadDigest }) =>
-  runtimeIdentity?.runtimePackageVersion === "0.0.0-package-prep" &&
+  runtimeIdentity?.runtimePackageVersion === pluginVersion &&
   runtimeIdentity?.runtimeProfile === "json-only" &&
   runtimeIdentity?.artifactKind === "plugin" &&
   runtimeIdentity?.pluginVersion === pluginVersion &&
+  runtimeIdentity?.releaseTag === `routeledger-plugin-v${pluginVersion}` &&
   ["clean", "dirty", "unavailable"].includes(runtimeIdentity?.sourceTreeState) &&
   runtimeIdentity?.buildCommit === null &&
   runtimeIdentity?.artifactDigest === null &&
@@ -38,6 +39,7 @@ export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity
   releaseIdentity?.runtimePackageVersion === runtimeIdentity.runtimePackageVersion &&
   releaseIdentity?.runtimeProfile === runtimeIdentity.runtimeProfile &&
   releaseIdentity?.pluginVersion === runtimeIdentity.pluginVersion &&
+  releaseIdentity?.releaseTag === runtimeIdentity.releaseTag &&
   releaseIdentity?.sourceTreeState === runtimeIdentity.sourceTreeState &&
   releaseIdentity?.buildCommit === null &&
   releaseIdentity?.artifactDigest === null &&
@@ -233,6 +235,14 @@ const assertMetadata = async () => {
   }
   if (release.plugin?.name !== manifest.name || release.plugin?.version !== manifest.version) {
     fail("Release metadata plugin name/version does not match plugin.json.");
+  }
+  if (
+    release.attestation?.strategy !== "git-tag-external" ||
+    release.attestation?.releaseTag !== `routeledger-plugin-v${manifest.version}` ||
+    release.attestation?.sourceCommit !== null ||
+    release.attestation?.artifactDigestField !== "content.pluginDistributionSha256"
+  ) {
+    fail("Release attestation metadata must point to the immutable plugin version tag and external digest proof.");
   }
   const runtimeIdentityModule = await import(
     `${pathToFileURL(path.join(pluginRoot, "runtime", "mcp", "src", "runtime-identity.js")).href}?release-check=${Date.now()}`

@@ -176,21 +176,23 @@ const assertCompleteAggregateSnapshot = (
     snapshot.approvalArtifacts
   );
 
-  if (project.currentVersionId === null) {
+  if (project.currentVersionId === null && snapshot.versions.length > 0) {
     throw new AggregateValidationError("project.currentVersionId must point to an existing current version");
   }
 
-  const currentVersion = versionMap.get(project.currentVersionId);
+  const currentVersion =
+    project.currentVersionId === null ? undefined : versionMap.get(project.currentVersionId);
 
-  if (currentVersion === undefined) {
+  if (project.currentVersionId !== null && currentVersion === undefined) {
     throw new AggregateValidationError(
       `project.currentVersionId ${project.currentVersionId} does not exist in the aggregate snapshot`
     );
   }
 
-  const initialVersion = versionMap.get(project.initialVersionId);
+  const initialVersion =
+    project.initialVersionId === null ? undefined : versionMap.get(project.initialVersionId);
 
-  if (initialVersion === undefined) {
+  if (project.initialVersionId !== null && initialVersion === undefined) {
     throw new AggregateValidationError(
       `project.initialVersionId ${project.initialVersionId} does not exist in the aggregate snapshot`
     );
@@ -198,13 +200,15 @@ const assertCompleteAggregateSnapshot = (
 
   const currentVersions = snapshot.versions.filter((version) => version.isCurrent);
 
-  if (currentVersions.length !== 1) {
+  const expectedCurrentVersionCount = project.currentVersionId === null ? 0 : 1;
+
+  if (currentVersions.length !== expectedCurrentVersionCount) {
     throw new AggregateValidationError(
-      `aggregate snapshot must contain exactly one current version, found ${currentVersions.length}`
+      `aggregate snapshot must contain exactly ${expectedCurrentVersionCount} current version(s), found ${currentVersions.length}`
     );
   }
 
-  if (currentVersions[0]?.id !== project.currentVersionId) {
+  if (project.currentVersionId !== null && currentVersions[0]?.id !== project.currentVersionId) {
     throw new AggregateValidationError(
       `project.currentVersionId ${project.currentVersionId} must match the version flagged as current`
     );
@@ -508,7 +512,7 @@ interface ProjectRow {
   description: string;
   status: Project["status"];
   current_version_id: string | null;
-  initial_version_id: string;
+  initial_version_id: string | null;
   created_by_id: string;
   created_by_type: Actor["type"];
   created_by_display_name: string | null;

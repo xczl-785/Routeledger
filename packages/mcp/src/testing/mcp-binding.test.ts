@@ -89,7 +89,7 @@ describe("routeledger mcp registry", () => {
       });
       const initData = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(initResponse);
 
       expect(fs.existsSync(path.join(routeledgerRoot, ".routeledger", "project.json"))).toBe(true);
@@ -101,7 +101,7 @@ describe("routeledger mcp registry", () => {
 
       const mismatchedCreateTodo = await callTool(server, "mismatched-todo", "create_todo", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         title: "blocked by root mismatch",
         expectedRouteLedgerRoot: workspaceRoot
       });
@@ -115,7 +115,7 @@ describe("routeledger mcp registry", () => {
 
       const createTodoResponse = await callTool(server, "matched-todo", "create_todo", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         title: "docs follow routeledger root",
         expectedRouteLedgerRoot: routeledgerRoot
       });
@@ -352,7 +352,7 @@ describe("routeledger mcp registry", () => {
 
       const initialized = getStructuredData<{
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }>(await callTool(server, "activate-init", "init_project", {
         name: "Activated RouteLedger",
         expectedRouteLedgerRoot: workspaceRoot
@@ -360,7 +360,7 @@ describe("routeledger mcp registry", () => {
       const todo = getStructuredData<{ todo: { id: string } }>(
         await callTool(server, "activate-create-todo", "create_todo", {
           projectId: initialized.project.id,
-          versionId: initialized.initialVersion.id,
+          versionId: initialized.firstVersion!.id,
           title: "session binding proof",
           expectedRouteLedgerRoot: workspaceRoot
         })

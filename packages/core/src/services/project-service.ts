@@ -1,24 +1,28 @@
 import { DomainError } from "../domain/errors.js";
 import type { Project } from "../domain/project.js";
-import type { TransitionEvent } from "../domain/transition-event.js";
+import type { TransitionEvent, TransitionEventDraft } from "../domain/transition-event.js";
 import type { Version } from "../domain/version.js";
 import { createTransitionEvents } from "./transition-event-service.js";
-import { createDomainContext, type DomainDependencies } from "./operation.js";
+import { createDomainContext, type DomainContext, type DomainDependencies } from "./operation.js";
 import { suspendVersion } from "./version-service.js";
 import type { Actor } from "../domain/actor.js";
-import { isChineseLocale, requireConcreteContentLocale } from "../domain/locale.js";
+import { requireConcreteContentLocale } from "../domain/locale.js";
 
 export interface CreateProjectInput {
   name: string;
   description?: string;
   contentLocale: string;
+  firstVersion?: {
+    title: string;
+    description?: string;
+  } | null;
   actor: Actor;
   deps: DomainDependencies;
 }
 
 export interface ProjectCreation {
   project: Project;
-  initialVersion: Version;
+  firstVersion: Version | null;
   events: TransitionEvent[];
 }
 
@@ -28,6 +32,7 @@ export interface SetCurrentVersionInput {
   nextVersion: Version;
   actor: Actor;
   deps: DomainDependencies;
+  operationContext?: DomainContext;
 }
 
 const validateVersionId = (versionId: string): void => {
@@ -42,22 +47,41 @@ export const createProject = ({
   name,
   description = "",
   contentLocale,
+  firstVersion,
   actor,
   deps
 }: CreateProjectInput): ProjectCreation => {
   const context = createDomainContext(deps, actor);
   const normalizedContentLocale = requireConcreteContentLocale(contentLocale);
+  const requestedFirstVersion = firstVersion ?? null;
+  const normalizedFirstVersion =
+    requestedFirstVersion === null
+      ? undefined
+      : {
+          title: requestedFirstVersion.title.trim(),
+          description: requestedFirstVersion.description?.trim() ?? ""
+        };
+
+  if (normalizedFirstVersion !== undefined && normalizedFirstVersion.title.length === 0) {
+    throw new DomainError("MISSING_REQUIRED_FIELD", "firstVersion.title 不能为空", {
+      field: "firstVersion.title"
+    });
+  }
+
   const projectId = deps.idGenerator.nextId();
-  const initialVersionId = deps.idGenerator.nextId();
-  validateVersionId(initialVersionId);
+  const firstVersionId = normalizedFirstVersion === undefined ? null : deps.idGenerator.nextId();
+
+  if (firstVersionId !== null) {
+    validateVersionId(firstVersionId);
+  }
 
   const project: Project = {
     id: projectId,
     name,
     description,
     status: "active",
-    currentVersionId: initialVersionId,
-    initialVersionId,
+    currentVersionId: firstVersionId,
+    initialVersionId: null,
     createdBy: actor,
     createdAt: context.now,
     updatedAt: context.now,
@@ -70,43 +94,49 @@ export const createProject = ({
     }
   };
 
-  const initialVersion: Version = {
-    id: initialVersionId,
-    projectId,
-    title: isChineseLocale(normalizedContentLocale) ? "初始 Version" : "Initial Version",
-    description: isChineseLocale(normalizedContentLocale)
-      ? "项目初始化 Version"
-      : "Project bootstrap version",
-    state: "wait",
-    parentVersionId: null,
-    previousVersionId: null,
-    nextVersionId: null,
-    order: 1,
-    isCurrent: true,
-    createdBy: actor,
-    createdAt: context.now,
-    updatedAt: context.now,
-    closedAt: null,
-    stateReason: null
-  };
+  const createdFirstVersion: Version | null =
+    firstVersionId === null || normalizedFirstVersion === undefined
+      ? null
+      : {
+          id: firstVersionId,
+          projectId,
+          title: normalizedFirstVersion.title,
+          description: normalizedFirstVersion.description,
+          state: "wait",
+          parentVersionId: null,
+          previousVersionId: null,
+          nextVersionId: null,
+          order: 1,
+          isCurrent: true,
+          createdBy: actor,
+          createdAt: context.now,
+          updatedAt: context.now,
+          closedAt: null,
+          stateReason: null
+        };
+
+  const eventDrafts: TransitionEventDraft[] = [
+    {
+      targetType: "project" as const,
+      targetId: project.id,
+      eventType: "project.created"
+    }
+  ];
+
+  if (createdFirstVersion !== null) {
+    eventDrafts.push({
+      targetType: "version",
+      targetId: createdFirstVersion.id,
+      eventType: "version.created",
+      toState: createdFirstVersion.state
+    });
+  }
 
   return {
     project,
-    initialVersion,
+    firstVersion: createdFirstVersion,
     events: createTransitionEvents(
-      [
-        {
-          targetType: "project",
-          targetId: project.id,
-          eventType: "project.created"
-        },
-        {
-          targetType: "version",
-          targetId: initialVersion.id,
-          eventType: "version.created",
-          toState: initialVersion.state
-        }
-      ],
+      eventDrafts,
       {
         projectId,
         operationId: context.operationId,
@@ -190,9 +220,10 @@ export const setCurrentVersion = ({
   currentVersion,
   nextVersion,
   actor,
-  deps
+  deps,
+  operationContext
 }: SetCurrentVersionInput): SetCurrentVersionResult => {
-  const context = createDomainContext(deps, actor);
+  const context = operationContext ?? createDomainContext(deps, actor);
   validateVersionId(nextVersion.id);
 
   if (nextVersion.projectId !== project.id) {

@@ -301,6 +301,7 @@ const payloadSchema = objectSchema({
             }
         ]
     },
+    fromVersionId: stringSchema("Expected current Version ID for advance_to_version."),
     residualAudit: {
         ...residualAuditInputSchema
     },
@@ -354,6 +355,15 @@ const batchCreateVersionsItemSchema = objectSchema({
         items: stringSchema("Todo title.")
     }
 }, ["clientKey", "title", "description", "initialTodos"]);
+const firstVersionSchema = objectSchema({
+    title: stringSchema("Title of the first real Version."),
+    description: stringSchema("Optional first Version description."),
+    initialTodos: {
+        type: "array",
+        description: "Initial Todo titles. The field is required and may be an empty array.",
+        items: stringSchema("Todo title.")
+    }
+}, ["title", "initialTodos"]);
 const docDriftExpectedPointerSchema = objectSchema({
     kind: stringSchema("Pointer kind label used by the caller."),
     path: stringSchema("Expected repo-relative pointer path."),
@@ -743,13 +753,19 @@ export const createRouteLedgerMcpRegistry = (options) => {
         const activeProject = storageInspection?.activeProject ?? null;
         const resolvedResponseLocale = resolveResponseLocale(requestedResponseLocale, options.defaultResponseLocale);
         const suggestedContentLocale = suggestContentLocale(resolvedResponseLocale.requested ?? resolvedResponseLocale.resolved);
+        const contentLocaleEffectiveScopes = [
+            "project_setting",
+            "agent_content_default",
+            "write_integrity_gate"
+        ];
         const contentLocale = activeProject?.contentLocale !== null && activeProject?.contentLocale !== undefined
             ? {
                 status: "configured",
                 configuredValue: activeProject.contentLocale,
                 suggestedValue: null,
                 suggestionSource: null,
-                requiresUserDecision: false
+                requiresUserDecision: false,
+                effectiveScopes: contentLocaleEffectiveScopes
             }
             : binding.status === "uninitialized" || activeProject !== null
                 ? {
@@ -757,14 +773,16 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     configuredValue: null,
                     suggestedValue: suggestedContentLocale,
                     suggestionSource: suggestedContentLocale === null ? null : "response_locale",
-                    requiresUserDecision: true
+                    requiresUserDecision: true,
+                    effectiveScopes: contentLocaleEffectiveScopes
                 }
                 : {
                     status: "unavailable",
                     configuredValue: null,
                     suggestedValue: null,
                     suggestionSource: null,
-                    requiresUserDecision: false
+                    requiresUserDecision: false,
+                    effectiveScopes: contentLocaleEffectiveScopes
                 };
         const bindingActions = binding.status === "bound" ? [] : getBindingRecommendedNextActions(binding);
         const localeBlockedTools = activeProject?.contentLocale === null
@@ -1108,7 +1126,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
         defineTool("init_project", { what: "Initialize canonical RouteLedger project data." }, objectSchema({
             name: stringSchema("Project name."),
             description: stringSchema("Optional project description."),
-            contentLocale: stringSchema("Concrete BCP 47 locale confirmed by the user for future project content. null and auto are not allowed.")
+            contentLocale: stringSchema("Concrete BCP 47 locale confirmed by the user for future project content. null and auto are not allowed."),
+            firstVersion: firstVersionSchema
         }, ["name", "contentLocale"]), {
             title: "Init Project",
             riskLevel: "write",
@@ -1119,6 +1138,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 name: input.name,
                 description: input.description,
                 contentLocale: input.contentLocale,
+                firstVersion: input.firstVersion ?? null,
                 actor
             })
         })),
@@ -1546,6 +1566,27 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 projectId: input.projectId,
                 versionId: input.versionId,
                 mode: parseRouteOperationWorkflowMode(input.mode),
+                reason: input.reason,
+                actor
+            })
+        })),
+        defineTool("advance_to_version", {
+            what: "Atomically switch to and start the ready next Version.",
+            warning: "Returns one L3 proposal."
+        }, objectSchema({
+            projectId: stringSchema("RouteLedger project ID."),
+            versionId: stringSchema("Ready target Version ID."),
+            fromVersionId: stringSchema("Optional expected closed current Version ID."),
+            reason: stringSchema("Optional proposal reason override.")
+        }, ["projectId", "versionId"]), {
+            title: "Advance To Version",
+            riskLevel: "write"
+        }, async (input) => ({
+            ok: true,
+            data: await service.advanceToVersion({
+                projectId: input.projectId,
+                versionId: input.versionId,
+                fromVersionId: input.fromVersionId,
                 reason: input.reason,
                 actor
             })
@@ -1996,6 +2037,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     "shutdown_version",
                     "reopen_version",
                     "set_current_version",
+                    "advance_to_version",
                     "create_version",
                     "insert_version",
                     "create_child_version",
@@ -2037,7 +2079,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 decisionRef: input.decisionRef
             })
         })),
-        defineTool("commit_l3_operation", { what: "Commit an approved L3 proposal.", parameter: "pendingOperationId and approvalArtifactId", warning: "consumes approval artifact" }, objectSchema({
+        defineTool("commit_l3_operation", { what: "Commit an approved L3 proposal.", parameter: "pendingOperationId and approvalArtifactId", warning: "consumes once; exact retries replay" }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             pendingOperationId: stringSchema("Pending operation ID."),
             approvalArtifactId: stringSchema("Approval artifact ID."),
@@ -2064,7 +2106,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     actionType: committed.pendingOperation.actionType,
                     pendingOperationStatus: committed.pendingOperation.status,
                     approvalArtifactId: committed.approvalArtifact.id,
-                    approvalArtifactStatus: committed.approvalArtifact.status
+                    approvalArtifactStatus: committed.approvalArtifact.status,
+                    replayed: committed.replayed
                 }
             });
             return {

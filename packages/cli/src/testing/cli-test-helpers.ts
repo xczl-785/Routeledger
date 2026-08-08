@@ -107,6 +107,24 @@ export const runCliJson = async (projectRoot: string, argv: string[]) => {
   };
 };
 
+export const runCliJsonWithFirstVersion = async (
+  projectRoot: string,
+  argv: string[]
+) =>
+  runCliJson(
+    projectRoot,
+    argv[0] === "init_project" && !argv.includes("--first-version")
+      ? argv.concat(
+          "--first-version",
+          JSON.stringify({
+            title: "Initial Version",
+            description: "Project bootstrap version",
+            initialTodos: []
+          })
+        )
+      : argv
+  );
+
 export const summarizeSnapshotCounts = (snapshot: {
   versions: unknown[];
   todos: unknown[];
@@ -141,9 +159,9 @@ export const getIssueCodesFromCliError = (result: {
   result.stderrJson.error.details?.issues?.map((issue) => issue.code) ?? [];
 
 export const seedJsonRoundTripProject = async (projectRoot: string) => {
-  const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+  const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
   const projectId = initResult.stdoutJson.data.project.id as string;
-  const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+  const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
   await runCliJson(projectRoot, [
     "todo",

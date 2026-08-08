@@ -15,18 +15,19 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
     await service.prepareVersion({
       projectId: created.project.id,
-      versionId: created.initialVersion.id,
+      versionId: created.firstVersion!.id,
       actor: TEST_ACTOR
     });
 
     await expect(
       service.startVersion({
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
@@ -293,23 +294,39 @@ describe("route ledger service", () => {
     });
 
     const successArtifact = await createApprovedArtifact(service, prepared.projectId, proposal.id);
-    await service.commitL3Operation({
+    const committed = await service.commitL3Operation({
+      projectId: prepared.projectId,
+      pendingOperationId: proposal.id,
+      approvalArtifactId: successArtifact.id,
+      actor: TEST_ACTOR
+    });
+    const snapshotAfterCommit = await storage.loadProjectAggregate(prepared.projectId);
+
+    const replayed = await service.commitL3Operation({
       projectId: prepared.projectId,
       pendingOperationId: proposal.id,
       approvalArtifactId: successArtifact.id,
       actor: TEST_ACTOR
     });
 
+    expect(committed.replayed).toBe(false);
+    expect(replayed).toMatchObject({
+      pendingOperation: { id: proposal.id, status: "committed" },
+      approvalArtifact: { id: successArtifact.id, status: "consumed" },
+      replayed: true
+    });
+    expect(
+      (await storage.loadProjectAggregate(prepared.projectId))?.events
+    ).toHaveLength(snapshotAfterCommit?.events.length ?? 0);
+
     await expect(
       service.commitL3Operation({
         projectId: prepared.projectId,
         pendingOperationId: proposal.id,
-        approvalArtifactId: successArtifact.id,
+        approvalArtifactId: actionMismatchArtifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).rejects.toMatchObject({ code: "COMMIT_REPLAY_MISMATCH" });
   });
 
   it("approval artifact 蹇呴』缁戝畾鍏蜂綋 pending operation锛屼笉鑳藉鐢ㄥ彟涓€涓?proposal 鐨?artifact", async () => {

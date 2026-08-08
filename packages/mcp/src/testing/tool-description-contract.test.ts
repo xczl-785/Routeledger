@@ -28,11 +28,11 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(43);
+      expect(tools).toHaveLength(44);
       expect(readOnly).toHaveLength(19);
-      expect(writes).toHaveLength(20);
+      expect(writes).toHaveLength(21);
       expect(highRisk).toHaveLength(4);
-      expect(writes.concat(highRisk)).toHaveLength(24);
+      expect(writes.concat(highRisk)).toHaveLength(25);
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
         const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
@@ -66,7 +66,7 @@ describe("MCP tool description contract", () => {
 
     try {
       const descriptions = registry.tools.map((tool) => tool.description);
-      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(2850);
+      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3000);
       for (const description of descriptions) {
         expect(description.length).toBeLessThanOrEqual(150);
       }
@@ -134,7 +134,7 @@ describe("MCP tool description contract", () => {
         {
           "activate_routeledger_binding": "Activate an explicit MCP binding. Input: workspaceRoot. Warning: writes config only; cannot switch an established binding.",
           "close_version": "Binding-sensitive close preview or proposal. Input: mode and versionId. Warning: proposal needs a passing gate.",
-          "commit_l3_operation": "Commit an approved L3 proposal. Input: pendingOperationId and approvalArtifactId. Warning: consumes approval artifact.",
+          "commit_l3_operation": "Commit an approved L3 proposal. Input: pendingOperationId and approvalArtifactId. Warning: consumes once; exact retries replay.",
           "create_version": "Propose a top-level version. Warning: returns a pending L3 operation.",
           "defer_work": "Create Deferred work for a future review. Input: mode, targetReviewVersionId, and Todo or new-work fields.",
           "get_current_context": "Read current project, route, work, and gate context.",

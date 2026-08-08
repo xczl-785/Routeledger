@@ -16,7 +16,8 @@ export interface Project {
   description: string;
   status: ProjectStatus;
   currentVersionId: string | null;
-  initialVersionId: string;
+  /** Legacy canonical pointer. New projects use the Project itself as the route root. */
+  initialVersionId: string | null;
   createdBy: Actor;
   createdAt: string;
   updatedAt: string;

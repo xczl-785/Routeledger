@@ -725,16 +725,20 @@ const buildVersionTransitionGuide = (snapshot, input) => {
     const transitionEvaluation = targetVersion.state === "wait" || manualTargetStates.includes(targetVersion.state)
         ? null
         : buildTransitionWorkflowEvaluation(snapshot, targetVersion.id);
-    const transitionActionType = transitionEvaluation?.nextActionType ??
-        (targetVersion.state === "ready"
-            ? targetVersion.isCurrent
-                ? "start_version"
-                : "set_current_version"
-            : targetVersion.state === "running" && !targetVersion.isCurrent
-                ? "set_current_version"
-                : targetVersion.state === "running"
+    const transitionActionType = fromVersion.state === "close" &&
+        targetVersion.state === "ready" &&
+        fromVersion.nextVersionId === targetVersion.id
+        ? "advance_to_version"
+        : transitionEvaluation?.nextActionType ??
+            (targetVersion.state === "ready"
+                ? targetVersion.isCurrent
                     ? "start_version"
-                    : null);
+                    : "set_current_version"
+                : targetVersion.state === "running" && !targetVersion.isCurrent
+                    ? "set_current_version"
+                    : targetVersion.state === "running"
+                        ? "start_version"
+                        : null);
     const transitionProposalStatus = !canProceedPastClose || requiresManualReview
         ? "waiting"
         : targetVersion.state === "wait"
@@ -751,11 +755,15 @@ const buildVersionTransitionGuide = (snapshot, input) => {
     const transitionBlockers = transitionEvaluation?.blockers ?? startGate.blockers;
     addStep({
         stepId: "transition-to-target",
-        label: transitionActionType === "start_version"
-            ? "Start target version"
-            : "Set current to target version",
+        label: transitionActionType === "advance_to_version"
+            ? "Advance to target version"
+            : transitionActionType === "start_version"
+                ? "Start target version"
+                : "Set current to target version",
         status: transitionProposalStatus,
-        recommendedTool: "transition_version",
+        recommendedTool: transitionActionType === "advance_to_version"
+            ? "advance_to_version"
+            : "transition_version",
         createsL3Proposal: true,
         actionType: transitionActionType,
         reason: transitionEvaluation?.status === "noop"
@@ -764,9 +772,11 @@ const buildVersionTransitionGuide = (snapshot, input) => {
                 ? "target version 尚未 ready；先 prepare，再重新进入 transition_version。"
                 : transitionEvaluation?.status === "blocked"
                     ? "target start gate 仍有 blockers，transition_version 目前不会创建 proposal。"
-                    : transitionActionType === "start_version"
-                        ? "关闭 from 边界后，用 transition_version 生成 start_version proposal。"
-                        : "关闭 from 边界后，用 transition_version 先生成 set_current_version proposal。",
+                    : transitionActionType === "advance_to_version"
+                        ? "from 边界已关闭；用 advance_to_version 生成一次原子切换并启动的 proposal。"
+                        : transitionActionType === "start_version"
+                            ? "关闭 from 边界后，用 transition_version 生成 start_version proposal。"
+                            : "关闭 from 边界后，用 transition_version 先生成 set_current_version proposal。",
         blockerIds: collectBlockerIds(transitionBlockers)
     });
     addStep({
@@ -1251,6 +1261,7 @@ const evaluateBatchCreateVersions = (snapshot, input, evaluatedAt) => {
             });
             resolvedParentVersionId = normalizedPayload.parentVersionId ?? null;
             plannedVersions = applyVersionTreeMutation({
+                projectId: snapshot.project.id,
                 versions: plannedVersions,
                 actionType,
                 targetId: previewVersionId,
@@ -1300,6 +1311,9 @@ const evaluateBatchCreateVersions = (snapshot, input, evaluatedAt) => {
         };
     }
     const setCurrentTo = normalizeBatchRef(input.setCurrentTo);
+    if (snapshot.versions.length === 0 && setCurrentTo === null) {
+        issues.push(buildBatchIssue(-1, "project-root", "setCurrentTo", "SET_CURRENT_TARGET_INVALID", "空路线创建首批 Version 时必须用 setCurrentTo 明确首个 current Version。"));
+    }
     if (setCurrentTo !== null &&
         !normalizedItems.some((item) => item.clientKey === setCurrentTo || item.previewVersionId === setCurrentTo)) {
         issues.push(buildBatchIssue(-1, setCurrentTo, "setCurrentTo", "SET_CURRENT_TARGET_INVALID", "setCurrentTo 必须引用某个新建 item 的 clientKey。"));
@@ -1484,6 +1498,62 @@ const buildOperationDescription = (snapshot, actionType, targetId, payload, eval
                 digest: buildDigest(snapshot.project.id, actionType, targetId, payload, gateSnapshot)
             };
         }
+        case "advance_to_version": {
+            const targetVersion = requireVersion(snapshot, targetId);
+            const currentVersionId = snapshot.project.currentVersionId;
+            if (currentVersionId === null) {
+                throw new ApplicationError("ROUTE_EMPTY", "空路线不能执行 advance_to_version");
+            }
+            const currentVersion = requireVersion(snapshot, currentVersionId);
+            const requestedFromVersionId = payload.fromVersionId ?? currentVersionId;
+            const routeBlockers = [];
+            if (requestedFromVersionId !== currentVersionId) {
+                routeBlockers.push({
+                    code: "CURRENT_VERSION_MISMATCH",
+                    message: "fromVersionId 必须匹配 live current Version。",
+                    recordIds: [requestedFromVersionId, currentVersionId]
+                });
+            }
+            if (currentVersion.state !== "close") {
+                routeBlockers.push({
+                    code: "CURRENT_VERSION_NOT_CLOSED",
+                    message: "advance_to_version 只允许从已 close 的 current Version 推进。",
+                    recordIds: [currentVersion.id]
+                });
+            }
+            if (currentVersion.nextVersionId !== targetVersion.id) {
+                routeBlockers.push({
+                    code: "TARGET_VERSION_NOT_NEXT",
+                    message: "目标 Version 必须是 current Version 的直接下一 sibling。",
+                    recordIds: [currentVersion.id, targetVersion.id]
+                });
+            }
+            const gate = evaluateStartGate({
+                targetVersion,
+                currentVersionTodos: snapshot.todos.filter((todo) => todo.versionId === targetVersion.id &&
+                    (todo.status === "wait" || todo.status === "running")),
+                dueUndos: snapshot.undos.filter((undo) => undo.status === "wait"),
+                deferredItems: snapshot.deferredItems,
+                constraints: snapshot.constraints,
+                constraintChecks: []
+            });
+            const gateSnapshot = buildStartGateSnapshot({
+                ...gate,
+                allowed: gate.allowed && routeBlockers.length === 0,
+                blockers: routeBlockers.concat(gate.blockers)
+            }, evaluatedAt);
+            const normalizedPayload = {
+                ...payload,
+                fromVersionId: requestedFromVersionId
+            };
+            return {
+                actionType,
+                targetId,
+                payload: normalizedPayload,
+                gateSnapshot,
+                digest: buildDigest(snapshot.project.id, actionType, targetId, normalizedPayload, gateSnapshot)
+            };
+        }
         case "close_version": {
             const version = requireVersion(snapshot, targetId);
             const payloadAudit = payload.residualAuditReviewed === true
@@ -1619,13 +1689,16 @@ const buildOperationDescription = (snapshot, actionType, targetId, payload, eval
                 targetId,
                 payload
             });
+            const effectivePayload = actionType === "create_version" && snapshot.versions.length === 0
+                ? { ...normalizedPayload, setAsCurrent: true }
+                : normalizedPayload;
             const gateSnapshot = buildNoopGateSnapshot(evaluatedAt);
             return {
                 actionType,
                 targetId,
-                payload: normalizedPayload,
+                payload: effectivePayload,
                 gateSnapshot,
-                digest: buildDigest(snapshot.project.id, actionType, targetId, normalizedPayload, gateSnapshot)
+                digest: buildDigest(snapshot.project.id, actionType, targetId, effectivePayload, gateSnapshot)
             };
         }
         default: {
@@ -1664,12 +1737,13 @@ export class RouteLedgerService {
             name: input.name,
             description: input.description,
             contentLocale: input.contentLocale,
+            firstVersion: input.firstVersion,
             actor: input.actor,
             deps: this.deps
         });
         const snapshot = {
             project: created.project,
-            versions: [created.initialVersion],
+            versions: created.firstVersion === null ? [] : [created.firstVersion],
             workItems: [],
             todos: [],
             undos: [],
@@ -1680,8 +1754,30 @@ export class RouteLedgerService {
             pendingOperations: [],
             approvalArtifacts: []
         };
+        if (created.firstVersion !== null) {
+            for (const title of input.firstVersion?.initialTodos ?? []) {
+                if (title.trim().length === 0) {
+                    throw new ApplicationError("MISSING_REQUIRED_FIELD", "firstVersion.initialTodos 不允许包含空标题");
+                }
+                const todoCreation = createTodoDomain({
+                    projectId: created.project.id,
+                    versionId: created.firstVersion.id,
+                    title: title.trim(),
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                snapshot.workItems.push(todoCreation.workItem);
+                snapshot.todos.push(todoCreation.todo);
+                snapshot.events.push(...todoCreation.events);
+            }
+        }
         await this.saveProjectAggregate(snapshot);
-        return created;
+        return {
+            ...created,
+            workItems: snapshot.workItems,
+            todos: snapshot.todos,
+            events: snapshot.events
+        };
     }
     async setProjectContentLocale(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
@@ -2112,14 +2208,12 @@ export class RouteLedgerService {
     async checkStartGate(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
         const targetVersion = requireVersion(snapshot, input.versionId);
-        const currentVersionTodos = snapshot.project.currentVersionId === null
-            ? []
-            : snapshot.todos.filter((todo) => todo.versionId === snapshot.project.currentVersionId &&
-                (todo.status === "wait" || todo.status === "running"));
+        const targetVersionTodos = snapshot.todos.filter((todo) => todo.versionId === targetVersion.id &&
+            (todo.status === "wait" || todo.status === "running"));
         const dueUndos = snapshot.undos.filter((undo) => undo.status === "wait");
         const gate = evaluateStartGate({
             targetVersion,
-            currentVersionTodos,
+            currentVersionTodos: targetVersionTodos,
             dueUndos,
             deferredItems: snapshot.deferredItems,
             constraints: snapshot.constraints,
@@ -2406,6 +2500,47 @@ export class RouteLedgerService {
     async commitL3Operation(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
         const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
+        if (pendingOperation.status === "committed") {
+            if (input.approvalArtifactId === undefined || input.approvalArtifactId.trim().length === 0) {
+                throw new ApplicationError("CONFIRMATION_REQUIRED", "重放已提交的 L3 operation 仍需要原 approval artifact", {
+                    pendingOperationId: pendingOperation.id,
+                    confirmBooleanRejected: input.confirm === true
+                });
+            }
+            const artifact = requireApprovalArtifact(snapshot, input.approvalArtifactId);
+            const replayMatches = pendingOperation.projectId === input.projectId &&
+                pendingOperation.committedAt !== null &&
+                pendingOperation.approvalArtifactId === artifact.id &&
+                artifact.projectId === pendingOperation.projectId &&
+                artifact.pendingOperationId === pendingOperation.id &&
+                artifact.actionType === pendingOperation.actionType &&
+                artifact.targetId === pendingOperation.targetId &&
+                artifact.digest.value === pendingOperation.digest.value &&
+                artifact.status === "consumed" &&
+                artifact.consumedAt !== null &&
+                artifact.consumedAt === pendingOperation.committedAt;
+            if (!replayMatches) {
+                throw new ApplicationError("COMMIT_REPLAY_MISMATCH", "已提交 operation 只能使用原始且完全匹配的 approval artifact 重放", {
+                    pendingOperationId: pendingOperation.id,
+                    pendingOperationProjectId: pendingOperation.projectId,
+                    pendingOperationCommittedAt: pendingOperation.committedAt,
+                    expectedApprovalArtifactId: pendingOperation.approvalArtifactId,
+                    actualApprovalArtifactId: artifact.id,
+                    artifactProjectId: artifact.projectId,
+                    artifactPendingOperationId: artifact.pendingOperationId,
+                    artifactActionType: artifact.actionType,
+                    artifactTargetId: artifact.targetId,
+                    artifactDigest: artifact.digest.value,
+                    artifactStatus: artifact.status,
+                    artifactConsumedAt: artifact.consumedAt
+                });
+            }
+            return {
+                pendingOperation,
+                approvalArtifact: artifact,
+                replayed: true
+            };
+        }
         if (pendingOperation.status !== "pending") {
             throw new ApplicationError("PENDING_OPERATION_NOT_PENDING", "pending operation 不是可提交状态", {
                 pendingOperationId: pendingOperation.id,
@@ -2566,7 +2701,8 @@ export class RouteLedgerService {
         await this.saveProjectAggregate(applied.snapshot);
         return {
             pendingOperation: committedOperation,
-            approvalArtifact: consumedArtifact
+            approvalArtifact: consumedArtifact,
+            replayed: false
         };
     }
     applyCommittedOperation(snapshot, pendingOperation, liveDescription, context) {
@@ -2598,6 +2734,61 @@ export class RouteLedgerService {
                 return {
                     snapshot,
                     events: started.events
+                };
+            }
+            case "advance_to_version": {
+                const targetVersion = requireVersion(snapshot, pendingOperation.targetId);
+                const currentVersion = snapshot.project.currentVersionId === null
+                    ? null
+                    : requireVersion(snapshot, snapshot.project.currentVersionId);
+                if (currentVersion === null) {
+                    throw new ApplicationError("ROUTE_EMPTY", "空路线不能提交 advance_to_version");
+                }
+                const switched = setCurrentVersionDomain({
+                    project: snapshot.project,
+                    currentVersion,
+                    nextVersion: targetVersion,
+                    actor: context.actor,
+                    deps: this.deps,
+                    operationContext: context
+                });
+                const started = startVersionDomain(switched.nextVersion, liveDescription.gateSnapshot.kind === "start"
+                    ? {
+                        allowed: liveDescription.gateSnapshot.allowed,
+                        blockers: liveDescription.gateSnapshot.blockers,
+                        openTodoIds: liveDescription.gateSnapshot.openTodoIds,
+                        dueUndoIds: liveDescription.gateSnapshot.dueUndoIds,
+                        dueDeferredIds: liveDescription.gateSnapshot.dueDeferredIds,
+                        selfReferentialUndoIds: [],
+                        missingDecisionRefs: liveDescription.gateSnapshot.missingDecisionRefs,
+                        blockedConstraintIds: liveDescription.gateSnapshot.blockedConstraintIds
+                    }
+                    : {
+                        allowed: false,
+                        blockers: [],
+                        openTodoIds: [],
+                        dueUndoIds: [],
+                        dueDeferredIds: [],
+                        selfReferentialUndoIds: [],
+                        missingDecisionRefs: [],
+                        blockedConstraintIds: []
+                    }, context, this.deps);
+                snapshot.project = switched.project;
+                snapshot.versions = snapshot.versions.map((version) => {
+                    if (version.id === started.version.id) {
+                        return started.version;
+                    }
+                    if (switched.currentVersion !== null && version.id === switched.currentVersion.id) {
+                        return switched.currentVersion;
+                    }
+                    return version;
+                });
+                return {
+                    snapshot,
+                    events: switched.events.concat(started.events.map((event) => ({
+                        ...event,
+                        operationSeq: event.operationSeq + switched.events.length
+                    })))
                 };
             }
             case "close_version": {
@@ -2659,7 +2850,8 @@ export class RouteLedgerService {
                     currentVersion,
                     nextVersion,
                     actor: context.actor,
-                    deps: this.deps
+                    deps: this.deps,
+                    operationContext: context
                 });
                 snapshot.project = switched.project;
                 snapshot.versions = snapshot.versions
@@ -2682,6 +2874,7 @@ export class RouteLedgerService {
                     return this.applyBatchCreateVersions(snapshot, liveDescription.payload, context);
                 }
                 const appliedVersionTree = applyVersionTreeMutation({
+                    projectId: snapshot.project.id,
                     versions: snapshot.versions,
                     actionType: pendingOperation.actionType,
                     targetId: pendingOperation.targetId,
@@ -2690,9 +2883,33 @@ export class RouteLedgerService {
                     now: context.now
                 });
                 snapshot.versions = appliedVersionTree.versions;
+                const shouldSetCreatedVersionCurrent = pendingOperation.actionType === "create_version" &&
+                    liveDescription.payload.setAsCurrent === true;
+                if (shouldSetCreatedVersionCurrent) {
+                    if (snapshot.project.currentVersionId !== null) {
+                        throw new ApplicationError("INVALID_VERSION_TRANSITION", "仅空路线允许 create_version 原子设置首个 current Version", { currentVersionId: snapshot.project.currentVersionId });
+                    }
+                    snapshot.project = {
+                        ...snapshot.project,
+                        currentVersionId: pendingOperation.targetId,
+                        updatedAt: context.now
+                    };
+                    snapshot.versions = snapshot.versions.map((version) => version.id === pendingOperation.targetId
+                        ? { ...version, isCurrent: true, updatedAt: context.now }
+                        : version);
+                }
+                const eventDrafts = shouldSetCreatedVersionCurrent
+                    ? appliedVersionTree.eventDrafts.concat({
+                        targetType: "project",
+                        targetId: snapshot.project.id,
+                        eventType: "project.current_version_changed",
+                        fromState: null,
+                        toState: pendingOperation.targetId
+                    })
+                    : appliedVersionTree.eventDrafts;
                 return {
                     snapshot,
-                    events: createAuditEvents(appliedVersionTree.eventDrafts, snapshot.project.id, context.actor, context.now, context.operationId, this.deps)
+                    events: createAuditEvents(eventDrafts, snapshot.project.id, context.actor, context.now, context.operationId, this.deps)
                 };
             }
             default: {
@@ -2731,6 +2948,7 @@ export class RouteLedgerService {
                     ? "insert_version"
                     : "create_child_version";
             const appliedVersionTree = applyVersionTreeMutation({
+                projectId: nextSnapshot.project.id,
                 versions: nextSnapshot.versions,
                 actionType,
                 targetId: versionId,
@@ -2891,6 +3109,11 @@ export class RouteLedgerService {
     async setCurrentVersion(input) {
         return this.requestConfirmation(input.projectId, "set_current_version", input.versionId, input.reason ?? "set current version requested", input.actor, {
             currentVersionId: input.versionId
+        });
+    }
+    async advanceToVersion(input) {
+        return this.requestConfirmation(input.projectId, "advance_to_version", input.versionId, input.reason ?? "advance to version requested", input.actor, {
+            fromVersionId: input.fromVersionId
         });
     }
     async createVersion(input) {

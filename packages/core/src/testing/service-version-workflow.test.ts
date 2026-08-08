@@ -3,8 +3,306 @@ import { expect, it, describe } from "vitest";
 import { TEST_ACTOR, createTestDependencies, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
-import { MemoryStorageAdapter, legacyStartDigestValue, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, expectConfirmationRequired } from "./routeledger-service-test-helpers.js";
+import { MemoryStorageAdapter, FailOnSaveStorageAdapter, legacyStartDigestValue, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, expectConfirmationRequired } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
+  it("initProject can atomically create an explicit first Version and its initial Todos", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+
+    const created = await service.initProject({
+      contentLocale: "en",
+      name: "RouteLedger",
+      firstVersion: {
+        title: "Define the first delivery",
+        description: "A real route node selected by the user",
+        initialTodos: ["Confirm scope", "Record acceptance"]
+      },
+      actor: TEST_ACTOR
+    });
+
+    expect(created.firstVersion).toMatchObject({
+      title: "Define the first delivery",
+      description: "A real route node selected by the user",
+      state: "wait",
+      isCurrent: true
+    });
+    expect(created.todos.map((todo) => todo.title)).toEqual([
+      "Confirm scope",
+      "Record acceptance"
+    ]);
+    expect(created.workItems).toHaveLength(2);
+    expect(created.project.currentVersionId).toBe(created.firstVersion!.id);
+
+    const snapshot = await storage.loadProjectAggregate(created.project.id);
+    expect(snapshot?.versions).toHaveLength(1);
+    expect(snapshot?.todos).toHaveLength(2);
+    expect(snapshot?.workItems).toHaveLength(2);
+  });
+
+  it("create_version turns an empty route into its first current Version in one approved commit", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const created = await service.initProject({
+      contentLocale: "en",
+      name: "Empty Route",
+      firstVersion: null,
+      actor: TEST_ACTOR
+    });
+    const details = await expectConfirmationRequired(
+      service.createVersion({
+        projectId: created.project.id,
+        title: "First delivery",
+        description: "The first real route node",
+        actor: TEST_ACTOR
+      })
+    );
+
+    expect(details.proposal.payload).toMatchObject({ setAsCurrent: true });
+    const artifact = await createApprovedArtifact(
+      service,
+      created.project.id,
+      details.pendingOperationId
+    );
+    const committed = await service.commitL3Operation({
+      projectId: created.project.id,
+      pendingOperationId: details.pendingOperationId,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    });
+    const snapshot = await storage.loadProjectAggregate(created.project.id);
+
+    expect(snapshot?.project.currentVersionId).toBe(details.proposal.targetId);
+    expect(snapshot?.versions).toEqual([
+      expect.objectContaining({
+        id: details.proposal.targetId,
+        title: "First delivery",
+        state: "wait",
+        isCurrent: true
+      })
+    ]);
+    expect(snapshot?.events.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining(["version.created", "project.current_version_changed"])
+    );
+    expect(committed.replayed).toBe(false);
+    await expect(
+      service.commitL3Operation({
+        projectId: created.project.id,
+        pendingOperationId: details.pendingOperationId,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).resolves.toMatchObject({ replayed: true });
+  });
+
+  it("advance_to_version atomically switches a closed current Version and starts its direct successor", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    const targetVersionId = await createCommittedVersion(
+      service,
+      prepared.projectId,
+      "Next delivery"
+    );
+    await service.prepareVersion({
+      projectId: prepared.projectId,
+      versionId: targetVersionId,
+      actor: TEST_ACTOR
+    });
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+    await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
+
+    const details = await expectConfirmationRequired(
+      service.advanceToVersion({
+        projectId: prepared.projectId,
+        fromVersionId: prepared.versionId,
+        versionId: targetVersionId,
+        reason: "continue the approved route",
+        actor: TEST_ACTOR
+      })
+    );
+    expect(details.proposal).toMatchObject({
+      actionType: "advance_to_version",
+      targetId: targetVersionId,
+      payload: { fromVersionId: prepared.versionId }
+    });
+    const artifact = await createApprovedArtifact(
+      service,
+      prepared.projectId,
+      details.pendingOperationId
+    );
+    const committed = await service.commitL3Operation({
+      projectId: prepared.projectId,
+      pendingOperationId: details.pendingOperationId,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    });
+    const snapshot = await storage.loadProjectAggregate(prepared.projectId);
+    const currentChanged = snapshot?.events.slice().reverse().find(
+      (event) => event.eventType === "project.current_version_changed"
+    );
+    const targetStarted = snapshot?.events.slice().reverse().find(
+      (event) =>
+        event.eventType === "version.state_changed" &&
+        event.targetId === targetVersionId &&
+        event.toState === "running"
+    );
+
+    expect(snapshot?.project.currentVersionId).toBe(targetVersionId);
+    expect(snapshot?.versions.find((version) => version.id === prepared.versionId)).toMatchObject({
+      state: "close",
+      isCurrent: false
+    });
+    expect(snapshot?.versions.find((version) => version.id === targetVersionId)).toMatchObject({
+      state: "running",
+      isCurrent: true
+    });
+    expect(currentChanged?.operationId).toBe(targetStarted?.operationId);
+    expect(currentChanged?.operationSeq).toBeLessThan(targetStarted!.operationSeq);
+    expect(committed).toMatchObject({ replayed: false });
+    await expect(
+      service.commitL3Operation({
+        projectId: prepared.projectId,
+        pendingOperationId: details.pendingOperationId,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).resolves.toMatchObject({ replayed: true });
+  });
+
+  it("advance_to_version leaves the entire route and approval state unchanged when persistence fails", async () => {
+    const storage = new FailOnSaveStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    const targetVersionId = await createCommittedVersion(
+      service,
+      prepared.projectId,
+      "Next delivery"
+    );
+    await service.prepareVersion({
+      projectId: prepared.projectId,
+      versionId: targetVersionId,
+      actor: TEST_ACTOR
+    });
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+    await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
+    const details = await expectConfirmationRequired(
+      service.advanceToVersion({
+        projectId: prepared.projectId,
+        fromVersionId: prepared.versionId,
+        versionId: targetVersionId,
+        actor: TEST_ACTOR
+      })
+    );
+    const artifact = await createApprovedArtifact(
+      service,
+      prepared.projectId,
+      details.pendingOperationId
+    );
+    const beforeCommit = await storage.loadProjectAggregate(prepared.projectId);
+    storage.failOnce();
+
+    await expect(
+      service.commitL3Operation({
+        projectId: prepared.projectId,
+        pendingOperationId: details.pendingOperationId,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toThrow("injected save failure");
+    expect(await storage.loadProjectAggregate(prepared.projectId)).toEqual(beforeCommit);
+  });
+
+  it("advance_to_version records closed-current and direct-successor blockers and cannot partially commit", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    await createCommittedVersion(service, prepared.projectId, "Immediate successor");
+    const laterVersionId = await createCommittedVersion(service, prepared.projectId, "Later successor");
+    await service.prepareVersion({
+      projectId: prepared.projectId,
+      versionId: laterVersionId,
+      actor: TEST_ACTOR
+    });
+    const proposal = await service.proposeL3Operation({
+      projectId: prepared.projectId,
+      actionType: "advance_to_version",
+      targetId: laterVersionId,
+      reason: "invalid shortcut",
+      payload: { fromVersionId: prepared.versionId },
+      actor: TEST_ACTOR
+    });
+
+    expect(proposal.gateSnapshot.blockers.map((blocker) => blocker.code)).toEqual(
+      expect.arrayContaining(["CURRENT_VERSION_NOT_CLOSED", "TARGET_VERSION_NOT_NEXT"])
+    );
+    const artifact = await createApprovedArtifact(service, prepared.projectId, proposal.id);
+    const beforeCommit = await storage.loadProjectAggregate(prepared.projectId);
+    await expect(
+      service.commitL3Operation({
+        projectId: prepared.projectId,
+        pendingOperationId: proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({ code: "START_GATE_FAILED" });
+    expect(await storage.loadProjectAggregate(prepared.projectId)).toEqual(beforeCommit);
+  });
+
+  it("advance_to_version rejects approval replay when the approved direct-next topology drifts", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    const targetVersionId = await createCommittedVersion(service, prepared.projectId, "Next delivery");
+    await service.prepareVersion({
+      projectId: prepared.projectId,
+      versionId: targetVersionId,
+      actor: TEST_ACTOR
+    });
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+    await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
+    const proposal = await service.proposeL3Operation({
+      projectId: prepared.projectId,
+      actionType: "advance_to_version",
+      targetId: targetVersionId,
+      reason: "approved direct successor",
+      payload: { fromVersionId: prepared.versionId },
+      actor: TEST_ACTOR
+    });
+    const artifact = await createApprovedArtifact(service, prepared.projectId, proposal.id);
+    await storage.mutate(prepared.projectId, (snapshot) => ({
+      ...snapshot,
+      versions: snapshot.versions.map((version) =>
+        version.id === prepared.versionId ? { ...version, nextVersionId: null } : version
+      )
+    }));
+    const beforeCommit = await storage.loadProjectAggregate(prepared.projectId);
+
+    await expect(
+      service.commitL3Operation({
+        projectId: prepared.projectId,
+        pendingOperationId: proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({ code: "APPROVAL_ARTIFACT_DIGEST_MISMATCH" });
+    expect(await storage.loadProjectAggregate(prepared.projectId)).toEqual(beforeCommit);
+  });
+
   it("transition_version 浼氭寜 live 鐘舵€佺粰鍑轰笅涓€姝ワ紝骞跺湪闇€瑕佹椂鍙垱寤哄綋鍓嶅悎娉?proposal", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
@@ -156,10 +454,11 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
     const projectId = created.project.id;
-    const versionId = created.initialVersion.id;
+    const versionId = created.firstVersion!.id;
 
     const waitGuide = await service.getVersionTransitionGuide({
       projectId,
@@ -438,7 +737,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "transition-to-target",
           status: "blocked",
-          recommendedTool: "transition_version"
+          recommendedTool: "advance_to_version"
         })
       ])
     );
@@ -552,6 +851,48 @@ describe("route ledger service", () => {
 
     const snapshot = await storage.loadProjectAggregate(prepared.projectId);
     expect(snapshot?.pendingOperations.filter((operation) => operation.status === "pending")).toEqual([]);
+  });
+
+  it("get_version_transition_guide does not recommend advance_to_version for a non-direct successor", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    await createCommittedVersion(service, prepared.projectId, "Immediate successor");
+    const laterVersionId = await createCommittedVersion(
+      service,
+      prepared.projectId,
+      "Later successor"
+    );
+    await service.prepareVersion({
+      projectId: prepared.projectId,
+      versionId: laterVersionId,
+      actor: TEST_ACTOR
+    });
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+    await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
+
+    const guide = await service.getVersionTransitionGuide({
+      projectId: prepared.projectId,
+      targetVersionId: laterVersionId
+    });
+
+    expect(guide.recommendedSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepId: "transition-to-target",
+          actionType: "set_current_version",
+          recommendedTool: "transition_version"
+        })
+      ])
+    );
+    expect(guide.recommendedSteps.map((step) => step.recommendedTool)).not.toContain(
+      "advance_to_version"
+    );
   });
 
   it("close_version workflow 鍦?gate blocked 鏃跺彧杩斿洖 blockers锛屼笉鍒涘缓 pending proposal", async () => {
@@ -720,9 +1061,7 @@ describe("route ledger service", () => {
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).resolves.toMatchObject({ replayed: true });
   });
 
   it("direct closeVersion uses the ordinary close gate before creating a pending proposal", async () => {
@@ -897,9 +1236,7 @@ describe("route ledger service", () => {
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).resolves.toMatchObject({ replayed: true });
   });
 
   it("set_current_version 璧板畬鏁?L3 闂幆", async () => {
@@ -983,9 +1320,7 @@ describe("route ledger service", () => {
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).resolves.toMatchObject({ replayed: true });
   });
 
   it("version tree 鍥涗釜 L3 action 鍙畬鎴?commit锛屼笖涓嶆敼鍙?current 鐪熸簮", async () => {
@@ -997,6 +1332,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -1013,9 +1349,9 @@ describe("route ledger service", () => {
       title: "Version 2",
       description: "top level tail",
       parentVersionId: null,
-      previousVersionId: created.initialVersion.id,
+      previousVersionId: created.firstVersion!.id,
       nextVersionId: null,
-      siblingVersionIds: [created.initialVersion.id]
+      siblingVersionIds: [created.firstVersion!.id]
     });
     const createArtifact = await createApprovedArtifact(
       service,
@@ -1034,7 +1370,7 @@ describe("route ledger service", () => {
         projectId: created.project.id,
         title: "Version 1.5",
         description: "between roots",
-        afterVersionId: created.initialVersion.id,
+        afterVersionId: created.firstVersion!.id,
         actor: TEST_ACTOR
       })
     );
@@ -1053,7 +1389,7 @@ describe("route ledger service", () => {
     const childDetails = await expectConfirmationRequired(
       service.createChildVersion({
         projectId: created.project.id,
-        parentVersionId: created.initialVersion.id,
+        parentVersionId: created.firstVersion!.id,
         title: "Child 1",
         description: "child tail",
         actor: TEST_ACTOR
@@ -1099,7 +1435,7 @@ describe("route ledger service", () => {
       snapshot?.approvalArtifacts.filter((artifact) => artifact.status === "consumed") ?? [];
     const eventTypes = snapshot?.events.map((event) => event.eventType) ?? [];
 
-    expect(snapshot?.project.currentVersionId).toBe(created.initialVersion.id);
+    expect(snapshot?.project.currentVersionId).toBe(created.firstVersion!.id);
     expect(snapshot?.pendingOperations).toHaveLength(4);
     expect(committedOperations).toHaveLength(4);
     expect(committedOperations.map((operation) => operation.actionType)).toEqual([
@@ -1121,20 +1457,20 @@ describe("route ledger service", () => {
     expect(eventTypes).toContain("pending_operation.committed");
     expect(eventTypes).toContain("approval_artifact.consumed");
     expect(versions.map((version) => version.id)).toEqual([
-      created.initialVersion.id,
+      created.firstVersion!.id,
       childDetails.proposal.targetId,
       createDetails.proposal.targetId,
       insertDetails.proposal.targetId
     ]);
     expect(versions.map((version) => version.order)).toEqual([1, 2, 3, 4]);
-    expect(versions.find((version) => version.id === created.initialVersion.id)).toMatchObject({
+    expect(versions.find((version) => version.id === created.firstVersion!.id)).toMatchObject({
       parentVersionId: null,
       previousVersionId: null,
       nextVersionId: createDetails.proposal.targetId,
       isCurrent: true
     });
     expect(versions.find((version) => version.id === childDetails.proposal.targetId)).toMatchObject({
-      parentVersionId: created.initialVersion.id,
+      parentVersionId: created.firstVersion!.id,
       previousVersionId: null,
       nextVersionId: null,
       state: "wait",
@@ -1142,7 +1478,7 @@ describe("route ledger service", () => {
     });
     expect(versions.find((version) => version.id === createDetails.proposal.targetId)).toMatchObject({
       parentVersionId: null,
-      previousVersionId: created.initialVersion.id,
+      previousVersionId: created.firstVersion!.id,
       nextVersionId: insertDetails.proposal.targetId,
       state: "wait",
       isCurrent: false
@@ -1165,6 +1501,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -1177,14 +1514,14 @@ describe("route ledger service", () => {
     );
 
     await storage.mutate(created.project.id, (snapshot) => {
-      const currentRoot = snapshot.versions.find((version) => version.id === created.initialVersion.id)!;
+      const currentRoot = snapshot.versions.find((version) => version.id === created.firstVersion!.id)!;
       const extraVersion = createVersionFixture({
         id: "version-extra",
         projectId: created.project.id,
         title: "Extra Root",
         order: 2,
         parentVersionId: null,
-        previousVersionId: created.initialVersion.id,
+        previousVersionId: created.firstVersion!.id,
         nextVersionId: null,
         isCurrent: false
       });

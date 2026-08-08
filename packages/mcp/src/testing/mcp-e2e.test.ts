@@ -38,10 +38,16 @@ describe("routeledger mcp registry", () => {
         "--name",
         "RouteLedger",
         "--content-locale",
-        "en"
+        "en",
+        "--first-version",
+        JSON.stringify({
+          title: "Initial Version",
+          description: "Project bootstrap version",
+          initialTodos: []
+        })
       ]);
       const cliProjectId = cliInit.stdoutJson.data.project.id as string;
-      const cliVersionId = cliInit.stdoutJson.data.initialVersion.id as string;
+      const cliVersionId = cliInit.stdoutJson.data.firstVersion!.id as string;
       await runCliJson(cliRoot, [
         "version",
         "prepare",
@@ -92,12 +98,12 @@ describe("routeledger mcp registry", () => {
         project: {
           id: string;
         };
-        initialVersion: {
+        firstVersion: {
           id: string;
         };
       };
       const mcpProjectId = mcpInitData.project.id;
-      const mcpVersionId = mcpInitData.initialVersion.id;
+      const mcpVersionId = mcpInitData.firstVersion!.id;
       await registry.invoke("prepare_version", {
         projectId: mcpProjectId,
         versionId: mcpVersionId
@@ -176,7 +182,7 @@ describe("routeledger mcp registry", () => {
       const tools = (response as ToolListResult).result.tools;
       const toolNames = tools.map((tool) => tool.name);
 
-      expect(tools).toHaveLength(41);
+      expect(tools).toHaveLength(42);
       expect(toolNames).not.toContain("open_mission_control");
       expect(toolNames).not.toContain("get_mission_control_status");
       expect(toolNames).toContain("get_runtime_context");
@@ -317,6 +323,7 @@ describe("routeledger mcp registry", () => {
             runtimeIdentity: {
               artifactKind: "source",
               pluginVersion: null,
+              releaseTag: null,
               runtimeProfile: "full"
             }
           }
@@ -349,6 +356,7 @@ describe("routeledger mcp registry", () => {
                 runtimeProfile: "full",
                 artifactKind: "source",
                 pluginVersion: null,
+                releaseTag: null,
                 sourceTreeState: "unavailable",
                 buildCommit: null,
                 artifactDigest: null,

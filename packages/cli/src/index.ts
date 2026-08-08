@@ -619,6 +619,11 @@ const handleCommand = async ({
       const name = requireFlagValue(argv, "--name");
       const description = getFlagValue(argv, "--description");
       const contentLocale = getFlagValue(argv, "--content-locale");
+      const firstVersion = parseJsonFlag<{
+        title: string;
+        description?: string;
+        initialTodos: string[];
+      }>(argv, "--first-version");
       if (contentLocale === undefined || contentLocale.startsWith("--")) {
         throw new ApplicationError(
           "CONTENT_LOCALE_REQUIRED",
@@ -629,6 +634,7 @@ const handleCommand = async ({
         name,
         description,
         contentLocale,
+        firstVersion: firstVersion ?? null,
         actor: DEFAULT_ACTOR
       });
 
@@ -1143,6 +1149,20 @@ const handleCommand = async ({
           data: await service.setCurrentVersion({
             projectId,
             versionId,
+            actor: DEFAULT_ACTOR
+          })
+        };
+      }
+
+      if (subcommand === "advance") {
+        const versionId = requireFlagValue(argv, "--version-id");
+        return {
+          ok: true,
+          data: await service.advanceToVersion({
+            projectId,
+            versionId,
+            fromVersionId: getFlagValue(argv, "--from-version-id"),
+            reason: getFlagValue(argv, "--reason"),
             actor: DEFAULT_ACTOR
           })
         };

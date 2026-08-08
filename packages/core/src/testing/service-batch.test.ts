@@ -5,6 +5,76 @@ import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, FailOnSaveStorageAdapter, createApprovedArtifact } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
+  it("batch_create_versions requires and atomically applies setCurrentTo when an empty route gets its first nodes", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const created = await service.initProject({
+      contentLocale: "en",
+      name: "Empty Route",
+      firstVersion: null,
+      actor: TEST_ACTOR
+    });
+    const items = [
+      {
+        clientKey: "first",
+        title: "First delivery",
+        description: "first real node",
+        initialTodos: ["Confirm scope"]
+      },
+      {
+        clientKey: "second",
+        title: "Second delivery",
+        description: "direct successor",
+        initialTodos: []
+      }
+    ];
+
+    const missingSelection = await service.batchCreateVersions({
+      projectId: created.project.id,
+      mode: "preflight",
+      items,
+      actor: TEST_ACTOR
+    });
+    expect(missingSelection).toMatchObject({
+      ok: false,
+      code: "BATCH_VERSION_PLAN_INVALID",
+      issues: [expect.objectContaining({ code: "SET_CURRENT_TARGET_INVALID" })]
+    });
+
+    const proposed = await service.batchCreateVersions({
+      projectId: created.project.id,
+      mode: "propose",
+      items,
+      setCurrentTo: "first",
+      actor: TEST_ACTOR
+    });
+    expect(proposed).toMatchObject({ ok: true, pendingOperationId: expect.any(String) });
+    if (!proposed.ok || !("pendingOperationId" in proposed)) {
+      throw new Error("expected proposal");
+    }
+    const artifact = await createApprovedArtifact(
+      service,
+      created.project.id,
+      proposed.pendingOperationId
+    );
+    await service.commitL3Operation({
+      projectId: created.project.id,
+      pendingOperationId: proposed.pendingOperationId,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    });
+    const snapshot = await storage.loadProjectAggregate(created.project.id);
+
+    expect(snapshot?.versions.map((version) => version.title)).toEqual([
+      "First delivery",
+      "Second delivery"
+    ]);
+    expect(snapshot?.project.currentVersionId).toBe(snapshot?.versions[0]?.id);
+    expect(snapshot?.versions[0]?.isCurrent).toBe(true);
+    expect(snapshot?.versions[1]?.isCurrent).toBe(false);
+    expect(snapshot?.todos.map((todo) => todo.title)).toEqual(["Confirm scope"]);
+  });
+
   it("batch_create_versions preflight 鎴愬姛鏃惰繑鍥?normalizedPlan/preview/risks 涓斾笉鍒涘缓 proposal", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
@@ -14,6 +84,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -21,7 +92,7 @@ describe("route ledger service", () => {
       projectId: created.project.id,
       mode: "preflight",
       anchor: {
-        afterVersionId: created.initialVersion.id
+        afterVersionId: created.firstVersion!.id
       },
       items: [
         {
@@ -54,13 +125,13 @@ describe("route ledger service", () => {
     });
     expect(result.resolvedAnchors).toEqual({
       parentVersionId: null,
-      afterVersionId: created.initialVersion.id,
+      afterVersionId: created.firstVersion!.id,
       beforeVersionId: null
     });
     expect(result.preview.createdVersions).toHaveLength(2);
     expect(result.preview.createdVersions[0]).toMatchObject({
       clientKey: "plan-a",
-      previousRef: created.initialVersion.id
+      previousRef: created.firstVersion!.id
     });
     expect(result.preview.createdVersions[1]).toMatchObject({
       clientKey: "plan-b",
@@ -100,13 +171,14 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
     await storage.mutate(created.project.id, (snapshot) => ({
       ...snapshot,
       versions: snapshot.versions.map((version) =>
-        version.id === created.initialVersion.id
+        version.id === created.firstVersion!.id
           ? {
               ...version,
               state: "close"
@@ -119,7 +191,7 @@ describe("route ledger service", () => {
       projectId: created.project.id,
       mode: "preflight",
       anchor: {
-        afterVersionId: created.initialVersion.id
+        afterVersionId: created.firstVersion!.id
       },
       items: [
         {
@@ -157,6 +229,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -204,6 +277,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -244,6 +318,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -285,6 +360,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -292,7 +368,7 @@ describe("route ledger service", () => {
       projectId: created.project.id,
       mode: "propose",
       anchor: {
-        afterVersionId: created.initialVersion.id
+        afterVersionId: created.firstVersion!.id
       },
       items: [
         {
@@ -346,7 +422,7 @@ describe("route ledger service", () => {
     expect(snapshot?.todos.map((todo) => todo.title)).toEqual(["write docs", "prepare review"]);
     expect(snapshot?.project.currentVersionId).toBe(versions[2]?.id);
     expect(versions[0]).toMatchObject({
-      id: created.initialVersion.id,
+      id: created.firstVersion!.id,
       state: "wait",
       isCurrent: false
     });
@@ -366,6 +442,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -408,6 +485,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
     const proposed = await service.batchCreateVersions({

@@ -10,6 +10,7 @@ export const L3_ACTION_TYPES = [
   "shutdown_version",
   "reopen_version",
   "set_current_version",
+  "advance_to_version",
   "create_version",
   "insert_version",
   "create_child_version",
@@ -173,6 +174,7 @@ export interface BatchCreateVersionsNotice {
 
 export interface PendingOperationPayload {
   currentVersionId?: string | null;
+  fromVersionId?: string;
   residualAudit?: ResidualAuditItem[] | null;
   /** Explicit evidence that residualAudit was reviewed even when it is empty. */
   residualAuditReviewed?: boolean;
@@ -183,6 +185,7 @@ export interface PendingOperationPayload {
   previousVersionId?: string | null;
   nextVersionId?: string | null;
   siblingVersionIds?: string[];
+  setAsCurrent?: boolean;
   batchItems?: BatchCreateVersionsItemInput[];
   batchAnchor?: BatchCreateVersionsAnchor;
   batchNormalizedPlan?: BatchCreateVersionsNormalizedItem[];
@@ -252,6 +255,8 @@ export type CurrentContextNextActionType =
   | "close_todo"
   | "close_version"
   | "prepare_version"
+  | "create_version"
+  | "advance_to_version"
   | "start_version"
   | "review_context"
   | "none";

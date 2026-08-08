@@ -54,6 +54,7 @@ export const PROMPT_APPROVAL_TOOLS = [
     "set_project_content_locale",
     "batch_create_versions",
     "transition_version",
+    "advance_to_version",
     "close_version",
     "shutdown_version",
     "create_todo",
