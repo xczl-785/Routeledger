@@ -13,7 +13,7 @@ CREATE TABLE projects (
   description TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
   current_version_id TEXT,
-  initial_version_id TEXT NOT NULL,
+  initial_version_id TEXT,
   created_by_id TEXT NOT NULL,
   created_by_type TEXT NOT NULL CHECK (created_by_type IN ('user', 'agent', 'system')),
   created_by_display_name TEXT,
@@ -882,6 +882,13 @@ CREATE INDEX idx_transition_events_target
   ON transition_events(project_id, target_type, target_id);
 `;
 
+const PROJECT_ROOT_SQL = `
+ALTER TABLE projects RENAME COLUMN initial_version_id TO legacy_initial_version_id;
+ALTER TABLE projects ADD COLUMN initial_version_id TEXT;
+UPDATE projects SET initial_version_id = legacy_initial_version_id;
+ALTER TABLE projects DROP COLUMN legacy_initial_version_id;
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -898,6 +905,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0004_d2a_deferred_items_and_constraints",
     sql: D2A_DEFERRED_CONSTRAINT_SQL
+  },
+  {
+    id: "0005_project_root",
+    sql: PROJECT_ROOT_SQL
   }
 ];
 

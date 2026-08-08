@@ -150,6 +150,7 @@ describe("JsonFirstStorageAdapter", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "Legacy digest",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent"
@@ -157,7 +158,7 @@ describe("JsonFirstStorageAdapter", () => {
       });
       await service.prepareVersion({
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         actor: {
           id: "primary-agent",
           type: "agent"
@@ -166,7 +167,7 @@ describe("JsonFirstStorageAdapter", () => {
       const proposal = await service.proposeL3Operation({
         projectId: created.project.id,
         actionType: "start_version",
-        targetId: created.initialVersion.id,
+        targetId: created.firstVersion!.id,
         reason: "legacy JSON compatibility",
         actor: {
           id: "primary-agent",
@@ -411,6 +412,7 @@ describe("JsonFirstStorageAdapter", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -426,7 +428,7 @@ describe("JsonFirstStorageAdapter", () => {
         title: "Persist Deferred",
         type: "other",
         status: "active",
-        originVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
         activeRecordType: "deferred",
         activeRecordId: "deferred-1",
         createdBy: created.project.createdBy,
@@ -439,8 +441,8 @@ describe("JsonFirstStorageAdapter", () => {
         id: "deferred-1",
         projectId: created.project.id,
         workItemId: "work-item-deferred-1",
-        originVersionId: created.initialVersion.id,
-        targetReviewVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
+        targetReviewVersionId: created.firstVersion!.id,
         title: "Persist Deferred",
         description: "",
         status: "pending",
@@ -517,6 +519,7 @@ describe("JsonFirstStorageAdapter", () => {
       const created = await runtime.service.initProject({
       contentLocale: "en",
         name: "JSON-first application commands",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent"
@@ -532,7 +535,7 @@ describe("JsonFirstStorageAdapter", () => {
         title: "JSON-first review version",
         state: "wait",
         order: 2,
-        previousVersionId: created.initialVersion.id,
+        previousVersionId: created.firstVersion!.id,
         nextVersionId: null,
         isCurrent: false
       });
@@ -548,7 +551,7 @@ describe("JsonFirstStorageAdapter", () => {
       const deferred = await runtime.service.deferWork({
         mode: "new",
         projectId: created.project.id,
-        originVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
         targetReviewVersionId: reviewVersion.id,
         title: "JSON-first deferred command",
         reason: "Review downstream",
@@ -644,6 +647,7 @@ describe("JsonFirstStorageAdapter", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -684,6 +688,7 @@ describe("JsonFirstStorageAdapter", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -793,8 +798,9 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -846,8 +852,9 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -927,8 +934,9 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -950,7 +958,7 @@ describe("JsonFirstStorageAdapter", () => {
           id: "version-2",
           projectId: created.project.id,
           title: "Downstream",
-          previousVersionId: created.initialVersion.id,
+          previousVersionId: created.firstVersion!.id,
           order: 2,
           createdAt: "2026-06-27T01:00:00.000Z",
           updatedAt: "2026-06-27T01:00:00.000Z"
@@ -960,7 +968,7 @@ describe("JsonFirstStorageAdapter", () => {
         createWorkItemFixture({
           id: "work-item-undo-1",
           projectId: created.project.id,
-          originVersionId: created.initialVersion.id,
+          originVersionId: created.firstVersion!.id,
           activeRecordType: "undo",
           activeRecordId: "undo-1",
           summary: "Carry-forwarded undo"
@@ -971,8 +979,8 @@ describe("JsonFirstStorageAdapter", () => {
           id: "undo-1",
           projectId: created.project.id,
           workItemId: "work-item-undo-1",
-          versionId: created.initialVersion.id,
-          originVersionId: created.initialVersion.id,
+          versionId: created.firstVersion!.id,
+          originVersionId: created.firstVersion!.id,
           preferredResolutionVersionId: "version-2",
           title: "Carry-forwarded undo",
           carriedForwardAt: "2026-06-27T01:00:00.000Z",
@@ -1024,8 +1032,9 @@ describe("JsonFirstStorageAdapter", () => {
 
     try {
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: {
           id: "primary-agent",
           type: "agent",
@@ -1047,7 +1056,7 @@ describe("JsonFirstStorageAdapter", () => {
           id: "version-2",
           projectId: created.project.id,
           title: "Downstream",
-          previousVersionId: created.initialVersion.id,
+          previousVersionId: created.firstVersion!.id,
           order: 2,
           createdAt: "2026-06-27T01:00:00.000Z",
           updatedAt: "2026-06-27T01:00:00.000Z"
@@ -1057,7 +1066,7 @@ describe("JsonFirstStorageAdapter", () => {
         createWorkItemFixture({
           id: "work-item-undo-1",
           projectId: created.project.id,
-          originVersionId: created.initialVersion.id,
+          originVersionId: created.firstVersion!.id,
           activeRecordType: "undo",
           activeRecordId: "undo-1",
           summary: "Carry-forwarded undo"
@@ -1068,8 +1077,8 @@ describe("JsonFirstStorageAdapter", () => {
           id: "undo-1",
           projectId: created.project.id,
           workItemId: "work-item-undo-1",
-          versionId: created.initialVersion.id,
-          originVersionId: created.initialVersion.id,
+          versionId: created.firstVersion!.id,
+          originVersionId: created.firstVersion!.id,
           preferredResolutionVersionId: "version-2",
           title: "Carry-forwarded undo",
           updatedAt: "2026-06-27T01:00:00.000Z"

@@ -45,6 +45,44 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("init_project without firstVersion creates an initialized empty route", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot
+    });
+
+    try {
+      const initialized = await registry.invoke("init_project", {
+        name: "Empty Route",
+        contentLocale: "zh-CN",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(initialized).toMatchObject({
+        ok: true,
+        data: {
+          project: { currentVersionId: null, initialVersionId: null },
+          firstVersion: null,
+          todos: []
+        }
+      });
+
+      const projectId = (initialized.data as { project: { id: string } }).project.id;
+      const context = await registry.invoke("get_current_context", { projectId });
+      expect(context).toMatchObject({
+        ok: true,
+        data: {
+          currentVersion: null,
+          versions: [],
+          nextAction: { actionType: "create_version" }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("tools/list uses standard annotations and host policy metadata", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -73,7 +111,7 @@ describe("routeledger mcp registry", () => {
       const highRiskTools = tools.filter(
         (tool) => tool._meta.routeledger.riskLevel === "high-risk"
       );
-      expect(tools).toHaveLength(43);
+      expect(tools).toHaveLength(44);
       const runtimeContextTool = tools.find((tool) => tool.name === "get_runtime_context");
       const openMissionControlTool = tools.find((tool) => tool.name === "open_mission_control");
       const writeHostBindingConfigTool = tools.find(
@@ -135,7 +173,7 @@ describe("routeledger mcp registry", () => {
         outputPath: expect.objectContaining({ type: "string" }),
         expectedRouteLedgerRoot: expect.objectContaining({ type: "string" })
       });
-      expect(writeTools).toHaveLength(20);
+      expect(writeTools).toHaveLength(21);
       expect(highRiskTools).toHaveLength(4);
       for (const tool of [...writeTools, ...highRiskTools]) {
         expect(tool.inputSchema.properties).toHaveProperty("expectedRouteLedgerRoot");
@@ -441,12 +479,12 @@ describe("routeledger mcp registry", () => {
       expect(defaultInitResponse.ok).toBe(true);
       const defaultProjectId = (defaultInitResponse.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       }).project.id;
       const defaultVersionId = (defaultInitResponse.data as {
         project: { id: string };
-        initialVersion: { id: string };
-      }).initialVersion.id;
+        firstVersion: { id: string };
+      }).firstVersion!.id;
 
       const defaultGateResponse = await defaultRegistry.invoke("check_start_gate", {
         projectId: defaultProjectId,
@@ -462,12 +500,12 @@ describe("routeledger mcp registry", () => {
       expect(enabledInitResponse.ok).toBe(true);
       const enabledData = enabledInitResponse.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       };
 
       const enabledGateResponse = await enabledRegistry.invoke("check_start_gate", {
         projectId: enabledData.project.id,
-        versionId: enabledData.initialVersion.id
+        versionId: enabledData.firstVersion!.id
       });
       expect(enabledGateResponse.ok).toBe(true);
       const failureResponse = await enabledRegistry.invoke("get_current_context", {
@@ -480,7 +518,7 @@ describe("routeledger mcp registry", () => {
           type: "gate.start",
           toolName: "check_start_gate",
           projectId: enabledData.project.id,
-          versionId: enabledData.initialVersion.id,
+          versionId: enabledData.firstVersion!.id,
           actorId: "debug-agent",
           actorDisplayName: "Debug Agent",
           hostProfile: "codex",

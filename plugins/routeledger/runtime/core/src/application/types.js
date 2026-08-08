@@ -4,6 +4,7 @@ export const L3_ACTION_TYPES = [
     "shutdown_version",
     "reopen_version",
     "set_current_version",
+    "advance_to_version",
     "create_version",
     "insert_version",
     "create_child_version",

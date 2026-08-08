@@ -655,6 +655,7 @@ const payloadSchema = objectSchema(
         }
       ]
     },
+    fromVersionId: stringSchema("Expected current Version ID for advance_to_version."),
     residualAudit: {
       ...residualAuditInputSchema
     },
@@ -715,6 +716,19 @@ const batchCreateVersionsItemSchema = objectSchema(
     }
   },
   ["clientKey", "title", "description", "initialTodos"]
+);
+
+const firstVersionSchema = objectSchema(
+  {
+    title: stringSchema("Title of the first real Version."),
+    description: stringSchema("Optional first Version description."),
+    initialTodos: {
+      type: "array",
+      description: "Initial Todo titles. The field is required and may be an empty array.",
+      items: stringSchema("Todo title.")
+    }
+  },
+  ["title", "initialTodos"]
 );
 
 const docDriftExpectedPointerSchema = objectSchema(
@@ -1288,7 +1302,7 @@ export const createRouteLedgerMcpRegistry = (
     );
     const contentLocaleEffectiveScopes = [
       "project_setting",
-      "initial_version_defaults",
+      "agent_content_default",
       "write_integrity_gate"
     ] as const;
     const contentLocale =
@@ -1780,7 +1794,8 @@ export const createRouteLedgerMcpRegistry = (
           description: stringSchema("Optional project description."),
           contentLocale: stringSchema(
             "Concrete BCP 47 locale confirmed by the user for future project content. null and auto are not allowed."
-          )
+          ),
+          firstVersion: firstVersionSchema
         },
         ["name", "contentLocale"]
       ),
@@ -1795,6 +1810,7 @@ export const createRouteLedgerMcpRegistry = (
           name: input.name,
           description: input.description,
           contentLocale: input.contentLocale,
+          firstVersion: input.firstVersion ?? null,
           actor
         })
       })
@@ -2390,6 +2406,36 @@ export const createRouteLedgerMcpRegistry = (
           projectId: input.projectId,
           versionId: input.versionId,
           mode: parseRouteOperationWorkflowMode(input.mode),
+          reason: input.reason,
+          actor
+        })
+      })
+    ),
+    defineTool(
+      "advance_to_version",
+      {
+        what: "Atomically switch to and start the ready next Version.",
+        warning: "Returns one L3 proposal."
+      },
+      objectSchema(
+        {
+          projectId: stringSchema("RouteLedger project ID."),
+          versionId: stringSchema("Ready target Version ID."),
+          fromVersionId: stringSchema("Optional expected closed current Version ID."),
+          reason: stringSchema("Optional proposal reason override.")
+        },
+        ["projectId", "versionId"]
+      ),
+      {
+        title: "Advance To Version",
+        riskLevel: "write"
+      },
+      async (input) => ({
+        ok: true,
+        data: await service.advanceToVersion({
+          projectId: input.projectId,
+          versionId: input.versionId,
+          fromVersionId: input.fromVersionId,
           reason: input.reason,
           actor
         })
@@ -3009,6 +3055,7 @@ export const createRouteLedgerMcpRegistry = (
               "shutdown_version",
               "reopen_version",
               "set_current_version",
+              "advance_to_version",
               "create_version",
               "insert_version",
               "create_child_version",

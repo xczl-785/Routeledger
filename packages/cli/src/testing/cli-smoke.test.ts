@@ -8,19 +8,50 @@ import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
 import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 import { decodeProjectAggregateFromJsonDocuments } from "@routeledger/json";
 
-import { createTempProjectRoot, cleanupProjectRoot, removeSqliteFiles, readJsonDocuments, readDocumentBytesByPaths, runCliJson, createVersionViaL3, setCurrentVersionViaL3 } from "./cli-test-helpers.js";
+import { createTempProjectRoot, cleanupProjectRoot, removeSqliteFiles, readJsonDocuments, readDocumentBytesByPaths, runCliJson, runCliJsonWithFirstVersion, createVersionViaL3, setCurrentVersionViaL3 } from "./cli-test-helpers.js";
 describe("routeledger cli", () => {
+  it("init_project 默认只创建 Project 逻辑根", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const initialized = await runCliJson(
+        projectRoot,
+        ["init_project", "--name", "Empty Route", "--content-locale", "zh-CN"]
+      );
+      const projectId = initialized.stdoutJson.data.project.id as string;
+
+      expect(initialized.stdoutJson.data).toMatchObject({
+        project: { currentVersionId: null, initialVersionId: null },
+        firstVersion: null,
+        todos: []
+      });
+
+      const context = await runCliJsonWithFirstVersion(projectRoot, [
+        "context",
+        "--project-id",
+        projectId
+      ]);
+      expect(context.stdoutJson.data).toMatchObject({
+        currentVersion: null,
+        versions: [],
+        nextAction: { actionType: "create_version" }
+      });
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("init_project requires a concrete content locale and rejects auto", async () => {
     const missingRoot = createTempProjectRoot();
     const autoRoot = createTempProjectRoot();
 
     try {
-      const missing = await runCliJson(missingRoot, [
+      const missing = await runCliJsonWithFirstVersion(missingRoot, [
         "init_project",
         "--name",
         "Missing Locale"
       ]);
-      const automatic = await runCliJson(autoRoot, [
+      const automatic = await runCliJsonWithFirstVersion(autoRoot, [
         "init_project",
         "--name",
         "Auto Locale",
@@ -52,7 +83,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initialized = await runCliJson(projectRoot, [
+      const initialized = await runCliJsonWithFirstVersion(projectRoot, [
         "init_project",
         "--name",
         "Legacy Locale",
@@ -73,7 +104,7 @@ describe("routeledger cli", () => {
         .run(JSON.stringify(settings), projectId);
       database.close();
 
-      const resolved = await runCliJson(projectRoot, [
+      const resolved = await runCliJsonWithFirstVersion(projectRoot, [
         "set_project_content_locale",
         "--project-id",
         projectId,
@@ -103,13 +134,13 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
       expect(initResult.exitCode).toBe(0);
 
-      const prepareResult = await runCliJson(projectRoot, [
+      const prepareResult = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -120,7 +151,7 @@ describe("routeledger cli", () => {
 
       expect(prepareResult.exitCode).toBe(0);
 
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -135,7 +166,7 @@ describe("routeledger cli", () => {
 
       const pendingOperationId = bareStart.stderrJson.error.details.pendingOperationId as string;
 
-      const approveResult = await runCliJson(projectRoot, [
+      const approveResult = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -147,7 +178,7 @@ describe("routeledger cli", () => {
       expect(approveResult.exitCode).toBe(0);
 
       const approvalArtifactId = approveResult.stdoutJson.data.id as string;
-      const commitResult = await runCliJson(projectRoot, [
+      const commitResult = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -160,13 +191,13 @@ describe("routeledger cli", () => {
 
       expect(commitResult.exitCode).toBe(0);
 
-      const contextResult = await runCliJson(projectRoot, [
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--json",
         "--project-id",
         projectId
       ]);
-      const versionsResult = await runCliJson(projectRoot, [
+      const versionsResult = await runCliJsonWithFirstVersion(projectRoot, [
         "versions",
         "list",
         "--project-id",
@@ -184,9 +215,9 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const createdVersionIds = [initResult.stdoutJson.data.initialVersion.id as string];
+      const createdVersionIds = [initResult.stdoutJson.data.firstVersion!.id as string];
 
       for (const title of [
         "Version 2",
@@ -202,18 +233,18 @@ describe("routeledger cli", () => {
 
       await setCurrentVersionViaL3(projectRoot, projectId, createdVersionIds[3]!);
 
-      const defaultContextResult = await runCliJson(projectRoot, [
+      const defaultContextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId
       ]);
-      const fullContextResult = await runCliJson(projectRoot, [
+      const fullContextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId,
         "--include-all-versions"
       ]);
-      const customWindowResult = await runCliJson(projectRoot, [
+      const customWindowResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId,
@@ -222,7 +253,7 @@ describe("routeledger cli", () => {
         "--version-window-after",
         "2"
       ]);
-      const versionsResult = await runCliJson(projectRoot, [
+      const versionsResult = await runCliJsonWithFirstVersion(projectRoot, [
         "versions",
         "list",
         "--project-id",
@@ -287,11 +318,11 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -300,7 +331,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
 
-      const startGateResult = await runCliJson(projectRoot, [
+      const startGateResult = await runCliJsonWithFirstVersion(projectRoot, [
         "gate",
         "check-start",
         "--project-id",
@@ -316,7 +347,7 @@ describe("routeledger cli", () => {
       expect(startGateResult.stdoutJson.data).toHaveProperty("openTodoIds");
       expect(startGateResult.stdoutJson.data).toHaveProperty("dueUndoIds");
 
-      const startContextResult = await runCliJson(projectRoot, [
+      const startContextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--json",
         "--project-id",
@@ -325,7 +356,7 @@ describe("routeledger cli", () => {
 
       expect(startContextResult.stdoutJson.data.currentVersion.state).toBe("ready");
 
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -334,7 +365,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
       const startProposalId = bareStart.stderrJson.error.details.pendingOperationId as string;
-      const startApprove = await runCliJson(projectRoot, [
+      const startApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -342,7 +373,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         startProposalId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -352,7 +383,7 @@ describe("routeledger cli", () => {
         "--approval-artifact-id",
         startApprove.stdoutJson.data.id
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "complete",
         "--project-id",
@@ -361,7 +392,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
 
-      const closeGateResult = await runCliJson(projectRoot, [
+      const closeGateResult = await runCliJsonWithFirstVersion(projectRoot, [
         "gate",
         "check-close",
         "--project-id",
@@ -377,7 +408,7 @@ describe("routeledger cli", () => {
       expect(closeGateResult.stdoutJson.data).toHaveProperty("unresolvedTodoIds");
       expect(closeGateResult.stdoutJson.data).toHaveProperty("unresolvedUndoIds");
 
-      const closeContextResult = await runCliJson(projectRoot, [
+      const closeContextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--json",
         "--project-id",
@@ -394,11 +425,11 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -406,7 +437,7 @@ describe("routeledger cli", () => {
         "--version-id",
         versionId
       ]);
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -415,7 +446,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
       const startProposalId = bareStart.stderrJson.error.details.pendingOperationId as string;
-      const startApprove = await runCliJson(projectRoot, [
+      const startApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -423,7 +454,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         startProposalId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -433,7 +464,7 @@ describe("routeledger cli", () => {
         "--approval-artifact-id",
         startApprove.stdoutJson.data.id
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "complete",
         "--project-id",
@@ -442,7 +473,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
 
-      const bareClose = await runCliJson(projectRoot, [
+      const bareClose = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "close",
         "--project-id",
@@ -455,7 +486,7 @@ describe("routeledger cli", () => {
       expect(bareClose.exitCode).not.toBe(0);
       expect(bareClose.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const closeProposalId = bareClose.stderrJson.error.details.pendingOperationId as string;
-      const closeApprove = await runCliJson(projectRoot, [
+      const closeApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -463,7 +494,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         closeProposalId
       ]);
-      const closeCommit = await runCliJson(projectRoot, [
+      const closeCommit = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -475,7 +506,7 @@ describe("routeledger cli", () => {
       ]);
       expect(closeCommit.exitCode).toBe(0);
 
-      const bareReopen = await runCliJson(projectRoot, [
+      const bareReopen = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "reopen",
         "--project-id",
@@ -486,7 +517,7 @@ describe("routeledger cli", () => {
       expect(bareReopen.exitCode).not.toBe(0);
       expect(bareReopen.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const reopenProposalId = bareReopen.stderrJson.error.details.pendingOperationId as string;
-      const reopenApprove = await runCliJson(projectRoot, [
+      const reopenApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -494,7 +525,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         reopenProposalId
       ]);
-      const reopenCommit = await runCliJson(projectRoot, [
+      const reopenCommit = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -506,7 +537,7 @@ describe("routeledger cli", () => {
       ]);
       expect(reopenCommit.exitCode).toBe(0);
 
-      const bareCurrentSet = await runCliJson(projectRoot, [
+      const bareCurrentSet = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "current",
         "set",
@@ -518,7 +549,7 @@ describe("routeledger cli", () => {
       expect(bareCurrentSet.exitCode).not.toBe(0);
       expect(bareCurrentSet.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const currentSetProposalId = bareCurrentSet.stderrJson.error.details.pendingOperationId as string;
-      const currentSetApprove = await runCliJson(projectRoot, [
+      const currentSetApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -526,7 +557,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         currentSetProposalId
       ]);
-      const currentSetCommit = await runCliJson(projectRoot, [
+      const currentSetCommit = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -546,11 +577,11 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const initialVersionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
-      const createResult = await runCliJson(projectRoot, [
+      const createResult = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "create",
         "--project-id",
@@ -562,7 +593,7 @@ describe("routeledger cli", () => {
       expect(createResult.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const createProposalId = createResult.stderrJson.error.details.pendingOperationId as string;
       const createdVersionId = createResult.stderrJson.error.details.proposal.targetId as string;
-      const createApprove = await runCliJson(projectRoot, [
+      const createApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -570,7 +601,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         createProposalId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -581,7 +612,7 @@ describe("routeledger cli", () => {
         createApprove.stdoutJson.data.id
       ]);
 
-      const insertResult = await runCliJson(projectRoot, [
+      const insertResult = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "insert",
         "--project-id",
@@ -595,7 +626,7 @@ describe("routeledger cli", () => {
       expect(insertResult.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const insertProposalId = insertResult.stderrJson.error.details.pendingOperationId as string;
       const insertedVersionId = insertResult.stderrJson.error.details.proposal.targetId as string;
-      const insertApprove = await runCliJson(projectRoot, [
+      const insertApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -603,7 +634,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         insertProposalId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -614,7 +645,7 @@ describe("routeledger cli", () => {
         insertApprove.stdoutJson.data.id
       ]);
 
-      const childResult = await runCliJson(projectRoot, [
+      const childResult = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "child",
         "create",
@@ -629,7 +660,7 @@ describe("routeledger cli", () => {
       expect(childResult.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const childProposalId = childResult.stderrJson.error.details.pendingOperationId as string;
       const childVersionId = childResult.stderrJson.error.details.proposal.targetId as string;
-      const childApprove = await runCliJson(projectRoot, [
+      const childApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -637,7 +668,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         childProposalId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -648,7 +679,7 @@ describe("routeledger cli", () => {
         childApprove.stdoutJson.data.id
       ]);
 
-      const reorderResult = await runCliJson(projectRoot, [
+      const reorderResult = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "reorder",
         "--project-id",
@@ -661,7 +692,7 @@ describe("routeledger cli", () => {
       expect(reorderResult.exitCode).not.toBe(0);
       expect(reorderResult.stderrJson.error.code).toBe("CONFIRMATION_REQUIRED");
       const reorderProposalId = reorderResult.stderrJson.error.details.pendingOperationId as string;
-      const reorderApprove = await runCliJson(projectRoot, [
+      const reorderApprove = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -669,7 +700,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         reorderProposalId
       ]);
-      const reorderCommit = await runCliJson(projectRoot, [
+      const reorderCommit = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -681,7 +712,7 @@ describe("routeledger cli", () => {
       ]);
       expect(reorderCommit.exitCode).toBe(0);
 
-      const versionsResult = await runCliJson(projectRoot, [
+      const versionsResult = await runCliJsonWithFirstVersion(projectRoot, [
         "versions",
         "list",
         "--project-id",
@@ -706,10 +737,10 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
-      const invalidPreflight = await runCliJson(projectRoot, [
+      const initialVersionId = initResult.stdoutJson.data.firstVersion!.id as string;
+      const invalidPreflight = await runCliJsonWithFirstVersion(projectRoot, [
         "batch_create_versions",
         "--project-id",
         projectId,
@@ -727,7 +758,7 @@ describe("routeledger cli", () => {
           }
         ])
       ]);
-      const validPropose = await runCliJson(projectRoot, [
+      const validPropose = await runCliJsonWithFirstVersion(projectRoot, [
         "batch_create_versions",
         "--project-id",
         projectId,
@@ -767,9 +798,9 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const invalidMode = await runCliJson(projectRoot, [
+      const invalidMode = await runCliJsonWithFirstVersion(projectRoot, [
         "batch_create_versions",
         "--project-id",
         projectId,
@@ -785,7 +816,7 @@ describe("routeledger cli", () => {
           }
         ])
       ]);
-      const contextResult = await runCliJson(projectRoot, ["context", "--project-id", projectId]);
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, ["context", "--project-id", projectId]);
 
       expect(invalidMode.exitCode).toBe(1);
       expect(invalidMode.stderrJson.error).toMatchObject({
@@ -808,9 +839,9 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const invalidPolicy = await runCliJson(projectRoot, [
+      const invalidPolicy = await runCliJsonWithFirstVersion(projectRoot, [
         "batch_create_versions",
         "--project-id",
         projectId,
@@ -828,7 +859,7 @@ describe("routeledger cli", () => {
           }
         ])
       ]);
-      const contextResult = await runCliJson(projectRoot, ["context", "--project-id", projectId]);
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, ["context", "--project-id", projectId]);
 
       expect(invalidPolicy.exitCode).toBe(1);
       expect(invalidPolicy.stderrJson.error).toMatchObject({
@@ -851,12 +882,12 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const initialVersionId = initResult.stdoutJson.data.firstVersion!.id as string;
       const targetVersionId = await createVersionViaL3(projectRoot, projectId, "Next Version");
 
-      const prepareCurrent = await runCliJson(projectRoot, [
+      const prepareCurrent = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -864,7 +895,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      const prepareTarget = await runCliJson(projectRoot, [
+      const prepareTarget = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -872,7 +903,7 @@ describe("routeledger cli", () => {
         "--version-id",
         targetVersionId
       ]);
-      const dryRunBeforeSwitch = await runCliJson(projectRoot, [
+      const dryRunBeforeSwitch = await runCliJsonWithFirstVersion(projectRoot, [
         "transition_version",
         "--project-id",
         projectId,
@@ -889,7 +920,7 @@ describe("routeledger cli", () => {
         stepsRemaining: ["set_current_version", "start_version"]
       });
 
-      const proposeSwitch = await runCliJson(projectRoot, [
+      const proposeSwitch = await runCliJsonWithFirstVersion(projectRoot, [
         "transition_version",
         "--project-id",
         projectId,
@@ -905,7 +936,7 @@ describe("routeledger cli", () => {
         pendingOperationId: expect.any(String)
       });
 
-      const approveSwitch = await runCliJson(projectRoot, [
+      const approveSwitch = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -913,7 +944,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         proposeSwitch.stdoutJson.data.pendingOperationId
       ]);
-      const commitSwitch = await runCliJson(projectRoot, [
+      const commitSwitch = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -923,7 +954,7 @@ describe("routeledger cli", () => {
         "--approval-artifact-id",
         approveSwitch.stdoutJson.data.id
       ]);
-      const dryRunAfterSwitch = await runCliJson(projectRoot, [
+      const dryRunAfterSwitch = await runCliJsonWithFirstVersion(projectRoot, [
         "transition_version",
         "--project-id",
         projectId,
@@ -946,12 +977,12 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const initialVersionId = initResult.stdoutJson.data.firstVersion!.id as string;
       const downstreamVersionId = await createVersionViaL3(projectRoot, projectId, "Downstream");
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -959,7 +990,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -967,7 +998,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      const approveStart = await runCliJson(projectRoot, [
+      const approveStart = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -975,7 +1006,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId
       ]);
-      const commitStart = await runCliJson(projectRoot, [
+      const commitStart = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -985,7 +1016,7 @@ describe("routeledger cli", () => {
         "--approval-artifact-id",
         approveStart.stdoutJson.data.id
       ]);
-      const completeVersion = await runCliJson(projectRoot, [
+      const completeVersion = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "complete",
         "--project-id",
@@ -993,7 +1024,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      const blockedClose = await runCliJson(projectRoot, [
+      const blockedClose = await runCliJsonWithFirstVersion(projectRoot, [
         "close_version",
         "--project-id",
         projectId,
@@ -1002,7 +1033,7 @@ describe("routeledger cli", () => {
         "--mode",
         "propose"
       ]);
-      const proposalsAfterBlockedClose = await runCliJson(projectRoot, [
+      const proposalsAfterBlockedClose = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "list",
         "--project-id",
@@ -1031,21 +1062,21 @@ describe("routeledger cli", () => {
       snapshot!.workItems = snapshot!.workItems.concat(historicalWorkItem);
       await storage.saveProjectAggregate(snapshot!);
       storage.close();
-      const blockingStructure = await runCliJson(projectRoot, [
+      const blockingStructure = await runCliJsonWithFirstVersion(projectRoot, [
         "get_version_structure",
         "--project-id",
         projectId,
         "--version-id",
         initialVersionId
       ]);
-      const structure = await runCliJson(projectRoot, [
+      const structure = await runCliJsonWithFirstVersion(projectRoot, [
         "get_version_structure",
         "--project-id",
         projectId,
         "--version-id",
         initialVersionId
       ]);
-      const legacyAuditStructure = await runCliJson(projectRoot, [
+      const legacyAuditStructure = await runCliJsonWithFirstVersion(projectRoot, [
         "get_version_structure",
         "--project-id",
         projectId,
@@ -1145,11 +1176,11 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -1158,7 +1189,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
 
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -1166,7 +1197,7 @@ describe("routeledger cli", () => {
         "--version-id",
         versionId
       ]);
-      const approveStart = await runCliJson(projectRoot, [
+      const approveStart = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -1174,7 +1205,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId
       ]);
-      const commitStart = await runCliJson(projectRoot, [
+      const commitStart = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -1185,7 +1216,7 @@ describe("routeledger cli", () => {
         approveStart.stdoutJson.data.id
       ]);
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "todo",
         "create",
         "--project-id",
@@ -1196,7 +1227,7 @@ describe("routeledger cli", () => {
         "still open"
       ]);
 
-      const shutdownResult = await runCliJson(projectRoot, [
+      const shutdownResult = await runCliJsonWithFirstVersion(projectRoot, [
         "shutdown_version",
         "--project-id",
         projectId,
@@ -1209,7 +1240,7 @@ describe("routeledger cli", () => {
         "--reason",
         "force close after runtime failure"
       ]);
-      const shutdownProposal = await runCliJson(projectRoot, [
+      const shutdownProposal = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "get",
         "--project-id",
@@ -1217,7 +1248,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         shutdownResult.stdoutJson.data.pendingOperationId
       ]);
-      const approveShutdown = await runCliJson(projectRoot, [
+      const approveShutdown = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -1225,7 +1256,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         shutdownResult.stdoutJson.data.pendingOperationId
       ]);
-      const commitShutdown = await runCliJson(projectRoot, [
+      const commitShutdown = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -1235,12 +1266,12 @@ describe("routeledger cli", () => {
         "--approval-artifact-id",
         approveShutdown.stdoutJson.data.id
       ]);
-      const contextResult = await runCliJson(projectRoot, [
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId
       ]);
-      const proposalsResult = await runCliJson(projectRoot, [
+      const proposalsResult = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "list",
         "--project-id",
@@ -1287,11 +1318,11 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -1300,7 +1331,7 @@ describe("routeledger cli", () => {
         versionId
       ]);
 
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -1308,7 +1339,7 @@ describe("routeledger cli", () => {
         "--version-id",
         versionId
       ]);
-      const approveStart = await runCliJson(projectRoot, [
+      const approveStart = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -1316,7 +1347,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -1327,7 +1358,7 @@ describe("routeledger cli", () => {
         approveStart.stdoutJson.data.id
       ]);
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "todo",
         "create",
         "--project-id",
@@ -1338,7 +1369,7 @@ describe("routeledger cli", () => {
         "still open"
       ]);
 
-      const shutdownResult = await runCliJson(projectRoot, [
+      const shutdownResult = await runCliJsonWithFirstVersion(projectRoot, [
         "shutdown_version",
         "--project-id",
         projectId,
@@ -1349,7 +1380,7 @@ describe("routeledger cli", () => {
         "--reason",
         "emergency_stop"
       ]);
-      const shutdownProposal = await runCliJson(projectRoot, [
+      const shutdownProposal = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "get",
         "--project-id",
@@ -1379,12 +1410,12 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const initialVersionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const initialVersionId = initResult.stdoutJson.data.firstVersion!.id as string;
       const targetVersionId = await createVersionViaL3(projectRoot, projectId, "Next Version");
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -1392,7 +1423,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      const bareStart = await runCliJson(projectRoot, [
+      const bareStart = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "start",
         "--project-id",
@@ -1400,7 +1431,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      const approveStart = await runCliJson(projectRoot, [
+      const approveStart = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "approve",
         "--project-id",
@@ -1408,7 +1439,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
         "--project-id",
@@ -1418,7 +1449,7 @@ describe("routeledger cli", () => {
         "--approval-artifact-id",
         approveStart.stdoutJson.data.id
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "complete",
         "--project-id",
@@ -1426,7 +1457,7 @@ describe("routeledger cli", () => {
         "--version-id",
         initialVersionId
       ]);
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "version",
         "prepare",
         "--project-id",
@@ -1434,7 +1465,7 @@ describe("routeledger cli", () => {
         "--version-id",
         targetVersionId
       ]);
-      const exportResult = await runCliJson(projectRoot, [
+      const exportResult = await runCliJsonWithFirstVersion(projectRoot, [
         "json",
         "export",
         "--project-id",
@@ -1475,7 +1506,7 @@ describe("routeledger cli", () => {
         sqliteStorage.close();
       }
 
-      const staleSqliteGuide = await runCliJson(projectRoot, [
+      const staleSqliteGuide = await runCliJsonWithFirstVersion(projectRoot, [
         "get_version_transition_guide",
         "--project-id",
         projectId,
@@ -1511,7 +1542,7 @@ describe("routeledger cli", () => {
 
       removeSqliteFiles(projectRoot);
 
-      const missingSqliteGuide = await runCliJson(projectRoot, [
+      const missingSqliteGuide = await runCliJsonWithFirstVersion(projectRoot, [
         "get_version_transition_guide",
         "--project-id",
         projectId,
@@ -1548,11 +1579,11 @@ describe("routeledger cli", () => {
     const outputDir = path.join(projectRoot, "exports");
 
     try {
-      const initResult = await runCliJson(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, ["init_project", "--name", "RouteLedger", "--content-locale", "en"]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
 
-      await runCliJson(projectRoot, [
+      await runCliJsonWithFirstVersion(projectRoot, [
         "todo",
         "create",
         "--project-id",
@@ -1565,7 +1596,7 @@ describe("routeledger cli", () => {
         "Verify sqlite export"
       ]);
 
-      const defaultExport = await runCliJson(projectRoot, [
+      const defaultExport = await runCliJsonWithFirstVersion(projectRoot, [
         "json",
         "export",
         "--project-id",
@@ -1584,7 +1615,7 @@ describe("routeledger cli", () => {
         fs.existsSync(path.join(projectRoot, ".routeledger", "db", "routeledger.sqlite3"))
       ).toBe(true);
 
-      const exportResult = await runCliJson(projectRoot, [
+      const exportResult = await runCliJsonWithFirstVersion(projectRoot, [
         "json",
         "export",
         "--project-id",
@@ -1622,13 +1653,13 @@ describe("routeledger cli", () => {
 
       expect(decoded.project.id).toBe(projectId);
       expect(decoded.project.currentVersionId).toBe(versionId);
-      expect(decoded.project.initialVersionId).toBe(versionId);
+      expect(decoded.project.initialVersionId).toBeNull();
       expect(decoded.todos).toHaveLength(1);
       expect(decoded.todos[0]?.title).toBe("Export todo");
       expect(joinedContent).not.toContain("\"currentVersionId\"");
       expect(joinedContent).not.toContain("\"createdBy\"");
 
-      const duplicateExport = await runCliJson(projectRoot, [
+      const duplicateExport = await runCliJsonWithFirstVersion(projectRoot, [
         "json",
         "export",
         "--project-id",
@@ -1642,7 +1673,7 @@ describe("routeledger cli", () => {
       expect(exportResult.stdoutJson.meta.paths).toContain(duplicateExport.stderrJson.error.details.path);
 
       const beforeForce = readDocumentBytesByPaths(exportedRoot, exportResult.stdoutJson.meta.paths);
-      const forcedExport = await runCliJson(projectRoot, [
+      const forcedExport = await runCliJsonWithFirstVersion(projectRoot, [
         "json",
         "export",
         "--project-id",

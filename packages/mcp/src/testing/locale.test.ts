@@ -79,6 +79,38 @@ describe("MCP response locale", () => {
     );
   });
 
+  it("localizes advance_to_version review text and route blockers", () => {
+    const response = localizeToolResponse(
+      {
+        ok: false,
+        error: {
+          code: "CONFIRMATION_REQUIRED",
+          message: "confirmation required",
+          details: {
+            humanReviewText: [
+              "RouteLedger proposal pending-advance",
+              "action: advance_to_version",
+              "blockers: CURRENT_VERSION_NOT_CLOSED, TARGET_VERSION_NOT_NEXT"
+            ].join("\n"),
+            blockers: [
+              { code: "CURRENT_VERSION_NOT_CLOSED", message: "old message" },
+              { code: "TARGET_VERSION_NOT_NEXT", message: "old message" }
+            ]
+          }
+        }
+      },
+      resolveResponseLocale("zh-CN"),
+      "advance_to_version"
+    );
+
+    expect(response.error.details.humanReviewText).toContain("RouteLedger 提案 pending-advance");
+    expect(response.error.details.humanReviewText).toContain("操作: advance_to_version");
+    expect(response.error.details.blockers).toEqual([
+      { code: "CURRENT_VERSION_NOT_CLOSED", message: "当前 Version 尚未关闭，不能推进到下一 Version。" },
+      { code: "TARGET_VERSION_NOT_NEXT", message: "目标 Version 不是当前 Version 的直接后继。" }
+    ]);
+  });
+
   it("localizes get_version_structure presentation without changing project titles", () => {
     const response = localizeToolResponse(
       {

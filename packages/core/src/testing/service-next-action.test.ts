@@ -5,6 +5,33 @@ import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
+  it("空路线 context 明确建议创建首个真实 Version", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const created = await service.initProject({
+      name: "Empty Route",
+      contentLocale: "zh-CN",
+      firstVersion: null,
+      actor: TEST_ACTOR
+    });
+
+    const context = await service.getCurrentContext({ projectId: created.project.id });
+    expect(context.data).toMatchObject({
+      project: { currentVersionId: null },
+      currentVersion: null,
+      versions: [],
+      statusRisks: [{ code: "ROUTE_EMPTY", severity: "info" }],
+      nextAction: {
+        actionType: "create_version",
+        targetId: null,
+        requiresL3Approval: true
+      }
+    });
+  });
+
   it("getCurrentContext 浼氭毚闇插叡浜?statusRisks锛屽苟浼樺厛鎻愮ず pending proposal", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({

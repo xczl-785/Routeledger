@@ -33,6 +33,10 @@ const ZH_CODE_MESSAGES = {
     CONTENT_LOCALE_REQUIRED: "项目的 content_locale 尚未确认；请先与用户确认具体语言。",
     CONTENT_LOCALE_MUST_BE_CONCRETE: "content_locale 必须是具体语言，不能使用 auto。",
     CONTENT_LOCALE_INVALID: "content_locale 必须是有效的 BCP 47 locale。",
+    ROUTE_EMPTY: "当前 Project 路线为空，请先创建首个真实 Version。",
+    CURRENT_VERSION_MISMATCH: "fromVersionId 与当前 Version 不一致。",
+    CURRENT_VERSION_NOT_CLOSED: "当前 Version 尚未关闭，不能推进到下一 Version。",
+    TARGET_VERSION_NOT_NEXT: "目标 Version 不是当前 Version 的直接后继。",
     ROUTELEDGER_NOT_INITIALIZED: "当前绑定尚未初始化 RouteLedger 项目。",
     ROUTELEDGER_BINDING_REQUIRED: "执行该操作前必须先绑定 routeledgerRoot。",
     ROUTELEDGER_BINDING_INVALID: "当前 workspaceRoot/routeledgerRoot binding 无效。",
@@ -65,6 +69,7 @@ const ZH_CODE_MESSAGES = {
     COMMIT_REPLAY_MISMATCH: "已提交操作只能使用原始且完全匹配的 approval artifact 重放。",
     CLOSE_GATE_FAILED: "Version close gate 未通过。",
     START_GATE_BLOCKED: "Version start gate 未通过。",
+    START_GATE_FAILED: "Version start gate 未通过。",
     INVALID_TOOL_INPUT: "工具输入无效。",
     INVALID_VERSION_TRANSITION: "当前 Version 状态不允许该操作。",
     TARGET_ALREADY_CURRENT: "目标 Version 已经是 current。",
@@ -80,6 +85,11 @@ const EN_CODE_MESSAGES = {
     CONTENT_LOCALE_REQUIRED: "The project content_locale is unresolved; confirm a concrete locale with the user first.",
     CONTENT_LOCALE_MUST_BE_CONCRETE: "content_locale must be concrete and cannot be auto.",
     CONTENT_LOCALE_INVALID: "content_locale must be a valid BCP 47 locale.",
+    ROUTE_EMPTY: "The Project route is empty; create the first real Version first.",
+    CURRENT_VERSION_MISMATCH: "fromVersionId does not match the current Version.",
+    CURRENT_VERSION_NOT_CLOSED: "The current Version must be closed before advancing.",
+    TARGET_VERSION_NOT_NEXT: "The target Version is not the current Version's direct successor.",
+    START_GATE_FAILED: "The Version start gate did not pass.",
     INVALID_VERSION_TRANSITION: "The current Version state does not allow this operation.",
     TARGET_ALREADY_CURRENT: "The target Version is already current.",
     VERSION_ALREADY_CLOSED: "The target Version is already closed.",
@@ -108,6 +118,10 @@ const EN_ACTION_DESCRIPTIONS = {
     set_project_content_locale: "Set the existing project to the concrete content_locale confirmed by the user."
 };
 const ZH_NEXT_ACTIONS = {
+    advance_to_version: {
+        summary: "原子切换并启动下一个 Version。",
+        reason: "当前边界已关闭，目标 Version 已 ready 且通过 start gate。"
+    },
     close_todo: {
         summary: "先关闭当前 Version 的未完成 Todo。",
         reason: "未关闭 Todo 会阻止 Version 收口。"
@@ -115,6 +129,10 @@ const ZH_NEXT_ACTIONS = {
     close_version: {
         summary: "准备 residual audit 后关闭当前 Version。",
         reason: "当前 Version 已完成，但尚未关闭。"
+    },
+    create_version: {
+        summary: "与用户确认后创建首个真实 Version。",
+        reason: "Project 逻辑根已经存在，但路线仍为空。"
     },
     prepare_version: {
         summary: "准备目标 Version。",
@@ -146,6 +164,14 @@ const ZH_NEXT_ACTIONS = {
     }
 };
 const EN_NEXT_ACTIONS = {
+    advance_to_version: {
+        summary: "Atomically switch to and start the next Version.",
+        reason: "The current boundary is closed and the ready target passes its start gate."
+    },
+    create_version: {
+        summary: "Create the first real Version after confirming it with the user.",
+        reason: "The Project root exists, but the route is still empty."
+    },
     close_todo: {
         summary: "Close the current Version's unfinished Todo first.",
         reason: "An open Todo blocks Version closeout."
@@ -197,6 +223,7 @@ const SYSTEM_CODE_COLLECTION_KEYS = new Set([
     "warnings"
 ]);
 const HUMAN_REVIEW_TOOLS = new Set([
+    "advance_to_version",
     "batch_create_versions",
     "close_version",
     "propose_l3_operation",
@@ -273,6 +300,10 @@ const TRANSITION_GUIDE_LABELS = {
     "Close from version boundary": ["关闭来源 Version 边界", "Close the source Version boundary"],
     "Prepare target version": ["准备目标 Version", "Prepare the target Version"],
     "Start target version": ["启动目标 Version", "Start the target Version"],
+    "Advance to target version": [
+        "切换并启动目标 Version",
+        "Advance to the target Version"
+    ],
     "Set current to target version": [
         "将目标 Version 设为 current",
         "Set the target Version as current"

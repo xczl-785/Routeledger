@@ -113,13 +113,18 @@ export const createPreparedProject = async (
   storage: MemoryStorageAdapter
 ) => {
   const created = await service.initProject({
-      contentLocale: "en",
+    contentLocale: "en",
     name: "RouteLedger",
+    firstVersion: {
+      title: "Initial Version",
+      description: "Project bootstrap version",
+      initialTodos: []
+    },
     actor: TEST_ACTOR
   });
   await service.prepareVersion({
     projectId: created.project.id,
-    versionId: created.initialVersion.id,
+    versionId: created.firstVersion!.id,
     actor: TEST_ACTOR
   });
   const snapshot = await storage.loadProjectAggregate(created.project.id);
@@ -127,7 +132,7 @@ export const createPreparedProject = async (
   return {
     created,
     projectId: created.project.id,
-    versionId: created.initialVersion.id,
+    versionId: created.firstVersion!.id,
     snapshot: snapshot!
   };
 };

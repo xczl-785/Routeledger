@@ -41,7 +41,10 @@ binding, storage mode, and `contentLocale` state. For an empty intended
 project, it proposes a concrete locale from `responseLocale`; the agent must
 ask the user to confirm it before calling `init_project`. Initialization
 requires an explicit BCP 47 `contentLocale`; missing, `null`, and `auto` are
-not accepted. For an
+not accepted. With no `firstVersion`, initialization creates a Project logical
+root with an empty route and `currentVersionId: null`; when the user has already
+selected the first real node, pass its title, description, and explicit
+`initialTodos` in `firstVersion`. For an
 existing canonical data set, read it before writing. When JSON and SQLite
 disagree, stop on `JSON_SQLITE_CONFLICT`; do not delete either store to force
 a result.

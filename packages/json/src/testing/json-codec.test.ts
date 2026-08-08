@@ -600,13 +600,14 @@ describe("@routeledger/json canonical codec", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
     const proposed = await service.batchCreateVersions({
       projectId: created.project.id,
       mode: "propose",
       anchor: {
-        afterVersionId: created.initialVersion.id
+        afterVersionId: created.firstVersion!.id
       },
       items: [
         {

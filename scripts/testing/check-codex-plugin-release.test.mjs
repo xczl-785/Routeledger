@@ -17,10 +17,11 @@ const digest = "a".repeat(64);
 const distributionDigest = "b".repeat(64);
 const runtimeDigest = "c".repeat(64);
 const identity = {
-  runtimePackageVersion: "0.0.0-package-prep",
+  runtimePackageVersion: "0.3.6",
   runtimeProfile: "json-only",
   artifactKind: "plugin",
   pluginVersion: "0.3.6",
+  releaseTag: "routeledger-plugin-v0.3.6",
   sourceTreeState: "clean",
   buildCommit: null,
   artifactDigest: null,

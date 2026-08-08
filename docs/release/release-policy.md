@@ -5,10 +5,9 @@ local build. A release requires a rebuilt plugin distribution, passing smoke
 and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
-`routeledger@routeledger-team` version 0.3.3 is the last published Git
-marketplace release, fixed by `routeledger-plugin-v0.3.3` at commit `437a958`.
-The manifest now declares the 0.4.0 feature candidate. `main` became the release
-branch in 0.3.4 and remains the release branch for 0.4.0 and later;
+`routeledger@routeledger-team` version 0.4.1 is the latest published Git
+marketplace release, fixed by `routeledger-plugin-v0.4.1`.
+`main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
 `@routeledger/mcp` remains unpublished to npm.
@@ -25,6 +24,13 @@ Use `pnpm check:codex-plugin-release --previous-ref <ref>` before release and
 `xczl-785/Routeledger`. Future release work must not represent a local build
 or a fixture-only marketplace run as a published release; it must also pass
 tag CI and a clean-home Git marketplace lifecycle verification.
+
+The committed runtime identity cannot safely embed the future merge commit or
+a digest covering itself. It therefore reports plugin SemVer, expected release
+tag, and a content-addressed runtime payload digest. Immutable tag CI runs
+`pnpm attest:codex-plugin` and uploads an external JSON attestation that binds
+the tag's real source commit to the runtime and complete plugin distribution
+digests stored in `release.json`.
 
 `main` being the release branch means it is the source of the released commit;
 it does not mean every `main` push already has a tag. Pull-request and `main`

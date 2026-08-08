@@ -985,7 +985,8 @@ export const validateProjectAggregateSnapshot = (
 
   if (
     !isNonBlankString(rawSnapshot.project.id) ||
-    !isNonBlankString(rawSnapshot.project.initialVersionId) ||
+    (rawSnapshot.project.initialVersionId !== null &&
+      !isNonBlankString(rawSnapshot.project.initialVersionId)) ||
     (rawSnapshot.project.currentVersionId !== null &&
       !isNonBlankString(rawSnapshot.project.currentVersionId))
   ) {
@@ -1092,7 +1093,7 @@ export const validateProjectAggregateSnapshot = (
     snapshot.approvalArtifacts.map((artifact) => [artifact.id, artifact])
   );
 
-  if (project.currentVersionId === null || project.currentVersionId.trim().length === 0) {
+  if (project.currentVersionId === null && snapshot.versions.length > 0) {
     issues.push(
       createIssue("error", "PROJECT_CURRENT_VERSION_MISSING", "Project.current_version_id 不能为空", {
         path: PROJECT_DOCUMENT_PATH,
@@ -1101,7 +1102,7 @@ export const validateProjectAggregateSnapshot = (
         }
       })
     );
-  } else if (!versionsById.has(project.currentVersionId)) {
+  } else if (project.currentVersionId !== null && !versionsById.has(project.currentVersionId)) {
     issues.push(
       createIssue(
         "error",
@@ -1118,7 +1119,7 @@ export const validateProjectAggregateSnapshot = (
     );
   }
 
-  if (!versionsById.has(project.initialVersionId)) {
+  if (project.initialVersionId !== null && !versionsById.has(project.initialVersionId)) {
     issues.push(
       createIssue(
         "error",

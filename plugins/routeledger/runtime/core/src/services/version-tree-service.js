@@ -565,7 +565,7 @@ export const applyVersionTreeMutation = (input) => {
             const siblings = orderedByParent.get(parentVersionId) ?? [];
             const createdVersion = {
                 id: input.targetId,
-                projectId: input.versions[0].projectId,
+                projectId: input.projectId,
                 title: normalizedPayload.title,
                 description: normalizedPayload.description ?? "",
                 state: "wait",

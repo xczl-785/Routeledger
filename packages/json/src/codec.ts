@@ -82,7 +82,7 @@ interface JsonProject {
   description: string;
   status: ProjectStatus;
   current_version_id: string | null;
-  initial_version_id: string;
+  initial_version_id: string | null;
   created_by: JsonActor;
   created_at: string;
   updated_at: string;

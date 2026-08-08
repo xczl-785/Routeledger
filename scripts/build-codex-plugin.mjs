@@ -40,6 +40,7 @@ const renderPluginRuntimeIdentity = ({ runtimePackageVersion, pluginVersion, sou
   `  runtimeProfile,\n` +
   `  artifactKind: "plugin",\n` +
   `  pluginVersion: ${JSON.stringify(pluginVersion)},\n` +
+  `  releaseTag: ${JSON.stringify(`routeledger-plugin-v${pluginVersion}`)},\n` +
   `  sourceTreeState: ${JSON.stringify(sourceTreeState)},\n` +
   `  buildCommit: ${JSON.stringify(buildCommit)},\n` +
   `  artifactDigest: null,\n` +
@@ -47,10 +48,9 @@ const renderPluginRuntimeIdentity = ({ runtimePackageVersion, pluginVersion, sou
   `});\n`;
 
 const injectPluginRuntimeIdentity = async (buildProvenance) => {
-  const [manifest, runtimePackage] = await Promise.all([
-    fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8").then(JSON.parse),
-    fs.readFile(path.join(bundledRuntime, "package.json"), "utf8").then(JSON.parse)
-  ]);
+  const manifest = JSON.parse(
+    await fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8")
+  );
   const runtimePayloadDigest = await hashFileSet(
     bundledRuntime,
     (relativePath) => relativePath !== "mcp/src/runtime-identity.js"
@@ -58,7 +58,7 @@ const injectPluginRuntimeIdentity = async (buildProvenance) => {
   await fs.writeFile(
     path.join(bundledRuntime, "mcp", "src", "runtime-identity.js"),
     renderPluginRuntimeIdentity({
-      runtimePackageVersion: runtimePackage.version,
+      runtimePackageVersion: manifest.version,
       pluginVersion: manifest.version,
       sourceTreeState: buildProvenance.sourceTreeState,
       buildCommit: buildProvenance.buildCommit,
@@ -66,7 +66,7 @@ const injectPluginRuntimeIdentity = async (buildProvenance) => {
     }),
     "utf8"
   );
-  return { runtimePackageVersion: runtimePackage.version, runtimePayloadDigest };
+  return { runtimePackageVersion: manifest.version, runtimePayloadDigest };
 };
 
 const writeReleaseMetadata = async (runtimeIdentity, buildProvenance) => {
@@ -90,12 +90,20 @@ const writeReleaseMetadata = async (runtimeIdentity, buildProvenance) => {
       runtimePackageVersion: runtimeIdentity.runtimePackageVersion,
       runtimeProfile: "json-only",
       pluginVersion: manifest.version,
+      releaseTag: `routeledger-plugin-v${manifest.version}`,
       sourceTreeState: buildProvenance.sourceTreeState,
       buildCommit: buildProvenance.buildCommit,
       artifactDigest: null,
       runtimePayloadDigest: runtimeIdentity.runtimePayloadDigest,
       runtimePayloadCoverage:
         "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
+    },
+    attestation: {
+      strategy: "git-tag-external",
+      releaseTag: `routeledger-plugin-v${manifest.version}`,
+      sourceCommit: null,
+      artifactDigestField: "content.pluginDistributionSha256",
+      generator: "pnpm attest:codex-plugin --tag routeledger-plugin-v<version> --output <path>"
     },
     content: {
       algorithm: "sha256",

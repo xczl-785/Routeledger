@@ -3,13 +3,13 @@ import { expect, it, describe } from "vitest";
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
 import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 
-import { createTempProjectRoot, cleanupProjectRoot, runCliJson, createVersionViaL3 } from "./cli-test-helpers.js";
+import { createTempProjectRoot, cleanupProjectRoot, runCliJsonWithFirstVersion, createVersionViaL3 } from "./cli-test-helpers.js";
 describe("routeledger cli", () => {
   it("Deferred CLI 覆盖新建、Todo 转换、再次延后、激活与解决，并在重启后保持精简输出", async () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, [
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, [
         "init_project",
         "--name",
         "Deferred CLI",
@@ -17,11 +17,11 @@ describe("routeledger cli", () => {
         "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const version1Id = initResult.stdoutJson.data.initialVersion.id as string;
+      const version1Id = initResult.stdoutJson.data.firstVersion!.id as string;
       const version2Id = await createVersionViaL3(projectRoot, projectId, "Version 2");
       const version3Id = await createVersionViaL3(projectRoot, projectId, "Version 3");
 
-      const todoResult = await runCliJson(projectRoot, [
+      const todoResult = await runCliJsonWithFirstVersion(projectRoot, [
         "todo",
         "create",
         "--project-id",
@@ -34,7 +34,7 @@ describe("routeledger cli", () => {
         "Move this work out of the current path"
       ]);
       const todoId = todoResult.stdoutJson.data.todo.id as string;
-      const fromTodoResult = await runCliJson(projectRoot, [
+      const fromTodoResult = await runCliJsonWithFirstVersion(projectRoot, [
         "deferred",
         "from-todo",
         "--project-id",
@@ -72,7 +72,7 @@ describe("routeledger cli", () => {
       );
       expect(JSON.stringify(fromTodoResult.stdoutJson.data)).not.toContain("events");
 
-      const deferredAgainResult = await runCliJson(projectRoot, [
+      const deferredAgainResult = await runCliJsonWithFirstVersion(projectRoot, [
         "deferred",
         "defer-again",
         "--project-id",
@@ -97,7 +97,7 @@ describe("routeledger cli", () => {
         }
       });
 
-      const resolveResult = await runCliJson(projectRoot, [
+      const resolveResult = await runCliJsonWithFirstVersion(projectRoot, [
         "deferred",
         "resolve",
         "--project-id",
@@ -122,7 +122,7 @@ describe("routeledger cli", () => {
         }
       });
 
-      const createResult = await runCliJson(projectRoot, [
+      const createResult = await runCliJsonWithFirstVersion(projectRoot, [
         "deferred",
         "create",
         "--project-id",
@@ -150,7 +150,7 @@ describe("routeledger cli", () => {
         }
       });
 
-      const activateResult = await runCliJson(projectRoot, [
+      const activateResult = await runCliJsonWithFirstVersion(projectRoot, [
         "deferred",
         "activate",
         "--project-id",
@@ -180,7 +180,7 @@ describe("routeledger cli", () => {
       });
       expect(JSON.stringify(activateResult.stdoutJson.data)).not.toContain("workItem");
 
-      const contextResult = await runCliJson(projectRoot, [
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId
@@ -207,7 +207,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, [
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, [
         "init_project",
         "--name",
         "Constraint CLI",
@@ -215,8 +215,8 @@ describe("routeledger cli", () => {
         "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
-      const projectConstraintResult = await runCliJson(projectRoot, [
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
+      const projectConstraintResult = await runCliJsonWithFirstVersion(projectRoot, [
         "constraint",
         "record",
         "--project-id",
@@ -230,7 +230,7 @@ describe("routeledger cli", () => {
       ]);
       const projectConstraintId =
         projectConstraintResult.stdoutJson.data.constraint.id as string;
-      const versionConstraintResult = await runCliJson(projectRoot, [
+      const versionConstraintResult = await runCliJsonWithFirstVersion(projectRoot, [
         "constraint",
         "record",
         "--project-id",
@@ -263,7 +263,7 @@ describe("routeledger cli", () => {
         "events"
       );
 
-      const retireResult = await runCliJson(projectRoot, [
+      const retireResult = await runCliJsonWithFirstVersion(projectRoot, [
         "constraint",
         "retire",
         "--project-id",
@@ -283,7 +283,7 @@ describe("routeledger cli", () => {
         retireReason: "Superseded by policy"
       });
 
-      const contextResult = await runCliJson(projectRoot, [
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId
@@ -319,7 +319,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, [
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, [
         "init_project",
         "--name",
         "Semantic validation",
@@ -327,7 +327,7 @@ describe("routeledger cli", () => {
         "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const invalidOutcome = await runCliJson(projectRoot, [
+      const invalidOutcome = await runCliJsonWithFirstVersion(projectRoot, [
         "deferred",
         "resolve",
         "--project-id",
@@ -341,7 +341,7 @@ describe("routeledger cli", () => {
         "--note",
         "Invalid"
       ]);
-      const missingVersionScope = await runCliJson(projectRoot, [
+      const missingVersionScope = await runCliJsonWithFirstVersion(projectRoot, [
         "constraint",
         "record",
         "--project-id",
@@ -353,7 +353,7 @@ describe("routeledger cli", () => {
         "--rationale",
         "Must name a version"
       ]);
-      const extraVersionScope = await runCliJson(projectRoot, [
+      const extraVersionScope = await runCliJsonWithFirstVersion(projectRoot, [
         "constraint",
         "record",
         "--project-id",
@@ -361,13 +361,13 @@ describe("routeledger cli", () => {
         "--scope",
         "project",
         "--version-id",
-        initResult.stdoutJson.data.initialVersion.id,
+        initResult.stdoutJson.data.firstVersion!.id,
         "--rule",
         "Project rule",
         "--rationale",
         "No version should be accepted"
       ]);
-      const structureResult = await runCliJson(projectRoot, [
+      const structureResult = await runCliJsonWithFirstVersion(projectRoot, [
         "get_version_structure",
         "--project-id",
         projectId
@@ -414,7 +414,7 @@ describe("routeledger cli", () => {
         )
       ).toBe(false);
 
-      const contextResult = await runCliJson(projectRoot, [
+      const contextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId
@@ -430,7 +430,7 @@ describe("routeledger cli", () => {
     const projectRoot = createTempProjectRoot();
 
     try {
-      const initResult = await runCliJson(projectRoot, [
+      const initResult = await runCliJsonWithFirstVersion(projectRoot, [
         "init_project",
         "--name",
         "Legacy audit",
@@ -438,7 +438,7 @@ describe("routeledger cli", () => {
         "en"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
-      const versionId = initResult.stdoutJson.data.initialVersion.id as string;
+      const versionId = initResult.stdoutJson.data.firstVersion!.id as string;
       const undo = createUndoFixture({
         id: "historical-undo-1",
         projectId,
@@ -464,12 +464,12 @@ describe("routeledger cli", () => {
       storage.close();
       const undoId = undo.id;
 
-      const defaultContext = await runCliJson(projectRoot, [
+      const defaultContext = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId
       ]);
-      const auditContext = await runCliJson(projectRoot, [
+      const auditContext = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
         "--project-id",
         projectId,

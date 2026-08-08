@@ -13,6 +13,8 @@ export interface RuntimeIdentity {
   runtimeProfile: RouteLedgerRuntimeProfile;
   artifactKind: RouteLedgerRuntimeArtifactKind;
   pluginVersion: string | null;
+  /** Immutable release tag expected to attest this plugin payload. */
+  releaseTag: string | null;
   sourceTreeState: RuntimeSourceTreeState;
   /**
    * Source/package artifacts may report the clean Git HEAD that built them.
@@ -42,6 +44,7 @@ export const resolveRuntimeIdentity = (
   runtimeProfile,
   artifactKind: "source",
   pluginVersion: null,
+  releaseTag: null,
   sourceTreeState: "unavailable",
   buildCommit: null,
   artifactDigest: null,

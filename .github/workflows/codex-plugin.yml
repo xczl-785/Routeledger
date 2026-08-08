@@ -83,6 +83,16 @@ jobs:
           if [ -n "$PREVIOUS_REF" ]; then args+=(--previous-ref "$PREVIOUS_REF"); fi
           if [ "$IS_PLUGIN_TAG" = "true" ]; then args+=(--require-tag-ref); fi
           pnpm run check:codex-plugin-release "${args[@]}"
+      - name: Create immutable release attestation
+        if: startsWith(github.ref, 'refs/tags/routeledger-plugin-v') && matrix.os == 'ubuntu-latest'
+        run: pnpm attest:codex-plugin --tag "${{ github.ref_name }}" --output "${{ runner.temp }}/routeledger-plugin-attestation.json"
+      - name: Upload immutable release attestation
+        if: startsWith(github.ref, 'refs/tags/routeledger-plugin-v') && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.ref_name }}-attestation
+          path: ${{ runner.temp }}/routeledger-plugin-attestation.json
+          if-no-files-found: error
       - name: Smoke Codex Git marketplace ingestion
         run: pnpm smoke:codex-git-marketplace
       - name: Assert generated plugin artifact is committed

@@ -141,11 +141,29 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
               !Object.prototype.hasOwnProperty.call(input ?? {}, "contentLocale")
                 ? { contentLocale: "en" }
                 : {}),
+              ...(toolName === "init_project" &&
+              !Object.prototype.hasOwnProperty.call(input ?? {}, "firstVersion")
+                ? {
+                    firstVersion: {
+                      title: "Initial Version",
+                      description: "Project bootstrap version",
+                      initialTodos: []
+                    }
+                  }
+                : {}),
               expectedRouteLedgerRoot: routeledgerRoot
             }
           : toolName === "init_project" &&
               !Object.prototype.hasOwnProperty.call(input ?? {}, "contentLocale")
-            ? { ...(input ?? {}), contentLocale: "en" }
+            ? {
+                ...(input ?? {}),
+                contentLocale: "en",
+                firstVersion: {
+                  title: "Initial Version",
+                  description: "Project bootstrap version",
+                  initialTodos: []
+                }
+              }
             : input
       )
   };
@@ -297,6 +315,7 @@ export const createSqliteOnlyProject = async (
       contentLocale: "en",
       name: "SQLite Only Project",
       description: "",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: {
         id: "sqlite-only-agent",
         type: "agent",
@@ -306,7 +325,7 @@ export const createSqliteOnlyProject = async (
 
     return {
       projectId: created.project.id,
-      initialVersionId: created.initialVersion.id
+      initialVersionId: created.firstVersion!.id
     };
   } finally {
     storage.close();
@@ -385,6 +404,7 @@ export const initializeServer = async (
           runtimePackageVersion: "0.0.0-package-prep",
           artifactKind: "source",
           pluginVersion: null,
+          releaseTag: null,
           sourceTreeState: "unavailable",
           buildCommit: null,
           artifactDigest: null,
@@ -418,11 +438,29 @@ export const callTool = async (
           !Object.prototype.hasOwnProperty.call(args, "contentLocale")
             ? { contentLocale: "en" }
             : {}),
+          ...(name === "init_project" &&
+          !Object.prototype.hasOwnProperty.call(args, "firstVersion")
+            ? {
+                firstVersion: {
+                  title: "Initial Version",
+                  description: "Project bootstrap version",
+                  initialTodos: []
+                }
+              }
+            : {}),
           expectedRouteLedgerRoot: routeledgerRoot
         }
       : name === "init_project" &&
           !Object.prototype.hasOwnProperty.call(args, "contentLocale")
-        ? { ...args, contentLocale: "en" }
+        ? {
+            ...args,
+            contentLocale: "en",
+            firstVersion: {
+              title: "Initial Version",
+              description: "Project bootstrap version",
+              initialTodos: []
+            }
+          }
         : args;
 
   return (await server.handleMessage({

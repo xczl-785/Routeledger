@@ -346,6 +346,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const nextVersionId = await createCommittedVersion(
@@ -505,9 +506,10 @@ describe("route ledger service", () => {
       const created = await service.initProject({
         contentLocale: "zh-CN",
         name: "PocketRead",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
-      const currentVersion = created.initialVersion;
+      const currentVersion = created.firstVersion!;
       const readmePath = path.join(projectRoot, "README.md");
       fs.writeFileSync(
         readmePath,
@@ -588,6 +590,7 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
 
@@ -612,6 +615,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -652,6 +656,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -661,7 +666,7 @@ describe("route ledger service", () => {
         [
           "# RouteLedger",
           "",
-          `褰撳墠鐗堟湰: Initial Version (${created.initialVersion.id})`,
+          `褰撳墠鐗堟湰: Initial Version (${created.firstVersion!.id})`,
           "Runtime truth lives in `.routeledger/` canonical JSON.",
           "Capability entrypoint: `docs/capabilities/cap-mcp-route-operations.md`."
         ].join("\n"),
@@ -704,6 +709,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const nextVersionId = await createCommittedVersion(
@@ -781,6 +787,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const nextVersionId = await createCommittedVersion(
@@ -839,6 +846,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
         contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       fs.writeFileSync(
@@ -890,6 +898,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -924,6 +933,7 @@ describe("route ledger service", () => {
       const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 

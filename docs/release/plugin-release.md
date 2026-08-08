@@ -50,20 +50,31 @@ For each future release, create that tag on the final release commit in
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-The last published plugin release is `routeledger-plugin-v0.3.3` at commit
-`437a958`; `codex-marketplace` remains its historical branch anchor. The
-manifest now declares the 0.4.0 feature candidate. Starting with 0.3.4, `main` is
+The latest published plugin release is `routeledger-plugin-v0.4.1`;
+`codex-marketplace` remains the historical 0.3.3 branch anchor. The
+manifest declares 0.4.1. `main` is
 the release branch: merge the verified distribution to `main`, create the
 immutable version tag on that commit, and never reuse or move an existing tag.
 The `main` push validates the previous-ref SemVer/distribution replay; it does
 not require a tag that has not been created yet. The subsequent version-tag CI
 runs the tag-to-HEAD check.
 
+Tag CI also runs:
+
+```bash
+pnpm attest:codex-plugin \
+  --tag routeledger-plugin-v<plugin-semver> \
+  --output /SAFE/OUTPUT/PATH/routeledger-plugin-attestation.json
+```
+
+The uploaded attestation is the non-self-referential binding between the
+immutable tag's source commit and the runtime/full-distribution digests.
+
 ## Install verification
 
 Use a clean Codex home and the canonical repository URL to add the marketplace,
 install `routeledger@routeledger-team`, run an MCP initialization and binding
-smoke, then remove it. The published 0.3.3 path passed branch install, upgrade,
+smoke, then remove it. The published 0.4.1 path passed branch install, upgrade,
 tag-based reinstall, release-hash verification, Apache-2.0
 distribution checks, and the JSON-only runtime workflow. The
 repository's hermetic Git marketplace smoke covers the equivalent mechanics

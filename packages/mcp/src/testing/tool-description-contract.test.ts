@@ -28,11 +28,11 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(43);
+      expect(tools).toHaveLength(44);
       expect(readOnly).toHaveLength(19);
-      expect(writes).toHaveLength(20);
+      expect(writes).toHaveLength(21);
       expect(highRisk).toHaveLength(4);
-      expect(writes.concat(highRisk)).toHaveLength(24);
+      expect(writes.concat(highRisk)).toHaveLength(25);
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
         const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
@@ -66,7 +66,7 @@ describe("MCP tool description contract", () => {
 
     try {
       const descriptions = registry.tools.map((tool) => tool.description);
-      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(2850);
+      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3000);
       for (const description of descriptions) {
         expect(description.length).toBeLessThanOrEqual(150);
       }

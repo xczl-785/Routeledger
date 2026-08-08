@@ -362,8 +362,8 @@ export const renderCurrentVersionPanel = (
   if (currentVersion === null) {
     return (
       <EmptyState
-        title="当前 Version 不可用"
-        description="当前项目没有 current version；请回到总览查看项目身份和路线状态。"
+        title="路线尚未定义"
+        description="Project 逻辑根已经建立；创建首个真实 Version 后即可开始推进。"
       />
     );
   }

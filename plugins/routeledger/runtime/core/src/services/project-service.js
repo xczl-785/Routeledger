@@ -2,7 +2,7 @@ import { DomainError } from "../domain/errors.js";
 import { createTransitionEvents } from "./transition-event-service.js";
 import { createDomainContext } from "./operation.js";
 import { suspendVersion } from "./version-service.js";
-import { isChineseLocale, requireConcreteContentLocale } from "../domain/locale.js";
+import { requireConcreteContentLocale } from "../domain/locale.js";
 const validateVersionId = (versionId) => {
     if (versionId === "0") {
         throw new DomainError("MISSING_REQUIRED_FIELD", "version_id 不允许使用 0", {
@@ -10,19 +10,33 @@ const validateVersionId = (versionId) => {
         });
     }
 };
-export const createProject = ({ name, description = "", contentLocale, actor, deps }) => {
+export const createProject = ({ name, description = "", contentLocale, firstVersion, actor, deps }) => {
     const context = createDomainContext(deps, actor);
     const normalizedContentLocale = requireConcreteContentLocale(contentLocale);
+    const requestedFirstVersion = firstVersion ?? null;
+    const normalizedFirstVersion = requestedFirstVersion === null
+        ? undefined
+        : {
+            title: requestedFirstVersion.title.trim(),
+            description: requestedFirstVersion.description?.trim() ?? ""
+        };
+    if (normalizedFirstVersion !== undefined && normalizedFirstVersion.title.length === 0) {
+        throw new DomainError("MISSING_REQUIRED_FIELD", "firstVersion.title 不能为空", {
+            field: "firstVersion.title"
+        });
+    }
     const projectId = deps.idGenerator.nextId();
-    const initialVersionId = deps.idGenerator.nextId();
-    validateVersionId(initialVersionId);
+    const firstVersionId = normalizedFirstVersion === undefined ? null : deps.idGenerator.nextId();
+    if (firstVersionId !== null) {
+        validateVersionId(firstVersionId);
+    }
     const project = {
         id: projectId,
         name,
         description,
         status: "active",
-        currentVersionId: initialVersionId,
-        initialVersionId,
+        currentVersionId: firstVersionId,
+        initialVersionId: null,
         createdBy: actor,
         createdAt: context.now,
         updatedAt: context.now,
@@ -34,41 +48,44 @@ export const createProject = ({ name, description = "", contentLocale, actor, de
             contentLocale: normalizedContentLocale
         }
     };
-    const initialVersion = {
-        id: initialVersionId,
-        projectId,
-        title: isChineseLocale(normalizedContentLocale) ? "初始 Version" : "Initial Version",
-        description: isChineseLocale(normalizedContentLocale)
-            ? "项目初始化 Version"
-            : "Project bootstrap version",
-        state: "wait",
-        parentVersionId: null,
-        previousVersionId: null,
-        nextVersionId: null,
-        order: 1,
-        isCurrent: true,
-        createdBy: actor,
-        createdAt: context.now,
-        updatedAt: context.now,
-        closedAt: null,
-        stateReason: null
-    };
+    const createdFirstVersion = firstVersionId === null || normalizedFirstVersion === undefined
+        ? null
+        : {
+            id: firstVersionId,
+            projectId,
+            title: normalizedFirstVersion.title,
+            description: normalizedFirstVersion.description,
+            state: "wait",
+            parentVersionId: null,
+            previousVersionId: null,
+            nextVersionId: null,
+            order: 1,
+            isCurrent: true,
+            createdBy: actor,
+            createdAt: context.now,
+            updatedAt: context.now,
+            closedAt: null,
+            stateReason: null
+        };
+    const eventDrafts = [
+        {
+            targetType: "project",
+            targetId: project.id,
+            eventType: "project.created"
+        }
+    ];
+    if (createdFirstVersion !== null) {
+        eventDrafts.push({
+            targetType: "version",
+            targetId: createdFirstVersion.id,
+            eventType: "version.created",
+            toState: createdFirstVersion.state
+        });
+    }
     return {
         project,
-        initialVersion,
-        events: createTransitionEvents([
-            {
-                targetType: "project",
-                targetId: project.id,
-                eventType: "project.created"
-            },
-            {
-                targetType: "version",
-                targetId: initialVersion.id,
-                eventType: "version.created",
-                toState: initialVersion.state
-            }
-        ], {
+        firstVersion: createdFirstVersion,
+        events: createTransitionEvents(eventDrafts, {
             projectId,
             operationId: context.operationId,
             actor,
@@ -111,8 +128,8 @@ export const setProjectContentLocale = ({ project, contentLocale, reason, actor,
         }, deps.idGenerator)
     };
 };
-export const setCurrentVersion = ({ project, currentVersion, nextVersion, actor, deps }) => {
-    const context = createDomainContext(deps, actor);
+export const setCurrentVersion = ({ project, currentVersion, nextVersion, actor, deps, operationContext }) => {
+    const context = operationContext ?? createDomainContext(deps, actor);
     validateVersionId(nextVersion.id);
     if (nextVersion.projectId !== project.id) {
         throw new DomainError("PROJECT_VERSION_MISMATCH", "目标 version 不属于该 project", {

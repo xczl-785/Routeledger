@@ -167,6 +167,33 @@ describe("@routeledger/json validate", () => {
     });
   });
 
+  it("accepts a Project-root-only canonical set with no Version", () => {
+    const baseline = createJsonCodecSnapshot();
+    const documents = encodeProjectAggregateToJsonDocuments({
+      ...baseline,
+      project: {
+        ...baseline.project,
+        currentVersionId: null,
+        initialVersionId: null
+      },
+      versions: [],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    expect(validateRouteLedgerJsonDocuments(documents)).toEqual({
+      valid: true,
+      issues: []
+    });
+  });
+
   it("keeps legacy missing content_locale readable but reports confirmation required", () => {
     const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()).map(
       (document) => {

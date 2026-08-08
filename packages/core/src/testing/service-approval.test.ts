@@ -15,18 +15,19 @@ describe("route ledger service", () => {
     const created = await service.initProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
       actor: TEST_ACTOR
     });
     await service.prepareVersion({
       projectId: created.project.id,
-      versionId: created.initialVersion.id,
+      versionId: created.firstVersion!.id,
       actor: TEST_ACTOR
     });
 
     await expect(
       service.startVersion({
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({

@@ -64,12 +64,17 @@ describe("routeledger mcp registry", () => {
       const initialized = await registry.invoke("init_project", {
         name: "RouteLedger",
         contentLocale: "en",
+        firstVersion: {
+          title: "Initial Version",
+          description: "Project bootstrap version",
+          initialTodos: []
+        },
         expectedRouteLedgerRoot: projectRoot
       });
       expect(initialized.ok).toBe(true);
       const data = initialized.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       };
 
       const dryRunInputs: Array<{
@@ -78,17 +83,17 @@ describe("routeledger mcp registry", () => {
       }> = [
         {
           toolName: "transition_version",
-          input: { projectId: data.project.id, versionId: data.initialVersion.id, mode: "dry_run" }
+          input: { projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
         },
         {
           toolName: "close_version",
-          input: { projectId: data.project.id, versionId: data.initialVersion.id, mode: "dry_run" }
+          input: { projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
         },
         {
           toolName: "shutdown_version",
           input: {
             projectId: data.project.id,
-            versionId: data.initialVersion.id,
+            versionId: data.firstVersion!.id,
             mode: "dry_run",
             shutdownReason: "test forced-path preview"
           }
@@ -150,13 +155,13 @@ describe("routeledger mcp registry", () => {
       expect(initResponse.ok).toBe(true);
       const initData = initResponse.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       };
       const baselineDocuments = await readRouteLedgerJsonDocuments(getDefaultDataRoot(projectRoot));
 
       const response = await registry.invoke("create_todo", {
         projectId: initData.project.id,
-        versionId: initData.initialVersion.id,
+        versionId: initData.firstVersion!.id,
         title: "write docs",
         expectedRouteLedgerRoot: mismatchedProjectRoot
       });
@@ -419,14 +424,14 @@ describe("routeledger mcp registry", () => {
       expect(initResponse.ok).toBe(true);
       const initData = initResponse.data as {
         project: { id: string };
-        initialVersion: { id: string };
+        firstVersion: { id: string };
       };
 
       const response = await registry.invoke("batch_create_versions", {
         projectId: initData.project.id,
         mode: "propose",
         anchor: {
-          afterVersionId: initData.initialVersion.id
+          afterVersionId: initData.firstVersion!.id
         },
         items: [
           {

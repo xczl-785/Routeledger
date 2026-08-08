@@ -37,6 +37,7 @@ describe("version tree service", () => {
     });
 
     const applied = applyVersionTreeMutation({
+      projectId: initial.projectId,
       versions: [initial, rootTail],
       actionType: "create_child_version",
       targetId: "version-3",

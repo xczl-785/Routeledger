@@ -405,6 +405,15 @@ const buildStatusRisks = (options: {
     });
   }
 
+  if (currentVersion === null && nextVersion === null) {
+    risks.push({
+      code: "ROUTE_EMPTY",
+      severity: "info",
+      summary: "项目已初始化，但尚未定义任何真实 Version。",
+      recordIds: []
+    });
+  }
+
   if (currentVersion?.state === "complete") {
     risks.push({
       code: "CURRENT_VERSION_COMPLETE_NOT_CLOSED",
@@ -552,6 +561,18 @@ const buildNextAction = (options: {
       requiresL3Approval: true,
       recordIds: [proposal.id],
       blockingRiskCodes: ["PENDING_L3_PROPOSAL_NEEDS_DECISION"]
+    };
+  }
+
+  if (currentVersion === null && nextVersion === null) {
+    return {
+      actionType: "create_version",
+      summary: "与用户确认后创建首个真实 Version。",
+      reason: "Project 逻辑根已经存在，但路线仍为空；首个 Version 应表达真实交付边界。",
+      targetId: null,
+      requiresL3Approval: true,
+      recordIds: [],
+      blockingRiskCodes
     };
   }
 
@@ -710,9 +731,9 @@ const buildNextAction = (options: {
     }
 
     return {
-      actionType: "start_version",
-      summary: "启动下一个 ready version。",
-      reason: `当前边界已关闭，下一个 version ${nextVersion.id} 已 ready，可进入 start_version 审计链。`,
+      actionType: "advance_to_version",
+      summary: "原子切换并启动下一个 ready Version。",
+      reason: `当前边界已关闭，下一个 Version ${nextVersion.id} 已 ready，可用一套 L3 审计链完成 current 切换和启动。`,
       targetId: nextVersion.id,
       requiresL3Approval: true,
       recordIds: [currentVersion.id, nextVersion.id],

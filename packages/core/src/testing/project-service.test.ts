@@ -9,20 +9,41 @@ import {
 import { TEST_ACTOR, createProjectFixture, createTestDependencies, createVersionFixture } from "./builders.js";
 
 describe("project service", () => {
-  it("create_project 自动创建 initial version 并设置 current 真源", () => {
+  it("create_project 可只创建 Project 逻辑根而不生成真实 Version", () => {
+    const result = createProject({
+      contentLocale: "zh-CN",
+      name: "Empty Route",
+      firstVersion: null,
+      actor: TEST_ACTOR,
+      deps: createTestDependencies()
+    });
+
+    expect(result.project).toMatchObject({
+      currentVersionId: null,
+      initialVersionId: null
+    });
+    expect(result.firstVersion).toBeNull();
+    expect(result.events.map((event) => event.eventType)).toEqual(["project.created"]);
+  });
+
+  it("create_project 仅在显式选择 firstVersion 时创建首个 current 节点", () => {
     const deps = createTestDependencies();
 
     const result = createProject({
       contentLocale: "en",
       name: "RouteLedger",
+      firstVersion: {
+        title: "First delivery",
+        description: "User-selected route node"
+      },
       actor: TEST_ACTOR,
       deps
     });
 
-    expect(result.project.initialVersionId).toBe(result.initialVersion.id);
-    expect(result.project.currentVersionId).toBe(result.initialVersion.id);
-    expect(result.initialVersion.state).toBe("wait");
-    expect(result.initialVersion.isCurrent).toBe(true);
+    expect(result.project.initialVersionId).toBeNull();
+    expect(result.project.currentVersionId).toBe(result.firstVersion!.id);
+    expect(result.firstVersion!.state).toBe("wait");
+    expect(result.firstVersion!.isCurrent).toBe(true);
   });
 
   it("create_project 要求具体 locale、拒绝 auto，并规范化 BCP 47", () => {
@@ -48,10 +69,7 @@ describe("project service", () => {
     });
 
     expect(result.project.settings.contentLocale).toBe("zh-CN");
-    expect(result.initialVersion).toMatchObject({
-      title: "初始 Version",
-      description: "项目初始化 Version"
-    });
+    expect(result.firstVersion).toBeNull();
   });
 
   it("set_project_content_locale 可为 legacy null 项目补齐语言并留下事件", () => {

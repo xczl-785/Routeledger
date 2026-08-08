@@ -63,15 +63,16 @@ const cleanupProjectRoot = (projectRoot: string): void => {
 const createEmptyAggregate = (): ProjectAggregateSnapshot => {
   const deps = createTestDependencies();
   const creation = createProject({
-      contentLocale: "en",
+    contentLocale: "en",
     name: "RouteLedger",
+    firstVersion: { title: "Initial Version", description: "" },
     actor: TEST_ACTOR,
     deps
   });
 
   return {
     project: creation.project,
-    versions: [creation.initialVersion],
+    versions: [creation.firstVersion!],
     workItems: [],
     todos: [],
     undos: [],
@@ -114,15 +115,16 @@ const expectConfirmationRequired = async (
 const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
   const deps = createTestDependencies();
   const created = createProject({
-      contentLocale: "en",
+    contentLocale: "en",
     name: "RouteLedger",
+    firstVersion: { title: "Initial Version", description: "" },
     actor: TEST_ACTOR,
     deps
   });
   const convertedTodo = createTodoFixture({
     id: "todo-retained",
     projectId: created.project.id,
-    versionId: created.initialVersion.id,
+    versionId: created.firstVersion!.id,
     workItemId: "work-item-retained",
     status: "converted",
     closeReason: "defer",
@@ -131,9 +133,9 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
   const convertedUndo = createUndoFixture({
     id: "undo-retained",
     projectId: created.project.id,
-    versionId: created.initialVersion.id,
-    originVersionId: created.initialVersion.id,
-    preferredResolutionVersionId: created.initialVersion.id,
+    versionId: created.firstVersion!.id,
+    originVersionId: created.firstVersion!.id,
+    preferredResolutionVersionId: created.firstVersion!.id,
     workItemId: "work-item-retained",
     status: "converted",
     closeReason: "resume",
@@ -142,14 +144,14 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
   const resumedTodo = createTodoFixture({
     id: "todo-resumed",
     projectId: created.project.id,
-    versionId: created.initialVersion.id,
+    versionId: created.firstVersion!.id,
     workItemId: "work-item-retained",
     status: "wait"
   });
   const workItem = createWorkItemFixture({
     id: "work-item-retained",
     projectId: created.project.id,
-    originVersionId: created.initialVersion.id,
+    originVersionId: created.firstVersion!.id,
     activeRecordType: "todo",
     activeRecordId: resumedTodo.id
   });
@@ -199,7 +201,7 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
 
   return {
     project: created.project,
-    versions: [created.initialVersion],
+    versions: [created.firstVersion!],
     workItems: [workItem],
     todos: [convertedTodo, resumedTodo],
     undos: [convertedUndo],
@@ -272,7 +274,7 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-        expect(migrationCount.count).toBe(4);
+        expect(migrationCount.count).toBe(5);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
@@ -541,7 +543,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(4);
+      ).toBe(5);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -610,6 +612,81 @@ describe("sqlite storage adapter", () => {
     }
   });
 
+  it("0005 migration preserves legacy project pointers while making initial_version_id nullable", () => {
+    const db = new BetterSqlite3(":memory:");
+
+    try {
+      ensureSchemaMigrationsTable(db);
+      db.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          schema_version INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          status TEXT NOT NULL,
+          current_version_id TEXT,
+          initial_version_id TEXT NOT NULL,
+          created_by_id TEXT NOT NULL,
+          created_by_type TEXT NOT NULL,
+          created_by_display_name TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          archived_at TEXT,
+          settings_json TEXT NOT NULL
+        );
+      `);
+      for (const migration of SQLITE_MIGRATIONS.slice(0, 4)) {
+        db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
+          .run(migration.id, "2026-06-27T00:00:00.000Z");
+      }
+      db.prepare(
+        `INSERT INTO projects (
+          id, schema_version, name, description, status, current_version_id,
+          initial_version_id, created_by_id, created_by_type, created_by_display_name,
+          created_at, updated_at, archived_at, settings_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        "legacy-project",
+        1,
+        "Legacy Project",
+        "",
+        "active",
+        "legacy-version",
+        "legacy-version",
+        TEST_ACTOR.id,
+        TEST_ACTOR.type,
+        TEST_ACTOR.displayName,
+        "2026-06-27T00:00:00.000Z",
+        "2026-06-27T00:00:00.000Z",
+        null,
+        "{}"
+      );
+
+      applyMigrations(db);
+
+      expect(
+        db.prepare("SELECT current_version_id, initial_version_id FROM projects WHERE id = ?")
+          .get("legacy-project")
+      ).toEqual({
+        current_version_id: "legacy-version",
+        initial_version_id: "legacy-version"
+      });
+      const initialColumn = (
+        db.prepare("PRAGMA table_info(projects)").all() as Array<{
+          name: string;
+          notnull: number;
+        }>
+      ).find((column) => column.name === "initial_version_id");
+      expect(initialColumn?.notnull).toBe(0);
+      expect(
+        db.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE id = ?")
+          .get("0005_project_root")
+      ).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("create_project 持久化后可重读 Project + initial Version + TransitionEvent", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -621,7 +698,7 @@ describe("sqlite storage adapter", () => {
       const loaded = await adapter.loadProjectAggregate(aggregate.project.id);
 
       expect(loaded).not.toBeNull();
-      expect(loaded?.project.currentVersionId).toBe(aggregate.project.initialVersionId);
+      expect(loaded?.project.currentVersionId).toBe(aggregate.project.currentVersionId);
       expect(loaded?.versions).toHaveLength(1);
       expect(loaded?.versions[0]?.state).toBe("wait");
       expect(loaded?.events.map((event) => event.eventType)).toEqual([
@@ -635,6 +712,35 @@ describe("sqlite storage adapter", () => {
     }
   });
 
+  it("Project 逻辑根可在零 Version、零 current 状态下 round-trip", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const adapter = new SQLiteStorageAdapter({ projectRoot });
+      const service = new RouteLedgerService({
+        storage: adapter,
+        deps: createTestDependencies()
+      });
+      const created = await service.initProject({
+        name: "Empty Route",
+        contentLocale: "zh-CN",
+        firstVersion: null,
+        actor: TEST_ACTOR
+      });
+      const loaded = await adapter.loadProjectAggregate(created.project.id);
+
+      expect(loaded).toMatchObject({
+        project: { currentVersionId: null, initialVersionId: null },
+        versions: [],
+        todos: []
+      });
+      expect(loaded?.events.map((event) => event.eventType)).toEqual(["project.created"]);
+      adapter.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("DeferredItem and Constraint round-trip with active pointer and transition targets", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -642,15 +748,16 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
       const deferredCreation = createDeferred({
         projectId: created.project.id,
-        originVersionId: created.initialVersion.id,
-        targetReviewVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
+        targetReviewVersionId: created.firstVersion!.id,
         title: "Persist deferred semantics",
         reason: "review after persistence lands",
         actor: TEST_ACTOR,
@@ -662,7 +769,7 @@ describe("sqlite storage adapter", () => {
         rationale: "Partial replacement would lose history",
         scope: {
           type: "version",
-          versionId: created.initialVersion.id
+          versionId: created.firstVersion!.id
         },
         actor: TEST_ACTOR,
         deps
@@ -679,7 +786,7 @@ describe("sqlite storage adapter", () => {
       });
       const aggregate: ProjectAggregateSnapshot = {
         project: created.project,
-        versions: [created.initialVersion],
+        versions: [created.firstVersion!],
         workItems: [deferredCreation.workItem],
         todos: [],
         undos: [],
@@ -742,7 +849,7 @@ describe("sqlite storage adapter", () => {
       expect(updated?.constraints.map((constraint) => constraint.scope)).toEqual(
         expect.arrayContaining([
           { type: "project" },
-          { type: "version", versionId: created.initialVersion.id }
+          { type: "version", versionId: created.firstVersion!.id }
         ])
       );
 
@@ -779,15 +886,16 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "Lifecycle baseline",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
       const activatedCreation = createDeferred({
         projectId: created.project.id,
-        originVersionId: created.initialVersion.id,
-        targetReviewVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
+        targetReviewVersionId: created.firstVersion!.id,
         title: "Activate later",
         reason: "activation test",
         actor: TEST_ACTOR,
@@ -796,7 +904,7 @@ describe("sqlite storage adapter", () => {
       const activated = activateDeferred({
         deferred: activatedCreation.deferred,
         workItem: activatedCreation.workItem,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         reason: "activate now",
         note: "activation evidence",
         actor: TEST_ACTOR,
@@ -804,8 +912,8 @@ describe("sqlite storage adapter", () => {
       });
       const resolvedCreation = createDeferred({
         projectId: created.project.id,
-        originVersionId: created.initialVersion.id,
-        targetReviewVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
+        targetReviewVersionId: created.firstVersion!.id,
         title: "Resolve later",
         reason: "resolution test",
         actor: TEST_ACTOR,
@@ -834,7 +942,7 @@ describe("sqlite storage adapter", () => {
         rationale: "retired lifecycle test",
         scope: {
           type: "version",
-          versionId: created.initialVersion.id
+          versionId: created.firstVersion!.id
         },
         actor: TEST_ACTOR,
         deps
@@ -848,7 +956,7 @@ describe("sqlite storage adapter", () => {
       });
       const aggregate: ProjectAggregateSnapshot = {
         project: created.project,
-        versions: [created.initialVersion],
+        versions: [created.firstVersion!],
         workItems: [activated.workItem, resolved.workItem],
         todos: [activated.todo],
         undos: [],
@@ -981,8 +1089,9 @@ describe("sqlite storage adapter", () => {
         deps: createTestDependencies()
       });
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "Application command persistence",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const snapshot = await adapter.loadProjectAggregate(created.project.id);
@@ -993,7 +1102,7 @@ describe("sqlite storage adapter", () => {
         title: "Application review version",
         state: "wait",
         order: 2,
-        previousVersionId: created.initialVersion.id,
+        previousVersionId: created.firstVersion!.id,
         nextVersionId: null,
         isCurrent: false
       });
@@ -1009,7 +1118,7 @@ describe("sqlite storage adapter", () => {
       const deferred = await service.deferWork({
         mode: "new",
         projectId: created.project.id,
-        originVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
         targetReviewVersionId: reviewVersion.id,
         title: "Persist through application command",
         reason: "Review in the downstream version",
@@ -1077,12 +1186,13 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
-      const prepared = prepareVersion(created.initialVersion, { actor: TEST_ACTOR, now: deps.clock.now(), operationId: "op_prepare" }, deps);
+      const prepared = prepareVersion(created.firstVersion!, { actor: TEST_ACTOR, now: deps.clock.now(), operationId: "op_prepare" }, deps);
       const startGate = evaluateStartGate({
         targetVersion: prepared.version,
         currentVersionTodos: [],
@@ -1142,12 +1252,13 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
-      const prepared = prepareVersion(created.initialVersion, { actor: TEST_ACTOR, now: deps.clock.now(), operationId: "op_prepare" }, deps);
+      const prepared = prepareVersion(created.firstVersion!, { actor: TEST_ACTOR, now: deps.clock.now(), operationId: "op_prepare" }, deps);
       const started = startVersion(
         prepared.version,
         evaluateStartGate({
@@ -1196,7 +1307,7 @@ describe("sqlite storage adapter", () => {
       const loaded = await adapter.loadProjectAggregate(aggregate.project.id);
 
       expect(loaded?.project.currentVersionId).toBe("version-2");
-      expect(loaded?.versions.find((version) => version.id === created.initialVersion.id)?.state).toBe(
+      expect(loaded?.versions.find((version) => version.id === created.firstVersion!.id)?.state).toBe(
         "suspend"
       );
       expect(loaded?.versions.find((version) => version.id === "version-2")?.isCurrent).toBe(true);
@@ -1214,14 +1325,15 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
       const todoCreation = createTodo({
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         title: "Implement persistence",
         actor: TEST_ACTOR,
         deps
@@ -1229,7 +1341,7 @@ describe("sqlite storage adapter", () => {
 
       const aggregate: ProjectAggregateSnapshot = {
         project: created.project,
-        versions: [created.initialVersion],
+        versions: [created.firstVersion!],
         workItems: [todoCreation.workItem],
         todos: [todoCreation.todo],
         undos: [],
@@ -1251,7 +1363,7 @@ describe("sqlite storage adapter", () => {
       ).not.toThrow();
       expect(
         loaded?.versions.filter((version) => version.isCurrent).map((version) => version.id)
-      ).toEqual([created.initialVersion.id]);
+      ).toEqual([created.firstVersion!.id]);
 
       adapter.close();
     } finally {
@@ -1266,14 +1378,15 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
       const todoCreation = createTodo({
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         title: "Link doc",
         actor: TEST_ACTOR,
         deps
@@ -1299,7 +1412,7 @@ describe("sqlite storage adapter", () => {
 
       const aggregate: ProjectAggregateSnapshot = {
         project: created.project,
-        versions: [created.initialVersion],
+        versions: [created.firstVersion!],
         workItems: [todoCreation.workItem],
         todos: [todoCreation.todo],
         undos: [],
@@ -1343,7 +1456,7 @@ describe("sqlite storage adapter", () => {
             id: "todo-bad",
             projectId: baseline.project.id,
             workItemId: "missing-work-item",
-            versionId: baseline.project.initialVersionId,
+            versionId: baseline.project.currentVersionId!,
             title: "Broken row",
             description: "",
             status: "wait",
@@ -1500,8 +1613,8 @@ describe("sqlite storage adapter", () => {
       const deps = createTestDependencies();
       const deferredCreation = createDeferred({
         projectId: baseline.project.id,
-        originVersionId: baseline.project.initialVersionId,
-        targetReviewVersionId: baseline.project.initialVersionId,
+        originVersionId: baseline.project.currentVersionId!,
+        targetReviewVersionId: baseline.project.currentVersionId!,
         title: "Invalid active deferred",
         reason: "validator test",
         actor: TEST_ACTOR,
@@ -1522,7 +1635,7 @@ describe("sqlite storage adapter", () => {
         rationale: "validator test",
         scope: {
           type: "version",
-          versionId: baseline.project.initialVersionId
+          versionId: baseline.project.currentVersionId!
         },
         actor: TEST_ACTOR,
         deps
@@ -1557,8 +1670,9 @@ describe("sqlite storage adapter", () => {
       const adapter = new SQLiteStorageAdapter({ projectRoot });
       const deps = createTestDependencies();
       const created = createProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "" },
         actor: TEST_ACTOR,
         deps
       });
@@ -1566,20 +1680,20 @@ describe("sqlite storage adapter", () => {
         id: "todo-query",
         workItemId: "work-item-query",
         projectId: created.project.id,
-        versionId: created.initialVersion.id
+        versionId: created.firstVersion!.id
       });
       const undo = createUndoFixture({
         id: "undo-query",
         workItemId: "work-item-query",
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
-        originVersionId: created.initialVersion.id,
-        preferredResolutionVersionId: created.initialVersion.id
+        versionId: created.firstVersion!.id,
+        originVersionId: created.firstVersion!.id,
+        preferredResolutionVersionId: created.firstVersion!.id
       });
       const workItem = createWorkItemFixture({
         id: "work-item-query",
         projectId: created.project.id,
-        originVersionId: created.initialVersion.id,
+        originVersionId: created.firstVersion!.id,
         activeRecordType: "undo",
         activeRecordId: undo.id
       });      const convertedEvents = createTransitionEvents(
@@ -1619,7 +1733,7 @@ describe("sqlite storage adapter", () => {
 
       const aggregate: ProjectAggregateSnapshot = {
         project: created.project,
-        versions: [created.initialVersion],
+        versions: [created.firstVersion!],
         workItems: [workItem],
         todos: [{ ...todo, status: "converted" }],
         undos: [undo],
@@ -1657,21 +1771,22 @@ describe("sqlite storage adapter", () => {
         deps: createTestDependencies()
       });
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
       await service.prepareVersion({
         projectId: created.project.id,
-        versionId: created.initialVersion.id,
+        versionId: created.firstVersion!.id,
         actor: TEST_ACTOR
       });
 
       const proposal = await service.proposeL3Operation({
         projectId: created.project.id,
         actionType: "start_version",
-        targetId: created.initialVersion.id,
+        targetId: created.firstVersion!.id,
         reason: "start current version",
         actor: TEST_ACTOR
       });
@@ -1836,8 +1951,9 @@ describe("sqlite storage adapter", () => {
         deps: createTestDependencies()
       });
       const created = await service.initProject({
-      contentLocale: "en",
+        contentLocale: "en",
         name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
@@ -1868,7 +1984,7 @@ describe("sqlite storage adapter", () => {
       const childDetails = await expectConfirmationRequired(
         service.createChildVersion({
           projectId: created.project.id,
-          parentVersionId: created.initialVersion.id,
+          parentVersionId: created.firstVersion!.id,
           title: "Child 1",
           actor: TEST_ACTOR
         })
@@ -1894,12 +2010,12 @@ describe("sqlite storage adapter", () => {
       const loadedEventTypes = loaded?.events.map((event) => event.eventType) ?? [];
 
       expect(loaded?.versions.map((version) => version.id)).toEqual([
-        created.initialVersion.id,
+        created.firstVersion!.id,
         childDetails.proposal.targetId,
         createDetails.proposal.targetId
       ]);
       expect(loaded?.versions.map((version) => version.order)).toEqual([1, 2, 3]);
-      expect(loaded?.project.currentVersionId).toBe(created.initialVersion.id);
+      expect(loaded?.project.currentVersionId).toBe(created.firstVersion!.id);
       expect(loaded?.pendingOperations).toHaveLength(2);
       expect(loaded?.pendingOperations.map((operation) => operation.status)).toEqual([
         "committed",
@@ -1914,12 +2030,12 @@ describe("sqlite storage adapter", () => {
       expect(loadedEventTypes).toContain("version.tree_changed");
       expect(loadedEventTypes).toContain("pending_operation.committed");
       expect(loadedEventTypes).toContain("approval_artifact.consumed");
-      expect(loaded?.versions.find((version) => version.id === created.initialVersion.id)).toMatchObject({
+      expect(loaded?.versions.find((version) => version.id === created.firstVersion!.id)).toMatchObject({
         previousVersionId: null,
         nextVersionId: createDetails.proposal.targetId
       });
       expect(loaded?.versions.find((version) => version.id === childDetails.proposal.targetId)).toMatchObject({
-        parentVersionId: created.initialVersion.id,
+        parentVersionId: created.firstVersion!.id,
         previousVersionId: null,
         nextVersionId: null
       });
