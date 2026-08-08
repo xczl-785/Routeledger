@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { expect, it, describe } from "vitest";
 
-import { TEST_ACTOR, createTestDependencies, createProjectFixture, createUndoFixture, createVersionFixture } from "./builders.js";
+import { TEST_ACTOR, createTestDependencies, createProjectFixture, createTodoFixture, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, createTempProjectRoot, cleanupProjectRoot, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, setCurrentVersionForTest } from "./routeledger-service-test-helpers.js";
@@ -121,6 +121,96 @@ describe("route ledger service", () => {
         }
       }
     });
+  });
+
+  it("orders context todos by version order, creation time, and ID", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const versions = [
+      createVersionFixture({ id: "version-1", order: 1, isCurrent: true }),
+      createVersionFixture({ id: "version-2", order: 2 })
+    ];
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ currentVersionId: "version-1" }),
+      versions,
+      workItems: [],
+      todos: [
+        createTodoFixture({
+          id: "todo-version-2",
+          versionId: "version-2",
+          createdAt: "2026-06-26T00:00:00.000Z"
+        }),
+        createTodoFixture({
+          id: "todo-b",
+          versionId: "version-1",
+          createdAt: "2026-06-27T00:00:00.000Z"
+        }),
+        createTodoFixture({
+          id: "todo-a",
+          versionId: "version-1",
+          createdAt: "2026-06-27T00:00:00.000Z"
+        }),
+        createTodoFixture({
+          id: "todo-earlier",
+          versionId: "version-1",
+          createdAt: "2026-06-26T00:00:00.000Z"
+        })
+      ],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const context = await service.getCurrentContext({ projectId: "project-1" });
+
+    expect(
+      (context.data as { todos: Array<{ id: string }> }).todos.map((todo) => todo.id)
+    ).toEqual(["todo-earlier", "todo-a", "todo-b", "todo-version-2"]);
+  });
+
+  it("checkStartGate reports open todos for the requested target version", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ currentVersionId: "version-1" }),
+      versions: [
+        createVersionFixture({ id: "version-1", state: "close", order: 1, isCurrent: true }),
+        createVersionFixture({ id: "version-2", state: "ready", order: 2 })
+      ],
+      workItems: [],
+      todos: [
+        createTodoFixture({ id: "current-todo", versionId: "version-1" }),
+        createTodoFixture({ id: "target-todo", versionId: "version-2" })
+      ],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const gate = await service.checkStartGate({
+      projectId: "project-1",
+      versionId: "version-2",
+      actor: TEST_ACTOR
+    });
+
+    expect(gate.allowed).toBe(true);
+    expect(gate.openTodoIds).toEqual(["target-todo"]);
   });
 
   it("listVersionsWindow 鍦ㄥ熬閮?anchor 涓婅繑鍥炴纭殑 head-tail 杈圭晫缁熻", async () => {

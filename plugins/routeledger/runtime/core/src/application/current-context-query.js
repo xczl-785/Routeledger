@@ -495,8 +495,21 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
         before: versionWindowBefore,
         after: versionWindowAfter
     });
+    const versionOrderById = new Map(versions.map((version) => [version.id, version.order]));
     const openTodos = snapshot.todos
         .filter((todo) => todo.status === "wait" || todo.status === "running")
+        .slice()
+        .sort((left, right) => {
+        const orderDifference = (versionOrderById.get(left.versionId) ?? Number.MAX_SAFE_INTEGER) -
+            (versionOrderById.get(right.versionId) ?? Number.MAX_SAFE_INTEGER);
+        if (orderDifference !== 0) {
+            return orderDifference;
+        }
+        const createdAtDifference = left.createdAt.localeCompare(right.createdAt);
+        return createdAtDifference !== 0
+            ? createdAtDifference
+            : left.id.localeCompare(right.id, "en");
+    })
         .map(summarizeOpenTodo);
     const openUndos = snapshot.undos
         .filter((undo) => undo.status === "wait")

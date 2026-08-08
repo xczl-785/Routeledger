@@ -344,7 +344,12 @@ describe("routeledger mcp registry", () => {
             configuredValue: null,
             suggestedValue: "zh-CN",
             suggestionSource: "response_locale",
-            requiresUserDecision: true
+            requiresUserDecision: true,
+            effectiveScopes: [
+              "project_setting",
+              "initial_version_defaults",
+              "write_integrity_gate"
+            ]
           },
           recommendedNextActions: expect.arrayContaining([
             expect.objectContaining({
@@ -595,7 +600,12 @@ describe("routeledger mcp registry", () => {
           contentLocale: {
             status: "configured",
             configuredValue: "en",
-            requiresUserDecision: false
+            requiresUserDecision: false,
+            effectiveScopes: [
+              "project_setting",
+              "initial_version_defaults",
+              "write_integrity_gate"
+            ]
           }
         }
       });

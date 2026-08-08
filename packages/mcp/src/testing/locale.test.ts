@@ -118,4 +118,54 @@ describe("MCP response locale", () => {
       ]
     });
   });
+
+  it("localizes doc drift summaries and transition guide labels for zh-CN", () => {
+    const docDrift = localizeToolResponse(
+      {
+        ok: true,
+        data: {
+          project: { name: "PocketRead" },
+          routeTruth: {
+            currentVersion: { id: "version-2", title: "组织与检索" },
+            openTodoCount: 4,
+            openUndoCount: 0,
+            pendingProposalCount: 1
+          },
+          checkedFiles: [{ path: "README.md" }],
+          unreadableFiles: [],
+          warnings: [{ code: "STALE_CURRENT_VERSION" }],
+          summaryText: "Checked 1 entry files for project PocketRead."
+        }
+      },
+      resolveResponseLocale("zh-CN"),
+      "check_doc_drift"
+    );
+    const guide = localizeToolResponse(
+      {
+        ok: true,
+        data: {
+          recommendedSteps: [
+            { label: "Prepare target version" },
+            { label: "Approve transition proposal" }
+          ],
+          notes: [
+            "Read-only guide only. It never creates pending proposals; execute the listed existing tools step by step."
+          ]
+        }
+      },
+      resolveResponseLocale("zh-CN"),
+      "get_version_transition_guide"
+    );
+
+    expect(docDrift.data.summaryText).toBe(
+      "已检查项目 PocketRead 的 1 个入口文件。 当前 Version：组织与检索 (version-2)。 当前路线事实包含 4 个未关闭 Todo、0 个未关闭 Undo，以及 1 个待决 proposal。 发现 1 个 warning，另有 0 个文件无法读取。"
+    );
+    expect(guide.data).toEqual({
+      recommendedSteps: [
+        { label: "准备目标 Version" },
+        { label: "审批转换 proposal" }
+      ],
+      notes: ["这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。"]
+    });
+  });
 });

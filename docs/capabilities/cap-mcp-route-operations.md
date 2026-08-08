@@ -45,6 +45,10 @@ rules.
 10. A legacy project whose `contentLocale` is unresolved remains readable.
     All project writes except `set_project_content_locale` are blocked until a
     concrete BCP 47 locale is persisted.
+11. `get_runtime_context.contentLocale.effectiveScopes` reports the current
+    bounded effect of `contentLocale`: the persisted project setting,
+    localized initial-Version defaults, and the write-integrity gate. It does
+    not claim translation of user-authored or existing project content.
 
 ## Evidence
 

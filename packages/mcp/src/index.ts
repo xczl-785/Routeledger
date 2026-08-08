@@ -1286,6 +1286,11 @@ export const createRouteLedgerMcpRegistry = (
     const suggestedContentLocale = suggestContentLocale(
       resolvedResponseLocale.requested ?? resolvedResponseLocale.resolved
     );
+    const contentLocaleEffectiveScopes = [
+      "project_setting",
+      "initial_version_defaults",
+      "write_integrity_gate"
+    ] as const;
     const contentLocale =
       activeProject?.contentLocale !== null && activeProject?.contentLocale !== undefined
         ? {
@@ -1293,7 +1298,8 @@ export const createRouteLedgerMcpRegistry = (
             configuredValue: activeProject.contentLocale,
             suggestedValue: null,
             suggestionSource: null,
-            requiresUserDecision: false
+            requiresUserDecision: false,
+            effectiveScopes: contentLocaleEffectiveScopes
           }
         : binding.status === "uninitialized" || activeProject !== null
           ? {
@@ -1302,14 +1308,16 @@ export const createRouteLedgerMcpRegistry = (
               suggestedValue: suggestedContentLocale,
               suggestionSource:
                 suggestedContentLocale === null ? null : "response_locale",
-              requiresUserDecision: true
+              requiresUserDecision: true,
+              effectiveScopes: contentLocaleEffectiveScopes
             }
           : {
               status: "unavailable" as const,
               configuredValue: null,
               suggestedValue: null,
               suggestionSource: null,
-              requiresUserDecision: false
+              requiresUserDecision: false,
+              effectiveScopes: contentLocaleEffectiveScopes
             };
     const bindingActions =
       binding.status === "bound" ? [] : getBindingRecommendedNextActions(binding);

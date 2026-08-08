@@ -256,6 +256,50 @@ const localizeHumanReviewText = (value, locale) => {
     })
         .join("\n");
 };
+const ZH_TRANSITION_GUIDE_LABELS = {
+    "Review pending L3 proposals": "复核待决 L3 proposal",
+    "Prepare current version": "准备当前 Version",
+    "Start current version": "启动当前 Version",
+    "Approve start proposal": "审批启动 proposal",
+    "Commit start proposal": "提交启动 proposal",
+    "Close current version boundary": "关闭当前 Version 边界",
+    "Approve close proposal": "审批关闭 proposal",
+    "Commit close proposal": "提交关闭 proposal",
+    "Close from version boundary": "关闭来源 Version 边界",
+    "Prepare target version": "准备目标 Version",
+    "Start target version": "启动目标 Version",
+    "Set current to target version": "将目标 Version 设为 current",
+    "Approve transition proposal": "审批转换 proposal",
+    "Commit transition proposal": "提交转换 proposal",
+    "Start target after current switch": "切换 current 后启动目标 Version"
+};
+const ZH_TRANSITION_GUIDE_NOTES = {
+    "Read-only guide only. It never creates pending proposals; execute the listed existing tools step by step.": "这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。",
+    "Pending L3 proposals already exist. Resolve them first so the live route and approval chain stay unambiguous.": "当前已有待决 L3 proposal；请先处理，避免 live route 和审批链产生歧义。",
+    "fromVersion and targetVersion already identify the current running version; no route operation is needed.": "fromVersion 与 targetVersion 已指向当前 running Version，无需路线操作。",
+    "fromVersion and targetVersion already identify the current closed version; no route operation is needed.": "fromVersion 与 targetVersion 已指向当前 closed Version，无需路线操作。",
+    "Target start gate contains self-referential undo blockers. Treat them as controller judgment items instead of guessing whether they are rollback guardrails or delayed cleanup.": "目标 start gate 含有自引用 Undo 阻断项；应交由控制者裁决，不要猜测它是回滚护栏还是延迟清理。"
+};
+const localizeDocDriftSummary = (record, locale) => {
+    if (locale !== "zh-CN" || typeof record.summaryText !== "string") {
+        return;
+    }
+    const project = record.project;
+    const routeTruth = record.routeTruth;
+    const currentVersion = routeTruth?.currentVersion;
+    const checkedFiles = Array.isArray(record.checkedFiles) ? record.checkedFiles : [];
+    const unreadableFiles = Array.isArray(record.unreadableFiles) ? record.unreadableFiles : [];
+    const warnings = Array.isArray(record.warnings) ? record.warnings : [];
+    const currentVersionText = currentVersion === null || currentVersion === undefined
+        ? "当前没有 current Version。"
+        : `当前 Version：${String(currentVersion.title)} (${String(currentVersion.id)})。`;
+    record.summaryText = [
+        `已检查项目 ${String(project?.name ?? "")} 的 ${checkedFiles.length} 个入口文件。`,
+        currentVersionText,
+        `当前路线事实包含 ${Number(routeTruth?.openTodoCount ?? 0)} 个未关闭 Todo、${Number(routeTruth?.openUndoCount ?? 0)} 个未关闭 Undo，以及 ${Number(routeTruth?.pendingProposalCount ?? 0)} 个待决 proposal。`,
+        `发现 ${warnings.length} 个 warning，另有 ${unreadableFiles.length} 个文件无法读取。`
+    ].join(" ");
+};
 const localizeVersionStructureOperation = (record, locale) => {
     if (typeof record.actionType !== "string" || typeof record.summary !== "string") {
         return;
@@ -314,6 +358,14 @@ const localizeSystemValue = (value, locale, valuePath, toolName) => {
     if (Array.isArray(value)) {
         return value.map((item) => localizeSystemValue(item, locale, valuePath, toolName));
     }
+    if (typeof value === "string") {
+        if (locale === "zh-CN" &&
+            toolName === "get_version_transition_guide" &&
+            valuePath.at(-1) === "notes") {
+            return ZH_TRANSITION_GUIDE_NOTES[value] ?? value;
+        }
+        return value;
+    }
     if (value === null || typeof value !== "object") {
         return value;
     }
@@ -354,6 +406,15 @@ const localizeSystemValue = (value, locale, valuePath, toolName) => {
     }
     if (toolName === "get_version_structure" && valuePath.at(-1) === "legalOperations") {
         localizeVersionStructureOperation(record, locale);
+    }
+    if (locale === "zh-CN" &&
+        toolName === "get_version_transition_guide" &&
+        valuePath.at(-1) === "recommendedSteps" &&
+        typeof record.label === "string") {
+        record.label = ZH_TRANSITION_GUIDE_LABELS[record.label] ?? record.label;
+    }
+    if (toolName === "check_doc_drift" && valuePath.length === 1) {
+        localizeDocDriftSummary(record, locale);
     }
     return record;
 };

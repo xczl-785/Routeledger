@@ -3625,18 +3625,15 @@ export class RouteLedgerService {
   async checkStartGate(input: VersionCommandInput): Promise<StartGateResult> {
     const snapshot = await requireProject(this.storage, input.projectId);
     const targetVersion = requireVersion(snapshot, input.versionId);
-    const currentVersionTodos =
-      snapshot.project.currentVersionId === null
-        ? []
-        : snapshot.todos.filter(
-            (todo) =>
-              todo.versionId === snapshot.project.currentVersionId &&
-              (todo.status === "wait" || todo.status === "running")
-          );
+    const targetVersionTodos = snapshot.todos.filter(
+      (todo) =>
+        todo.versionId === targetVersion.id &&
+        (todo.status === "wait" || todo.status === "running")
+    );
     const dueUndos = snapshot.undos.filter((undo) => undo.status === "wait");
     const gate = evaluateStartGate({
       targetVersion,
-      currentVersionTodos,
+      currentVersionTodos: targetVersionTodos,
       dueUndos,
       deferredItems: snapshot.deferredItems,
       constraints: snapshot.constraints,
