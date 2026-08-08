@@ -436,6 +436,35 @@ describe("route ledger service", () => {
           })
         ])
       );
+      expect(result.data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "current_version_title",
+            file: "README.md",
+            status: "mismatched",
+            actual: "still Initial Version."
+          }),
+          expect.objectContaining({
+            kind: "current_version_id",
+            file: "README.md",
+            status: "not_detected"
+          }),
+          expect.objectContaining({
+            kind: "current_version_state",
+            file: "AGENTS.md",
+            status: "not_detected"
+          })
+        ])
+      );
+      expect(result.data.coverage).toMatchObject({
+        level: "partial",
+        checkedFileCount: 2,
+        recognizedAssertionCount: 1,
+        matchedAssertionCount: 0,
+        mismatchedAssertionCount: 1,
+        notDetectedAssertionCount: 5,
+        unrecognizedFileCount: 1
+      });
       expect(result.data.suggestedTodos).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -457,6 +486,93 @@ describe("route ledger service", () => {
       expect(result.data.summaryText).toContain(
         "Found 2 warnings and 1 unreadable files."
       );
+      expect(result.data.summaryText).toContain("Coverage is partial:");
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("checkDocDrift compares explicit Chinese current-Version ID, title, and state declarations", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      projectRoot,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "zh-CN",
+        name: "PocketRead",
+        actor: TEST_ACTOR
+      });
+      const currentVersion = created.initialVersion;
+      const readmePath = path.join(projectRoot, "README.md");
+      fs.writeFileSync(
+        readmePath,
+        [
+          "当前 Version：V0.1 可靠本地核心",
+          "当前 Version ID：wrong-version-id",
+          "当前 Version 状态：running"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const stale = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+
+      expect(stale.data.warnings).toHaveLength(3);
+      expect(stale.data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "current_version_title", status: "mismatched" }),
+          expect.objectContaining({ kind: "current_version_id", status: "mismatched" }),
+          expect.objectContaining({ kind: "current_version_state", status: "mismatched" })
+        ])
+      );
+      expect(stale.data.coverage).toMatchObject({
+        level: "partial",
+        recognizedAssertionCount: 3,
+        matchedAssertionCount: 0,
+        mismatchedAssertionCount: 3,
+        notDetectedAssertionCount: 0,
+        unrecognizedFileCount: 0
+      });
+
+      fs.writeFileSync(
+        readmePath,
+        [
+          `当前 Version 标题：${currentVersion.title}`,
+          `当前 Version ID：${currentVersion.id}`,
+          `当前 Version 状态：${currentVersion.state}`,
+          "current pointer source: .routeledger/refs/current.json"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const aligned = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+
+      expect(aligned.data.warnings).toEqual([]);
+      expect(aligned.data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "current_version_title", status: "matched" }),
+          expect.objectContaining({ kind: "current_version_id", status: "matched" }),
+          expect.objectContaining({ kind: "current_version_state", status: "matched" })
+        ])
+      );
+      expect(aligned.data.coverage).toMatchObject({
+        level: "partial",
+        recognizedAssertionCount: 3,
+        matchedAssertionCount: 3,
+        mismatchedAssertionCount: 0,
+        notDetectedAssertionCount: 0
+      });
+      expect(aligned.data.summaryText).toContain("Coverage is partial:");
     } finally {
       cleanupProjectRoot(projectRoot);
     }
@@ -686,7 +802,8 @@ describe("route ledger service", () => {
         [
           "# RouteLedger",
           "",
-          "Current version: see `.routeledger\\refs\\current.json`."
+          "Current version: see `.routeledger\\refs\\current.json`.",
+          "当前版本：参见 `.routeledger\\refs\\current.json`。"
         ].join("\n"),
         "utf8"
       );
@@ -704,6 +821,57 @@ describe("route ledger service", () => {
           matchedWarningCount: 0
         })
       ]);
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("checkDocDrift rejects suffixed titles, negated states, and stale declarations beside canonical pointers", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      projectRoot,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "RouteLedger",
+        actor: TEST_ACTOR
+      });
+      fs.writeFileSync(
+        path.join(projectRoot, "README.md"),
+        [
+          "Current Version Title: Initial Version old; see `.routeledger/refs/current.json`.",
+          "Current Version: not currently wait"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const result = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+
+      expect(result.data.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            assertionKind: "current_version_title",
+            actual: expect.stringContaining("Initial Version old")
+          }),
+          expect.objectContaining({
+            assertionKind: "current_version_state",
+            actual: "not currently wait"
+          })
+        ])
+      );
+      expect(result.data.coverage).toMatchObject({
+        recognizedAssertionCount: 2,
+        matchedAssertionCount: 0,
+        mismatchedAssertionCount: 2
+      });
     } finally {
       cleanupProjectRoot(projectRoot);
     }

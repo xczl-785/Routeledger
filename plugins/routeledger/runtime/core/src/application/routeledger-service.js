@@ -2404,6 +2404,47 @@ export class RouteLedgerService {
     async commitL3Operation(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
         const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
+        if (pendingOperation.status === "committed") {
+            if (input.approvalArtifactId === undefined || input.approvalArtifactId.trim().length === 0) {
+                throw new ApplicationError("CONFIRMATION_REQUIRED", "重放已提交的 L3 operation 仍需要原 approval artifact", {
+                    pendingOperationId: pendingOperation.id,
+                    confirmBooleanRejected: input.confirm === true
+                });
+            }
+            const artifact = requireApprovalArtifact(snapshot, input.approvalArtifactId);
+            const replayMatches = pendingOperation.projectId === input.projectId &&
+                pendingOperation.committedAt !== null &&
+                pendingOperation.approvalArtifactId === artifact.id &&
+                artifact.projectId === pendingOperation.projectId &&
+                artifact.pendingOperationId === pendingOperation.id &&
+                artifact.actionType === pendingOperation.actionType &&
+                artifact.targetId === pendingOperation.targetId &&
+                artifact.digest.value === pendingOperation.digest.value &&
+                artifact.status === "consumed" &&
+                artifact.consumedAt !== null &&
+                artifact.consumedAt === pendingOperation.committedAt;
+            if (!replayMatches) {
+                throw new ApplicationError("COMMIT_REPLAY_MISMATCH", "已提交 operation 只能使用原始且完全匹配的 approval artifact 重放", {
+                    pendingOperationId: pendingOperation.id,
+                    pendingOperationProjectId: pendingOperation.projectId,
+                    pendingOperationCommittedAt: pendingOperation.committedAt,
+                    expectedApprovalArtifactId: pendingOperation.approvalArtifactId,
+                    actualApprovalArtifactId: artifact.id,
+                    artifactProjectId: artifact.projectId,
+                    artifactPendingOperationId: artifact.pendingOperationId,
+                    artifactActionType: artifact.actionType,
+                    artifactTargetId: artifact.targetId,
+                    artifactDigest: artifact.digest.value,
+                    artifactStatus: artifact.status,
+                    artifactConsumedAt: artifact.consumedAt
+                });
+            }
+            return {
+                pendingOperation,
+                approvalArtifact: artifact,
+                replayed: true
+            };
+        }
         if (pendingOperation.status !== "pending") {
             throw new ApplicationError("PENDING_OPERATION_NOT_PENDING", "pending operation 不是可提交状态", {
                 pendingOperationId: pendingOperation.id,
@@ -2564,7 +2605,8 @@ export class RouteLedgerService {
         await this.saveProjectAggregate(applied.snapshot);
         return {
             pendingOperation: committedOperation,
-            approvalArtifact: consumedArtifact
+            approvalArtifact: consumedArtifact,
+            replayed: false
         };
     }
     applyCommittedOperation(snapshot, pendingOperation, liveDescription, context) {

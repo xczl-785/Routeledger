@@ -23,7 +23,10 @@ rules.
    completion counts.
 5. L3 route changes follow proposal, approval or rejection, and commit.
    Commit consumes a valid approval artifact; `confirm=true` alone is not an
-   approval.
+   approval. A retry of an already committed operation is a read-like replay
+   only when the same consumed artifact still matches the operation ID,
+   action, target, and digest exactly; it returns `replayed: true` without
+   creating canonical events. Every mismatch fails closed.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
 7. `next_action` follows the version lifecycle: a current `wait` version
@@ -49,6 +52,11 @@ rules.
     bounded effect of `contentLocale`: the persisted project setting,
     localized initial-Version defaults, and the write-integrity gate. It does
     not claim translation of user-authored or existing project content.
+12. `check_doc_drift` compares explicit Chinese or English declarations of the
+    current Version ID, title, and state. It returns every recognized,
+    mismatched, and non-detected assertion under `checkedAssertions`, and its
+    `coverage.level` remains `partial`; zero warnings never claims complete
+    document coverage.
 
 ## Evidence
 

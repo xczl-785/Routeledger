@@ -2,13 +2,21 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DomainError } from "../domain/errors.js";
 import { validateAssetPath } from "../services/asset-service.js";
+const CURRENT_VERSION_ASSERTION_KINDS = [
+    "current_version_id",
+    "current_version_title",
+    "current_version_state"
+];
+const CURRENT_VERSION_DECLARATION_PATTERN = /^\s*(?:[-*]\s*)?(?:当前\s*(?:版本|version)|current\s+version)(?:\s+(id|标识|identifier|标题|title|状态|status|state))?\s*(?::|：|=|\bis\b|为)\s*(.+?)\s*$/i;
 const CURRENT_POINTER_HINT_PATTERNS = [
     /\bcurrentVersion\b/i,
     /\bcurrent(?:\s+version)?\b/i,
-    /当前版本/i,
+    /当前\s*(?:版本|version)/i,
     /主线/i
 ];
-const CANONICAL_CURRENT_POINTER_PATTERNS = [/\.routeledger[\\/]+refs[\\/]+current\.json/i];
+const CANONICAL_CURRENT_POINTER_PATTERNS = [
+    /\.routeledger[\\/]+refs[\\/]+current\.json/i
+];
 const TRUTH_SOURCE_HINT_PATTERNS = [/真源/i, /source of truth/i, /唯一真源/i];
 const CANONICAL_TRUTH_PATTERNS = [/\.routeledger/i, /canonical json/i];
 const includesAnyPattern = (value, patterns) => patterns.some((pattern) => pattern.test(value));
@@ -54,25 +62,137 @@ const resolveDocDriftEntryFilePath = async (projectRoot, entryFile) => {
     }
     return realResolvedPath;
 };
-const findCurrentVersionDriftEvidence = (content, currentVersionId, currentVersionTitle) => {
-    if (content.includes(currentVersionId) || content.includes(currentVersionTitle)) {
+const normalizeAssertionValue = (value) => value
+    .trim()
+    .replace(/^still\s+/i, "")
+    .replace(/[`*_]/g, "")
+    .replace(/[.。]+$/u, "")
+    .trim()
+    .toLocaleLowerCase("en");
+const isCanonicalPointerOnlyDeclaration = (value) => {
+    if (!includesAnyPattern(value, CANONICAL_CURRENT_POINTER_PATTERNS)) {
+        return false;
+    }
+    return value
+        .replace(/\bsee\b/gi, "")
+        .replace(/参见|见/gu, "")
+        .replace(/\.routeledger[\\/]+refs[\\/]+current\.json/gi, "")
+        .replace(/[`*_\s:：=.,。;；()（）-]/gu, "")
+        .length === 0;
+};
+const assertionKindFromQualifier = (qualifier) => {
+    if (qualifier === undefined) {
         return null;
     }
-    const lines = content.split(/\r?\n/);
-    for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index] ?? "";
-        if (!includesAnyPattern(line, CURRENT_POINTER_HINT_PATTERNS)) {
-            continue;
-        }
-        if (includesAnyPattern(line, CANONICAL_CURRENT_POINTER_PATTERNS)) {
-            continue;
-        }
-        return {
-            line: index + 1,
-            evidence: line.trim()
-        };
+    if (/^(?:id|标识|identifier)$/i.test(qualifier)) {
+        return "current_version_id";
+    }
+    if (/^(?:标题|title)$/i.test(qualifier)) {
+        return "current_version_title";
+    }
+    if (/^(?:状态|status|state)$/i.test(qualifier)) {
+        return "current_version_state";
     }
     return null;
+};
+const expectedAssertionValue = (kind, currentVersion) => {
+    if (kind === "current_version_id") {
+        return currentVersion.id;
+    }
+    if (kind === "current_version_title") {
+        return currentVersion.title;
+    }
+    return currentVersion.state;
+};
+const assertionValueMatches = (kind, actual, expected, explicitKind) => {
+    const normalizedActual = normalizeAssertionValue(actual);
+    const normalizedExpected = normalizeAssertionValue(expected);
+    if (explicitKind) {
+        return normalizedActual === normalizedExpected;
+    }
+    if (kind === "current_version_title") {
+        return (normalizedActual === normalizedExpected ||
+            (normalizedActual.startsWith(`${normalizedExpected} (`) &&
+                normalizedActual.endsWith(")")));
+    }
+    if (kind === "current_version_id") {
+        const index = normalizedActual.indexOf(normalizedExpected);
+        if (index === -1) {
+            return false;
+        }
+        const before = normalizedActual[index - 1] ?? "";
+        const after = normalizedActual[index + normalizedExpected.length] ?? "";
+        return !/[a-z0-9-]/u.test(before) && !/[a-z0-9-]/u.test(after);
+    }
+    const tokens = normalizedActual
+        .split(/[^a-z]+/u)
+        .filter((token) => token.length > 0);
+    const stateIndex = tokens.indexOf(normalizedExpected);
+    if (stateIndex === -1) {
+        return false;
+    }
+    const precedingTokens = tokens.slice(0, stateIndex);
+    const hasEnglishNegation = precedingTokens.some((token) => ["no", "non", "not", "without"].includes(token));
+    const hasContractedNegation = /\bisn['’]?t\b/u.test(normalizedActual);
+    const hasChineseNegation = /[不非]/u.test(normalizedActual.slice(0, normalizedActual.indexOf(normalizedExpected)));
+    return !hasEnglishNegation && !hasContractedNegation && !hasChineseNegation;
+};
+const assertionValueMentionsState = (actual, expected) => normalizeAssertionValue(actual)
+    .split(/[^a-z]+/u)
+    .filter((token) => token.length > 0)
+    .includes(normalizeAssertionValue(expected));
+const findCurrentVersionAssertions = (file, content, currentVersion) => {
+    const lines = content.split(/\r?\n/);
+    const assertions = [];
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index] ?? "";
+        const match = line.match(CURRENT_VERSION_DECLARATION_PATTERN);
+        if (match === null) {
+            continue;
+        }
+        const qualifierKind = assertionKindFromQualifier(match[1]);
+        const actual = (match[2] ?? "").trim();
+        if (isCanonicalPointerOnlyDeclaration(actual)) {
+            continue;
+        }
+        const candidateKinds = qualifierKind === null
+            ? CURRENT_VERSION_ASSERTION_KINDS.filter((kind) => assertionValueMatches(kind, actual, expectedAssertionValue(kind, currentVersion), false))
+            : [qualifierKind];
+        const kinds = candidateKinds.length > 0
+            ? candidateKinds
+            : qualifierKind === null &&
+                assertionValueMentionsState(actual, expectedAssertionValue("current_version_state", currentVersion))
+                ? ["current_version_state"]
+                : ["current_version_title"];
+        for (const kind of kinds) {
+            const expected = expectedAssertionValue(kind, currentVersion);
+            assertions.push({
+                kind,
+                file,
+                status: assertionValueMatches(kind, actual, expected, qualifierKind !== null)
+                    ? "matched"
+                    : "mismatched",
+                expected,
+                actual,
+                evidence: line.trim(),
+                line: index + 1
+            });
+        }
+    }
+    for (const kind of CURRENT_VERSION_ASSERTION_KINDS) {
+        if (!assertions.some((assertion) => assertion.kind === kind)) {
+            assertions.push({
+                kind,
+                file,
+                status: "not_detected",
+                expected: expectedAssertionValue(kind, currentVersion),
+                actual: null,
+                evidence: null,
+                line: null
+            });
+        }
+    }
+    return assertions;
 };
 const buildDocDriftSuggestedTodos = (warnings) => {
     const seen = new Set();
@@ -117,14 +237,14 @@ const buildDocDriftSummaryText = (options) => {
         `Checked ${options.checkedFileCount} entry files for project ${options.projectName}.`,
         currentVersionText,
         `Route truth shows ${options.openTodoCount} open todos, ${options.openUndoCount} open undos, and ${options.pendingProposalCount} pending proposals on the current route.`,
-        `Found ${options.warningCount} warnings and ${options.unreadableFileCount} unreadable files.`
+        `Found ${options.warningCount} warnings and ${options.unreadableFileCount} unreadable files.`,
+        `Coverage is partial: recognized ${options.recognizedAssertionCount} explicit current-Version assertions; ${options.notDetectedAssertionCount} assertion fields were not detected.`
     ].join(" ");
 };
 export const runDocDriftCheck = async (options) => {
     const { projectRoot, project, context, input } = options;
     const currentVersion = context.currentVersion;
     const currentVersionId = currentVersion?.id ?? null;
-    const currentVersionTitle = currentVersion?.title ?? null;
     const currentVersionOpenTodos = currentVersionId === null
         ? []
         : context.openTodos.filter((todo) => todo.versionId === currentVersionId);
@@ -135,6 +255,7 @@ export const runDocDriftCheck = async (options) => {
             undo.preferredResolutionVersionId === currentVersionId);
     const checkedFiles = [];
     const unreadableFiles = [];
+    const checkedAssertions = [];
     const warnings = [];
     const readableFiles = [];
     for (const [index, entryFile] of input.entryFiles.entries()) {
@@ -144,21 +265,42 @@ export const runDocDriftCheck = async (options) => {
             const content = await fs.readFile(resolvedPath, "utf8");
             const bytes = Buffer.byteLength(content, "utf8");
             let matchedWarningCount = 0;
-            const currentVersionDriftEvidence = currentVersionId !== null && currentVersionTitle !== null
-                ? findCurrentVersionDriftEvidence(content, currentVersionId, currentVersionTitle)
-                : null;
-            if (currentVersionDriftEvidence !== null) {
-                warnings.push({
-                    code: "STALE_CURRENT_VERSION",
-                    severity: "warning",
-                    file: entryFile,
-                    summary: `${entryFile} 提到了 current 指针，但既没有包含当前 version id/title，也没有明确指向 .routeledger/refs/current.json。`,
-                    evidence: currentVersionDriftEvidence.evidence,
-                    expected: `${currentVersionTitle} (${currentVersionId})`,
-                    actual: "Document mentions current pointer without the live current version reference.",
-                    line: currentVersionDriftEvidence.line
-                });
-                matchedWarningCount += 1;
+            if (currentVersion !== null) {
+                const fileAssertions = findCurrentVersionAssertions(entryFile, content, currentVersion);
+                checkedAssertions.push(...fileAssertions);
+                for (const assertion of fileAssertions.filter((candidate) => candidate.status === "mismatched")) {
+                    warnings.push({
+                        code: "STALE_CURRENT_VERSION",
+                        severity: "warning",
+                        file: entryFile,
+                        summary: `${entryFile} 的 ${assertion.kind} 声明与 RouteLedger 当前事实不一致。`,
+                        evidence: assertion.evidence ?? undefined,
+                        expected: assertion.expected ?? undefined,
+                        actual: assertion.actual ?? undefined,
+                        line: assertion.line ?? undefined,
+                        assertionKind: assertion.kind
+                    });
+                    matchedWarningCount += 1;
+                }
+                if (!fileAssertions.some((assertion) => assertion.status !== "not_detected") &&
+                    !content.includes(currentVersion.id) &&
+                    !content.includes(currentVersion.title)) {
+                    const broadEvidence = findFirstMatchingLine(content, (line) => includesAnyPattern(line, CURRENT_POINTER_HINT_PATTERNS) &&
+                        !includesAnyPattern(line, CANONICAL_CURRENT_POINTER_PATTERNS));
+                    if (broadEvidence !== null) {
+                        warnings.push({
+                            code: "STALE_CURRENT_VERSION",
+                            severity: "warning",
+                            file: entryFile,
+                            summary: `${entryFile} 提到了 current 路线，但没有可核对的当前 Version ID、标题或状态声明。`,
+                            evidence: broadEvidence.evidence,
+                            expected: `${currentVersion.title} (${currentVersion.id}, ${currentVersion.state})`,
+                            actual: "Document mentions the current route without an explicit comparable current-Version declaration.",
+                            line: broadEvidence.line
+                        });
+                        matchedWarningCount += 1;
+                    }
+                }
             }
             if (/sqlite/i.test(content) &&
                 includesAnyPattern(content, TRUTH_SOURCE_HINT_PATTERNS) &&
@@ -213,6 +355,24 @@ export const runDocDriftCheck = async (options) => {
             });
         }
     }
+    const recognizedAssertions = checkedAssertions.filter((assertion) => assertion.status !== "not_detected");
+    const matchedAssertions = checkedAssertions.filter((assertion) => assertion.status === "matched");
+    const mismatchedAssertions = checkedAssertions.filter((assertion) => assertion.status === "mismatched");
+    const notDetectedAssertions = checkedAssertions.filter((assertion) => assertion.status === "not_detected");
+    const coverage = {
+        level: "partial",
+        assertionKinds: CURRENT_VERSION_ASSERTION_KINDS,
+        checkedFileCount: checkedFiles.length,
+        recognizedAssertionCount: recognizedAssertions.length,
+        matchedAssertionCount: matchedAssertions.length,
+        mismatchedAssertionCount: mismatchedAssertions.length,
+        notDetectedAssertionCount: notDetectedAssertions.length,
+        unrecognizedFileCount: checkedFiles.filter((file) => !recognizedAssertions.some((assertion) => assertion.file === file.path)).length,
+        limitations: [
+            "Only explicit Chinese or English current-Version declarations are compared.",
+            "A partial result does not prove that every route statement in the checked documents is current."
+        ]
+    };
     return {
         project: {
             id: project.id,
@@ -234,6 +394,8 @@ export const runDocDriftCheck = async (options) => {
         },
         checkedFiles,
         unreadableFiles,
+        checkedAssertions,
+        coverage,
         warnings,
         suggestedTodos: buildDocDriftSuggestedTodos(warnings),
         summaryText: buildDocDriftSummaryText({
@@ -249,7 +411,9 @@ export const runDocDriftCheck = async (options) => {
             pendingProposalCount: context.pendingL3Proposals.length,
             checkedFileCount: checkedFiles.length,
             unreadableFileCount: unreadableFiles.length,
-            warningCount: warnings.length
+            warningCount: warnings.length,
+            recognizedAssertionCount: coverage.recognizedAssertionCount,
+            notDetectedAssertionCount: coverage.notDetectedAssertionCount
         })
     };
 };

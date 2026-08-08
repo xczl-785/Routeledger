@@ -84,6 +84,7 @@ const ZH_CODE_MESSAGES: Record<string, string> = {
     "current 指针与唯一运行中的 Version 不一致。",
   DIAGNOSTIC_VERSION_NOISE: "路线中存在可能干扰判断的 diagnostic/probe Version。",
   CONFIRMATION_REQUIRED: "该操作需要明确确认。",
+  COMMIT_REPLAY_MISMATCH: "已提交操作只能使用原始且完全匹配的 approval artifact 重放。",
   CLOSE_GATE_FAILED: "Version close gate 未通过。",
   START_GATE_BLOCKED: "Version start gate 未通过。",
   INVALID_TOOL_INPUT: "工具输入无效。",
@@ -114,7 +115,9 @@ const EN_CODE_MESSAGES: Record<string, string> = {
   MISSING_RESIDUAL_AUDIT:
     "A residual audit is required before the Version can be closed.",
   CURRENT_VERSION_CLOSED_NEXT_VERSION_WAITING:
-    "The current boundary is closed and the next Version is still in `wait`."
+    "The current boundary is closed and the next Version is still in `wait`.",
+  COMMIT_REPLAY_MISMATCH:
+    "A committed operation can only be replayed with its original, exactly matching approval artifact."
 };
 
 const ZH_ACTION_DESCRIPTIONS: Record<string, string> = {
@@ -308,35 +311,220 @@ const localizeHumanReviewText = (
     .join("\n");
 };
 
-const ZH_TRANSITION_GUIDE_LABELS: Record<string, string> = {
-  "Review pending L3 proposals": "复核待决 L3 proposal",
-  "Prepare current version": "准备当前 Version",
-  "Start current version": "启动当前 Version",
-  "Approve start proposal": "审批启动 proposal",
-  "Commit start proposal": "提交启动 proposal",
-  "Close current version boundary": "关闭当前 Version 边界",
-  "Approve close proposal": "审批关闭 proposal",
-  "Commit close proposal": "提交关闭 proposal",
-  "Close from version boundary": "关闭来源 Version 边界",
-  "Prepare target version": "准备目标 Version",
-  "Start target version": "启动目标 Version",
-  "Set current to target version": "将目标 Version 设为 current",
-  "Approve transition proposal": "审批转换 proposal",
-  "Commit transition proposal": "提交转换 proposal",
-  "Start target after current switch": "切换 current 后启动目标 Version"
+const TRANSITION_GUIDE_LABELS: Record<string, [string, string]> = {
+  "Review pending L3 proposals": ["复核待决 L3 proposal", "Review pending L3 proposals"],
+  "Prepare current version": ["准备当前 Version", "Prepare current Version"],
+  "Start current version": ["启动当前 Version", "Start current Version"],
+  "Approve start proposal": ["审批启动 proposal", "Approve start proposal"],
+  "Commit start proposal": ["提交启动 proposal", "Commit start proposal"],
+  "Close current version boundary": [
+    "关闭当前 Version 边界",
+    "Close the current Version boundary"
+  ],
+  "Approve close proposal": ["审批关闭 proposal", "Approve close proposal"],
+  "Commit close proposal": ["提交关闭 proposal", "Commit close proposal"],
+  "Close from version boundary": ["关闭来源 Version 边界", "Close the source Version boundary"],
+  "Prepare target version": ["准备目标 Version", "Prepare the target Version"],
+  "Start target version": ["启动目标 Version", "Start the target Version"],
+  "Set current to target version": [
+    "将目标 Version 设为 current",
+    "Set the target Version as current"
+  ],
+  "Approve transition proposal": ["审批转换 proposal", "Approve transition proposal"],
+  "Commit transition proposal": ["提交转换 proposal", "Commit transition proposal"],
+  "Start target after current switch": [
+    "切换 current 后启动目标 Version",
+    "Start the target Version after switching current"
+  ]
 };
 
-const ZH_TRANSITION_GUIDE_NOTES: Record<string, string> = {
+const TRANSITION_GUIDE_NOTES: Record<string, [string, string]> = {
   "Read-only guide only. It never creates pending proposals; execute the listed existing tools step by step.":
-    "这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。",
+    [
+      "这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。",
+      "This guide is read-only. It never creates pending proposals; execute the listed tools step by step."
+    ],
   "Pending L3 proposals already exist. Resolve them first so the live route and approval chain stay unambiguous.":
-    "当前已有待决 L3 proposal；请先处理，避免 live route 和审批链产生歧义。",
+    [
+      "当前已有待决 L3 proposal；请先处理，避免 live route 和审批链产生歧义。",
+      "Pending L3 proposals already exist. Resolve them first so the live route and approval chain remain unambiguous."
+    ],
   "fromVersion and targetVersion already identify the current running version; no route operation is needed.":
-    "fromVersion 与 targetVersion 已指向当前 running Version，无需路线操作。",
+    [
+      "fromVersion 与 targetVersion 已指向当前 running Version，无需路线操作。",
+      "fromVersion and targetVersion already identify the current running Version; no route operation is needed."
+    ],
   "fromVersion and targetVersion already identify the current closed version; no route operation is needed.":
-    "fromVersion 与 targetVersion 已指向当前 closed Version，无需路线操作。",
+    [
+      "fromVersion 与 targetVersion 已指向当前 closed Version，无需路线操作。",
+      "fromVersion and targetVersion already identify the current closed Version; no route operation is needed."
+    ],
   "Target start gate contains self-referential undo blockers. Treat them as controller judgment items instead of guessing whether they are rollback guardrails or delayed cleanup.":
-    "目标 start gate 含有自引用 Undo 阻断项；应交由控制者裁决，不要猜测它是回滚护栏还是延迟清理。"
+    [
+      "目标 start gate 含有自引用 Undo 阻断项；应交由控制者裁决，不要猜测它是回滚护栏还是延迟清理。",
+      "The target start gate contains self-referential Undo blockers. Treat them as controller judgment items instead of guessing their purpose."
+    ]
+};
+
+const TRANSITION_GUIDE_REASONS: Record<string, [string, string]> = {
+  "现有 pending proposal 会改变 live route，guide 不会替你裁决、复用或生成新的 proposal。": [
+    "现有待决 proposal 会改变当前路线；向导不会代替你裁决、复用或生成新 proposal。",
+    "Existing pending proposals can change the live route. The guide will not decide, reuse, or create proposals for you."
+  ],
+  "current version 仍是 wait；先用 prepare_version 进入 ready，再重新读取 guide。": [
+    "当前 Version 仍是 `wait`；先用 prepare_version 进入 `ready`，再重新读取向导。",
+    "The current Version is still in `wait`; use prepare_version to enter `ready`, then read the guide again."
+  ],
+  "current version 已 ready；用 transition_version 生成 start_version proposal。": [
+    "当前 Version 已是 `ready`；用 transition_version 生成 start_version proposal。",
+    "The current Version is `ready`; use transition_version to create a start_version proposal."
+  ],
+  "current version start gate 仍有 blockers，transition_version 目前不会创建 proposal。": [
+    "当前 Version 的 start gate 仍有阻断项，transition_version 暂不会创建 proposal。",
+    "The current Version start gate still has blockers, so transition_version will not create a proposal."
+  ],
+  "start_version proposal 创建后，再走现有 approve_l3_operation 审批链。": [
+    "创建 start_version proposal 后，再执行现有 approve_l3_operation 审批链。",
+    "After creating the start_version proposal, use the existing approve_l3_operation approval chain."
+  ],
+  "审批通过后，再提交 start_version proposal。": [
+    "审批通过后，再提交 start_version proposal。",
+    "Commit the start_version proposal after approval."
+  ],
+  "current version 已满足 close gate；用 close_version 生成 close proposal。": [
+    "当前 Version 已满足 close gate；用 close_version 生成关闭 proposal。",
+    "The current Version satisfies the close gate; use close_version to create a close proposal."
+  ],
+  "current version close gate 仍未通过，需先处理 blockers 或补 residual audit。": [
+    "当前 Version 的 close gate 尚未通过；先处理阻断项或补充 residual audit。",
+    "The current Version close gate has not passed; resolve the blockers or provide a residual audit first."
+  ],
+  "close_version proposal 创建后，再走现有 approve_l3_operation 审批链。": [
+    "创建 close_version proposal 后，再执行现有 approve_l3_operation 审批链。",
+    "After creating the close_version proposal, use the existing approve_l3_operation approval chain."
+  ],
+  "拿到 approval artifact 后，再用 commit_l3_operation 落地 close。": [
+    "取得 approval artifact 后，再用 commit_l3_operation 提交关闭操作。",
+    "After obtaining the approval artifact, use commit_l3_operation to commit the close operation."
+  ],
+  "from version 已经 close，无需再次创建 close proposal。": [
+    "来源 Version 已是 `close`，无需再次创建关闭 proposal。",
+    "The source Version is already in `close`; no additional close proposal is needed."
+  ],
+  "from version 已满足 close gate，可先用 close_version 生成 close proposal。": [
+    "来源 Version 已满足 close gate；可先用 close_version 生成关闭 proposal。",
+    "The source Version satisfies the close gate; use close_version to create a close proposal."
+  ],
+  "from version close gate 仍未通过，需先处理 blockers 或补 residual audit。": [
+    "来源 Version 的 close gate 尚未通过；先处理阻断项或补充 residual audit。",
+    "The source Version close gate has not passed; resolve the blockers or provide a residual audit first."
+  ],
+  "target version 仍是 wait，需先 prepare_version 才能进入 ready/start 路径。": [
+    "目标 Version 仍是 `wait`；需先执行 prepare_version，才能进入 ready/start 路径。",
+    "The target Version is still in `wait`; run prepare_version before entering the ready/start path."
+  ],
+  "target version 不在 wait，无需 prepare。": [
+    "目标 Version 不在 `wait`，无需 prepare。",
+    "The target Version is not in `wait`, so prepare is not needed."
+  ],
+  "target version 已经是 current 且处于 running，本步无需执行。": [
+    "目标 Version 已是 current 且处于 `running`，无需执行本步骤。",
+    "The target Version is already current and running, so this step is not needed."
+  ],
+  "target version 尚未 ready；先 prepare，再重新进入 transition_version。": [
+    "目标 Version 尚未 `ready`；先 prepare，再重新执行 transition_version。",
+    "The target Version is not yet `ready`; prepare it before running transition_version again."
+  ],
+  "target start gate 仍有 blockers，transition_version 目前不会创建 proposal。": [
+    "目标 start gate 仍有阻断项，transition_version 暂不会创建 proposal。",
+    "The target start gate still has blockers, so transition_version will not create a proposal."
+  ],
+  "关闭 from 边界后，用 transition_version 生成 start_version proposal。": [
+    "关闭来源边界后，用 transition_version 生成 start_version proposal。",
+    "After closing the source boundary, use transition_version to create a start_version proposal."
+  ],
+  "关闭 from 边界后，用 transition_version 先生成 set_current_version proposal。": [
+    "关闭来源边界后，用 transition_version 先生成 set_current_version proposal。",
+    "After closing the source boundary, use transition_version to create a set_current_version proposal first."
+  ],
+  "transition_version 创建 proposal 后，再审批对应 L3 proposal。": [
+    "transition_version 创建 proposal 后，再审批对应的 L3 proposal。",
+    "After transition_version creates the proposal, approve the corresponding L3 proposal."
+  ],
+  "审批通过后，再提交对应的 transition proposal。": [
+    "审批通过后，再提交对应的转换 proposal。",
+    "Commit the corresponding transition proposal after approval."
+  ],
+  "set_current_version 提交后，需要再次执行 transition_version 生成 start_version proposal。": [
+    "提交 set_current_version 后，需再次执行 transition_version 生成 start_version proposal。",
+    "After committing set_current_version, run transition_version again to create a start_version proposal."
+  ],
+  "当前路径不需要额外的二次 start proposal。": [
+    "当前路径不需要额外的第二个启动 proposal。",
+    "The current path does not require an additional start proposal."
+  ],
+  "二次 transition_version 创建 start proposal 后，再审批。": [
+    "第二次 transition_version 创建启动 proposal 后，再进行审批。",
+    "Approve the start proposal after the second transition_version call creates it."
+  ],
+  "审批通过后，再提交 start proposal。": [
+    "审批通过后，再提交启动 proposal。",
+    "Commit the start proposal after approval."
+  ]
+};
+
+const selectLocalizedText = (
+  values: [string, string],
+  locale: SupportedResponseLocale
+): string => (locale === "zh-CN" ? values[0] : values[1]);
+
+const localizeTransitionGuideNote = (
+  value: string,
+  locale: SupportedResponseLocale
+): string => {
+  const fixed = TRANSITION_GUIDE_NOTES[value];
+  if (fixed !== undefined) {
+    return selectLocalizedText(fixed, locale);
+  }
+
+  const targetState = value.match(
+    /^target version 目前是 (suspend|complete|close)，已超出本 guide 的常规 close -> start 向导路径。$/
+  )?.[1];
+  if (targetState !== undefined) {
+    return locale === "zh-CN"
+      ? `目标 Version 当前处于 \`${targetState}\`，已超出本向导的常规 close -> start 路径。`
+      : `The target Version is in \`${targetState}\`, outside this guide's ordinary close -> start path.`;
+  }
+
+  if (
+    value ===
+    "fromVersion 不是当前 current version。请先确认 live current，再决定是否仍按该 from -> target 顺序推进。"
+  ) {
+    return locale === "zh-CN"
+      ? "fromVersion 不是当前 Version。请先确认当前路线，再决定是否仍按该来源到目标的顺序推进。"
+      : "fromVersion is not the current Version. Confirm the live route before continuing from the source to the target.";
+  }
+
+  return value;
+};
+
+const localizeTransitionGuideStep = (
+  record: Record<string, unknown>,
+  locale: SupportedResponseLocale
+): void => {
+  if (typeof record.label === "string") {
+    const label = TRANSITION_GUIDE_LABELS[record.label];
+    if (label !== undefined) {
+      record.label = selectLocalizedText(label, locale);
+    }
+  }
+
+  if (typeof record.reason === "string") {
+    const reason = TRANSITION_GUIDE_REASONS[record.reason];
+    if (reason !== undefined) {
+      record.reason = selectLocalizedText(reason, locale);
+    }
+  }
 };
 
 const localizeDocDriftSummary = (
@@ -353,6 +541,7 @@ const localizeDocDriftSummary = (
   const checkedFiles = Array.isArray(record.checkedFiles) ? record.checkedFiles : [];
   const unreadableFiles = Array.isArray(record.unreadableFiles) ? record.unreadableFiles : [];
   const warnings = Array.isArray(record.warnings) ? record.warnings : [];
+  const coverage = record.coverage as Record<string, unknown> | undefined;
   const currentVersionText =
     currentVersion === null || currentVersion === undefined
       ? "当前没有 current Version。"
@@ -362,8 +551,119 @@ const localizeDocDriftSummary = (
     `已检查项目 ${String(project?.name ?? "")} 的 ${checkedFiles.length} 个入口文件。`,
     currentVersionText,
     `当前路线事实包含 ${Number(routeTruth?.openTodoCount ?? 0)} 个未关闭 Todo、${Number(routeTruth?.openUndoCount ?? 0)} 个未关闭 Undo，以及 ${Number(routeTruth?.pendingProposalCount ?? 0)} 个待决 proposal。`,
-    `发现 ${warnings.length} 个 warning，另有 ${unreadableFiles.length} 个文件无法读取。`
+    `发现 ${warnings.length} 个 warning，另有 ${unreadableFiles.length} 个文件无法读取。`,
+    `覆盖率为 partial：识别到 ${Number(coverage?.recognizedAssertionCount ?? 0)} 条显式 current Version 声明；${Number(coverage?.notDetectedAssertionCount ?? 0)} 个声明字段未检测到。`
   ].join(" ");
+};
+
+const localizeDocDriftPresentation = (
+  record: Record<string, unknown>,
+  locale: SupportedResponseLocale
+): void => {
+  localizeDocDriftSummary(record, locale);
+
+  const warnings = Array.isArray(record.warnings)
+    ? (record.warnings as Array<Record<string, unknown>>)
+    : [];
+  for (const warning of warnings) {
+    const file = typeof warning.file === "string" ? warning.file : null;
+    if (warning.code === "STALE_CURRENT_VERSION") {
+      if (typeof warning.assertionKind === "string") {
+        const kind = warning.assertionKind;
+        warning.summary =
+          locale === "zh-CN"
+            ? `${file ?? "入口文档"} 的 ${kind} 声明与 RouteLedger 当前事实不一致。`
+            : `${file ?? "An entry document"} declares ${kind} inconsistently with the current RouteLedger truth.`;
+      } else {
+        warning.summary =
+          locale === "zh-CN"
+            ? `${file ?? "入口文档"} 提到了 current 路线，但没有可核对的当前 Version ID、标题或状态声明。`
+            : `${file ?? "An entry document"} mentions the current route without an explicit comparable current-Version ID, title, or state declaration.`;
+        warning.actual =
+          locale === "zh-CN"
+            ? "文档提到了 current 路线，但没有显式可比较的 current Version 声明。"
+            : "The document mentions the current route without an explicit comparable current-Version declaration.";
+      }
+      continue;
+    }
+    if (warning.code === "STALE_TRUTH_SOURCE") {
+      warning.summary =
+        locale === "zh-CN"
+          ? `${file ?? "入口文档"} 将 SQLite 表述为真源，但未明确当前真源是 .routeledger canonical JSON。`
+          : `${file ?? "An entry document"} presents SQLite as the source of truth without identifying .routeledger canonical JSON as the current source.`;
+      warning.expected =
+        locale === "zh-CN"
+          ? ".routeledger canonical JSON 是运行时真源。"
+          : ".routeledger canonical JSON is the runtime source of truth.";
+      warning.actual =
+        locale === "zh-CN"
+          ? "文档将 SQLite 表述为真源。"
+          : "SQLite is presented as the source of truth.";
+      continue;
+    }
+    if (warning.code === "MISSING_EXPECTED_POINTER") {
+      warning.summary =
+        locale === "zh-CN"
+          ? `入口文档没有指向期望路径 ${String(warning.expected ?? "")}。`
+          : `No entry document points to the expected path ${String(warning.expected ?? "")}.`;
+      warning.actual =
+        locale === "zh-CN"
+          ? "检查的入口文件均未包含期望指针路径。"
+          : "No checked entry file contains the expected pointer path.";
+    }
+  }
+
+  const suggestedTodos = Array.isArray(record.suggestedTodos)
+    ? (record.suggestedTodos as Array<Record<string, unknown>>)
+    : [];
+  for (const todo of suggestedTodos) {
+    if (typeof todo.title !== "string") {
+      continue;
+    }
+    if (todo.title.startsWith("同步 ")) {
+      const target = todo.title.slice("同步 ".length).replace(/ 的 current version 指针$/, "");
+      todo.title =
+        locale === "zh-CN"
+          ? `同步 ${target} 的 current Version 声明`
+          : `Synchronize the current Version declaration in ${target}`;
+      todo.reason = warnings.find(
+        (warning) => warning.code === "STALE_CURRENT_VERSION" && warning.file === todo.file
+      )?.summary ?? todo.reason;
+    } else if (todo.title.startsWith("修正文档真源表述：")) {
+      const target = todo.title.slice("修正文档真源表述：".length);
+      todo.title =
+        locale === "zh-CN"
+          ? `修正文档真源表述：${target}`
+          : `Correct the source-of-truth statement in ${target}`;
+      todo.reason = warnings.find(
+        (warning) => warning.code === "STALE_TRUTH_SOURCE" && warning.file === todo.file
+      )?.summary ?? todo.reason;
+    } else if (todo.title.startsWith("补入口文档指针：")) {
+      const target = todo.title.slice("补入口文档指针：".length);
+      todo.title =
+        locale === "zh-CN"
+          ? `补入口文档指针：${target}`
+          : `Add the entry-document pointer: ${target}`;
+      todo.reason = warnings.find(
+        (warning) =>
+          warning.code === "MISSING_EXPECTED_POINTER" && warning.expected === target
+      )?.summary ?? todo.reason;
+    }
+  }
+
+  const coverage = record.coverage as Record<string, unknown> | undefined;
+  if (coverage !== undefined && Array.isArray(coverage.limitations)) {
+    coverage.limitations =
+      locale === "zh-CN"
+        ? [
+            "仅比较显式的中文或英文 current Version 声明。",
+            "partial 结果不能证明检查文档中的所有路线表述均为最新。"
+          ]
+        : [
+            "Only explicit Chinese or English current-Version declarations are compared.",
+            "A partial result does not prove that every route statement in the checked documents is current."
+          ];
+  }
 };
 
 const localizeVersionStructureOperation = (
@@ -438,11 +738,10 @@ const localizeSystemValue = (
 
   if (typeof value === "string") {
     if (
-      locale === "zh-CN" &&
       toolName === "get_version_transition_guide" &&
       valuePath.at(-1) === "notes"
     ) {
-      return ZH_TRANSITION_GUIDE_NOTES[value] ?? value;
+      return localizeTransitionGuideNote(value, locale);
     }
     return value;
   }
@@ -506,16 +805,14 @@ const localizeSystemValue = (
   }
 
   if (
-    locale === "zh-CN" &&
     toolName === "get_version_transition_guide" &&
-    valuePath.at(-1) === "recommendedSteps" &&
-    typeof record.label === "string"
+    valuePath.at(-1) === "recommendedSteps"
   ) {
-    record.label = ZH_TRANSITION_GUIDE_LABELS[record.label] ?? record.label;
+    localizeTransitionGuideStep(record, locale);
   }
 
   if (toolName === "check_doc_drift" && valuePath.length === 1) {
-    localizeDocDriftSummary(record, locale);
+    localizeDocDriftPresentation(record, locale);
   }
 
   return record;

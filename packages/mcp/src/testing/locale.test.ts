@@ -133,7 +133,27 @@ describe("MCP response locale", () => {
           },
           checkedFiles: [{ path: "README.md" }],
           unreadableFiles: [],
-          warnings: [{ code: "STALE_CURRENT_VERSION" }],
+          warnings: [
+            {
+              code: "STALE_CURRENT_VERSION",
+              file: "README.md",
+              assertionKind: "current_version_title",
+              summary: "original system summary"
+            }
+          ],
+          suggestedTodos: [
+            {
+              title: "同步 README.md 的 current version 指针",
+              reason: "original system reason",
+              file: "README.md"
+            }
+          ],
+          coverage: {
+            level: "partial",
+            recognizedAssertionCount: 1,
+            notDetectedAssertionCount: 2,
+            limitations: ["original limitation"]
+          },
           summaryText: "Checked 1 entry files for project PocketRead."
         }
       },
@@ -158,14 +178,64 @@ describe("MCP response locale", () => {
     );
 
     expect(docDrift.data.summaryText).toBe(
-      "已检查项目 PocketRead 的 1 个入口文件。 当前 Version：组织与检索 (version-2)。 当前路线事实包含 4 个未关闭 Todo、0 个未关闭 Undo，以及 1 个待决 proposal。 发现 1 个 warning，另有 0 个文件无法读取。"
+      "已检查项目 PocketRead 的 1 个入口文件。 当前 Version：组织与检索 (version-2)。 当前路线事实包含 4 个未关闭 Todo、0 个未关闭 Undo，以及 1 个待决 proposal。 发现 1 个 warning，另有 0 个文件无法读取。 覆盖率为 partial：识别到 1 条显式 current Version 声明；2 个声明字段未检测到。"
     );
+    expect(docDrift.data.warnings[0].summary).toBe(
+      "README.md 的 current_version_title 声明与 RouteLedger 当前事实不一致。"
+    );
+    expect(docDrift.data.suggestedTodos[0]).toMatchObject({
+      title: "同步 README.md 的 current Version 声明",
+      reason: "README.md 的 current_version_title 声明与 RouteLedger 当前事实不一致。"
+    });
+    expect(docDrift.data.coverage.limitations).toEqual([
+      "仅比较显式的中文或英文 current Version 声明。",
+      "partial 结果不能证明检查文档中的所有路线表述均为最新。"
+    ]);
     expect(guide.data).toEqual({
       recommendedSteps: [
         { label: "准备目标 Version" },
         { label: "审批转换 proposal" }
       ],
       notes: ["这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。"]
+    });
+  });
+
+  it("localizes transition guide reasons and dynamic notes without changing project content", () => {
+    const response = localizeToolResponse(
+      {
+        ok: true,
+        data: {
+          targetVersion: { title: "用户提供的标题" },
+          recommendedSteps: [
+            {
+              label: "Prepare target version",
+              reason:
+                "target version 仍是 wait，需先 prepare_version 才能进入 ready/start 路径。"
+            }
+          ],
+          notes: [
+            "target version 目前是 complete，已超出本 guide 的常规 close -> start 向导路径。",
+            "fromVersion 不是当前 current version。请先确认 live current，再决定是否仍按该 from -> target 顺序推进。"
+          ]
+        }
+      },
+      resolveResponseLocale("en"),
+      "get_version_transition_guide"
+    );
+
+    expect(response.data).toEqual({
+      targetVersion: { title: "用户提供的标题" },
+      recommendedSteps: [
+        {
+          label: "Prepare the target Version",
+          reason:
+            "The target Version is still in `wait`; run prepare_version before entering the ready/start path."
+        }
+      ],
+      notes: [
+        "The target Version is in `complete`, outside this guide's ordinary close -> start path.",
+        "fromVersion is not the current Version. Confirm the live route before continuing from the source to the target."
+      ]
     });
   });
 });

@@ -720,9 +720,7 @@ describe("route ledger service", () => {
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).resolves.toMatchObject({ replayed: true });
   });
 
   it("direct closeVersion uses the ordinary close gate before creating a pending proposal", async () => {
@@ -897,9 +895,7 @@ describe("route ledger service", () => {
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).resolves.toMatchObject({ replayed: true });
   });
 
   it("set_current_version 璧板畬鏁?L3 闂幆", async () => {
@@ -983,9 +979,7 @@ describe("route ledger service", () => {
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
-    ).rejects.toMatchObject({
-      code: "PENDING_OPERATION_NOT_PENDING"
-    });
+    ).resolves.toMatchObject({ replayed: true });
   });
 
   it("version tree 鍥涗釜 L3 action 鍙畬鎴?commit锛屼笖涓嶆敼鍙?current 鐪熸簮", async () => {

@@ -1163,6 +1163,21 @@ describe("routeledger mcp registry", () => {
         approvalArtifactId
       });
       expect(commitResponse.ok).toBe(true);
+      expect(commitResponse.data).toMatchObject({ replayed: false });
+
+      const replayResponse = await registry.invoke("commit_l3_operation", {
+        projectId: initData.project.id,
+        pendingOperationId,
+        approvalArtifactId
+      });
+      expect(replayResponse).toMatchObject({
+        ok: true,
+        data: {
+          pendingOperation: { id: pendingOperationId, status: "committed" },
+          approvalArtifact: { id: approvalArtifactId, status: "consumed" },
+          replayed: true
+        }
+      });
 
       const updatedDocuments = await readRouteLedgerJsonDocuments(getDefaultDataRoot(projectRoot));
       expect(updatedDocuments.length).toBeGreaterThan(baselineDocuments.length);

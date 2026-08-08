@@ -3066,7 +3066,7 @@ export const createRouteLedgerMcpRegistry = (
     ),
     defineTool(
       "commit_l3_operation",
-      { what: "Commit an approved L3 proposal.", parameter: "pendingOperationId and approvalArtifactId", warning: "consumes approval artifact" },
+      { what: "Commit an approved L3 proposal.", parameter: "pendingOperationId and approvalArtifactId", warning: "consumes once; exact retries replay" },
       objectSchema(
         {
           projectId: stringSchema("RouteLedger project ID."),
@@ -3099,7 +3099,8 @@ export const createRouteLedgerMcpRegistry = (
             actionType: committed.pendingOperation.actionType,
             pendingOperationStatus: committed.pendingOperation.status,
             approvalArtifactId: committed.approvalArtifact.id,
-            approvalArtifactStatus: committed.approvalArtifact.status
+            approvalArtifactStatus: committed.approvalArtifact.status,
+            replayed: committed.replayed
           }
         });
 

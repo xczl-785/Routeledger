@@ -105,6 +105,12 @@ describe("routeledger mcp registry", () => {
         };
         unreadableFiles: Array<{ path: string; code: string }>;
         warnings: Array<{ code: string; file: string | null; expected?: string }>;
+        checkedAssertions: Array<{ kind: string; file: string; status: string }>;
+        coverage: {
+          level: string;
+          recognizedAssertionCount: number;
+          notDetectedAssertionCount: number;
+        };
         summaryText: string;
       }>(response);
 
@@ -125,6 +131,17 @@ describe("routeledger mcp registry", () => {
       });
       expect(data.legacyAudit.guidance).toContain("includeLegacyUndo=true");
       expect(data.summaryText).not.toContain("open undos");
+      expect(data.coverage.level).toBe("partial");
+      expect(data.coverage.recognizedAssertionCount).toBe(0);
+      expect(data.checkedAssertions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "current_version_title",
+            file: "README.md",
+            status: "not_detected"
+          })
+        ])
+      );
       expect(data.warnings).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1257,8 +1274,19 @@ describe("routeledger mcp registry", () => {
       const guideData = getStructuredData<{
         status: string;
         closeGate: { blockers: Array<{ code: string }> };
-        recommendedSteps: Array<{ stepId: string; status: string }>;
+        recommendedSteps: Array<{ stepId: string; status: string; label: string; reason: string }>;
+        notes: string[];
       }>(guideResponse);
+      const zhGuideData = getStructuredData<{
+        recommendedSteps: Array<{ label: string; reason: string }>;
+        notes: string[];
+      }>(
+        await callTool(server, "transition-guide-zh", "get_version_transition_guide", {
+          projectId: initData.project.id,
+          targetVersionId,
+          responseLocale: "zh-CN"
+        })
+      );
       const proposalList = await callTool(server, "proposal-list-after-guide", "list_l3_proposals", {
         projectId: initData.project.id
       });
@@ -1296,6 +1324,20 @@ describe("routeledger mcp registry", () => {
             status: "blocked"
           })
         ])
+      );
+      expect(
+        guideData.recommendedSteps.every(
+          (step) => !/[\u3400-\u9fff]/u.test(`${step.label} ${step.reason}`)
+        )
+      ).toBe(true);
+      expect(guideData.notes.every((note) => !/[\u3400-\u9fff]/u.test(note))).toBe(true);
+      expect(zhGuideData.recommendedSteps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "关闭来源 Version 边界" })
+        ])
+      );
+      expect(zhGuideData.notes[0]).toBe(
+        "这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。"
       );
       expect(proposalListData.filter((proposal) => proposal.status === "pending")).toEqual([]);
 
