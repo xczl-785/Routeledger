@@ -6,6 +6,14 @@ import { execFileSync } from "node:child_process";
 import { expect } from "vitest";
 
 import type { ProjectAggregateSnapshot } from "@routeledger/core";
+import {
+  TEST_ACTOR,
+  createUndoFixture,
+  createWorkItemFixture
+} from "../../../core/src/testing/builders.js";
+import { createTransitionEvents } from "@routeledger/core";
+
+import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 
 import { runCli } from "../index.js";
 
@@ -150,24 +158,56 @@ export const seedJsonRoundTripProject = async (projectRoot: string) => {
     "preserve todo linkage"
   ]);
 
-  await runCliJson(projectRoot, [
-    "undo",
-    "create",
-    "--project-id",
+  const undoWorkItem = createWorkItemFixture({
+    id: "round-trip-undo-work-item-1",
     projectId,
-    "--version-id",
+    originVersionId: versionId,
+    activeRecordType: "undo",
+    activeRecordId: "round-trip-undo-1"
+  });
+  const undo = createUndoFixture({
+    id: "round-trip-undo-1",
+    projectId,
     versionId,
-    "--origin-version-id",
-    versionId,
-    "--preferred-resolution-version-id",
-    versionId,
-    "--title",
-    "Round-trip undo",
-    "--reason",
-    "preserve undo linkage",
-    "--description",
-    "preserve pending artifacts"
-  ]);
+    originVersionId: versionId,
+    preferredResolutionVersionId: versionId,
+    workItemId: undoWorkItem.id,
+    title: "Round-trip undo",
+    reason: "preserve undo linkage",
+    description: "preserve pending artifacts"
+  });
+  const undoEvents = createTransitionEvents(
+    [
+      {
+        targetType: "undo" as const,
+        targetId: undo.id,
+        eventType: "undo.created",
+        toState: "wait"
+      },
+      {
+        targetType: "work_item" as const,
+        targetId: undoWorkItem.id,
+        eventType: "work_item.created",
+        toState: "active"
+      }
+    ],
+    {
+      projectId,
+      operationId: crypto.randomUUID(),
+      actor: TEST_ACTOR,
+      now: "2026-06-27T00:00:00.000Z"
+    },
+    {
+      nextId: () => crypto.randomUUID()
+    }
+  );
+  const storage = new SQLiteStorageAdapter({ projectRoot });
+  const snapshot = await storage.loadProjectAggregate(projectId);
+  snapshot!.undos = snapshot!.undos.concat(undo);
+  snapshot!.workItems = snapshot!.workItems.concat(undoWorkItem);
+  snapshot!.events = snapshot!.events.concat(undoEvents);
+  await storage.saveProjectAggregate(snapshot!);
+  storage.close();
 
   const createVersionResult = await runCliJson(projectRoot, [
     "version",

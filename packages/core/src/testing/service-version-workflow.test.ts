@@ -1,6 +1,6 @@
 import { expect, it, describe } from "vitest";
 
-import { TEST_ACTOR, createTestDependencies, createVersionFixture } from "./builders.js";
+import { TEST_ACTOR, createTestDependencies, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, legacyStartDigestValue, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, expectConfirmationRequired } from "./routeledger-service-test-helpers.js";
@@ -401,15 +401,19 @@ describe("route ledger service", () => {
       actor: TEST_ACTOR
     });
     await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
-    await service.createUndo({
-      projectId: prepared.projectId,
-      versionId: targetVersionId,
-      originVersionId: targetVersionId,
-      preferredResolutionVersionId: targetVersionId,
-      title: "due undo",
-      reason: "must resolve before start",
-      actor: TEST_ACTOR
-    });
+    const snapshot = await storage.loadProjectAggregate(prepared.projectId);
+    snapshot!.undos = snapshot!.undos.concat(
+      createUndoFixture({
+        id: "due-undo-1",
+        projectId: prepared.projectId,
+        versionId: targetVersionId,
+        originVersionId: targetVersionId,
+        preferredResolutionVersionId: targetVersionId,
+        title: "due undo",
+        reason: "must resolve before start"
+      })
+    );
+    await storage.saveProjectAggregate(snapshot!);
 
     const guide = await service.getVersionTransitionGuide({
       projectId: prepared.projectId,
@@ -439,232 +443,7 @@ describe("route ledger service", () => {
     );
   });
 
-  it("summarizeVersionCloseout / planVersionCloseout 浼氭妸 guardrail-like self undo 鏍囨敞涓哄缓璁?close_undo 骞惰褰?residual audit 鎻愮ず", async () => {
-    const storage = new MemoryStorageAdapter();
-    const service = new RouteLedgerService({
-      storage,
-      deps: createTestDependencies()
-    });
-    let undoId = "";
-    const prepared = await completeCurrentVersion(service, storage, async ({ projectId, versionId }) => {
-      const created = await service.createUndo({
-        projectId,
-        versionId,
-        originVersionId: versionId,
-        preferredResolutionVersionId: versionId,
-        title: "Rollback if QA failed",
-        reason: "Use this as a guardrail when verification failed",
-        description: "Record the fallback in the closeout note and residual audit.",
-        actor: TEST_ACTOR
-      });
-      undoId = created.undo.id;
-    });
-
-    const summary = await service.summarizeVersionCloseout({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId
-    });
-    const summaryData = summary.data as {
-      selfReferentialUndos: Array<{
-        id: string;
-        category: string;
-        recommendedResolution: string;
-        reason: string;
-        note: string;
-      }>;
-    };
-
-    expect(summaryData.selfReferentialUndos).toEqual([
-      expect.objectContaining({
-        id: undoId,
-        category: "guardrail_like",
-        recommendedResolution: "close_undo",
-        reason: expect.stringContaining("guardrail"),
-        note: expect.stringContaining("residual audit")
-      })
-    ]);
-    expect(summary.meta).toMatchObject({
-      eventLimit: 10,
-      relatedPendingOperationCount: 1,
-      residualAuditSource: "missing",
-      residualAuditProposalId: null
-    });
-
-    const plan = await service.planVersionCloseout({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId
-    });
-    const planData = plan.data as {
-      steps: Array<{
-        kind: string;
-        targetId: string | null;
-        warnings?: string[];
-        alternatives?: Array<{ actionType: string }>;
-      }>;
-    };
-    const undoStep = planData.steps.find((step) => step.kind === "close_undo" && step.targetId === undoId);
-
-    expect(undoStep).toMatchObject({
-      kind: "close_undo",
-      targetId: undoId,
-      warnings: expect.arrayContaining([
-        expect.stringContaining("self-referential"),
-        expect.stringContaining("residual audit")
-      ])
-    });
-    expect(undoStep?.alternatives).toEqual(
-      expect.arrayContaining([expect.objectContaining({ actionType: "carry_forward_undo" })])
-    );
-  });
-
-  it("summarizeVersionCloseout / planVersionCloseout 浼氭妸 cleanup-like self undo 鏍囨敞涓?close_undo + create_todo 璺緞", async () => {
-    const storage = new MemoryStorageAdapter();
-    const service = new RouteLedgerService({
-      storage,
-      deps: createTestDependencies()
-    });
-    let undoId = "";
-    const prepared = await completeCurrentVersion(service, storage, async ({ projectId, versionId }) => {
-      const created = await service.createUndo({
-        projectId,
-        versionId,
-        originVersionId: versionId,
-        preferredResolutionVersionId: versionId,
-        title: "Cleanup after close",
-        reason: "clean up after close",
-        description: "migrate to a formal todo later",
-        actor: TEST_ACTOR
-      });
-      undoId = created.undo.id;
-    });
-
-    const summary = await service.summarizeVersionCloseout({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId
-    });
-    const summaryData = summary.data as {
-      selfReferentialUndos: Array<{
-        id: string;
-        category: string;
-        recommendedResolution: string;
-        note: string;
-      }>;
-    };
-
-    expect(summaryData.selfReferentialUndos).toEqual([
-      expect.objectContaining({
-        id: undoId,
-        category: "cleanup_like",
-        recommendedResolution: "close_undo_then_create_todo",
-        note: expect.stringContaining("create_todo")
-      })
-    ]);
-
-    const plan = await service.planVersionCloseout({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId
-    });
-    const planData = plan.data as {
-      steps: Array<{
-        kind: string;
-        targetId: string | null;
-        warnings?: string[];
-      }>;
-    };
-
-    expect(planData.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "close_undo",
-          targetId: undoId,
-          warnings: expect.arrayContaining([expect.stringContaining("create_todo")])
-        }),
-        expect.objectContaining({
-          kind: "create_todo",
-          warnings: expect.arrayContaining([expect.stringContaining("cleanup path visible")])
-        })
-      ])
-    );
-  });
-
-  it("summarizeVersionCloseout / planVersionCloseout 浼氭妸 uncertain self undo 鏍囨敞涓轰汉宸ヨ鍐冲苟鍒楀嚭鍊欓€?alternatives", async () => {
-    const storage = new MemoryStorageAdapter();
-    const service = new RouteLedgerService({
-      storage,
-      deps: createTestDependencies()
-    });
-    let undoId = "";
-    const prepared = await completeCurrentVersion(service, storage, async ({ projectId, versionId }) => {
-      const created = await service.createUndo({
-        projectId,
-        versionId,
-        originVersionId: versionId,
-        preferredResolutionVersionId: versionId,
-        title: "Needs another decision",
-        reason: "needs another decision",
-        description: "controller decides next",
-        actor: TEST_ACTOR
-      });
-      undoId = created.undo.id;
-    });
-
-    const summary = await service.summarizeVersionCloseout({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId
-    });
-    const summaryData = summary.data as {
-      selfReferentialUndos: Array<{
-        id: string;
-        category: string;
-        recommendedResolution: string;
-        alternatives: Array<{ actionType: string }>;
-      }>;
-    };
-
-    expect(summaryData.selfReferentialUndos).toEqual([
-      expect.objectContaining({
-        id: undoId,
-        category: "uncertain",
-        recommendedResolution: "manual_review",
-        alternatives: expect.arrayContaining([
-          expect.objectContaining({ actionType: "close_undo" }),
-          expect.objectContaining({ actionType: "close_undo_then_create_todo" }),
-          expect.objectContaining({ actionType: "carry_forward_undo" })
-        ])
-      })
-    ]);
-
-    const plan = await service.planVersionCloseout({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId
-    });
-    const planData = plan.data as {
-      steps: Array<{
-        kind: string;
-        warnings?: string[];
-        alternatives?: Array<{ actionType: string }>;
-      }>;
-    };
-
-    expect(planData.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "review_self_referential_undo",
-          warnings: expect.arrayContaining([
-            expect.stringContaining("Do not treat this as an ordinary close blocker"),
-            expect.stringContaining("Choose whether it should close in place")
-          ]),
-          alternatives: expect.arrayContaining([
-            expect.objectContaining({ actionType: "close_undo" }),
-            expect.objectContaining({ actionType: "close_undo_then_create_todo" }),
-            expect.objectContaining({ actionType: "carry_forward_undo" })
-          ])
-        })
-      ])
-    );
-  });
-
-  it("ordinary non self-referential undo is not classified as selfReferentialUndos", async () => {
+  it("ordinary non self-referential undo stays visible as open undo", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
@@ -678,16 +457,20 @@ describe("route ledger service", () => {
       "preferred resolution target"
     );
 
-    await service.createUndo({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId,
-      originVersionId: prepared.versionId,
-      preferredResolutionVersionId: downstreamVersionId,
-      title: "Carry to downstream",
-      reason: "next version should own it",
-      description: "ordinary non self-referential undo",
-      actor: TEST_ACTOR
-    });
+    const snapshot = await storage.loadProjectAggregate(prepared.projectId);
+    snapshot!.undos = snapshot!.undos.concat(
+      createUndoFixture({
+        id: "ordinary-undo-1",
+        projectId: prepared.projectId,
+        versionId: prepared.versionId,
+        originVersionId: prepared.versionId,
+        preferredResolutionVersionId: downstreamVersionId,
+        title: "Carry to downstream",
+        reason: "next version should own it",
+        description: "ordinary non self-referential undo"
+      })
+    );
+    await storage.saveProjectAggregate(snapshot!);
 
     const summary = await service.summarizeVersionCloseout({
       projectId: prepared.projectId,
@@ -695,7 +478,6 @@ describe("route ledger service", () => {
     });
     const summaryData = summary.data as {
       openUndos: Array<{ preferredResolutionVersionId: string }>;
-      selfReferentialUndos: Array<{ id: string }>;
     };
 
     expect(summaryData.openUndos).toEqual(
@@ -703,7 +485,6 @@ describe("route ledger service", () => {
         expect.objectContaining({ preferredResolutionVersionId: downstreamVersionId })
       ])
     );
-    expect(summaryData.selfReferentialUndos).toEqual([]);
   });
 
   it("get_version_transition_guide 鍦?close-ready + target-ready 鏃惰繑鍥炲彧璇绘帹鑽愭楠や笖涓嶅垱寤?proposal", async () => {
@@ -808,56 +589,6 @@ describe("route ledger service", () => {
     expect(snapshot?.pendingOperations.filter((operation) => operation.status === "pending")).toEqual([]);
   });
 
-  it("carry_forward_undo 浼氫繚鐣欏悓涓€鏉?undo lineage锛屽彧鏀?preferred resolution", async () => {
-    const storage = new MemoryStorageAdapter();
-    const service = new RouteLedgerService({
-      storage,
-      deps: createTestDependencies()
-    });
-    const prepared = await createPreparedProject(service, storage);
-    const downstreamVersionId = await createCommittedVersion(
-      service,
-      prepared.projectId,
-      "Downstream",
-      "downstream target"
-    );
-    const createdUndo = await service.createUndo({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId,
-      originVersionId: prepared.versionId,
-      preferredResolutionVersionId: prepared.versionId,
-      title: "carry me",
-      reason: "defer downstream",
-      actor: TEST_ACTOR
-    });
-
-    const carried = await service.carryForwardUndo({
-      projectId: prepared.projectId,
-      undoId: createdUndo.undo.id,
-      preferredResolutionVersionId: downstreamVersionId,
-      reason: "route to downstream version",
-      note: "keep as downstream undo",
-      actor: TEST_ACTOR
-    });
-
-    expect(carried).toMatchObject({
-      status: "reassigned",
-      versionId: prepared.versionId,
-      originVersionId: prepared.versionId,
-      previousPreferredResolutionVersionId: prepared.versionId,
-      preferredResolutionVersionId: downstreamVersionId
-    });
-    expect(carried.undo.id).toBe(createdUndo.undo.id);
-    expect(carried.undo.preferredResolutionVersionId).toBe(downstreamVersionId);
-    expect(carried.undo.status).toBe("wait");
-    expect(carried.undo.carriedForwardAt).toBe("2026-06-27T00:00:00.000Z");
-    expect(carried.undo.carriedForwardToVersionId).toBe(downstreamVersionId);
-
-    const snapshot = await storage.loadProjectAggregate(prepared.projectId);
-    expect(snapshot?.undos).toHaveLength(1);
-    expect(snapshot?.todos).toHaveLength(0);
-  });
-
   it("get_version_structure 杩斿洖 topology銆乷pen items 涓?legal operation hints", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
@@ -877,15 +608,19 @@ describe("route ledger service", () => {
       title: "open todo",
       actor: TEST_ACTOR
     });
-    await service.createUndo({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId,
-      originVersionId: prepared.versionId,
-      preferredResolutionVersionId: siblingVersionId,
-      title: "open undo",
-      reason: "needs later handling",
-      actor: TEST_ACTOR
-    });
+    const snapshot = await storage.loadProjectAggregate(prepared.projectId);
+    snapshot!.undos = snapshot!.undos.concat(
+      createUndoFixture({
+        id: "open-undo-1",
+        projectId: prepared.projectId,
+        versionId: prepared.versionId,
+        originVersionId: prepared.versionId,
+        preferredResolutionVersionId: siblingVersionId,
+        title: "open undo",
+        reason: "needs later handling"
+      })
+    );
+    await storage.saveProjectAggregate(snapshot!);
 
     const structure = await service.getVersionStructure({
       projectId: prepared.projectId,
@@ -909,7 +644,7 @@ describe("route ledger service", () => {
         actionType: "transition_version"
       })
     );
-    expect(structure.legalOperations).toContainEqual(
+    expect(structure.legalOperations).not.toContainEqual(
       expect.objectContaining({
         actionType: "carry_forward_undo"
       })

@@ -16,7 +16,6 @@ export interface RouteLedgerDebugLogRecordInput {
   versionId?: string;
   deferredId?: string;
   constraintId?: string;
-  undoId?: string;
   pendingOperationId?: string;
   actorId: string;
   actorDisplayName?: string;

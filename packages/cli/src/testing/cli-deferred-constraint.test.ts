@@ -1,6 +1,7 @@
 import { expect, it, describe } from "vitest";
 
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
+import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 
 import { createTempProjectRoot, cleanupProjectRoot, runCliJson, createVersionViaL3 } from "./cli-test-helpers.js";
 describe("routeledger cli", () => {
@@ -419,36 +420,41 @@ describe("routeledger cli", () => {
     }
   });
 
-  it("旧 Undo CLI 仅保留兼容直调，默认 context 隐藏并可显式审计", async () => {
+  it("历史 undo 记录默认 context 隐藏，仅可显式审计", async () => {
     const projectRoot = createTempProjectRoot();
 
     try {
       const initResult = await runCliJson(projectRoot, [
         "init_project",
         "--name",
-        "Legacy compatibility"
+        "Legacy audit"
       ]);
       const projectId = initResult.stdoutJson.data.project.id as string;
       const versionId = initResult.stdoutJson.data.initialVersion.id as string;
-      const undoResult = await runCliJson(projectRoot, [
-        "undo",
-        "create",
-        "--project-id",
+      const undo = createUndoFixture({
+        id: "historical-undo-1",
         projectId,
-        "--version-id",
         versionId,
-        "--origin-version-id",
-        versionId,
-        "--preferred-resolution-version-id",
-        versionId,
-        "--title",
-        "Historical record",
-        "--reason",
-        "Compatibility only"
-      ]);
-
-      expect(undoResult.exitCode).toBe(0);
-      const undoId = undoResult.stdoutJson.data.undo.id as string;
+        originVersionId: versionId,
+        preferredResolutionVersionId: versionId,
+        workItemId: "historical-work-item-1",
+        title: "Historical record",
+        reason: "Compatibility only"
+      });
+      const workItem = createWorkItemFixture({
+        id: "historical-work-item-1",
+        projectId,
+        originVersionId: versionId,
+        activeRecordType: "undo",
+        activeRecordId: undo.id
+      });
+      const storage = new SQLiteStorageAdapter({ projectRoot });
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      snapshot!.undos = snapshot!.undos.concat(undo);
+      snapshot!.workItems = snapshot!.workItems.concat(workItem);
+      await storage.saveProjectAggregate(snapshot!);
+      storage.close();
+      const undoId = undo.id;
 
       const defaultContext = await runCliJson(projectRoot, [
         "context",

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createRouteLedgerMcpRegistry, type ToolDefinition } from "../index.js";
 
-const LEGACY_HIDDEN_TOOLS = [
+const REMOVED_LEGACY_TOOLS = [
   "create_undo",
   "reassign_undo",
   "carry_forward_undo",
@@ -53,8 +53,8 @@ describe("MCP tool description contract", () => {
         expect(mode?.description).toContain("expectedRouteLedgerRoot");
         expect(rootAssertion?.description).toContain("including dry_run previews");
       }
-      for (const legacyTool of LEGACY_HIDDEN_TOOLS) {
-        expect(tools.find((tool) => tool.name === legacyTool)).toBeUndefined();
+      for (const removedTool of REMOVED_LEGACY_TOOLS) {
+        expect(tools.find((tool) => tool.name === removedTool)).toBeUndefined();
       }
     } finally {
       registry.close();
@@ -89,7 +89,7 @@ describe("MCP tool description contract", () => {
     }
   });
 
-  it("keeps close residual-audit schemas compatible with legacy create_undo routing", () => {
+  it("keeps close residual-audit schemas free of the removed legacy create_undo routing", () => {
     const registry = createRouteLedgerMcpRegistry({});
 
     try {
@@ -108,8 +108,8 @@ describe("MCP tool description contract", () => {
           Array.isArray(candidate.enum) ? (candidate.enum as string[]) : []
         );
 
-      expect(destinationEnums).toContain("create_undo");
-      expect(itemProperties).toHaveProperty("preferredResolutionVersionId");
+      expect(destinationEnums).not.toContain("create_undo");
+      expect(itemProperties).not.toHaveProperty("preferredResolutionVersionId");
     } finally {
       registry.close();
     }

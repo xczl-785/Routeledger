@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, it, describe } from "vitest";
 
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
+import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 import { exportProjectAggregateToJsonDirectory } from "@routeledger/json";
 
 import { createTempProjectRoot, cleanupProjectRoot, runGit, readJsonDocuments, readDocumentBytesByPaths, runCliJson, summarizeSnapshotCounts, getIssueCodesFromCliError, seedJsonRoundTripProject, createVersionViaL3, setCurrentVersionViaL3, updateJsonFile, rewriteJsonFile, createValidateSnapshot } from "./cli-test-helpers.js";
@@ -768,24 +769,29 @@ describe("routeledger cli", () => {
       expect(createDeferredResult.exitCode).toBe(0);
       expect(createConstraintResult.exitCode).toBe(0);
 
-      const createUndoResult = await runCliJson(projectRoot, [
-        "undo",
-        "create",
-        "--project-id",
+      const historicalUndo = createUndoFixture({
+        id: "review-summary-undo-1",
         projectId,
-        "--version-id",
-        version2Id,
-        "--origin-version-id",
-        version2Id,
-        "--preferred-resolution-version-id",
-        version2Id,
-        "--title",
-        "Review summary blocker",
-        "--reason",
-        "keep guardrail visible"
-      ]);
-
-      expect(createUndoResult.exitCode).toBe(0);
+        versionId: version2Id,
+        originVersionId: version2Id,
+        preferredResolutionVersionId: version2Id,
+        workItemId: "review-summary-work-item-1",
+        title: "Review summary blocker",
+        reason: "keep guardrail visible"
+      });
+      const reviewSummaryWorkItem = createWorkItemFixture({
+        id: "review-summary-work-item-1",
+        projectId,
+        originVersionId: version2Id,
+        activeRecordType: "undo",
+        activeRecordId: historicalUndo.id
+      });
+      const storage = new SQLiteStorageAdapter({ projectRoot });
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      snapshot!.undos = snapshot!.undos.concat(historicalUndo);
+      snapshot!.workItems = snapshot!.workItems.concat(reviewSummaryWorkItem);
+      await storage.saveProjectAggregate(snapshot!);
+      storage.close();
 
       const createVersionResult = await runCliJson(projectRoot, [
         "version",

@@ -9,7 +9,7 @@
 | Constraint | A project or version rule that must not be violated. |
 | Out of scope | Work not committed for the current scope; it needs a new decision to return. |
 | Rejected | A reviewed option that is not adopted. |
-| Undo | A legacy compatibility concept, not the default work-management surface. |
+| Legacy Undo | A historical audit record only; no write or recommendation surface remains. |
 
 ## Current rules
 
@@ -18,8 +18,10 @@
 2. Deferred work must remain linked to a finite review target. Review resolves,
    re-defers, or changes its classification explicitly.
 3. Constraints do not contribute to Todo or Deferred completion counts.
-4. Default context and agent workflows favor Todo, Deferred, and Constraint;
-   legacy Undo is available only for explicit compatibility or audit work.
+4. Default context and agent workflows use Todo, Deferred, and Constraint.
+   Historical Undo records remain readable for audit via
+   `get_current_context(includeLegacyUndo=true)` and still participate in gate
+   evaluation, but there is no way to create, close, or route them anymore.
 
 ## Evidence
 

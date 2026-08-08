@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { expect, it, describe } from "vitest";
 
-import { TEST_ACTOR, createTestDependencies, createProjectFixture, createVersionFixture } from "./builders.js";
+import { TEST_ACTOR, createTestDependencies, createProjectFixture, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, createTempProjectRoot, cleanupProjectRoot, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, setCurrentVersionForTest } from "./routeledger-service-test-helpers.js";
@@ -684,7 +684,7 @@ describe("route ledger service", () => {
     }
   });
 
-  it("carry_forward_undo clears the source close gate but still blocks target start as a due undo", async () => {
+  it("carried-forward legacy undo no longer blocks source close but still blocks target start as a due undo", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
@@ -702,24 +702,21 @@ describe("route ledger service", () => {
       versionId: downstreamVersionId,
       actor: TEST_ACTOR
     });
-    const createdUndo = await service.createUndo({
+    const carriedUndo = createUndoFixture({
+      id: "legacy-undo-1",
       projectId: prepared.projectId,
       versionId: prepared.versionId,
       originVersionId: prepared.versionId,
-      preferredResolutionVersionId: prepared.versionId,
+      preferredResolutionVersionId: downstreamVersionId,
+      status: "wait",
       title: "carry me",
       reason: "defer downstream",
-      actor: TEST_ACTOR
+      carriedForwardAt: "2026-06-27T00:00:00.000Z",
+      carriedForwardToVersionId: downstreamVersionId
     });
-
-    await service.carryForwardUndo({
-      projectId: prepared.projectId,
-      undoId: createdUndo.undo.id,
-      preferredResolutionVersionId: downstreamVersionId,
-      reason: "route to downstream version",
-      note: "keep as downstream undo",
-      actor: TEST_ACTOR
-    });
+    const snapshot = await storage.loadProjectAggregate(prepared.projectId);
+    snapshot!.undos = snapshot!.undos.concat(carriedUndo);
+    await storage.saveProjectAggregate(snapshot!);
 
     const closeGate = await service.checkCloseGate({
       projectId: prepared.projectId,
@@ -742,7 +739,7 @@ describe("route ledger service", () => {
     expect(closeGate.allowed).toBe(true);
     expect(closeGate.unresolvedUndoIds).toEqual([]);
     expect(startGate.allowed).toBe(false);
-    expect(startGate.dueUndoIds).toEqual([createdUndo.undo.id]);
+    expect(startGate.dueUndoIds).toEqual([carriedUndo.id]);
 
     await closeVersionThroughL3(
       service,
@@ -770,7 +767,7 @@ describe("route ledger service", () => {
       blockers: [
         expect.objectContaining({
           code: "LEGACY_WORK_REQUIRES_AUDIT",
-          recordIds: [createdUndo.undo.id]
+          recordIds: [carriedUndo.id]
         })
       ]
     });
@@ -779,7 +776,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           code: "START_GATE_BLOCKED",
           severity: "blocking",
-          recordIds: [createdUndo.undo.id]
+          recordIds: [carriedUndo.id]
         })
       ])
     );
@@ -790,7 +787,7 @@ describe("route ledger service", () => {
     });
     expect(auditData.legacyUndo).toEqual([
       expect.objectContaining({
-        id: createdUndo.undo.id
+        id: carriedUndo.id
       })
     ]);
     expect(auditData.nextAction).toEqual(defaultData.nextAction);

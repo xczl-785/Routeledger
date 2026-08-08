@@ -177,7 +177,6 @@ type DebugLogDraft = {
   versionId?: string;
   deferredId?: string;
   constraintId?: string;
-  undoId?: string;
   pendingOperationId?: string;
   payload?: unknown;
 };
@@ -185,7 +184,7 @@ type DebugLogDraft = {
 type ToolRegistration = {
   definition: ToolDefinition;
   toolKind: RouteLedgerBindingToolKind;
-  visibility: "default" | "legacy-hidden" | "source-only";
+  visibility: "default" | "source-only";
   handler: ToolHandler;
 };
 
@@ -363,32 +362,6 @@ const summarizeConstraintForAgent = (constraint: Constraint) => ({
   retireNote: constraint.retireNote
 });
 
-/**
- * @deprecated Legacy Undo tool names. Hidden from agent-facing tools/list
- *   and kept only for direct-invoke compatibility with pre-existing Undo
- *   records. Prefer Todo / Deferred / Constraint for all new work.
- */
-const LEGACY_HIDDEN_TOOL_NAMES = [
-  "create_undo",
-  "reassign_undo",
-  "carry_forward_undo",
-  "resolve_undo_as_downstream_input",
-  "close_undo"
-] as const;
-
-const isLegacyHiddenToolName = (value: unknown): boolean =>
-  typeof value === "string" &&
-  LEGACY_HIDDEN_TOOL_NAMES.includes(
-    value as (typeof LEGACY_HIDDEN_TOOL_NAMES)[number]
-  );
-
-const containsLegacyHiddenToolName = (value: unknown): boolean =>
-  typeof value === "string" &&
-  LEGACY_HIDDEN_TOOL_NAMES.some((toolName) => value.includes(toolName));
-
-const isLegacyCloseoutAction = (value: unknown): boolean =>
-  isLegacyHiddenToolName(value) || value === "close_undo_then_create_todo";
-
 const sanitizeLegacyGateBlockersForAgent = (
   blockers: unknown
 ): Array<Record<string, unknown>> =>
@@ -460,180 +433,6 @@ const sanitizeVersionStructureOperationForAgent = (
   return sanitized;
 };
 
-const sanitizeCloseoutAlternatives = (
-  alternatives: unknown
-): Array<Record<string, unknown>> => {
-  if (!Array.isArray(alternatives)) {
-    return [];
-  }
-
-  const sanitized = alternatives.map((alternative) => {
-    const record = alternative as Record<string, unknown>;
-
-    if (
-      !isLegacyCloseoutAction(record.actionType) &&
-      !isLegacyHiddenToolName(record.recommendedTool)
-    ) {
-      return structuredClone(record);
-    }
-
-    return {
-      ...structuredClone(record),
-      actionType: "review_context",
-      recommendedTool: "get_current_context",
-      summary: "Review the legacy audit record before choosing a product-semantic route.",
-      reason:
-        "This historical record is audit-only; decide whether it becomes Todo, Deferred, Constraint, or a resolved outcome."
-    };
-  });
-  const seen = new Set<string>();
-
-  return sanitized.filter((alternative) => {
-    const key = `${String(alternative.actionType)}:${String(
-      alternative.recommendedTool
-    )}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-};
-
-const sanitizeCloseoutSummaryForAgent = (
-  summary: unknown
-): Record<string, unknown> => {
-  const sanitized = structuredClone(summary) as Record<string, any>;
-  const nextAction = sanitized.nextAction as Record<string, unknown> | undefined;
-
-  if (
-    nextAction !== undefined &&
-    (isLegacyCloseoutAction(nextAction.actionType) ||
-      isLegacyHiddenToolName(nextAction.recommendedTool))
-  ) {
-    sanitized.nextAction = {
-      ...nextAction,
-      actionType: "review_context",
-      recommendedTool: "get_current_context",
-      summary: "Review the legacy audit record before continuing closeout.",
-      reason:
-        "Use audit context to classify the historical record as Todo, Deferred, Constraint, or resolved.",
-      requiresL3Approval: false
-    };
-  }
-
-  if (Array.isArray(sanitized.selfReferentialUndos)) {
-    sanitized.selfReferentialUndos = sanitized.selfReferentialUndos.map(
-      (entry: Record<string, unknown>) => ({
-        ...entry,
-        ...(isLegacyCloseoutAction(entry.recommendedResolution)
-          ? {
-              recommendedResolution: "manual_review",
-              reason:
-                "This historical record needs an audit-only product-semantic decision.",
-              note:
-                "Review it as Todo, Deferred, Constraint, or a resolved outcome."
-            }
-          : {}),
-        alternatives: sanitizeCloseoutAlternatives(entry.alternatives)
-      })
-    );
-  }
-
-  return sanitized;
-};
-
-const sanitizeGeneratedCloseoutText = (value: unknown): unknown =>
-  containsLegacyHiddenToolName(value)
-    ? "Review the legacy audit record before choosing a product-semantic route."
-    : value;
-
-const sanitizeCloseoutPlanForAgent = (
-  plan: unknown
-): Record<string, unknown> => {
-  const sanitized = structuredClone(plan) as Record<string, any>;
-  sanitized.summary = sanitizeCloseoutSummaryForAgent(sanitized.summary);
-  const seenLegacyTargets = new Set<string>();
-  const legacyAuditRequiredInputs = [
-    {
-      field: "projectId",
-      value: sanitized.projectId
-    },
-    {
-      field: "includeLegacyUndo",
-      value: true
-    }
-  ];
-
-  sanitized.steps = (Array.isArray(sanitized.steps) ? sanitized.steps : [])
-    .map((step: Record<string, any>) => {
-      const legacyStep =
-        isLegacyCloseoutAction(step.kind) ||
-        isLegacyHiddenToolName(step.recommendedTool);
-      const mapped: Record<string, any> = legacyStep
-        ? {
-            ...step,
-            kind: "review_self_referential_undo",
-            recommendedTool: "get_current_context",
-            governanceLayer: "manual",
-            requiresL3Approval: false,
-            writesRouteState: false,
-            requiredInputs: structuredClone(legacyAuditRequiredInputs),
-            summary:
-              "Review the legacy audit record before choosing a product-semantic route.",
-            reason:
-              "This historical record is audit-only and cannot recommend a hidden write tool."
-          }
-        : { ...step };
-
-      mapped.recommendedTool = isLegacyHiddenToolName(mapped.recommendedTool)
-        ? "get_current_context"
-        : mapped.recommendedTool;
-      mapped.reason = sanitizeGeneratedCloseoutText(mapped.reason);
-      mapped.summary = sanitizeGeneratedCloseoutText(mapped.summary);
-      mapped.warnings = Array.isArray(mapped.warnings)
-        ? mapped.warnings.map(sanitizeGeneratedCloseoutText)
-        : mapped.warnings;
-      mapped.alternatives = sanitizeCloseoutAlternatives(mapped.alternatives);
-      mapped.unlockPaths = (Array.isArray(mapped.unlockPaths)
-        ? mapped.unlockPaths
-        : []
-      ).map((path: Record<string, unknown>) =>
-        isLegacyCloseoutAction(path.actionType) ||
-        isLegacyHiddenToolName(path.recommendedTool)
-          ? {
-              ...path,
-              actionType: "review_context",
-              recommendedTool: "get_current_context",
-              governanceLayer: "manual",
-              requiresL3Approval: false,
-              requiredInputs: structuredClone(legacyAuditRequiredInputs),
-              summary:
-                "Review the legacy audit record before choosing a product-semantic route."
-            }
-          : path
-      );
-
-      return mapped;
-    })
-    .filter((step: Record<string, unknown>) => {
-      if (step.kind !== "review_self_referential_undo") {
-        return true;
-      }
-      const targetKey = String(step.targetId ?? "legacy");
-      if (seenLegacyTargets.has(targetKey)) {
-        return false;
-      }
-      seenLegacyTargets.add(targetKey);
-      return true;
-    });
-  sanitized.warnings = Array.isArray(sanitized.warnings)
-    ? sanitized.warnings.map(sanitizeGeneratedCloseoutText)
-    : sanitized.warnings;
-
-  return sanitized;
-};
-
 const sanitizeVersionStructureForAgent = (
   structure: unknown
 ): Record<string, unknown> => {
@@ -641,10 +440,6 @@ const sanitizeVersionStructureForAgent = (
   const operations = Array.isArray(sanitized.legalOperations)
     ? sanitized.legalOperations
     : [];
-  const hasLegacyOperations = operations.some(
-    (operation: Record<string, unknown>) =>
-      isLegacyHiddenToolName(operation.actionType)
-  );
   const openUndos =
     sanitized.openUndos !== null &&
     typeof sanitized.openUndos === "object"
@@ -660,15 +455,9 @@ const sanitizeVersionStructureForAgent = (
     )
   );
   delete sanitized.openUndos;
-  sanitized.legalOperations = operations
-    .filter(
-      (operation: Record<string, unknown>) =>
-        !isLegacyHiddenToolName(operation.actionType)
-    )
-    .map(sanitizeVersionStructureOperationForAgent);
+  sanitized.legalOperations = operations.map(sanitizeVersionStructureOperationForAgent);
 
   if (
-    hasLegacyOperations &&
     legacyRecordIds.size > 0 &&
     !sanitized.legalOperations.some(
       (operation: Record<string, unknown>) =>
@@ -802,7 +591,6 @@ const residualAuditItemSchema = objectSchema(
           type: "string",
           enum: [
             "close",
-            "create_undo",
             "create_todo",
             "defer_work",
             "record_constraint"
@@ -817,14 +605,6 @@ const residualAuditItemSchema = objectSchema(
     targetReviewVersionId: {
       anyOf: [
         stringSchema("Required downstream review version when destination is defer_work."),
-        {
-          type: "null"
-        }
-      ]
-    },
-    preferredResolutionVersionId: {
-      anyOf: [
-        stringSchema("Required preferred resolution version when destination is create_undo."),
         {
           type: "null"
         }
@@ -1353,7 +1133,7 @@ const defineTool = (
     destructive?: boolean;
     idempotent?: boolean;
     recommendedApprovalMode?: RouteLedgerApprovalMode;
-    visibility?: "default" | "legacy-hidden" | "source-only";
+    visibility?: "default" | "source-only";
   },
   handler: ToolHandler
 ): ToolRegistration => ({
@@ -2048,7 +1828,7 @@ export const createRouteLedgerMcpRegistry = (
 
         return {
           ok: true,
-          data: sanitizeCloseoutSummaryForAgent(summary.data),
+          data: summary.data,
           meta: withCurrentRuntimeContextMeta({
             meta: {
               ...summary.meta,
@@ -2104,7 +1884,7 @@ export const createRouteLedgerMcpRegistry = (
 
         return {
           ok: true,
-          data: sanitizeCloseoutPlanForAgent(plan.data),
+          data: plan.data,
           meta: withCurrentRuntimeContextMeta({
             meta: {
               ...plan.meta,
@@ -2903,206 +2683,6 @@ export const createRouteLedgerMcpRegistry = (
         }
       )
     ),
-    /**
-     * @deprecated Legacy Undo tool family. These tools are hidden from
-     *   agent-facing tools/list via visibility "legacy-hidden" and exist only
-     *   for direct-invoke compatibility with pre-existing
-     *   .routeledger/undos/ documents and their carry-forward/closeout
-     *   semantics. New work must use Todo, Deferred, or Constraint tools;
-     *   resolve_undo_as_downstream_input and carry_forward_undo are retained
-     *   solely to keep historical version-closeout routes auditable.
-     */
-    defineTool(
-      "create_undo",
-      { what: "Create a legacy Undo record.", parameter: "origin and preferred resolution versions" },
-      objectSchema(
-        {
-          projectId: stringSchema("RouteLedger project ID."),
-          versionId: stringSchema("Owning version ID."),
-          originVersionId: stringSchema("Origin version ID."),
-          preferredResolutionVersionId: stringSchema("Preferred resolution version ID."),
-          title: stringSchema("Undo title."),
-          reason: stringSchema("Undo reason."),
-          description: stringSchema("Optional undo description.")
-        },
-        [
-          "projectId",
-          "versionId",
-          "originVersionId",
-          "preferredResolutionVersionId",
-          "title",
-          "reason"
-        ]
-      ),
-      {
-        title: "Create Undo",
-        riskLevel: "write",
-        visibility: "legacy-hidden"
-      },
-      async (input) => {
-        const created = await service.createUndo({
-          projectId: input.projectId,
-          versionId: input.versionId,
-          originVersionId: input.originVersionId,
-          preferredResolutionVersionId: input.preferredResolutionVersionId,
-          title: input.title,
-          reason: input.reason,
-          description: input.description,
-          actor
-        });
-        await appendDebugLog("create_undo", {
-          type: "undo.create",
-          projectId: input.projectId,
-          versionId: created.undo.versionId,
-          undoId: created.undo.id,
-          payload: {
-            originVersionId: created.undo.originVersionId,
-            preferredResolutionVersionId: created.undo.preferredResolutionVersionId,
-            status: created.undo.status
-          }
-        });
-
-        return {
-          ok: true,
-          data: created
-        };
-      }
-    ),
-    defineTool(
-      "reassign_undo",
-      { what: "Reassign a legacy Undo record.", parameter: "undoId and preferredResolutionVersionId" },
-      objectSchema(
-        {
-          projectId: stringSchema("RouteLedger project ID."),
-          undoId: stringSchema("Undo ID."),
-          preferredResolutionVersionId: stringSchema("Next preferred resolution version ID."),
-          reason: stringSchema("Reassignment reason."),
-          note: stringSchema("Reassignment note.")
-        },
-        ["projectId", "undoId", "preferredResolutionVersionId", "reason", "note"]
-      ),
-      {
-        title: "Reassign Undo",
-        riskLevel: "write",
-        destructive: true,
-        visibility: "legacy-hidden"
-      },
-      async (input) => ({
-        ok: true,
-        data: await service.reassignUndo({
-          projectId: input.projectId,
-          undoId: input.undoId,
-          preferredResolutionVersionId: input.preferredResolutionVersionId,
-          reason: input.reason,
-          note: input.note,
-          actor
-        })
-      })
-    ),
-    defineTool(
-      "carry_forward_undo",
-      { what: "Carry a legacy Undo forward.", parameter: "undoId and preferredResolutionVersionId" },
-      objectSchema(
-        {
-          projectId: stringSchema("RouteLedger project ID."),
-          undoId: stringSchema("Undo ID."),
-          preferredResolutionVersionId: stringSchema("Downstream version ID that should inherit responsibility."),
-          reason: stringSchema("Why the undo is being carried forward."),
-          note: stringSchema("Operator note for the reassignment event.")
-        },
-        ["projectId", "undoId", "preferredResolutionVersionId", "reason", "note"]
-      ),
-      {
-        title: "Carry Forward Undo",
-        riskLevel: "write",
-        destructive: true,
-        visibility: "legacy-hidden"
-      },
-      async (input) => ({
-        ok: true,
-        data: await service.carryForwardUndo({
-          projectId: input.projectId,
-          undoId: input.undoId,
-          preferredResolutionVersionId: input.preferredResolutionVersionId,
-          reason: input.reason,
-          note: input.note,
-          actor
-        })
-      })
-    ),
-    defineTool(
-      "resolve_undo_as_downstream_input",
-      { what: "Route a legacy Undo as downstream input.", parameter: "undoId and preferredResolutionVersionId" },
-      objectSchema(
-        {
-          projectId: stringSchema("RouteLedger project ID."),
-          undoId: stringSchema("Undo ID."),
-          preferredResolutionVersionId: stringSchema("Downstream version ID that should inherit responsibility."),
-          reason: stringSchema("Why the undo is being routed forward."),
-          note: stringSchema("Operator note for the reassignment event.")
-        },
-        ["projectId", "undoId", "preferredResolutionVersionId", "reason", "note"]
-      ),
-      {
-        title: "Resolve Undo As Downstream Input",
-        riskLevel: "write",
-        destructive: true,
-        visibility: "legacy-hidden"
-      },
-      async (input) => ({
-        ok: true,
-        data: await service.resolveUndoAsDownstreamInput({
-          projectId: input.projectId,
-          undoId: input.undoId,
-          preferredResolutionVersionId: input.preferredResolutionVersionId,
-          reason: input.reason,
-          note: input.note,
-          actor
-        })
-      })
-    ),
-    defineTool(
-      "close_undo",
-      { what: "Close a legacy Undo record.", parameter: "undoId and reason" },
-      objectSchema(
-        {
-          projectId: stringSchema("RouteLedger project ID."),
-          undoId: stringSchema("Undo ID."),
-          reason: stringSchema("Close reason."),
-          note: stringSchema("Close note.")
-        },
-        ["projectId", "undoId", "reason", "note"]
-      ),
-      {
-        title: "Close Undo",
-        riskLevel: "write",
-        destructive: true,
-        visibility: "legacy-hidden"
-      },
-      async (input) => {
-        const closed = await service.closeUndo({
-          projectId: input.projectId,
-          undoId: input.undoId,
-          reason: input.reason,
-          note: input.note,
-          actor
-        });
-        await appendDebugLog("close_undo", {
-          type: "undo.close",
-          projectId: input.projectId,
-          versionId: closed.undo.versionId,
-          undoId: closed.undo.id,
-          payload: {
-            status: closed.undo.status
-          }
-        });
-
-        return {
-          ok: true,
-          data: closed
-        };
-      }
-    ),
     defineTool(
       "prepare_version",
       { what: "Prepare a version for execution." },
@@ -3567,7 +3147,6 @@ export const createRouteLedgerMcpRegistry = (
           type: "tool.failure",
           projectId: readStringField(input, "projectId"),
           versionId: readDebugVersionId(input),
-          undoId: readStringField(input, "undoId"),
           pendingOperationId: readDebugPendingOperationId(input),
           payload: {
             error: response.error,

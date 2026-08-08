@@ -92,11 +92,6 @@ const DEFERRED_RESOLUTION_OUTCOMES = [
   "out_of_scope"
 ] as const;
 
-const LEGACY_STRUCTURE_ACTION_TYPES = new Set([
-  "create_undo",
-  "carry_forward_undo"
-]);
-
 const summarizeTodoForCli = (todo: Todo) => ({
   id: todo.id,
   projectId: todo.projectId,
@@ -240,12 +235,7 @@ const sanitizeVersionStructureForCli = (
   );
 
   delete sanitized.openUndos;
-  sanitized.legalOperations = legalOperations
-    .filter(
-      (operation: Record<string, unknown>) =>
-        !LEGACY_STRUCTURE_ACTION_TYPES.has(String(operation.actionType))
-    )
-    .map(sanitizeVersionStructureOperationForCli);
+  sanitized.legalOperations = legalOperations.map(sanitizeVersionStructureOperationForCli);
 
   if (legacyRecordIds.size > 0) {
     sanitized.legacyAudit = {
@@ -759,42 +749,6 @@ const handleCommand = async ({
         }
       };
     }
-    // Legacy compatibility only: these commands remain direct-callable for
-    // existing scripts and stored records, but are not the Deferred workflow.
-    case "carry_forward_undo": {
-      const service = getService();
-      return {
-        ok: true,
-        data: await service.carryForwardUndo({
-          projectId: requireFlagValue(argv, "--project-id"),
-          undoId: requireFlagValue(argv, "--undo-id"),
-          preferredResolutionVersionId: requireFlagValue(
-            argv,
-            "--preferred-resolution-version-id"
-          ),
-          reason: requireFlagValue(argv, "--reason"),
-          note: requireFlagValue(argv, "--note"),
-          actor: DEFAULT_ACTOR
-        })
-      };
-    }
-    case "resolve_undo_as_downstream_input": {
-      const service = getService();
-      return {
-        ok: true,
-        data: await service.resolveUndoAsDownstreamInput({
-          projectId: requireFlagValue(argv, "--project-id"),
-          undoId: requireFlagValue(argv, "--undo-id"),
-          preferredResolutionVersionId: requireFlagValue(
-            argv,
-            "--preferred-resolution-version-id"
-          ),
-          reason: requireFlagValue(argv, "--reason"),
-          note: requireFlagValue(argv, "--note"),
-          actor: DEFAULT_ACTOR
-        })
-      };
-    }
     case "get_version_structure": {
       const service = getService();
       const includeLegacyUndo = hasFlag(argv, "--include-legacy-undo");
@@ -1094,67 +1048,6 @@ const handleCommand = async ({
         "ACTION_NOT_IMPLEMENTED",
         "仅支持 constraint record/retire"
       );
-    }
-    // Legacy compatibility only: preserve existing scripts and stored-data
-    // operations, but do not use these commands as the default deferred-work path.
-    case "undo": {
-      const service = getService();
-      if (subcommand === "create") {
-        const created = await service.createUndo({
-          projectId: requireFlagValue(argv, "--project-id"),
-          versionId: requireFlagValue(argv, "--version-id"),
-          originVersionId: requireFlagValue(argv, "--origin-version-id"),
-          preferredResolutionVersionId: requireFlagValue(
-            argv,
-            "--preferred-resolution-version-id"
-          ),
-          title: requireFlagValue(argv, "--title"),
-          reason: requireFlagValue(argv, "--reason"),
-          description: getFlagValue(argv, "--description"),
-          actor: DEFAULT_ACTOR
-        });
-
-        return {
-          ok: true,
-          data: created
-        };
-      }
-
-      if (subcommand === "reassign") {
-        const reassigned = await service.reassignUndo({
-          projectId: requireFlagValue(argv, "--project-id"),
-          undoId: requireFlagValue(argv, "--undo-id"),
-          preferredResolutionVersionId: requireFlagValue(
-            argv,
-            "--preferred-resolution-version-id"
-          ),
-          reason: requireFlagValue(argv, "--reason"),
-          note: requireFlagValue(argv, "--note"),
-          actor: DEFAULT_ACTOR
-        });
-
-        return {
-          ok: true,
-          data: reassigned
-        };
-      }
-
-      if (subcommand === "close") {
-        const closed = await service.closeUndo({
-          projectId: requireFlagValue(argv, "--project-id"),
-          undoId: requireFlagValue(argv, "--undo-id"),
-          reason: requireFlagValue(argv, "--reason"),
-          note: requireFlagValue(argv, "--note"),
-          actor: DEFAULT_ACTOR
-        });
-
-        return {
-          ok: true,
-          data: closed
-        };
-      }
-
-      throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "仅支持 undo create/reassign/close");
     }
     case "version": {
       const service = getService();

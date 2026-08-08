@@ -4,6 +4,8 @@ import path from "node:path";
 import { expect, it, describe } from "vitest";
 
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
+import { JsonFirstStorageAdapter } from "../json-first-storage.js";
+import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 import type { createRouteLedgerStdioServer } from "../stdio-server.js";
 
 import { createTempProjectRoot, getDefaultDataRoot, createMismatchedExpectedRouteLedgerRoot, createRegistry, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, createAndCommitVersion, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";
@@ -28,17 +30,32 @@ describe("routeledger mcp registry", () => {
 
       await setCurrentVersionWithApproval(server, initData.project.id, nextVersionId);
 
-      const legacyRegistry = createRegistry(projectRoot);
-      const legacyUndo = await legacyRegistry.invoke("create_undo", {
+      const legacyUndo = createUndoFixture({
+        id: "legacy-doc-drift-undo-1",
         projectId: initData.project.id,
         versionId: nextVersionId,
         originVersionId: nextVersionId,
         preferredResolutionVersionId: nextVersionId,
+        workItemId: "legacy-doc-drift-work-item-1",
         title: "Legacy doc-drift audit record",
         reason: "verify default response sanitization"
       });
-      expect(legacyUndo.ok).toBe(true);
-      legacyRegistry.close();
+      const legacyWorkItem = createWorkItemFixture({
+        id: "legacy-doc-drift-work-item-1",
+        projectId: initData.project.id,
+        originVersionId: nextVersionId,
+        activeRecordType: "undo",
+        activeRecordId: legacyUndo.id
+      });
+      const storage = new JsonFirstStorageAdapter({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot
+      });
+      const snapshot = await storage.loadProjectAggregate(initData.project.id);
+      snapshot!.undos = snapshot!.undos.concat(legacyUndo);
+      snapshot!.workItems = snapshot!.workItems.concat(legacyWorkItem);
+      await storage.saveProjectAggregate(snapshot!);
+      storage.close();
 
       fs.writeFileSync(
         path.join(projectRoot, "README.md"),
@@ -1056,23 +1073,32 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id
       });
       const proposalListData = getStructuredData<Array<{ status: string }>>(proposalList);
-      const downstreamVersionId = await createAndCommitVersion(
-        server,
-        initData.project.id,
-        "Downstream"
-      );
-      const legacyRegistry = createRegistry(projectRoot);
-      const createdUndo = await legacyRegistry.invoke("create_undo", {
+      const legacyUndo = createUndoFixture({
+        id: "legacy-version-undo-1",
         projectId: initData.project.id,
         versionId: initData.initialVersion.id,
         originVersionId: initData.initialVersion.id,
         preferredResolutionVersionId: initData.initialVersion.id,
+        workItemId: "legacy-version-work-item-1",
         title: "route later",
         reason: "defer downstream"
       });
-      const createdUndoData = createdUndo.data as {
-        undo: { id: string };
-      };
+      const legacyWorkItem = createWorkItemFixture({
+        id: "legacy-version-work-item-1",
+        projectId: initData.project.id,
+        originVersionId: initData.initialVersion.id,
+        activeRecordType: "undo",
+        activeRecordId: legacyUndo.id
+      });
+      const storage = new JsonFirstStorageAdapter({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot
+      });
+      const snapshot = await storage.loadProjectAggregate(initData.project.id);
+      snapshot!.undos = snapshot!.undos.concat(legacyUndo);
+      snapshot!.workItems = snapshot!.workItems.concat(legacyWorkItem);
+      await storage.saveProjectAggregate(snapshot!);
+      storage.close();
       const blockingStructureResponse = await callTool(
         server,
         "blocking-structure",
@@ -1085,18 +1111,6 @@ describe("routeledger mcp registry", () => {
       const blockingStructureData = getStructuredData<{
         legalOperations: Array<Record<string, any>>;
       }>(blockingStructureResponse);
-      const carryForward = await legacyRegistry.invoke("carry_forward_undo", {
-        projectId: initData.project.id,
-        undoId: createdUndoData.undo.id,
-        preferredResolutionVersionId: downstreamVersionId,
-        reason: "route to downstream",
-        note: "keep as undo"
-      });
-      const carryForwardData = carryForward.data as {
-        status: string;
-        preferredResolutionVersionId: string;
-      };
-      legacyRegistry.close();
       const structure = await callTool(server, "structure", "get_version_structure", {
         projectId: initData.project.id,
         versionId: initData.initialVersion.id
@@ -1115,10 +1129,6 @@ describe("routeledger mcp registry", () => {
         blockers: [expect.objectContaining({ code: "MISSING_RESIDUAL_AUDIT" })]
       });
       expect(proposalListData.filter((proposal) => proposal.status === "pending")).toEqual([]);
-      expect(carryForwardData).toMatchObject({
-        status: "reassigned",
-        preferredResolutionVersionId: downstreamVersionId
-      });
       expect(structureData).not.toHaveProperty("openUndos");
       expect(structureData.legacyAudit).toMatchObject({
         required: true,
@@ -1429,9 +1439,8 @@ describe("routeledger mcp registry", () => {
           residualAudit: [
             {
               kind: "debt",
-              summary: "legacy close routing remains accepted",
-              destination: "create_undo",
-              preferredResolutionVersionId: "legacy-downstream-version"
+              summary: "resolved close routing stays accepted",
+              destination: "close"
             }
           ]
         })
@@ -1961,73 +1970,54 @@ describe("routeledger mcp registry", () => {
         }
       });
 
-      const legacyCreate = await registry.invoke("create_undo", {
+      const auditUndo = createUndoFixture({
+        id: "legacy-audit-undo-1",
         projectId,
         versionId: initData.initialVersion.id,
         originVersionId: initData.initialVersion.id,
         preferredResolutionVersionId: downstreamVersionId,
+        workItemId: "legacy-audit-work-item-1",
         title: "Legacy audit record",
         reason: "compatibility fixture"
       });
-      expect(legacyCreate.ok).toBe(true);
-      expect(registry.getTool("create_undo")).toBeUndefined();
-
-      const compatibilityUndo = await registry.invoke("create_undo", {
+      const auditWorkItem = createWorkItemFixture({
+        id: "legacy-audit-work-item-1",
+        projectId,
+        originVersionId: initData.initialVersion.id,
+        activeRecordType: "undo",
+        activeRecordId: auditUndo.id
+      });
+      const verbatimUndo = createUndoFixture({
+        id: "legacy-verbatim-undo-1",
         projectId,
         versionId: initData.initialVersion.id,
         originVersionId: initData.initialVersion.id,
         preferredResolutionVersionId: initData.initialVersion.id,
-        title: "Legacy direct invoke chain",
-        reason: "exercise hidden handlers"
+        workItemId: "legacy-verbatim-work-item-1",
+        title: "User text close_undo must remain verbatim",
+        reason: "exercise default read sanitization"
       });
-      const compatibilityUndoId = (
-        compatibilityUndo.data as { undo: { id: string } }
-      ).undo.id;
-      const reassignedUndo = await registry.invoke("reassign_undo", {
+      const verbatimWorkItem = createWorkItemFixture({
+        id: "legacy-verbatim-work-item-1",
         projectId,
-        undoId: compatibilityUndoId,
-        preferredResolutionVersionId: laterVersionId,
-        reason: "reassign compatibility",
-        note: "direct hidden handler"
+        originVersionId: initData.initialVersion.id,
+        activeRecordType: "undo",
+        activeRecordId: verbatimUndo.id
       });
-      expect(reassignedUndo).toMatchObject({
-        ok: true,
-        data: {
-          undo: {
-            preferredResolutionVersionId: laterVersionId
-          }
-        }
+      const storage = new JsonFirstStorageAdapter({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot
       });
-      const resolvedAsDownstream = await registry.invoke(
-        "resolve_undo_as_downstream_input",
-        {
-          projectId,
-          undoId: compatibilityUndoId,
-          preferredResolutionVersionId: downstreamVersionId,
-          reason: "alias compatibility",
-          note: "route through alias"
-        }
-      );
-      expect(resolvedAsDownstream).toMatchObject({
-        ok: true,
-        data: {
-          preferredResolutionVersionId: downstreamVersionId
-        }
-      });
-      const closedCompatibilityUndo = await registry.invoke("close_undo", {
-        projectId,
-        undoId: compatibilityUndoId,
-        reason: "close compatibility fixture",
-        note: "hidden direct handler remains callable"
-      });
-      expect(closedCompatibilityUndo).toMatchObject({
-        ok: true,
-        data: {
-          undo: {
-            status: "closed"
-          }
-        }
-      });
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      snapshot!.undos = snapshot!.undos
+        .concat(auditUndo)
+        .concat(verbatimUndo);
+      snapshot!.workItems = snapshot!.workItems
+        .concat(auditWorkItem)
+        .concat(verbatimWorkItem);
+      await storage.saveProjectAggregate(snapshot!);
+      storage.close();
+      expect(registry.getTool("create_undo")).toBeUndefined();
       for (const hiddenName of [
         "reassign_undo",
         "resolve_undo_as_downstream_input",
@@ -2035,16 +2025,6 @@ describe("routeledger mcp registry", () => {
       ]) {
         expect(registry.getTool(hiddenName)).toBeUndefined();
       }
-
-      const legacyRecommendationUndo = await registry.invoke("create_undo", {
-        projectId,
-        versionId: initData.initialVersion.id,
-        originVersionId: initData.initialVersion.id,
-        preferredResolutionVersionId: initData.initialVersion.id,
-        title: "User text close_undo must remain verbatim",
-        reason: "exercise default read sanitization"
-      });
-      expect(legacyRecommendationUndo.ok).toBe(true);
       const defaultReadResponses = await Promise.all([
         registry.invoke("get_version_structure", {
           projectId,
@@ -2073,17 +2053,6 @@ describe("routeledger mcp registry", () => {
         ),
         summaryRead.nextAction.actionType,
         summaryRead.nextAction.recommendedTool,
-        ...summaryRead.selfReferentialUndos.flatMap(
-          (entry: Record<string, any>) => [
-            entry.recommendedResolution,
-            ...entry.alternatives.flatMap(
-              (alternative: Record<string, unknown>) => [
-                alternative.actionType,
-                alternative.recommendedTool
-              ]
-            )
-          ]
-        ),
         ...planRead.steps.flatMap((step: Record<string, any>) => [
           step.kind,
           step.recommendedTool,
@@ -2129,39 +2098,6 @@ describe("routeledger mcp registry", () => {
           (undo: Record<string, unknown>) => undo.title
         )
       ).toContain("User text close_undo must remain verbatim");
-      const expectedLegacyAuditInputs = [
-        {
-          field: "projectId",
-          value: projectId
-        },
-        {
-          field: "includeLegacyUndo",
-          value: true
-        }
-      ];
-      const mappedLegacySteps = planRead.steps.filter(
-        (step: Record<string, unknown>) =>
-          step.kind === "review_self_referential_undo" &&
-          step.recommendedTool === "get_current_context"
-      );
-      expect(mappedLegacySteps.length).toBeGreaterThan(0);
-      for (const step of mappedLegacySteps) {
-        expect(step.requiredInputs).toEqual(expectedLegacyAuditInputs);
-      }
-      const mappedLegacyUnlockPaths = planRead.steps.flatMap(
-        (step: Record<string, any>) =>
-          (step.unlockPaths ?? []).filter(
-            (unlockPath: Record<string, unknown>) =>
-              unlockPath.actionType === "review_context" &&
-              unlockPath.recommendedTool === "get_current_context"
-          )
-      );
-      expect(mappedLegacyUnlockPaths.length).toBeGreaterThan(0);
-      for (const unlockPath of mappedLegacyUnlockPaths) {
-        expect(unlockPath.requiredInputs).toEqual(
-          expectedLegacyAuditInputs
-        );
-      }
 
       const defaultContext = await registry.invoke("get_current_context", {
         projectId
@@ -2213,8 +2149,8 @@ describe("routeledger mcp registry", () => {
       const closeVersionSchema = registry.tools.find(
         (tool) => tool.name === "close_version"
       )!.inputSchema;
-      expect(JSON.stringify(closeVersionSchema)).toContain("create_undo");
-      expect(JSON.stringify(closeVersionSchema)).toContain("preferredResolutionVersionId");
+      expect(JSON.stringify(closeVersionSchema)).not.toContain("create_undo");
+      expect(JSON.stringify(closeVersionSchema)).not.toContain("preferredResolutionVersionId");
       expect(JSON.stringify(closeVersionSchema)).toContain("defer_work");
       expect(JSON.stringify(closeVersionSchema)).toContain("record_constraint");
 

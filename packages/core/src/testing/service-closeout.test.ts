@@ -1,9 +1,9 @@
 import { expect, it, describe } from "vitest";
 
-import { TEST_ACTOR, createTestDependencies } from "./builders.js";
+import { TEST_ACTOR, createTestDependencies, createUndoFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
-import { MemoryStorageAdapter, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion } from "./routeledger-service-test-helpers.js";
+import { MemoryStorageAdapter, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
   it("summarizeVersionCloseout 鍦?open todo 闃诲 close 鏃惰繑鍥?controller-facing 鎽樿骞跺缓璁?close_todo", async () => {
     const storage = new MemoryStorageAdapter();
@@ -68,25 +68,28 @@ describe("route ledger service", () => {
     });
   });
 
-  it("summarizeVersionCloseout 鍦?open undo 闃诲 close 鏃跺垪鍑?openUndos 骞朵繚瀹堝缓璁?close_undo", async () => {
+  it("summarizeVersionCloseout 鍦?open undo 闃诲 close 鏃跺垪鍑?openUndos 骞朵繚鎸?闃诲悓 blocker", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
       deps: createTestDependencies()
     });
     let undoId = "";
-    const prepared = await completeCurrentVersion(service, storage, async ({ projectId, versionId }) => {
-      const created = await service.createUndo({
+    const prepared = await completeCurrentVersion(service, storage, async ({ projectId }) => {
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      const undo = createUndoFixture({
+        id: "legacy-undo-1",
         projectId,
-        versionId,
-        originVersionId: versionId,
-        preferredResolutionVersionId: versionId,
+        versionId: snapshot!.project.currentVersionId!,
+        originVersionId: snapshot!.project.currentVersionId!,
+        preferredResolutionVersionId: snapshot!.project.currentVersionId!,
         title: "Resolve QA routeback",
         reason: "QA flagged downstream mismatch",
-        description: "controller should see this undo",
-        actor: TEST_ACTOR
+        description: "controller should see this undo"
       });
-      undoId = created.undo.id;
+      undoId = undo.id;
+      snapshot!.undos = snapshot!.undos.concat(undo);
+      await storage.saveProjectAggregate(snapshot!);
     });
 
     const summary = await service.summarizeVersionCloseout({
@@ -101,11 +104,6 @@ describe("route ledger service", () => {
         unresolvedUndoIds: string[];
       };
       openUndos: Array<{ id: string; title: string }>;
-      nextAction: {
-        actionType: string;
-        recommendedTool: string | null;
-        targetId: string | null;
-      };
     };
 
     expect(data.canClose).toBe(false);
@@ -120,11 +118,6 @@ describe("route ledger service", () => {
         title: "Resolve QA routeback"
       })
     ]);
-    expect(data.nextAction).toMatchObject({
-      actionType: "close_undo",
-      recommendedTool: "close_undo",
-      targetId: undoId
-    });
   });
 
   it("summarizeVersionCloseout 瀵?complete 涓?close-ready 鐨?version 鎺ㄨ崘璧?close_version propose flow", async () => {
@@ -331,32 +324,26 @@ describe("route ledger service", () => {
     expect(data.steps.map((step) => step.kind)).not.toContain("close_version");
   });
 
-  it("planVersionCloseout 鍦?open undo 鏃跺垪鍑?close_undo step锛屽苟鎻愰啋鍙汉宸ユ敼璧?carry_forward_undo", async () => {
+  it("planVersionCloseout 鍦?open undo 闃诲悓 close 鏃舵棤 undo 澶勭悊姝ラ锛屼絾 close 浠嶈閫氳繃 gate", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
       deps: createTestDependencies()
     });
-    let undoId = "";
-    const prepared = await completeCurrentVersion(service, storage);
-    const downstreamVersionId = await createCommittedVersion(
-      service,
-      prepared.projectId,
-      "Downstream Version",
-      "ordinary undo target"
-    );
-
-    const created = await service.createUndo({
-      projectId: prepared.projectId,
-      versionId: prepared.versionId,
-      originVersionId: prepared.versionId,
-      preferredResolutionVersionId: downstreamVersionId,
-      title: "Resolve QA routeback",
-      reason: "QA flagged downstream mismatch",
-      description: "controller should decide how to route this undo",
-      actor: TEST_ACTOR
+    const prepared = await completeCurrentVersion(service, storage, async ({ projectId }) => {
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      const undo = createUndoFixture({
+        id: "legacy-undo-1",
+        projectId,
+        versionId: snapshot!.project.currentVersionId!,
+        originVersionId: snapshot!.project.currentVersionId!,
+        preferredResolutionVersionId: snapshot!.project.currentVersionId!,
+        title: "Resolve QA routeback",
+        reason: "QA flagged downstream mismatch"
+      });
+      snapshot!.undos = snapshot!.undos.concat(undo);
+      await storage.saveProjectAggregate(snapshot!);
     });
-    undoId = created.undo.id;
 
     const plan = await service.planVersionCloseout({
       projectId: prepared.projectId,
@@ -365,20 +352,16 @@ describe("route ledger service", () => {
     const data = plan.data as {
       status: string;
       warnings: string[];
-      steps: Array<{ kind: string; targetId: string | null }>;
+      steps: Array<{ kind: string }>;
     };
 
     expect(data.status).toBe("blocked");
-    expect(data.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "close_undo",
-          targetId: undoId
-        })
-      ])
+    expect(data.steps.map((step) => step.kind)).not.toContain("close_undo");
+    expect(data.steps.map((step) => step.kind)).not.toContain(
+      "carry_forward_undo"
     );
     expect(data.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining("carry_forward_undo")])
+      expect.not.arrayContaining([expect.stringContaining("carry_forward_undo")])
     );
   });
 

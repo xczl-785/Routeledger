@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, it, describe } from "vitest";
 
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
+import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 import { decodeProjectAggregateFromJsonDocuments } from "@routeledger/json";
 
 import { createTempProjectRoot, cleanupProjectRoot, removeSqliteFiles, readJsonDocuments, readDocumentBytesByPaths, runCliJson, createVersionViaL3, setCurrentVersionViaL3 } from "./cli-test-helpers.js";
@@ -851,7 +852,7 @@ describe("routeledger cli", () => {
     }
   });
 
-  it("close_version / carry_forward_undo / get_version_structure 命令遵守 block-first 与保守结转语义", async () => {
+  it("close_version block-first 与 get_version_structure 的 legacy 审计展示语义", async () => {
     const projectRoot = createTempProjectRoot();
 
     try {
@@ -917,41 +918,35 @@ describe("routeledger cli", () => {
         "--project-id",
         projectId
       ]);
-      const createdUndo = await runCliJson(projectRoot, [
-        "undo",
-        "create",
-        "--project-id",
+      const historicalUndo = createUndoFixture({
+        id: "historical-undo-1",
         projectId,
-        "--version-id",
-        initialVersionId,
-        "--origin-version-id",
-        initialVersionId,
-        "--preferred-resolution-version-id",
-        initialVersionId,
-        "--title",
-        "route later",
-        "--reason",
-        "defer downstream"
-      ]);
+        versionId: initialVersionId,
+        originVersionId: initialVersionId,
+        preferredResolutionVersionId: downstreamVersionId,
+        workItemId: "historical-work-item-1",
+        title: "route later",
+        reason: "defer downstream"
+      });
+      const historicalWorkItem = createWorkItemFixture({
+        id: "historical-work-item-1",
+        projectId,
+        originVersionId: initialVersionId,
+        activeRecordType: "undo",
+        activeRecordId: historicalUndo.id
+      });
+      const storage = new SQLiteStorageAdapter({ projectRoot });
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      snapshot!.undos = snapshot!.undos.concat(historicalUndo);
+      snapshot!.workItems = snapshot!.workItems.concat(historicalWorkItem);
+      await storage.saveProjectAggregate(snapshot!);
+      storage.close();
       const blockingStructure = await runCliJson(projectRoot, [
         "get_version_structure",
         "--project-id",
         projectId,
         "--version-id",
         initialVersionId
-      ]);
-      const carryForward = await runCliJson(projectRoot, [
-        "carry_forward_undo",
-        "--project-id",
-        projectId,
-        "--undo-id",
-        createdUndo.stdoutJson.data.undo.id,
-        "--preferred-resolution-version-id",
-        downstreamVersionId,
-        "--reason",
-        "route to downstream version",
-        "--note",
-        "keep as undo"
       ]);
       const structure = await runCliJson(projectRoot, [
         "get_version_structure",
@@ -987,11 +982,6 @@ describe("routeledger cli", () => {
           (proposal: { status: string }) => proposal.status === "pending"
         )
       ).toEqual([]);
-      expect(carryForward.exitCode).toBe(0);
-      expect(carryForward.stdoutJson.data).toMatchObject({
-        status: "reassigned",
-        preferredResolutionVersionId: downstreamVersionId
-      });
       expect(structure.exitCode).toBe(0);
       expect(structure.stdoutJson.data).not.toHaveProperty("openUndos");
       expect(structure.stdoutJson.data.legacyAudit).toMatchObject({
@@ -1050,11 +1040,12 @@ describe("routeledger cli", () => {
       expect(serializedStructure).not.toContain("carry_forward_undo");
       expect(legacyAuditStructure.exitCode).toBe(0);
       expect(legacyAuditStructure.stdoutJson.data.openUndos).toBeDefined();
-      expect(legacyAuditStructure.stdoutJson.data.legalOperations).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ actionType: "carry_forward_undo" })
-        ])
-      );
+      expect(
+        legacyAuditStructure.stdoutJson.data.legalOperations.some(
+          (operation: { actionType: string }) =>
+            operation.actionType === "carry_forward_undo"
+        )
+      ).toBe(false);
     } finally {
       cleanupProjectRoot(projectRoot);
     }
