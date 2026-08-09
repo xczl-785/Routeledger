@@ -205,6 +205,47 @@ describe("@routeledger/json canonical codec", () => {
     expect(left).toEqual(right);
   });
 
+  it.each([
+    {
+      actionType: "create_version" as const,
+      payload: { title: "First Version", setAsCurrent: true },
+      canonicalFields: { set_as_current: true }
+    },
+    {
+      actionType: "advance_to_version" as const,
+      payload: { fromVersionId: "version-1" },
+      canonicalFields: { from_version_id: "version-1" }
+    }
+  ])(
+    "round-trips every non-empty $actionType payload field used by its digest",
+    ({ actionType, payload, canonicalFields }) => {
+      const snapshot = createJsonCodecSnapshot();
+      const operation = snapshot.pendingOperations[0]!;
+      const withActionPayload: ProjectAggregateSnapshot = {
+        ...snapshot,
+        pendingOperations: [
+          {
+            ...operation,
+            actionType,
+            payload
+          }
+        ]
+      };
+
+      const documents = encodeProjectAggregateToJsonDocuments(withActionPayload);
+      const operationDocument = documents.find((document) =>
+        document.path.endsWith(`/${operation.id}.json`)
+      );
+      expect(operationDocument).toBeDefined();
+      expect(JSON.parse(operationDocument!.content)).toMatchObject({
+        payload: canonicalFields
+      });
+
+      const decoded = decodeProjectAggregateFromJsonDocuments(documents);
+      expect(decoded.pendingOperations[0]?.payload).toEqual(payload);
+    }
+  );
+
   it("round-trips DeferredItem and Constraint documents with stable canonical paths", () => {
     const snapshot = createDeferredConstraintJsonSnapshot();
     const documents = encodeProjectAggregateToJsonDocuments(snapshot);

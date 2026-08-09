@@ -7,6 +7,10 @@
 export type RouteLedgerRuntimeProfile = "full" | "json-only";
 export type RouteLedgerRuntimeArtifactKind = "source" | "package" | "plugin";
 export type RuntimeSourceTreeState = "clean" | "dirty" | "unavailable";
+export type RuntimeProvenanceStatus =
+  | "unavailable"
+  | "source_commit"
+  | "external_attestation_required";
 
 export interface RuntimeIdentity {
   runtimePackageVersion: string;
@@ -16,6 +20,8 @@ export interface RuntimeIdentity {
   /** Immutable release tag expected to attest this plugin payload. */
   releaseTag: string | null;
   sourceTreeState: RuntimeSourceTreeState;
+  /** How callers can bind this runtime identity to immutable source/distribution evidence. */
+  provenanceStatus?: RuntimeProvenanceStatus;
   /**
    * Source/package artifacts may report the clean Git HEAD that built them.
    * Plugin artifacts always use null: squash/rebase makes branch commit IDs

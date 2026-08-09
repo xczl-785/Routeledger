@@ -60,7 +60,7 @@ describe("MCP response locale", () => {
           humanReviewText: [
             "RouteLedger batch proposal pending-1",
             "action: batch_create_versions",
-            "reason: user supplied reason",
+            "reason: none",
             "blockers: none"
           ].join("\n")
         }
@@ -73,7 +73,7 @@ describe("MCP response locale", () => {
       [
         "RouteLedger 批量提案 pending-1",
         "操作: batch_create_versions",
-        "理由: user supplied reason",
+        "理由: none",
         "阻断项: 无"
       ].join("\n")
     );
@@ -109,6 +109,61 @@ describe("MCP response locale", () => {
       { code: "CURRENT_VERSION_NOT_CLOSED", message: "当前 Version 尚未关闭，不能推进到下一 Version。" },
       { code: "TARGET_VERSION_NOT_NEXT", message: "目标 Version 不是当前 Version 的直接后继。" }
     ]);
+
+    const blocked = localizeToolResponse(
+      {
+        ok: true,
+        data: {
+          status: "blocked",
+          blockers: [
+            { code: "DUE_DEFERRED_REQUIRES_REVIEW", message: "old message" }
+          ]
+        }
+      },
+      resolveResponseLocale("zh-CN"),
+      "advance_to_version"
+    );
+    expect(blocked.data.blockers).toEqual([
+      {
+        code: "DUE_DEFERRED_REQUIRES_REVIEW",
+        message: "到期 Deferred 必须在启动目标 Version 前复评。"
+      }
+    ]);
+  });
+
+  it("localizes create_version confirmation review text", () => {
+    const response = localizeToolResponse(
+      {
+        ok: false,
+        error: {
+          code: "CONFIRMATION_REQUIRED",
+          message: "confirmation required",
+          details: {
+            humanReviewText: [
+              "RouteLedger proposal pending-create",
+              "action: create_version",
+              "target: version-1",
+              "digest: abc123",
+              "reason: user supplied reason",
+              "blockers: none"
+            ].join("\n")
+          }
+        }
+      },
+      resolveResponseLocale("zh-CN"),
+      "create_version"
+    );
+
+    expect(response.error.details.humanReviewText).toBe(
+      [
+        "RouteLedger 提案 pending-create",
+        "操作: create_version",
+        "目标: version-1",
+        "摘要: abc123",
+        "理由: user supplied reason",
+        "阻断项: 无"
+      ].join("\n")
+    );
   });
 
   it("localizes get_version_structure presentation without changing project titles", () => {

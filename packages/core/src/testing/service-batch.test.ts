@@ -381,7 +381,11 @@ describe("route ledger service", () => {
           clientKey: "plan-b",
           title: "Plan B",
           description: "batch item B",
-          initialTodos: ["prepare review"]
+          initialTodos: [
+            "define persistence boundary",
+            "implement add/list/remove",
+            "verify restart persistence"
+          ]
         }
       ],
       setCurrentTo: "plan-b",
@@ -419,7 +423,12 @@ describe("route ledger service", () => {
       "Plan A",
       "Plan B"
     ]);
-    expect(snapshot?.todos.map((todo) => todo.title)).toEqual(["write docs", "prepare review"]);
+    expect(snapshot?.todos.map((todo) => todo.title)).toEqual([
+      "write docs",
+      "define persistence boundary",
+      "implement add/list/remove",
+      "verify restart persistence"
+    ]);
     expect(snapshot?.project.currentVersionId).toBe(versions[2]?.id);
     expect(versions[0]).toMatchObject({
       id: created.firstVersion!.id,
@@ -431,6 +440,21 @@ describe("route ledger service", () => {
       state: "wait",
       isCurrent: true
     });
+
+    await storage.saveProjectAggregate({
+      ...snapshot!,
+      todos: snapshot!.todos.slice().reverse()
+    });
+    const context = await service.getCurrentContext({
+      projectId: created.project.id
+    });
+    const contextTodos = context.data.todos as Array<{ title: string }>;
+    expect(contextTodos.map((todo) => todo.title)).toEqual([
+      "write docs",
+      "define persistence boundary",
+      "implement add/list/remove",
+      "verify restart persistence"
+    ]);
   });
 
   it("batch_create_versions 鍦?require_complete_or_close 涓嬩細鍏堥樆姝?propose锛屼笖涓嶅垱寤?pending proposal", async () => {

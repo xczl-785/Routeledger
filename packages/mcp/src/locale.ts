@@ -89,6 +89,8 @@ const ZH_CODE_MESSAGES: Record<string, string> = {
   DIAGNOSTIC_VERSION_NOISE: "路线中存在可能干扰判断的 diagnostic/probe Version。",
   CONFIRMATION_REQUIRED: "该操作需要明确确认。",
   COMMIT_REPLAY_MISMATCH: "已提交操作只能使用原始且完全匹配的 approval artifact 重放。",
+  PENDING_OPERATION_PERSISTENCE_MISMATCH:
+    "持久化后的待决操作与摘要不自洽，已阻止继续提交。",
   CLOSE_GATE_FAILED: "Version close gate 未通过。",
   START_GATE_BLOCKED: "Version start gate 未通过。",
   START_GATE_FAILED: "Version start gate 未通过。",
@@ -127,7 +129,9 @@ const EN_CODE_MESSAGES: Record<string, string> = {
   CURRENT_VERSION_CLOSED_NEXT_VERSION_WAITING:
     "The current boundary is closed and the next Version is still in `wait`.",
   COMMIT_REPLAY_MISMATCH:
-    "A committed operation can only be replayed with its original, exactly matching approval artifact."
+    "A committed operation can only be replayed with its original, exactly matching approval artifact.",
+  PENDING_OPERATION_PERSISTENCE_MISMATCH:
+    "The persisted pending operation did not match its digest, so commit was blocked."
 };
 
 const ZH_ACTION_DESCRIPTIONS: Record<string, string> = {
@@ -269,12 +273,17 @@ const HUMAN_REVIEW_TOOLS = new Set([
   "advance_to_version",
   "batch_create_versions",
   "close_version",
+  "create_child_version",
+  "create_version",
+  "insert_version",
   "propose_l3_operation",
+  "reorder_versions",
   "shutdown_version",
   "transition_version"
 ]);
 
 const CODED_PRESENTATION_PATHS: Record<string, Set<string>> = {
+  advance_to_version: new Set(["data.blockers"]),
   batch_create_versions: new Set(["data.blockers", "data.issues", "data.risks"]),
   check_close_gate: new Set(["data.blockers"]),
   check_start_gate: new Set(["data.blockers"]),
@@ -323,6 +332,7 @@ const localizeHumanReviewText = (
           ["ordinaryCloseBlockers: ", "常规关闭阻断项: "]
         ])
       : new Map<string, string>();
+  const systemNonePrefixes = new Set(["blockers: ", "ordinaryCloseBlockers: "]);
 
   return value
     .split("\n")
@@ -330,7 +340,9 @@ const localizeHumanReviewText = (
       for (const [prefix, replacement] of labels) {
         if (line.startsWith(prefix)) {
           const suffix = line.slice(prefix.length);
-          return `${replacement}${suffix === "none" ? "无" : suffix}`;
+          const localizedSuffix =
+            suffix === "none" && systemNonePrefixes.has(prefix) ? "无" : suffix;
+          return `${replacement}${localizedSuffix}`;
         }
       }
       return line;

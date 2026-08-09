@@ -65,6 +65,7 @@ export const buildCodexPluginAttestation = ({ manifest, release, releaseTag, sou
     runtimeIdentity: {
       runtimePackageVersion: release.runtimeIdentity.runtimePackageVersion,
       runtimeProfile: release.runtimeIdentity.runtimeProfile,
+      provenanceStatus: release.runtimeIdentity.provenanceStatus,
       runtimePayloadDigest: release.runtimeIdentity.runtimePayloadDigest
     },
     artifacts: {

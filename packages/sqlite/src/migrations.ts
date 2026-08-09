@@ -889,6 +889,88 @@ UPDATE projects SET initial_version_id = legacy_initial_version_id;
 ALTER TABLE projects DROP COLUMN legacy_initial_version_id;
 `;
 
+const ADVANCE_TO_VERSION_APPROVAL_SQL = `
+DROP INDEX idx_approval_artifacts_project_created;
+DROP INDEX idx_pending_operations_project_created;
+
+ALTER TABLE approval_artifacts RENAME TO approval_artifacts_old;
+ALTER TABLE pending_operations RENAME TO pending_operations_old;
+
+CREATE TABLE pending_operations (
+  id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  action_type TEXT NOT NULL CHECK (action_type IN (
+    'start_version',
+    'close_version',
+    'shutdown_version',
+    'reopen_version',
+    'set_current_version',
+    'advance_to_version',
+    'create_version',
+    'insert_version',
+    'create_child_version',
+    'reorder_versions'
+  )),
+  target_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'committed', 'rejected')),
+  reason TEXT NOT NULL,
+  gate_snapshot_json TEXT NOT NULL,
+  digest_json TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
+  created_by_type TEXT NOT NULL CHECK (created_by_type IN ('user', 'agent', 'system')),
+  created_by_display_name TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  committed_at TEXT,
+  rejected_at TEXT,
+  rejection_reason TEXT,
+  approval_artifact_id TEXT
+);
+
+CREATE INDEX idx_pending_operations_project_created
+  ON pending_operations(project_id, created_at, id);
+
+CREATE TABLE approval_artifacts (
+  id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  pending_operation_id TEXT NOT NULL REFERENCES pending_operations(id) ON DELETE CASCADE,
+  action_type TEXT NOT NULL CHECK (action_type IN (
+    'start_version',
+    'close_version',
+    'shutdown_version',
+    'reopen_version',
+    'set_current_version',
+    'advance_to_version',
+    'create_version',
+    'insert_version',
+    'create_child_version',
+    'reorder_versions'
+  )),
+  target_id TEXT NOT NULL,
+  digest_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'consumed')),
+  approver_id TEXT NOT NULL,
+  approver_type TEXT NOT NULL CHECK (approver_type IN ('user', 'agent', 'system')),
+  approver_display_name TEXT,
+  decision_ref TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT
+);
+
+CREATE INDEX idx_approval_artifacts_project_created
+  ON approval_artifacts(project_id, created_at, id);
+
+INSERT INTO pending_operations SELECT * FROM pending_operations_old;
+INSERT INTO approval_artifacts SELECT * FROM approval_artifacts_old;
+
+DROP TABLE approval_artifacts_old;
+DROP TABLE pending_operations_old;
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -909,6 +991,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0005_project_root",
     sql: PROJECT_ROOT_SQL
+  },
+  {
+    id: "0006_advance_to_version_approval",
+    sql: ADVANCE_TO_VERSION_APPROVAL_SQL
   }
 ];
 

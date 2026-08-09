@@ -373,6 +373,7 @@ const decodeBatchCreateVersionsResolvedAnchors = (anchors) => {
 };
 const encodePendingOperationPayload = (payload) => stripUndefined({
     current_version_id: payload.currentVersionId,
+    from_version_id: payload.fromVersionId,
     residual_audit: payload.residualAudit?.map((item) => ({
         kind: item.kind,
         summary: item.summary,
@@ -390,6 +391,7 @@ const encodePendingOperationPayload = (payload) => stripUndefined({
     previous_version_id: payload.previousVersionId,
     next_version_id: payload.nextVersionId,
     sibling_version_ids: payload.siblingVersionIds,
+    set_as_current: typeof payload.setAsCurrent === "boolean" ? payload.setAsCurrent : undefined,
     batch_items: payload.batchItems === undefined
         ? undefined
         : encodeBatchCreateVersionsItems(payload.batchItems),
@@ -411,6 +413,9 @@ const decodePendingOperationPayload = (payload) => {
         currentVersionId: typeof payload.current_version_id === "string" ||
             payload.current_version_id === null
             ? payload.current_version_id
+            : undefined,
+        fromVersionId: typeof payload.from_version_id === "string"
+            ? payload.from_version_id
             : undefined,
         residualAudit: Array.isArray(payload.residual_audit)
             ? payload.residual_audit.map((item) => {
@@ -448,6 +453,9 @@ const decodePendingOperationPayload = (payload) => {
             : undefined,
         siblingVersionIds: Array.isArray(payload.sibling_version_ids)
             ? payload.sibling_version_ids.map((entry) => String(entry))
+            : undefined,
+        setAsCurrent: typeof payload.set_as_current === "boolean"
+            ? payload.set_as_current
             : undefined,
         batchItems: decodeBatchCreateVersionsItems(payload.batch_items),
         batchAnchor: decodeBatchCreateVersionsAnchor(payload.batch_anchor),

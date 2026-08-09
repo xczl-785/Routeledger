@@ -10,6 +10,166 @@ import type { createRouteLedgerStdioServer } from "../stdio-server.js";
 
 import { createTempProjectRoot, getDefaultDataRoot, createMismatchedExpectedRouteLedgerRoot, createRegistry, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, createAndCommitVersion, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
+  it("persists empty-route create and atomic advance across registry restarts", async () => {
+    const projectRoot = createTempProjectRoot();
+    let registry: ReturnType<typeof createRegistry> | null = createRegistry(projectRoot);
+
+    try {
+      const init = await registry.invoke("init_project", {
+        name: "Empty Route E2E",
+        contentLocale: "en",
+        firstVersion: null
+      });
+      const projectId = (init.data as { project: { id: string } }).project.id;
+
+      const createFirst = await registry.invoke("create_version", {
+        projectId,
+        title: "First delivery",
+        responseLocale: "zh-CN"
+      });
+      expect(createFirst).toMatchObject({
+        ok: false,
+        error: { code: "CONFIRMATION_REQUIRED" }
+      });
+      const createFirstDetails = createFirst.error!.details as {
+        pendingOperationId: string;
+        proposal: { targetId: string };
+      };
+      const firstVersionId = createFirstDetails.proposal.targetId;
+      expect(
+        (createFirst.error!.details as { humanReviewText: string })
+          .humanReviewText
+      ).toContain("RouteLedger 提案");
+      const firstApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: createFirstDetails.pendingOperationId
+      });
+
+      registry.close();
+      registry = createRegistry(projectRoot);
+      await expect(
+        registry.invoke("commit_l3_operation", {
+          projectId,
+          pendingOperationId: createFirstDetails.pendingOperationId,
+          approvalArtifactId: (firstApproval.data as { id: string }).id
+        })
+      ).resolves.toMatchObject({ ok: true });
+
+      const createSuccessor = await registry.invoke("create_version", {
+        projectId,
+        title: "Successor delivery"
+      });
+      expect(createSuccessor).toMatchObject({
+        ok: false,
+        error: { code: "CONFIRMATION_REQUIRED" }
+      });
+      const createSuccessorDetails = createSuccessor.error!.details as {
+        pendingOperationId: string;
+        proposal: { targetId: string };
+      };
+      const successorVersionId = createSuccessorDetails.proposal.targetId;
+      const successorApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: createSuccessorDetails.pendingOperationId
+      });
+      await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId: createSuccessorDetails.pendingOperationId,
+        approvalArtifactId: (successorApproval.data as { id: string }).id
+      });
+      await registry.invoke("prepare_version", {
+        projectId,
+        versionId: successorVersionId
+      });
+
+      await registry.invoke("prepare_version", {
+        projectId,
+        versionId: firstVersionId
+      });
+      const start = await registry.invoke("transition_version", {
+        projectId,
+        versionId: firstVersionId,
+        mode: "propose"
+      });
+      const startProposalId = (start.data as { pendingOperationId: string })
+        .pendingOperationId;
+      const startApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: startProposalId
+      });
+      await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId: startProposalId,
+        approvalArtifactId: (startApproval.data as { id: string }).id
+      });
+      await registry.invoke("mark_version_complete", {
+        projectId,
+        versionId: firstVersionId
+      });
+      const close = await registry.invoke("close_version", {
+        projectId,
+        versionId: firstVersionId,
+        mode: "propose",
+        residualAudit: { status: "reviewed", items: [] }
+      });
+      const closeProposalId = (close.data as { pendingOperationId: string })
+        .pendingOperationId;
+      const closeApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: closeProposalId
+      });
+      await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId: closeProposalId,
+        approvalArtifactId: (closeApproval.data as { id: string }).id
+      });
+
+      const advance = await registry.invoke("advance_to_version", {
+        projectId,
+        fromVersionId: firstVersionId,
+        versionId: successorVersionId
+      });
+      expect(advance).toMatchObject({
+        ok: false,
+        error: { code: "CONFIRMATION_REQUIRED" }
+      });
+      const advanceDetails = advance.error!.details as {
+        pendingOperationId: string;
+      };
+      const advanceApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: advanceDetails.pendingOperationId
+      });
+
+      registry.close();
+      registry = createRegistry(projectRoot);
+      await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId: advanceDetails.pendingOperationId,
+        approvalArtifactId: (advanceApproval.data as { id: string }).id
+      });
+      const context = await registry.invoke("get_current_context", { projectId });
+
+      expect(context).toMatchObject({
+        ok: true,
+        data: {
+          project: { currentVersionId: successorVersionId },
+          currentVersion: {
+            id: successorVersionId,
+            state: "running",
+            isCurrent: true
+          }
+        }
+      });
+      expect(
+        (context.data as { pendingL3Proposals: unknown[] }).pendingL3Proposals
+      ).toEqual([]);
+    } finally {
+      registry?.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("check_doc_drift returns structured warnings and unreadable files", async () => {
     const projectRoot = createTempProjectRoot();
     let server: ReturnType<typeof createRouteLedgerStdioServer> | null = null;
@@ -653,6 +813,7 @@ describe("routeledger mcp registry", () => {
       const validPropose = await callTool(server, "batch-propose", "batch_create_versions", {
         projectId: initData.project.id,
         mode: "propose",
+        responseLocale: "zh-CN",
         anchor: {
           afterVersionId: initData.firstVersion!.id
         },
@@ -692,6 +853,11 @@ describe("routeledger mcp registry", () => {
           }
         }
       });
+      expect(
+        getStructuredData<{
+          humanReviewText: string;
+        }>(validPropose).humanReviewText
+      ).toContain("RouteLedger 批量提案");
 
       server.close();
     } finally {

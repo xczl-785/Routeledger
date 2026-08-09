@@ -7,6 +7,8 @@ and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.4.1 is the latest published Git
 marketplace release, fixed by `routeledger-plugin-v0.4.1`.
+Version 0.4.2 is a regression-fix candidate until it is merged to `main` and
+fixed by `routeledger-plugin-v0.4.2`.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;

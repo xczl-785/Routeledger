@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { buildCodexPluginAttestation } from "../create-codex-plugin-attestation.mjs";
 
-const version = "0.4.1";
+const version = "0.4.2";
 const releaseTag = `routeledger-plugin-v${version}`;
 const sourceCommit = "a".repeat(40);
 const manifest = { name: "routeledger", version };
@@ -11,6 +11,7 @@ const release = {
   runtimeIdentity: {
     runtimePackageVersion: version,
     runtimeProfile: "json-only",
+    provenanceStatus: "external_attestation_required",
     runtimePayloadDigest: "b".repeat(64),
     releaseTag
   },
@@ -30,6 +31,7 @@ assert.deepEqual(
     runtimeIdentity: {
       runtimePackageVersion: version,
       runtimeProfile: "json-only",
+      provenanceStatus: "external_attestation_required",
       runtimePayloadDigest: "b".repeat(64)
     },
     artifacts: {

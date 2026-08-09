@@ -42,6 +42,7 @@ const renderPluginRuntimeIdentity = ({ runtimePackageVersion, pluginVersion, sou
   `  pluginVersion: ${JSON.stringify(pluginVersion)},\n` +
   `  releaseTag: ${JSON.stringify(`routeledger-plugin-v${pluginVersion}`)},\n` +
   `  sourceTreeState: ${JSON.stringify(sourceTreeState)},\n` +
+  `  provenanceStatus: "external_attestation_required",\n` +
   `  buildCommit: ${JSON.stringify(buildCommit)},\n` +
   `  artifactDigest: null,\n` +
   `  runtimePayloadDigest: ${JSON.stringify(runtimePayloadDigest)}\n` +
@@ -61,12 +62,17 @@ const injectPluginRuntimeIdentity = async (buildProvenance) => {
       runtimePackageVersion: manifest.version,
       pluginVersion: manifest.version,
       sourceTreeState: buildProvenance.sourceTreeState,
+      provenanceStatus: "external_attestation_required",
       buildCommit: buildProvenance.buildCommit,
       runtimePayloadDigest
     }),
     "utf8"
   );
-  return { runtimePackageVersion: manifest.version, runtimePayloadDigest };
+  return {
+    runtimePackageVersion: manifest.version,
+    provenanceStatus: "external_attestation_required",
+    runtimePayloadDigest
+  };
 };
 
 const writeReleaseMetadata = async (runtimeIdentity, buildProvenance) => {
@@ -92,6 +98,7 @@ const writeReleaseMetadata = async (runtimeIdentity, buildProvenance) => {
       pluginVersion: manifest.version,
       releaseTag: `routeledger-plugin-v${manifest.version}`,
       sourceTreeState: buildProvenance.sourceTreeState,
+      provenanceStatus: runtimeIdentity.provenanceStatus,
       buildCommit: buildProvenance.buildCommit,
       artifactDigest: null,
       runtimePayloadDigest: runtimeIdentity.runtimePayloadDigest,
