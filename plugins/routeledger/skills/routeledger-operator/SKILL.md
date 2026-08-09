@@ -30,7 +30,7 @@ Read current work with `get_current_context` or `next_action`. Create/close Todo
 
 Read the version structure and gates before changing state. For closeout, start with `summarize_version_closeout` or `plan_version_closeout`, clear the named blockers, then make an explicit residual declaration before `close_version`: `{ status: "reviewed", items: [] }` only after reviewing that no residuals remain, otherwise include routed items. Omitted, `null`, or legacy `[]` are not a no-residuals declaration. A closeout summary or plan is evidence, not approval.
 
-An empty route is initialized, not broken: `next_action` will recommend `create_version`. The approved first `create_version` commit also makes that node current. When the current Version is `close` and its direct successor is `ready`, prefer `advance_to_version`; it switches current and starts the successor under one digest and one approval artifact. Keep separate `set_current_version` and `start_version` operations for exceptional/manual control.
+An empty route is initialized, not broken: `next_action` will recommend `create_version`. The approved first `create_version` commit also makes that node current. When the current Version is `close` and its direct successor is `ready`, prefer `advance_to_version`; it switches current and starts the successor under one digest and one approval artifact. If its gate is blocked, it returns structured blockers without creating a pending proposal; resolve those blockers and retry instead of rejecting cleanup noise. Keep separate `set_current_version` and `start_version` operations for exceptional/manual control.
 
 ### L3 route changes
 

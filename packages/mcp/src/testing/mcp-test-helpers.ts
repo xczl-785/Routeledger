@@ -60,6 +60,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "set_project_content_locale",
   "batch_create_versions",
   "transition_version",
+  "advance_to_version",
   "close_version",
   "shutdown_version",
   "create_todo",

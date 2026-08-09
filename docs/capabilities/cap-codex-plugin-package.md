@@ -4,8 +4,9 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. The current Git marketplace release is 0.4.1, fixed by immutable
-tag `routeledger-plugin-v0.4.1`.
+distribution. The current Git marketplace release is 0.4.2, fixed by immutable
+tag `routeledger-plugin-v0.4.2`. It adds canonical approval round-trip fixes and
+explicit external-attestation provenance status.
 `main` is the release branch.
 `codex-marketplace` remains only the historical 0.3.3 branch anchor.
 
@@ -50,7 +51,10 @@ tag `routeledger-plugin-v0.4.1`.
    bytes. `sourceTreeState` reports whether build inputs were clean, while
    plugin `buildCommit` is always `null` because linear-history squash/rebase
    makes a branch commit ID non-stable. The bundled runtime reports the plugin
-   SemVer as `runtimePackageVersion` plus its expected immutable `releaseTag`.
+   SemVer as `runtimePackageVersion` plus its expected immutable `releaseTag`,
+   and reports `provenanceStatus=external_attestation_required` so callers do
+   not mistake intentionally external commit/distribution evidence for missing
+   or invented inline identity.
    Tag CI generates and uploads an external attestation that binds that tag's
    real source commit to the runtime payload, runtime tree, and full plugin
    distribution digests; this avoids embedding a self-referential digest or a

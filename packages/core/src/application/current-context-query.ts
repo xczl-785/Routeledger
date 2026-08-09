@@ -838,6 +838,14 @@ export const buildDerivedCurrentContextData = (
   const versionOrderById = new Map(
     versions.map((version) => [version.id, version.order] as const)
   );
+  const todoCreationEventById = new Map(
+    snapshot.events
+      .filter(
+        (event) =>
+          event.targetType === "todo" && event.eventType === "todo.created"
+      )
+      .map((event) => [event.targetId, event] as const)
+  );
   const openTodos = snapshot.todos
     .filter((todo) => todo.status === "wait" || todo.status === "running")
     .slice()
@@ -850,9 +858,25 @@ export const buildDerivedCurrentContextData = (
       }
 
       const createdAtDifference = left.createdAt.localeCompare(right.createdAt);
-      return createdAtDifference !== 0
-        ? createdAtDifference
-        : left.id.localeCompare(right.id, "en");
+      if (createdAtDifference !== 0) {
+        return createdAtDifference;
+      }
+
+      const leftCreation = todoCreationEventById.get(left.id);
+      const rightCreation = todoCreationEventById.get(right.id);
+      if (
+        leftCreation !== undefined &&
+        rightCreation !== undefined &&
+        leftCreation.operationId === rightCreation.operationId
+      ) {
+        const batchIndexDifference =
+          leftCreation.operationSeq - rightCreation.operationSeq;
+        if (batchIndexDifference !== 0) {
+          return batchIndexDifference;
+        }
+      }
+
+      return left.id.localeCompare(right.id, "en");
     })
     .map(summarizeOpenTodo);
   const openUndos = snapshot.undos

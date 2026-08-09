@@ -1572,7 +1572,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
         })),
         defineTool("advance_to_version", {
             what: "Atomically switch to and start the ready next Version.",
-            warning: "Returns one L3 proposal."
+            warning: "Blocked gates return without writing; passing gates create one L3 proposal."
         }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Ready target Version ID."),

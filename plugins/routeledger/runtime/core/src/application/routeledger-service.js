@@ -2370,6 +2370,14 @@ export class RouteLedgerService {
         const snapshot = await requireProject(this.storage, input.projectId);
         const now = this.deps.clock.now();
         const description = buildOperationDescription(snapshot, input.actionType, input.targetId, input.payload ?? {}, now);
+        if (input.requirePassingGate === true && !description.gateSnapshot.allowed) {
+            throw new ApplicationError("START_GATE_FAILED", "L3 operation gate 校验失败，未创建 pending proposal", {
+                projectId: input.projectId,
+                actionType: description.actionType,
+                targetId: description.targetId,
+                blockers: description.gateSnapshot.blockers
+            });
+        }
         const proposal = {
             id: this.deps.idGenerator.nextId(),
             projectId: input.projectId,
@@ -2406,7 +2414,57 @@ export class RouteLedgerService {
         const updatedSnapshot = applyPendingOperation(snapshot, proposal);
         updatedSnapshot.events = updatedSnapshot.events.concat(proposalEvents);
         await this.saveProjectAggregate(updatedSnapshot);
-        return proposal;
+        const savedHeadRevision = getProjectAggregateHeadRevision(updatedSnapshot);
+        const persistedSnapshot = await requireProject(this.storage, input.projectId);
+        const persistedProposal = persistedSnapshot.pendingOperations.find((operation) => operation.id === proposal.id);
+        const rebuiltDigest = persistedProposal === undefined
+            ? null
+            : buildDigest(persistedSnapshot.project.id, persistedProposal.actionType, persistedProposal.targetId, persistedProposal.payload, persistedProposal.gateSnapshot);
+        const persistenceIsSelfConsistent = persistedProposal !== undefined &&
+            persistedProposal.projectId === proposal.projectId &&
+            persistedProposal.actionType === proposal.actionType &&
+            persistedProposal.targetId === proposal.targetId &&
+            persistedProposal.digest.value === proposal.digest.value &&
+            rebuiltDigest?.value === persistedProposal.digest.value;
+        if (!persistenceIsSelfConsistent) {
+            const persistedHeadRevision = getProjectAggregateHeadRevision(persistedSnapshot);
+            const proposalEventIds = new Set(proposalEvents.map((event) => event.id));
+            const linkedApprovalArtifactIds = persistedSnapshot.approvalArtifacts
+                .filter((artifact) => artifact.pendingOperationId === proposal.id)
+                .map((artifact) => artifact.id);
+            const rollbackSnapshot = cloneSnapshot(persistedSnapshot);
+            rollbackSnapshot.pendingOperations = rollbackSnapshot.pendingOperations.filter((operation) => operation.id !== proposal.id);
+            rollbackSnapshot.events = rollbackSnapshot.events.filter((event) => !proposalEventIds.has(event.id));
+            const headStillMatchesOwnWrite = savedHeadRevision !== undefined && persistedHeadRevision === savedHeadRevision;
+            const unrevisionedRemainderMatchesOriginal = savedHeadRevision === undefined &&
+                stableStringify(rollbackSnapshot) === stableStringify(snapshot);
+            const canRollbackSafely = linkedApprovalArtifactIds.length === 0 &&
+                (headStillMatchesOwnWrite || unrevisionedRemainderMatchesOriginal);
+            let rollbackStatus = "skipped_concurrent_change";
+            let rollbackError = null;
+            if (canRollbackSafely) {
+                try {
+                    await this.saveProjectAggregate(rollbackSnapshot);
+                    rollbackStatus = "rolled_back";
+                }
+                catch (error) {
+                    rollbackStatus = "failed";
+                    rollbackError = error instanceof Error ? error.message : String(error);
+                }
+            }
+            throw new ApplicationError("PENDING_OPERATION_PERSISTENCE_MISMATCH", rollbackStatus === "rolled_back"
+                ? "pending operation 持久化后与原始 proposal/digest 不自洽，已回滚 proposal"
+                : "pending operation 持久化后与原始 proposal/digest 不自洽；检测到并发变化或补偿失败，未覆盖当前数据", {
+                pendingOperationId: proposal.id,
+                proposedDigest: proposal.digest.value,
+                persistedDigest: persistedProposal?.digest.value ?? null,
+                rebuiltDigest: rebuiltDigest?.value ?? null,
+                rollbackStatus,
+                rollbackError,
+                linkedApprovalArtifactIds
+            });
+        }
+        return persistedProposal;
     }
     async listL3Proposals(projectId) {
         const snapshot = await requireProject(this.storage, projectId);
@@ -3057,14 +3115,15 @@ export class RouteLedgerService {
             events
         };
     }
-    async requestConfirmation(projectId, actionType, targetId, reason, actor, payload = {}) {
+    async requestConfirmation(projectId, actionType, targetId, reason, actor, payload = {}, requirePassingGate = false) {
         const proposal = await this.proposeL3Operation({
             projectId,
             actionType,
             targetId,
             reason,
             actor,
-            payload
+            payload,
+            requirePassingGate
         });
         throw new ApplicationError("CONFIRMATION_REQUIRED", "该 L3 操作需要 approval artifact", {
             pendingOperationId: proposal.id,
@@ -3112,9 +3171,26 @@ export class RouteLedgerService {
         });
     }
     async advanceToVersion(input) {
+        const snapshot = await requireProject(this.storage, input.projectId);
+        const description = buildOperationDescription(snapshot, "advance_to_version", input.versionId, { fromVersionId: input.fromVersionId }, this.deps.clock.now());
+        if (description.gateSnapshot.kind !== "start") {
+            throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "advance_to_version 必须产出 start gate snapshot");
+        }
+        if (!description.gateSnapshot.allowed) {
+            return {
+                status: "blocked",
+                allowed: false,
+                projectId: input.projectId,
+                versionId: input.versionId,
+                fromVersionId: description.payload.fromVersionId,
+                blockers: description.gateSnapshot.blockers,
+                dueDeferredIds: description.gateSnapshot.dueDeferredIds,
+                blockedConstraintIds: description.gateSnapshot.blockedConstraintIds
+            };
+        }
         return this.requestConfirmation(input.projectId, "advance_to_version", input.versionId, input.reason ?? "advance to version requested", input.actor, {
             fromVersionId: input.fromVersionId
-        });
+        }, true);
     }
     async createVersion(input) {
         return this.requestConfirmation(input.projectId, "create_version", this.deps.idGenerator.nextId(), input.reason ?? "create version requested", input.actor, {

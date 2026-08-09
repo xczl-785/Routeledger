@@ -67,7 +67,13 @@ rules.
     explicit `setCurrentTo`. For ordinary forward progress from a closed
     current Version to its ready direct successor, `advance_to_version`
     performs current-switch and start under one proposal, digest, approval
-    artifact, operation ID, and aggregate save.
+    artifact, operation ID, and aggregate save. A blocked gate returns
+    structured blockers without creating a pending proposal.
+15. Pending-operation persistence is verified before a proposal is returned for
+    approval: canonical payload/gate bytes must rebuild the stored digest after
+    reload. A lossy adapter fails early and the new proposal is rolled back.
+    Equal-timestamp Todos created by one batch retain their explicit input
+    order through their creation-event sequence.
 
 ## Evidence
 

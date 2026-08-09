@@ -33,6 +33,7 @@ export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity
   runtimeIdentity?.pluginVersion === pluginVersion &&
   runtimeIdentity?.releaseTag === `routeledger-plugin-v${pluginVersion}` &&
   ["clean", "dirty", "unavailable"].includes(runtimeIdentity?.sourceTreeState) &&
+  runtimeIdentity?.provenanceStatus === "external_attestation_required" &&
   runtimeIdentity?.buildCommit === null &&
   runtimeIdentity?.artifactDigest === null &&
   runtimeIdentity?.runtimePayloadDigest === runtimePayloadDigest &&
@@ -41,6 +42,7 @@ export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity
   releaseIdentity?.pluginVersion === runtimeIdentity.pluginVersion &&
   releaseIdentity?.releaseTag === runtimeIdentity.releaseTag &&
   releaseIdentity?.sourceTreeState === runtimeIdentity.sourceTreeState &&
+  releaseIdentity?.provenanceStatus === runtimeIdentity.provenanceStatus &&
   releaseIdentity?.buildCommit === null &&
   releaseIdentity?.artifactDigest === null &&
   releaseIdentity?.runtimePayloadDigest === runtimeIdentity.runtimePayloadDigest &&

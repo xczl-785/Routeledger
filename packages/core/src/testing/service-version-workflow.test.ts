@@ -3,7 +3,7 @@ import { expect, it, describe } from "vitest";
 import { TEST_ACTOR, createTestDependencies, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
-import { MemoryStorageAdapter, FailOnSaveStorageAdapter, legacyStartDigestValue, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, expectConfirmationRequired } from "./routeledger-service-test-helpers.js";
+import { MemoryStorageAdapter, FailOnSaveStorageAdapter, LossyPendingOperationStorageAdapter, MissingPendingOperationStorageAdapter, legacyStartDigestValue, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, expectConfirmationRequired } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
   it("initProject can atomically create an explicit first Version and its initial Todos", async () => {
     const storage = new MemoryStorageAdapter();
@@ -92,6 +92,63 @@ describe("route ledger service", () => {
         actor: TEST_ACTOR
       })
     ).resolves.toMatchObject({ replayed: true });
+  });
+
+  it("fails proposal creation immediately and rolls back when persisted payload bytes change its digest", async () => {
+    const storage = new LossyPendingOperationStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const created = await service.initProject({
+      contentLocale: "en",
+      name: "Empty Route",
+      firstVersion: null,
+      actor: TEST_ACTOR
+    });
+
+    await expect(
+      service.createVersion({
+        projectId: created.project.id,
+        title: "First delivery",
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({ code: "PENDING_OPERATION_PERSISTENCE_MISMATCH" });
+
+    const snapshot = await storage.loadProjectAggregate(created.project.id);
+    expect(snapshot?.pendingOperations).toEqual([]);
+    expect(
+      snapshot?.events.filter(
+        (event) => event.eventType === "pending_operation.proposed"
+      )
+    ).toEqual([]);
+  });
+
+  it("rolls back the proposal event when persistence drops the complete pending operation", async () => {
+    const storage = new MissingPendingOperationStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const created = await service.initProject({
+      contentLocale: "en",
+      name: "Empty Route",
+      firstVersion: null,
+      actor: TEST_ACTOR
+    });
+
+    await expect(
+      service.createVersion({
+        projectId: created.project.id,
+        title: "First delivery",
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({
+      code: "PENDING_OPERATION_PERSISTENCE_MISMATCH",
+      details: { rollbackStatus: "rolled_back", persistedDigest: null }
+    });
+
+    const snapshot = await storage.loadProjectAggregate(created.project.id);
+    expect(snapshot?.pendingOperations).toEqual([]);
+    expect(
+      snapshot?.events.filter(
+        (event) => event.eventType === "pending_operation.proposed"
+      )
+    ).toEqual([]);
   });
 
   it("advance_to_version atomically switches a closed current Version and starts its direct successor", async () => {
@@ -233,6 +290,29 @@ describe("route ledger service", () => {
       versionId: laterVersionId,
       actor: TEST_ACTOR
     });
+
+    const beforeBlockedAdvance = await storage.loadProjectAggregate(
+      prepared.projectId
+    );
+    const blocked = await service.advanceToVersion({
+      projectId: prepared.projectId,
+      fromVersionId: prepared.versionId,
+      versionId: laterVersionId,
+      actor: TEST_ACTOR
+    });
+    expect(blocked).toMatchObject({
+      status: "blocked",
+      allowed: false,
+      fromVersionId: prepared.versionId,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ code: "CURRENT_VERSION_NOT_CLOSED" }),
+        expect.objectContaining({ code: "TARGET_VERSION_NOT_NEXT" })
+      ])
+    });
+    expect(
+      (await storage.loadProjectAggregate(prepared.projectId))?.pendingOperations
+    ).toEqual(beforeBlockedAdvance?.pendingOperations);
+
     const proposal = await service.proposeL3Operation({
       projectId: prepared.projectId,
       actionType: "advance_to_version",
@@ -301,6 +381,58 @@ describe("route ledger service", () => {
       })
     ).rejects.toMatchObject({ code: "APPROVAL_ARTIFACT_DIGEST_MISMATCH" });
     expect(await storage.loadProjectAggregate(prepared.projectId)).toEqual(beforeCommit);
+  });
+
+  it("advance_to_version reports a due Deferred without creating cleanup proposal noise", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    const targetVersionId = await createCommittedVersion(
+      service,
+      prepared.projectId,
+      "Deferred review target"
+    );
+    await service.prepareVersion({
+      projectId: prepared.projectId,
+      versionId: targetVersionId,
+      actor: TEST_ACTOR
+    });
+    await service.deferWork({
+      mode: "new",
+      projectId: prepared.projectId,
+      originVersionId: prepared.versionId,
+      targetReviewVersionId: targetVersionId,
+      title: "Review before target start",
+      reason: "Exercise advance gate preflight",
+      actor: TEST_ACTOR
+    });
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+    await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
+    const beforeAdvance = await storage.loadProjectAggregate(prepared.projectId);
+
+    const blocked = await service.advanceToVersion({
+      projectId: prepared.projectId,
+      fromVersionId: prepared.versionId,
+      versionId: targetVersionId,
+      actor: TEST_ACTOR
+    });
+
+    expect(blocked).toMatchObject({
+      status: "blocked",
+      allowed: false,
+      dueDeferredIds: expect.arrayContaining([expect.any(String)]),
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ code: "DUE_DEFERRED_REQUIRES_REVIEW" })
+      ])
+    });
+    expect(await storage.loadProjectAggregate(prepared.projectId)).toEqual(
+      beforeAdvance
+    );
   });
 
   it("transition_version 浼氭寜 live 鐘舵€佺粰鍑轰笅涓€姝ワ紝骞跺湪闇€瑕佹椂鍙垱寤哄綋鍓嶅悎娉?proposal", async () => {

@@ -59,6 +59,31 @@ export class FailOnSaveStorageAdapter extends MemoryStorageAdapter {
   }
 }
 
+export class LossyPendingOperationStorageAdapter extends MemoryStorageAdapter {
+  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+    const lossySnapshot = structuredClone(snapshot);
+
+    for (const operation of lossySnapshot.pendingOperations) {
+      delete operation.payload.fromVersionId;
+      delete operation.payload.setAsCurrent;
+    }
+
+    await super.saveProjectAggregate(lossySnapshot);
+  }
+}
+
+export class MissingPendingOperationStorageAdapter extends MemoryStorageAdapter {
+  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+    const lossySnapshot = structuredClone(snapshot);
+
+    if (lossySnapshot.pendingOperations.length > 0) {
+      lossySnapshot.pendingOperations = [];
+    }
+
+    await super.saveProjectAggregate(lossySnapshot);
+  }
+}
+
 export const createTempProjectRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-core-"));
 
 export const cleanupProjectRoot = (projectRoot: string): void => {

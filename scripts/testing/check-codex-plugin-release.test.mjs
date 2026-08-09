@@ -23,6 +23,7 @@ const identity = {
   pluginVersion: "0.3.6",
   releaseTag: "routeledger-plugin-v0.3.6",
   sourceTreeState: "clean",
+  provenanceStatus: "external_attestation_required",
   buildCommit: null,
   artifactDigest: null,
   runtimePayloadDigest: digest

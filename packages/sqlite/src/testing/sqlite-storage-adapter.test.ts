@@ -274,7 +274,7 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-        expect(migrationCount.count).toBe(5);
+        expect(migrationCount.count).toBe(6);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
@@ -543,7 +543,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(5);
+      ).toBe(6);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -662,7 +662,9 @@ describe("sqlite storage adapter", () => {
         "{}"
       );
 
-      applyMigrations(db);
+      db.exec(SQLITE_MIGRATIONS[4]!.sql);
+      db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
+        .run("0005_project_root", "2026-06-27T00:01:00.000Z");
 
       expect(
         db.prepare("SELECT current_version_id, initial_version_id FROM projects WHERE id = ?")
@@ -682,6 +684,153 @@ describe("sqlite storage adapter", () => {
         db.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE id = ?")
           .get("0005_project_root")
       ).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("0006 preserves historical approvals and admits advance_to_version rows", () => {
+    const db = new BetterSqlite3(":memory:");
+
+    try {
+      db.pragma("foreign_keys = ON");
+      ensureSchemaMigrationsTable(db);
+      for (const migration of SQLITE_MIGRATIONS.slice(0, 5)) {
+        db.exec(migration.sql);
+        db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
+          .run(migration.id, "2026-06-27T00:00:00.000Z");
+      }
+      db.prepare(
+        `INSERT INTO projects (
+          id, schema_version, name, description, status, current_version_id,
+          initial_version_id, created_by_id, created_by_type, created_by_display_name,
+          created_at, updated_at, archived_at, settings_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        "project-1",
+        1,
+        "Legacy approvals",
+        "",
+        "active",
+        null,
+        null,
+        TEST_ACTOR.id,
+        TEST_ACTOR.type,
+        TEST_ACTOR.displayName,
+        "2026-06-27T00:00:00.000Z",
+        "2026-06-27T00:00:00.000Z",
+        null,
+        "{}"
+      );
+      const insertPending = db.prepare(
+        `INSERT INTO pending_operations (
+          id, schema_version, project_id, action_type, target_id, status, reason,
+          gate_snapshot_json, digest_json, payload_json, created_by_id,
+          created_by_type, created_by_display_name, created_at, updated_at,
+          committed_at, rejected_at, rejection_reason, approval_artifact_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      const insertApproval = db.prepare(
+        `INSERT INTO approval_artifacts (
+          id, schema_version, project_id, pending_operation_id, action_type,
+          target_id, digest_json, status, approver_id, approver_type,
+          approver_display_name, decision_ref, created_at, expires_at, consumed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertPending.run(
+        "pending-start",
+        1,
+        "project-1",
+        "start_version",
+        "version-1",
+        "pending",
+        "historical start",
+        "{}",
+        "{}",
+        "{}",
+        TEST_ACTOR.id,
+        TEST_ACTOR.type,
+        TEST_ACTOR.displayName,
+        "2026-06-27T00:01:00.000Z",
+        "2026-06-27T00:01:00.000Z",
+        null,
+        null,
+        null,
+        "approval-start"
+      );
+      insertApproval.run(
+        "approval-start",
+        1,
+        "project-1",
+        "pending-start",
+        "start_version",
+        "version-1",
+        "{}",
+        "approved",
+        "user-1",
+        "user",
+        "owner",
+        "decision://start",
+        "2026-06-27T00:02:00.000Z",
+        "2026-06-28T00:02:00.000Z",
+        null
+      );
+
+      applyMigrations(db);
+
+      expect(
+        db.prepare("SELECT action_type FROM pending_operations WHERE id = ?")
+          .get("pending-start")
+      ).toEqual({ action_type: "start_version" });
+      expect(
+        db.prepare("SELECT action_type FROM approval_artifacts WHERE id = ?")
+          .get("approval-start")
+      ).toEqual({ action_type: "start_version" });
+
+      insertPending.run(
+        "pending-advance",
+        1,
+        "project-1",
+        "advance_to_version",
+        "version-2",
+        "pending",
+        "advance",
+        "{}",
+        "{}",
+        "{}",
+        TEST_ACTOR.id,
+        TEST_ACTOR.type,
+        TEST_ACTOR.displayName,
+        "2026-06-27T00:03:00.000Z",
+        "2026-06-27T00:03:00.000Z",
+        null,
+        null,
+        null,
+        "approval-advance"
+      );
+      insertApproval.run(
+        "approval-advance",
+        1,
+        "project-1",
+        "pending-advance",
+        "advance_to_version",
+        "version-2",
+        "{}",
+        "approved",
+        "user-1",
+        "user",
+        "owner",
+        "decision://advance",
+        "2026-06-27T00:04:00.000Z",
+        "2026-06-28T00:04:00.000Z",
+        null
+      );
+
+      expect(db.pragma("foreign_key_check")).toEqual([]);
+      expect(
+        db.prepare("SELECT action_type FROM approval_artifacts WHERE id = ?")
+          .get("approval-advance")
+      ).toEqual({ action_type: "advance_to_version" });
     } finally {
       db.close();
     }
@@ -1802,12 +1951,48 @@ describe("sqlite storage adapter", () => {
         actor: TEST_ACTOR
       });
 
+      const advanceProposal = await service.proposeL3Operation({
+        projectId: created.project.id,
+        actionType: "advance_to_version",
+        targetId: created.firstVersion!.id,
+        reason: "exercise persisted advance action type",
+        payload: { fromVersionId: created.firstVersion!.id },
+        actor: TEST_ACTOR
+      });
+      const advanceArtifact = await service.approveL3Operation({
+        projectId: created.project.id,
+        pendingOperationId: advanceProposal.id,
+        approver: {
+          id: "user-1",
+          type: "user",
+          displayName: "owner"
+        },
+        actor: TEST_ACTOR
+      });
+
       const loaded = await adapter.loadProjectAggregate(created.project.id);
 
-      expect(loaded?.pendingOperations).toHaveLength(1);
-      expect(loaded?.pendingOperations[0]?.digest.value).toBe(proposal.digest.value);
-      expect(loaded?.approvalArtifacts).toHaveLength(1);
-      expect(loaded?.approvalArtifacts[0]?.id).toBe(artifact.id);
+      expect(loaded?.pendingOperations).toHaveLength(2);
+      expect(loaded?.pendingOperations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: proposal.id, digest: proposal.digest }),
+          expect.objectContaining({
+            id: advanceProposal.id,
+            actionType: "advance_to_version",
+            payload: { fromVersionId: created.firstVersion!.id }
+          })
+        ])
+      );
+      expect(loaded?.approvalArtifacts).toHaveLength(2);
+      expect(loaded?.approvalArtifacts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: artifact.id }),
+          expect.objectContaining({
+            id: advanceArtifact.id,
+            actionType: "advance_to_version"
+          })
+        ])
+      );
 
       adapter.close();
     } finally {
