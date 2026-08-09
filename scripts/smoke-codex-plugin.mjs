@@ -54,7 +54,7 @@ const assertPluginFiles = async () => {
 
   if (
     manifest.name !== "routeledger" ||
-    manifest.version !== "0.4.2" ||
+    manifest.version !== "0.4.3" ||
     manifest.repository !== "https://github.com/xczl-785/Routeledger"
   ) {
     throw new Error("Plugin manifest name/version/repository do not match the RouteLedger plugin contract.");
@@ -256,6 +256,14 @@ const runPluginStdioSmoke = async () => {
       initializeIdentity?.releaseTag !== `routeledger-plugin-v${manifest.version}` ||
       !["clean", "dirty", "unavailable"].includes(initializeIdentity?.sourceTreeState) ||
       initializeIdentity?.provenanceStatus !== "external_attestation_required" ||
+      initializeIdentity?.attestation?.strategy !== "git-tag-external" ||
+      initializeIdentity?.attestation?.repositoryUrl !==
+        "https://github.com/xczl-785/Routeledger" ||
+      initializeIdentity?.attestation?.releaseTag !== `routeledger-plugin-v${manifest.version}` ||
+      initializeIdentity?.attestation?.assetName !==
+        `routeledger-plugin-v${manifest.version}-attestation.json` ||
+      initializeIdentity?.attestation?.downloadUrl !==
+        `https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v${manifest.version}/routeledger-plugin-v${manifest.version}-attestation.json` ||
       initializeIdentity?.buildCommit !== null ||
       typeof initializeIdentity?.runtimePayloadDigest !== "string"
     ) {
@@ -325,7 +333,9 @@ const runPluginStdioSmoke = async () => {
       runtimeContext?.binding?.workspaceRootSource !== "explicit_arg" ||
       runtimeContext?.binding?.routeledgerRoot !== testRouteledgerRoot ||
       runtimeContext?.storage?.sqliteReadModel !== "disabled" ||
-      runtimeContext?.storage?.mode !== "uninitialized"
+      runtimeContext?.storage?.mode !== "uninitialized" ||
+      runtimeContext?.runtimeIdentity?.attestation?.downloadUrl !==
+        `https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v${manifest.version}/routeledger-plugin-v${manifest.version}-attestation.json`
     ) {
       throw new Error("Bundled runtime context did not preserve the explicit rebound binding before initialization.");
     }

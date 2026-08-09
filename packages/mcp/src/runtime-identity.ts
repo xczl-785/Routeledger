@@ -12,6 +12,14 @@ export type RuntimeProvenanceStatus =
   | "source_commit"
   | "external_attestation_required";
 
+export interface RuntimeAttestationLocator {
+  strategy: "git-tag-external";
+  repositoryUrl: string;
+  releaseTag: string;
+  assetName: string;
+  downloadUrl: string;
+}
+
 export interface RuntimeIdentity {
   runtimePackageVersion: string;
   runtimeProfile: RouteLedgerRuntimeProfile;
@@ -22,6 +30,8 @@ export interface RuntimeIdentity {
   sourceTreeState: RuntimeSourceTreeState;
   /** How callers can bind this runtime identity to immutable source/distribution evidence. */
   provenanceStatus?: RuntimeProvenanceStatus;
+  /** Stable locator for the detached proof when provenanceStatus requires attestation. */
+  attestation: RuntimeAttestationLocator | null;
   /**
    * Source/package artifacts may report the clean Git HEAD that built them.
    * Plugin artifacts always use null: squash/rebase makes branch commit IDs
@@ -52,6 +62,7 @@ export const resolveRuntimeIdentity = (
   pluginVersion: null,
   releaseTag: null,
   sourceTreeState: "unavailable",
+  attestation: null,
   buildCommit: null,
   artifactDigest: null,
   runtimePayloadDigest: null

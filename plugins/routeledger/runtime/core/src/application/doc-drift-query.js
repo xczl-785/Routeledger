@@ -8,6 +8,8 @@ const CURRENT_VERSION_ASSERTION_KINDS = [
     "current_version_state"
 ];
 const CURRENT_VERSION_DECLARATION_PATTERN = /^\s*(?:[-*]\s*)?(?:当前\s*(?:版本|version)|current\s+version)(?:\s+(id|标识|identifier|标题|title|状态|status|state))?\s*(?::|：|=|\bis\b|为)\s*(.+?)\s*$/i;
+const CONTEXTUAL_CURRENT_STATE_PATTERN = /^\s*(?:[-*]\s*)?(?:当前\s*状态|current\s+(?:status|state))\s*(?::|：|=|\bis\b|为)\s*(.+?)\s*$/i;
+const CURRENT_VERSION_CONTEXT_HEADING_PATTERN = /^\s*#{1,6}\s*(?:当前\s*(?:版本|version)|current\s+version)\s*$/i;
 const CURRENT_POINTER_HINT_PATTERNS = [
     /\bcurrentVersion\b/i,
     /\bcurrent(?:\s+version)?\b/i,
@@ -146,12 +148,20 @@ const findCurrentVersionAssertions = (file, content, currentVersion) => {
     const assertions = [];
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index] ?? "";
-        const match = line.match(CURRENT_VERSION_DECLARATION_PATTERN);
-        if (match === null) {
+        const declarationMatch = line.match(CURRENT_VERSION_DECLARATION_PATTERN);
+        const contextualStateMatch = line.match(CONTEXTUAL_CURRENT_STATE_PATTERN);
+        const hasNearbyCurrentVersionContext = lines
+            .slice(Math.max(0, index - 3), index)
+            .some((candidate) => CURRENT_VERSION_DECLARATION_PATTERN.test(candidate) ||
+            CURRENT_VERSION_CONTEXT_HEADING_PATTERN.test(candidate));
+        if (declarationMatch === null &&
+            (contextualStateMatch === null || !hasNearbyCurrentVersionContext)) {
             continue;
         }
-        const qualifierKind = assertionKindFromQualifier(match[1]);
-        const actual = (match[2] ?? "").trim();
+        const qualifierKind = declarationMatch === null
+            ? "current_version_state"
+            : assertionKindFromQualifier(declarationMatch[1]);
+        const actual = (declarationMatch === null ? contextualStateMatch?.[1] : declarationMatch[2])?.trim() ?? "";
         if (isCanonicalPointerOnlyDeclaration(actual)) {
             continue;
         }
@@ -195,36 +205,53 @@ const findCurrentVersionAssertions = (file, content, currentVersion) => {
     return assertions;
 };
 const buildDocDriftSuggestedTodos = (warnings) => {
-    const seen = new Set();
+    const suggestionsByKey = new Map();
     const suggestedTodos = [];
     for (const warning of warnings) {
-        const key = `${warning.code}:${warning.file ?? "project"}:${warning.expected ?? ""}`;
-        if (seen.has(key)) {
-            continue;
-        }
-        seen.add(key);
         if (warning.code === "STALE_CURRENT_VERSION") {
-            suggestedTodos.push({
+            const key = `${warning.code}:${warning.file ?? "project"}`;
+            const existing = suggestionsByKey.get(key);
+            if (existing !== undefined) {
+                if (!existing.reason.includes(warning.summary)) {
+                    existing.reason = `${existing.reason}\n${warning.summary}`;
+                }
+                continue;
+            }
+            const suggestion = {
                 title: `同步 ${warning.file ?? "入口文档"} 的 current version 指针`,
                 reason: warning.summary,
                 file: warning.file
-            });
+            };
+            suggestionsByKey.set(key, suggestion);
+            suggestedTodos.push(suggestion);
             continue;
         }
         if (warning.code === "STALE_TRUTH_SOURCE") {
-            suggestedTodos.push({
+            const key = `${warning.code}:${warning.file ?? "project"}`;
+            if (suggestionsByKey.has(key)) {
+                continue;
+            }
+            const suggestion = {
                 title: `修正文档真源表述：${warning.file ?? "入口文档"}`,
                 reason: warning.summary,
                 file: warning.file
-            });
+            };
+            suggestionsByKey.set(key, suggestion);
+            suggestedTodos.push(suggestion);
             continue;
         }
         if (warning.code === "MISSING_EXPECTED_POINTER") {
-            suggestedTodos.push({
+            const key = `${warning.code}:${warning.expected ?? "expected pointer"}`;
+            if (suggestionsByKey.has(key)) {
+                continue;
+            }
+            const suggestion = {
                 title: `补入口文档指针：${warning.expected ?? "expected pointer"}`,
                 reason: warning.summary,
                 file: warning.file
-            });
+            };
+            suggestionsByKey.set(key, suggestion);
+            suggestedTodos.push(suggestion);
         }
     }
     return suggestedTodos;
@@ -369,9 +396,23 @@ export const runDocDriftCheck = async (options) => {
         notDetectedAssertionCount: notDetectedAssertions.length,
         unrecognizedFileCount: checkedFiles.filter((file) => !recognizedAssertions.some((assertion) => assertion.file === file.path)).length,
         limitations: [
-            "Only explicit Chinese or English current-Version declarations are compared.",
+            "Explicit Chinese or English current-Version declarations are compared; short current-state aliases require nearby current-Version context.",
             "A partial result does not prove that every route statement in the checked documents is current."
-        ]
+        ],
+        recommendedDeclarationTemplates: currentVersion === null
+            ? { "zh-CN": [], en: [] }
+            : {
+                "zh-CN": [
+                    `当前 Version 标题：${currentVersion.title}`,
+                    `当前 Version ID：${currentVersion.id}`,
+                    `当前 Version 状态：${currentVersion.state}`
+                ],
+                en: [
+                    `Current Version Title: ${currentVersion.title}`,
+                    `Current Version ID: ${currentVersion.id}`,
+                    `Current Version State: ${currentVersion.state}`
+                ]
+            }
     };
     return {
         project: {

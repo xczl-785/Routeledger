@@ -16,14 +16,25 @@ import { collectRegularFiles } from "../regular-file-tree.mjs";
 const digest = "a".repeat(64);
 const distributionDigest = "b".repeat(64);
 const runtimeDigest = "c".repeat(64);
+const repositoryUrl = "https://github.com/xczl-785/Routeledger";
+const releaseTag = "routeledger-plugin-v0.3.6";
+const assetName = `${releaseTag}-attestation.json`;
+const attestation = {
+  strategy: "git-tag-external",
+  repositoryUrl,
+  releaseTag,
+  assetName,
+  downloadUrl: `${repositoryUrl}/releases/download/${releaseTag}/${assetName}`
+};
 const identity = {
   runtimePackageVersion: "0.3.6",
   runtimeProfile: "json-only",
   artifactKind: "plugin",
   pluginVersion: "0.3.6",
-  releaseTag: "routeledger-plugin-v0.3.6",
+  releaseTag,
   sourceTreeState: "clean",
   provenanceStatus: "external_attestation_required",
+  attestation,
   buildCommit: null,
   artifactDigest: null,
   runtimePayloadDigest: digest
@@ -41,6 +52,8 @@ const content = {
 };
 
 assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), true);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, attestation: null }, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
+assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, attestation: null }, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
 assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, buildCommit: "f".repeat(40) }, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
 assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: identity, releaseIdentity: { ...releaseIdentity, buildCommit: "f".repeat(40) }, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
 assert.equal(hasValidPluginRuntimeIdentity({ runtimeIdentity: { ...identity, runtimePayloadDigest: "d".repeat(64) }, releaseIdentity, pluginVersion: "0.3.6", runtimePayloadDigest: digest }), false);
