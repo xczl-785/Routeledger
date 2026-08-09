@@ -162,7 +162,7 @@ describe("route ledger service", () => {
     expect(snapshot?.todos).toHaveLength(0);
   });
 
-  it("batch_create_versions preflight 澶辫触鏃惰繑鍥為€愰」 issues 涓斾笉鍒涘缓 proposal", async () => {
+  it("batch_create_versions can append after a closed top-level tail without reopening history", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
@@ -181,13 +181,14 @@ describe("route ledger service", () => {
         version.id === created.firstVersion!.id
           ? {
               ...version,
-              state: "close"
+              state: "close",
+              closedAt: "2026-08-09T00:00:00.000Z"
             }
           : version
       )
     }));
 
-    const result = await service.batchCreateVersions({
+    const preflight = await service.batchCreateVersions({
       projectId: created.project.id,
       mode: "preflight",
       anchor: {
@@ -204,20 +205,79 @@ describe("route ledger service", () => {
       actor: TEST_ACTOR
     });
 
-    expect(result).toMatchObject({
-      ok: false,
-      code: "BATCH_VERSION_PLAN_INVALID",
-      issues: [
-        expect.objectContaining({
-          index: 0,
-          clientKey: "plan-a"
-        })
-      ]
+    expect(preflight).toMatchObject({
+      ok: true,
+      normalizedPlan: {
+        items: [
+          expect.objectContaining({
+            clientKey: "plan-a",
+            previousRef: created.firstVersion!.id
+          })
+        ]
+      }
+    });
+
+    const afterPreflight = await storage.loadProjectAggregate(created.project.id);
+    expect(afterPreflight?.pendingOperations).toHaveLength(0);
+    expect(afterPreflight?.versions).toHaveLength(1);
+
+    const proposed = await service.batchCreateVersions({
+      projectId: created.project.id,
+      mode: "propose",
+      anchor: {
+        afterVersionId: created.firstVersion!.id
+      },
+      items: [
+        {
+          clientKey: "plan-a",
+          title: "Plan A",
+          description: "batch item A",
+          initialTodos: []
+        }
+      ],
+      actor: TEST_ACTOR
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok || !("pendingOperationId" in proposed)) {
+      throw new Error("expected propose success");
+    }
+
+    const artifact = await createApprovedArtifact(
+      service,
+      created.project.id,
+      proposed.pendingOperationId
+    );
+    await service.commitL3Operation({
+      projectId: created.project.id,
+      pendingOperationId: proposed.pendingOperationId,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
     });
 
     const snapshot = await storage.loadProjectAggregate(created.project.id);
-    expect(snapshot?.pendingOperations).toHaveLength(0);
-    expect(snapshot?.versions).toHaveLength(1);
+    const versions = snapshot?.versions.slice().sort((left, right) => left.order - right.order) ?? [];
+    expect(versions).toHaveLength(2);
+    expect(versions[0]).toMatchObject({
+      id: created.firstVersion!.id,
+      state: "close",
+      isCurrent: true,
+      nextVersionId: versions[1]?.id
+    });
+    expect(versions[1]).toMatchObject({
+      title: "Plan A",
+      state: "wait",
+      isCurrent: false,
+      parentVersionId: null,
+      previousVersionId: created.firstVersion!.id,
+      nextVersionId: null
+    });
+    expect(snapshot?.events).toContainEqual(
+      expect.objectContaining({
+        targetId: created.firstVersion!.id,
+        eventType: "version.successor_appended",
+        metadata: expect.objectContaining({ appendOnlyAfterClosedTail: true })
+      })
+    );
   });
 
   it("batch_create_versions 缂哄け description 鎴?initialTodos 鏃惰繑鍥為€愰」 issue", async () => {

@@ -1058,7 +1058,7 @@ const buildBatchSuggestion = (code) => {
         case "PROJECT_VERSION_MISMATCH":
             return "改用同一 parent 和 sibling 链内的锚点。";
         case "INVALID_VERSION_TRANSITION":
-            return "检查锚点是否相邻、是否引用了 close version，或改为在可写 sibling 尾部追加。";
+            return "仅允许在顶层 close 尾节点后做 append-only 续接；其他 close 锚点仍不可插入、重排或新增 child。请检查锚点和 parent。";
         case "VERSION_NOT_FOUND":
             return "确认引用的 version id 仍存在于当前 project。";
         case "PARTIAL_NOT_SUPPORTED":

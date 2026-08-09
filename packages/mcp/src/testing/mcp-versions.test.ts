@@ -164,6 +164,82 @@ describe("routeledger mcp registry", () => {
       expect(
         (context.data as { pendingL3Proposals: unknown[] }).pendingL3Proposals
       ).toEqual([]);
+
+      await registry.invoke("mark_version_complete", {
+        projectId,
+        versionId: successorVersionId
+      });
+      const closeSuccessor = await registry.invoke("close_version", {
+        projectId,
+        versionId: successorVersionId,
+        mode: "propose",
+        residualAudit: { status: "reviewed", items: [] }
+      });
+      const closeSuccessorProposalId = (
+        closeSuccessor.data as { pendingOperationId: string }
+      ).pendingOperationId;
+      const closeSuccessorApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: closeSuccessorProposalId
+      });
+      await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId: closeSuccessorProposalId,
+        approvalArtifactId: (closeSuccessorApproval.data as { id: string }).id
+      });
+
+      const appendThird = await registry.invoke("create_version", {
+        projectId,
+        title: "Third delivery"
+      });
+      expect(appendThird).toMatchObject({
+        ok: false,
+        error: { code: "CONFIRMATION_REQUIRED" }
+      });
+      const appendThirdDetails = appendThird.error!.details as {
+        pendingOperationId: string;
+        proposal: { targetId: string };
+      };
+      const thirdApproval = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId: appendThirdDetails.pendingOperationId
+      });
+      await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId: appendThirdDetails.pendingOperationId,
+        approvalArtifactId: (thirdApproval.data as { id: string }).id
+      });
+
+      const storage = new JsonFirstStorageAdapter({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot
+      });
+      const snapshot = await storage.loadProjectAggregate(projectId);
+      storage.close();
+      const versions = snapshot?.versions.slice().sort((left, right) => left.order - right.order) ?? [];
+      expect(versions.map((version) => version.id)).toEqual([
+        firstVersionId,
+        successorVersionId,
+        appendThirdDetails.proposal.targetId
+      ]);
+      expect(versions[1]).toMatchObject({
+        state: "close",
+        isCurrent: true,
+        nextVersionId: appendThirdDetails.proposal.targetId
+      });
+      expect(versions[2]).toMatchObject({
+        state: "wait",
+        isCurrent: false,
+        previousVersionId: successorVersionId,
+        nextVersionId: null
+      });
+      expect(snapshot?.events).toContainEqual(
+        expect.objectContaining({
+          targetId: successorVersionId,
+          eventType: "version.successor_appended",
+          metadata: expect.objectContaining({ appendOnlyAfterClosedTail: true })
+        })
+      );
     } finally {
       registry?.close();
       cleanupProjectRoot(projectRoot);

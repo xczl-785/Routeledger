@@ -135,7 +135,7 @@ describe("MCP tool description contract", () => {
           "activate_routeledger_binding": "Activate an explicit MCP binding. Input: workspaceRoot. Warning: writes config only; cannot switch an established binding.",
           "close_version": "Binding-sensitive close preview or proposal. Input: mode and versionId. Warning: proposal needs a passing gate.",
           "commit_l3_operation": "Commit an approved L3 proposal. Input: pendingOperationId and approvalArtifactId. Warning: consumes once; exact retries replay.",
-          "create_version": "Propose a top-level version. Warning: returns a pending L3 operation.",
+          "create_version": "Propose a top-level version, including append-only continuation after a closed top-level tail. Warning: returns a pending L3 operation.",
           "defer_work": "Create Deferred work for a future review. Input: mode, targetReviewVersionId, and Todo or new-work fields.",
           "get_current_context": "Read current project, route, work, and gate context.",
         }

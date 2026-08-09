@@ -94,6 +94,89 @@ describe("route ledger service", () => {
     ).resolves.toMatchObject({ replayed: true });
   });
 
+  it("create_version appends after a closed top-level tail without reopening or replacing current history", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const created = await service.initProject({
+      contentLocale: "en",
+      name: "Closed Tail Route",
+      firstVersion: {
+        title: "Delivered Version",
+        description: "Already closed history",
+        initialTodos: []
+      },
+      actor: TEST_ACTOR
+    });
+
+    await storage.mutate(created.project.id, (snapshot) => ({
+      ...snapshot,
+      versions: snapshot.versions.map((version) =>
+        version.id === created.firstVersion!.id
+          ? {
+              ...version,
+              state: "close",
+              closedAt: "2026-08-09T00:00:00.000Z"
+            }
+          : version
+      )
+    }));
+
+    const details = await expectConfirmationRequired(
+      service.createVersion({
+        projectId: created.project.id,
+        title: "Next delivery",
+        description: "Continue the route without reopening history",
+        actor: TEST_ACTOR
+      })
+    );
+    expect(details.proposal).toMatchObject({
+      actionType: "create_version",
+      payload: {
+        parentVersionId: null,
+        previousVersionId: created.firstVersion!.id,
+        nextVersionId: null
+      }
+    });
+
+    const artifact = await createApprovedArtifact(
+      service,
+      created.project.id,
+      details.pendingOperationId
+    );
+    await service.commitL3Operation({
+      projectId: created.project.id,
+      pendingOperationId: details.pendingOperationId,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    });
+
+    const snapshot = await storage.loadProjectAggregate(created.project.id);
+    const versions = snapshot?.versions.slice().sort((left, right) => left.order - right.order) ?? [];
+    expect(versions).toHaveLength(2);
+    expect(versions[0]).toMatchObject({
+      id: created.firstVersion!.id,
+      state: "close",
+      isCurrent: true,
+      nextVersionId: details.proposal.targetId
+    });
+    expect(versions[1]).toMatchObject({
+      id: details.proposal.targetId,
+      title: "Next delivery",
+      state: "wait",
+      isCurrent: false,
+      previousVersionId: created.firstVersion!.id,
+      nextVersionId: null
+    });
+    expect(snapshot?.project.currentVersionId).toBe(created.firstVersion!.id);
+    expect(snapshot?.events).toContainEqual(
+      expect.objectContaining({
+        targetId: created.firstVersion!.id,
+        eventType: "version.successor_appended",
+        metadata: expect.objectContaining({ appendOnlyAfterClosedTail: true })
+      })
+    );
+  });
+
   it("fails proposal creation immediately and rolls back when persisted payload bytes change its digest", async () => {
     const storage = new LossyPendingOperationStorageAdapter();
     const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
