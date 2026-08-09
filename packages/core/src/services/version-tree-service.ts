@@ -286,6 +286,24 @@ const assertAnchorIsMutable = (version: Version, field: string): void => {
   }
 };
 
+const assertAnchorAllowsAppend = (
+  version: Version,
+  field: string,
+  allowClosedTopLevelTailAppend: boolean
+): void => {
+  if (
+    allowClosedTopLevelTailAppend &&
+    field === "previousVersionId" &&
+    version.state === "close" &&
+    version.parentVersionId === null &&
+    version.nextVersionId === null
+  ) {
+    return;
+  }
+
+  assertAnchorIsMutable(version, field);
+};
+
 const assertParentAllowsChildren = (parentVersion: Version): void => {
   if (parentVersion.state === "close") {
     throw new DomainError("INVALID_VERSION_TRANSITION", "close version 不允许新增 child", {
@@ -305,13 +323,21 @@ const normalizeSiblingInsert = (options: {
   nextVersionId: string | null;
   parentVersionId: string | null;
   targetId: string;
+  allowClosedTopLevelTailAppend: boolean;
 }): {
   parentVersionId: string | null;
   previousVersionId: string | null;
   nextVersionId: string | null;
   siblingVersionIds: string[];
 } => {
-  const { siblings, previousVersionId, nextVersionId, parentVersionId, targetId } = options;
+  const {
+    siblings,
+    previousVersionId,
+    nextVersionId,
+    parentVersionId,
+    targetId,
+    allowClosedTopLevelTailAppend
+  } = options;
 
   if (previousVersionId === null && nextVersionId === null) {
     throw new DomainError("MISSING_REQUIRED_FIELD", "previousVersionId / nextVersionId 至少需要一项", {
@@ -351,7 +377,11 @@ const normalizeSiblingInsert = (options: {
   }
 
   if (previousIndex !== -1) {
-    assertAnchorIsMutable(siblings[previousIndex]!, "previousVersionId");
+    assertAnchorAllowsAppend(
+      siblings[previousIndex]!,
+      "previousVersionId",
+      allowClosedTopLevelTailAppend && nextVersionId === null && parentVersionId === null
+    );
   }
 
   if (nextIndex !== -1) {
@@ -385,7 +415,7 @@ const normalizeCreateVersionPayload = (
   const previous = siblings.at(-1) ?? null;
 
   if (previous !== null) {
-    assertAnchorIsMutable(previous, "previousVersionId");
+    assertAnchorAllowsAppend(previous, "previousVersionId", true);
   }
 
   return {
@@ -428,7 +458,8 @@ const normalizeInsertVersionPayload = (
     previousVersionId: previous?.id ?? null,
     nextVersionId: next?.id ?? null,
     parentVersionId,
-    targetId
+    targetId,
+    allowClosedTopLevelTailAppend: true
   });
 
   return {
@@ -508,7 +539,8 @@ const normalizeCreateChildVersionPayload = (
     previousVersionId: previous?.id ?? null,
     nextVersionId: next?.id ?? null,
     parentVersionId: parentVersion.id,
-    targetId
+    targetId,
+    allowClosedTopLevelTailAppend: false
   });
 
   return {
@@ -594,7 +626,8 @@ const normalizeReorderPayload = (
     previousVersionId: previous?.id ?? null,
     nextVersionId: next?.id ?? null,
     parentVersionId: targetVersion.parentVersionId,
-    targetId
+    targetId,
+    allowClosedTopLevelTailAppend: false
   });
 
   return {
@@ -739,12 +772,24 @@ const buildEventDrafts = (
     if (
       TREE_FIELDS.some((field) => previous[field] !== version[field])
     ) {
+      const appendedSuccessorToClosedTopLevelTail =
+        (actionType === "create_version" || actionType === "insert_version") &&
+        previous.state === "close" &&
+        previous.parentVersionId === null &&
+        previous.nextVersionId === null &&
+        version.parentVersionId === null &&
+        version.previousVersionId === previous.previousVersionId &&
+        version.nextVersionId !== null &&
+        version.order === previous.order;
       drafts.push({
         targetType: "version",
         targetId: version.id,
-        eventType: "version.tree_changed",
+        eventType: appendedSuccessorToClosedTopLevelTail
+          ? "version.successor_appended"
+          : "version.tree_changed",
         metadata: {
           actionType,
+          appendOnlyAfterClosedTail: appendedSuccessorToClosedTopLevelTail,
           ...createTreeChangeMetadata(previous, version)
         }
       });

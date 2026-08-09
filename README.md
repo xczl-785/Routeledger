@@ -58,7 +58,7 @@ your-project/
 
 ## 快速开始（安装 Codex 插件）
 
-当前推荐通过 Codex 插件使用 RouteLedger。稳定版为 0.4.2；0.4.3 是长期 attestation 定位与文档漂移体验修复候选。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
+当前推荐通过 Codex 插件使用 RouteLedger。稳定版为 0.4.2；0.4.3 是长期 attestation 定位、文档漂移体验与关闭尾节点续接修复候选。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref main --json

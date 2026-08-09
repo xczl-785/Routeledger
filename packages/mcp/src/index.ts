@@ -2325,7 +2325,10 @@ export const createRouteLedgerMcpRegistry = (
     ),
     defineTool(
       "batch_create_versions",
-      { what: "Preflight or propose an atomic version batch.", parameter: "mode and versions" },
+      {
+        what: "Preflight or propose an atomic version batch, including append-only continuation after a closed top-level tail.",
+        parameter: "mode and versions"
+      },
       objectSchema(
         {
           projectId: stringSchema("RouteLedger project ID."),
@@ -2931,7 +2934,10 @@ export const createRouteLedgerMcpRegistry = (
     ),
     defineTool(
       "create_version",
-      { what: "Propose a top-level version.", warning: "returns a pending L3 operation" },
+      {
+        what: "Propose a top-level version, including append-only continuation after a closed top-level tail.",
+        warning: "returns a pending L3 operation"
+      },
       objectSchema(
         {
           projectId: stringSchema("RouteLedger project ID."),

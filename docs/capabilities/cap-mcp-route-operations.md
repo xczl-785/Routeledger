@@ -64,7 +64,11 @@ rules.
     current `wait` node and its `initialTodos` in the same aggregate write.
 14. On an empty route, the first approved `create_version` commit creates the
     node and assigns it as current atomically. Batch creation requires an
-    explicit `setCurrentTo`. For ordinary forward progress from a closed
+    explicit `setCurrentTo`. A closed top-level tail may receive an append-only
+    successor through single or batch creation without reopening or replacing
+    that historical node; insertion before closed history, reordering it,
+    changing its parent, and adding children beneath it remain forbidden. The
+    continuation records `version.successor_appended`. For ordinary forward progress from a closed
     current Version to its ready direct successor, `advance_to_version`
     performs current-switch and start under one proposal, digest, approval
     artifact, operation ID, and aggregate save. A blocked gate returns

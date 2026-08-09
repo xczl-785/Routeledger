@@ -61,7 +61,7 @@ describe("version tree service", () => {
     expect(applied.eventDrafts.map((event) => event.eventType)).toContain("version.created");
   });
 
-  it("拒绝改动 close 节点邻接关系", () => {
+  it("允许在顶层 close 尾节点后 append，但仍拒绝改写 close 历史结构", () => {
     const initial = createVersionFixture({
       id: "version-1",
       isCurrent: true,
@@ -76,21 +76,73 @@ describe("version tree service", () => {
       nextVersionId: null
     });
 
-    try {
+    const normalizedCreate = normalizeVersionTreePayload({
+      versions: [initial, closedTail],
+      actionType: "create_version",
+      targetId: "version-3",
+      payload: { title: "Version 3" }
+    });
+    expect(normalizedCreate).toMatchObject({
+      parentVersionId: null,
+      previousVersionId: closedTail.id,
+      nextVersionId: null
+    });
+
+    const appended = applyVersionTreeMutation({
+      projectId: initial.projectId,
+      versions: [initial, closedTail],
+      actionType: "create_version",
+      targetId: "version-3",
+      payload: normalizedCreate,
+      actor: TEST_ACTOR,
+      now: "2026-08-09T00:00:00.000Z"
+    });
+    expect(appended.versions.find((version) => version.id === closedTail.id)).toMatchObject({
+      state: "close",
+      previousVersionId: initial.id,
+      nextVersionId: "version-3",
+      order: 2
+    });
+    expect(appended.versions.find((version) => version.id === "version-3")).toMatchObject({
+      state: "wait",
+      parentVersionId: null,
+      previousVersionId: closedTail.id,
+      nextVersionId: null,
+      order: 3,
+      isCurrent: false
+    });
+    expect(appended.eventDrafts).toContainEqual(
+      expect.objectContaining({
+        targetId: closedTail.id,
+        eventType: "version.successor_appended",
+        metadata: expect.objectContaining({ appendOnlyAfterClosedTail: true })
+      })
+    );
+
+    expect(() =>
       normalizeVersionTreePayload({
         versions: [initial, closedTail],
-        actionType: "create_version",
-        targetId: "version-3",
+        actionType: "insert_version",
+        targetId: "version-before-close",
         payload: {
-          title: "Version 3"
+          title: "Invalid insertion",
+          previousVersionId: initial.id,
+          nextVersionId: closedTail.id
         }
-      });
-      throw new Error("expected create_version to fail");
-    } catch (error) {
-      expect(error).toMatchObject({
-        code: "INVALID_VERSION_TRANSITION"
-      });
-    }
+      })
+    ).toThrowError(/close version/);
+
+    expect(() =>
+      normalizeVersionTreePayload({
+        versions: [initial, closedTail],
+        actionType: "create_child_version",
+        targetId: "closed-child",
+        payload: {
+          title: "Invalid child",
+          parentVersionId: closedTail.id
+        }
+      })
+    ).toThrowError(/close version/);
 
     try {
       normalizeVersionTreePayload({

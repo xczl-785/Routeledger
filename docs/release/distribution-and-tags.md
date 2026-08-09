@@ -41,7 +41,7 @@ Each distribution form keeps its own release notes under
 The current regression-fix release is documented in
 [0.4.2](release-notes/0.4.2.md).
 
-The 0.4.3 provenance-discovery and document-drift candidate is documented in
+The 0.4.3 provenance-discovery, document-drift, and closed-tail continuation candidate is documented in
 [0.4.3](release-notes/0.4.3.md); it is not published until merged and tagged.
 
 ## Current status
