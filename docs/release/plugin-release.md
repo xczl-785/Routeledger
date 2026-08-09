@@ -50,7 +50,7 @@ For each future release, create that tag on the final release commit in
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-The latest published plugin release is `routeledger-plugin-v0.4.3`;
+The latest published plugin release is `routeledger-plugin-v0.4.4`;
 `codex-marketplace` remains the historical 0.3.3 branch anchor. `main` is
 the release branch: merge each verified distribution to `main`, create the
 immutable version tag on that commit, and never reuse or move an existing tag.
@@ -89,5 +89,5 @@ distribution checks, and the JSON-only runtime workflow. The
 repository's hermetic Git marketplace smoke covers the equivalent mechanics
 without modifying a user profile. The published 0.4.2 path passed the same
 branch-install, upgrade, tag-reinstall, release-hash, license, and JSON-only
-runtime checks; 0.4.3 additionally publishes and anonymously revalidates its
-durable checksum manifest.
+runtime checks; 0.4.4 additionally publishes and anonymously revalidates its
+durable checksum manifest. The 0.4.3 candidate was never tagged or published.
