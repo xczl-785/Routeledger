@@ -35,6 +35,11 @@ the tag's real source commit to the runtime and complete plugin distribution
 digests stored in `release.json`. Starting with 0.4.3, tag CI also publishes
 that proof as a durable GitHub Release asset at the stable URL reported by the
 runtime identity; the Actions artifact remains secondary CI evidence.
+This attestation is an unsigned checksum manifest, not a separate
+cryptographic-signature layer. Trust remains anchored in the canonical Git
+repository, its immutable version tag, the GitHub Actions release run, and the
+published SHA-256 bindings. RouteLedger does not require GPG signing,
+Sigstore, Cosign, or SLSA provenance for the current plugin distribution.
 
 `main` being the release branch means it is the source of the released commit;
 it does not mean every `main` push already has a tag. Pull-request and `main`

@@ -62,7 +62,9 @@ Release publication without changing the detached-proof model.
    distribution digests; this avoids embedding a self-referential digest or a
    pre-merge commit. The runtime exposes the expected GitHub Release asset URL,
    and tag CI publishes the verified proof there after all platform contract
-   jobs pass. Standalone MCP package artifacts may
+   jobs pass. This proof is an unsigned SHA-256 release manifest; the current
+   contract deliberately adds no GPG, Sigstore, Cosign, or SLSA requirement.
+   Standalone MCP package artifacts may
    still report the clean build HEAD for local diagnostics. The distribution
    and bundled runtime accept directories and regular files only; current-tree
    symlinks/special files and previous-ref non-blob or non-regular Git modes

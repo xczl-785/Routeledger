@@ -73,6 +73,12 @@ Tag CI first keeps it as a workflow artifact, then a separate job with
 asset. Its asset name and stable download URL must match the locator exposed by
 the plugin runtime identity and `release.json`.
 
+Here, "attestation" means an unsigned release checksum manifest. Verification
+recomputes and compares SHA-256 values under the canonical repository tag and
+GitHub Release; it does not require a signing key, GPG, Sigstore, Cosign, or
+SLSA. Add a separate cryptographic-signature layer only if a future external
+distribution or compliance requirement explicitly needs one.
+
 ## Install verification
 
 Use a clean Codex home and the canonical repository URL to add the marketplace,
