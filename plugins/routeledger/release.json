@@ -13,7 +13,7 @@
     "runtimeProfile": "json-only",
     "pluginVersion": "0.4.3",
     "releaseTag": "routeledger-plugin-v0.4.3",
-    "sourceTreeState": "dirty",
+    "sourceTreeState": "clean",
     "provenanceStatus": "external_attestation_required",
     "attestation": {
       "strategy": "git-tag-external",
@@ -40,8 +40,8 @@
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "92fd999dbb2d18b8b40c6941bcf9b74f667ea49c6260b757b8adac3073e94093",
-    "runtimeSha256": "15c33be63f83b1c4f08aae6440432df33075fb9b131b8dd3e57aa401f3080855",
+    "pluginDistributionSha256": "4a042f5374e3f47ed45a1ceeda8a450e3272e04ad7b204e3ec98d4157b007089",
+    "runtimeSha256": "22afc8f1897500824e1e74fa401296a47119f10a7c1381625b4c7f5fe166b065",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }
