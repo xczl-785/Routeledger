@@ -7,6 +7,8 @@ and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.4.2 is the latest published Git
 marketplace release, fixed by `routeledger-plugin-v0.4.2`.
+Version 0.4.3 is a candidate until merged to `main` and fixed by
+`routeledger-plugin-v0.4.3`.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
@@ -30,7 +32,9 @@ a digest covering itself. It therefore reports plugin SemVer, expected release
 tag, and a content-addressed runtime payload digest. Immutable tag CI runs
 `pnpm attest:codex-plugin` and uploads an external JSON attestation that binds
 the tag's real source commit to the runtime and complete plugin distribution
-digests stored in `release.json`.
+digests stored in `release.json`. Starting with 0.4.3, tag CI also publishes
+that proof as a durable GitHub Release asset at the stable URL reported by the
+runtime identity; the Actions artifact remains secondary CI evidence.
 
 `main` being the release branch means it is the source of the released commit;
 it does not mean every `main` push already has a tag. Pull-request and `main`

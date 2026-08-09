@@ -68,6 +68,10 @@ pnpm attest:codex-plugin \
 
 The uploaded attestation is the non-self-referential binding between the
 immutable tag's source commit and the runtime/full-distribution digests.
+Tag CI first keeps it as a workflow artifact, then a separate job with
+`contents: write` publishes the same verified JSON as a durable GitHub Release
+asset. Its asset name and stable download URL must match the locator exposed by
+the plugin runtime identity and `release.json`.
 
 ## Install verification
 

@@ -39,6 +39,9 @@ const parseArguments = (argv) => {
 
 export const buildCodexPluginAttestation = ({ manifest, release, releaseTag, sourceCommit }) => {
   const expectedTag = `routeledger-plugin-v${manifest.version}`;
+  const expectedRepositoryUrl = "https://github.com/xczl-785/Routeledger";
+  const expectedAssetName = `${expectedTag}-attestation.json`;
+  const expectedDownloadUrl = `${expectedRepositoryUrl}/releases/download/${expectedTag}/${expectedAssetName}`;
   if (releaseTag !== expectedTag) {
     fail(`release tag must be ${expectedTag}; received ${releaseTag}.`);
   }
@@ -46,7 +49,10 @@ export const buildCodexPluginAttestation = ({ manifest, release, releaseTag, sou
     release.plugin?.name !== manifest.name ||
     release.plugin?.version !== manifest.version ||
     release.runtimeIdentity?.releaseTag !== releaseTag ||
-    release.attestation?.releaseTag !== releaseTag
+    release.attestation?.releaseTag !== releaseTag ||
+    release.attestation?.repositoryUrl !== expectedRepositoryUrl ||
+    release.attestation?.assetName !== expectedAssetName ||
+    release.attestation?.downloadUrl !== expectedDownloadUrl
   ) {
     fail("manifest, release metadata, and release tag do not identify the same plugin release.");
   }
@@ -67,6 +73,12 @@ export const buildCodexPluginAttestation = ({ manifest, release, releaseTag, sou
       runtimeProfile: release.runtimeIdentity.runtimeProfile,
       provenanceStatus: release.runtimeIdentity.provenanceStatus,
       runtimePayloadDigest: release.runtimeIdentity.runtimePayloadDigest
+    },
+    locator: {
+      repositoryUrl: release.attestation.repositoryUrl,
+      releaseTag: release.attestation.releaseTag,
+      assetName: release.attestation.assetName,
+      downloadUrl: release.attestation.downloadUrl
     },
     artifacts: {
       algorithm: release.content.algorithm,

@@ -7,6 +7,8 @@ marketplace descriptor and the single generated `routeledger` plugin
 distribution. The current Git marketplace release is 0.4.2, fixed by immutable
 tag `routeledger-plugin-v0.4.2`. It adds canonical approval round-trip fixes and
 explicit external-attestation provenance status.
+The 0.4.3 candidate adds the stable attestation locator and durable GitHub
+Release publication without changing the detached-proof model.
 `main` is the release branch.
 `codex-marketplace` remains only the historical 0.3.3 branch anchor.
 
@@ -58,7 +60,9 @@ explicit external-attestation provenance status.
    Tag CI generates and uploads an external attestation that binds that tag's
    real source commit to the runtime payload, runtime tree, and full plugin
    distribution digests; this avoids embedding a self-referential digest or a
-   pre-merge commit. Standalone MCP package artifacts may
+   pre-merge commit. The runtime exposes the expected GitHub Release asset URL,
+   and tag CI publishes the verified proof there after all platform contract
+   jobs pass. Standalone MCP package artifacts may
    still report the clean build HEAD for local diagnostics. The distribution
    and bundled runtime accept directories and regular files only; current-tree
    symlinks/special files and previous-ref non-blob or non-regular Git modes

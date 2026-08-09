@@ -26,28 +26,43 @@ const fail = (message) => {
   throw new Error(`Codex plugin release check failed: ${message}`);
 };
 
-export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity, pluginVersion, runtimePayloadDigest }) =>
-  runtimeIdentity?.runtimePackageVersion === pluginVersion &&
-  runtimeIdentity?.runtimeProfile === "json-only" &&
-  runtimeIdentity?.artifactKind === "plugin" &&
-  runtimeIdentity?.pluginVersion === pluginVersion &&
-  runtimeIdentity?.releaseTag === `routeledger-plugin-v${pluginVersion}` &&
-  ["clean", "dirty", "unavailable"].includes(runtimeIdentity?.sourceTreeState) &&
-  runtimeIdentity?.provenanceStatus === "external_attestation_required" &&
-  runtimeIdentity?.buildCommit === null &&
-  runtimeIdentity?.artifactDigest === null &&
-  runtimeIdentity?.runtimePayloadDigest === runtimePayloadDigest &&
-  releaseIdentity?.runtimePackageVersion === runtimeIdentity.runtimePackageVersion &&
-  releaseIdentity?.runtimeProfile === runtimeIdentity.runtimeProfile &&
-  releaseIdentity?.pluginVersion === runtimeIdentity.pluginVersion &&
-  releaseIdentity?.releaseTag === runtimeIdentity.releaseTag &&
-  releaseIdentity?.sourceTreeState === runtimeIdentity.sourceTreeState &&
-  releaseIdentity?.provenanceStatus === runtimeIdentity.provenanceStatus &&
-  releaseIdentity?.buildCommit === null &&
-  releaseIdentity?.artifactDigest === null &&
-  releaseIdentity?.runtimePayloadDigest === runtimeIdentity.runtimePayloadDigest &&
-  releaseIdentity?.runtimePayloadCoverage ===
-    "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js.";
+export const hasValidPluginRuntimeIdentity = ({ runtimeIdentity, releaseIdentity, pluginVersion, runtimePayloadDigest }) => {
+  const releaseTag = `routeledger-plugin-v${pluginVersion}`;
+  const assetName = `${releaseTag}-attestation.json`;
+  const repositoryUrl = "https://github.com/xczl-785/Routeledger";
+  const expectedAttestation = {
+    strategy: "git-tag-external",
+    repositoryUrl,
+    releaseTag,
+    assetName,
+    downloadUrl: `${repositoryUrl}/releases/download/${releaseTag}/${assetName}`
+  };
+  return (
+    runtimeIdentity?.runtimePackageVersion === pluginVersion &&
+    runtimeIdentity?.runtimeProfile === "json-only" &&
+    runtimeIdentity?.artifactKind === "plugin" &&
+    runtimeIdentity?.pluginVersion === pluginVersion &&
+    runtimeIdentity?.releaseTag === releaseTag &&
+    ["clean", "dirty", "unavailable"].includes(runtimeIdentity?.sourceTreeState) &&
+    runtimeIdentity?.provenanceStatus === "external_attestation_required" &&
+    JSON.stringify(runtimeIdentity?.attestation) === JSON.stringify(expectedAttestation) &&
+    runtimeIdentity?.buildCommit === null &&
+    runtimeIdentity?.artifactDigest === null &&
+    runtimeIdentity?.runtimePayloadDigest === runtimePayloadDigest &&
+    releaseIdentity?.runtimePackageVersion === runtimeIdentity.runtimePackageVersion &&
+    releaseIdentity?.runtimeProfile === runtimeIdentity.runtimeProfile &&
+    releaseIdentity?.pluginVersion === runtimeIdentity.pluginVersion &&
+    releaseIdentity?.releaseTag === runtimeIdentity.releaseTag &&
+    releaseIdentity?.sourceTreeState === runtimeIdentity.sourceTreeState &&
+    releaseIdentity?.provenanceStatus === runtimeIdentity.provenanceStatus &&
+    JSON.stringify(releaseIdentity?.attestation) === JSON.stringify(expectedAttestation) &&
+    releaseIdentity?.buildCommit === null &&
+    releaseIdentity?.artifactDigest === null &&
+    releaseIdentity?.runtimePayloadDigest === runtimeIdentity.runtimePayloadDigest &&
+    releaseIdentity?.runtimePayloadCoverage ===
+      "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
+  );
+};
 
 export const hasValidReleaseContentHashes = ({ releaseContent, pluginDistributionSha256, runtimeSha256 }) =>
   releaseContent?.algorithm === "sha256" &&
@@ -241,6 +256,11 @@ const assertMetadata = async () => {
   if (
     release.attestation?.strategy !== "git-tag-external" ||
     release.attestation?.releaseTag !== `routeledger-plugin-v${manifest.version}` ||
+    release.attestation?.repositoryUrl !== "https://github.com/xczl-785/Routeledger" ||
+    release.attestation?.assetName !== `routeledger-plugin-v${manifest.version}-attestation.json` ||
+    release.attestation?.downloadUrl !==
+      `https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v${manifest.version}/routeledger-plugin-v${manifest.version}-attestation.json` ||
+    release.attestation?.retention !== "github-release-asset" ||
     release.attestation?.sourceCommit !== null ||
     release.attestation?.artifactDigestField !== "content.pluginDistributionSha256"
   ) {

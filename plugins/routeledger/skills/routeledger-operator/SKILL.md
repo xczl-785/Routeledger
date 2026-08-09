@@ -11,6 +11,7 @@ Use this Skill only for work governed by the RouteLedger MCP server. Do not use 
 
 1. Call `get_runtime_context` first. Confirm the returned workspace root, RouteLedger root, active project, and JSON-only storage mode match the intended project.
    Also inspect `contentLocale`. When its status is `confirmation_required`, propose the returned `suggestedValue` based on the conversation language and ask the user to confirm a concrete BCP 47 locale. Do not treat the proposal as consent.
+   For a tagged plugin runtime, use `runtimeIdentity.attestation.downloadUrl` when release provenance must be independently verified; the detached proof binds the tag, source commit, runtime payload, and full plugin distribution.
 2. Keep an MCP Roots/rootUri binding when the host supplied one. If it reports `WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`, obtain the host project's current absolute `workspaceRoot`; never infer it from the plugin cache or MCP process `cwd`.
 3. Call `activate_routeledger_binding` with that absolute `workspaceRoot` (and the in-workspace `routeledgerRoot` only when needed), then read `get_runtime_context` again to confirm the session rebound. Use `discover_routeledger_roots` and `plan_routeledger_binding` only when the target root is ambiguous.
 4. Activation may create or normalize only `.routeledger/config.json` for the explicit binding. `init_project` is the separate approved operation that creates canonical project JSON. Never use plugin-cache or process `cwd` as an initialization target.

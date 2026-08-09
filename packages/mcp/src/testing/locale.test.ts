@@ -226,6 +226,12 @@ describe("MCP response locale", () => {
               file: "README.md",
               assertionKind: "current_version_title",
               summary: "original system summary"
+            },
+            {
+              code: "STALE_CURRENT_VERSION",
+              file: "README.md",
+              assertionKind: "current_version_id",
+              summary: "second original system summary"
             }
           ],
           suggestedTodos: [
@@ -265,17 +271,20 @@ describe("MCP response locale", () => {
     );
 
     expect(docDrift.data.summaryText).toBe(
-      "已检查项目 PocketRead 的 1 个入口文件。 当前 Version：组织与检索 (version-2)。 当前路线事实包含 4 个未关闭 Todo、0 个未关闭 Undo，以及 1 个待决 proposal。 发现 1 个 warning，另有 0 个文件无法读取。 覆盖率为 partial：识别到 1 条显式 current Version 声明；2 个声明字段未检测到。"
+      "已检查项目 PocketRead 的 1 个入口文件。 当前 Version：组织与检索 (version-2)。 当前路线事实包含 4 个未关闭 Todo、0 个未关闭 Undo，以及 1 个待决 proposal。 发现 2 个 warning，另有 0 个文件无法读取。 覆盖率为 partial：识别到 1 条显式 current Version 声明；2 个声明字段未检测到。"
     );
     expect(docDrift.data.warnings[0].summary).toBe(
       "README.md 的 current_version_title 声明与 RouteLedger 当前事实不一致。"
     );
     expect(docDrift.data.suggestedTodos[0]).toMatchObject({
       title: "同步 README.md 的 current Version 声明",
-      reason: "README.md 的 current_version_title 声明与 RouteLedger 当前事实不一致。"
+      reason: [
+        "README.md 的 current_version_title 声明与 RouteLedger 当前事实不一致。",
+        "README.md 的 current_version_id 声明与 RouteLedger 当前事实不一致。"
+      ].join("\n")
     });
     expect(docDrift.data.coverage.limitations).toEqual([
-      "仅比较显式的中文或英文 current Version 声明。",
+      "比较显式的中文或英文 current Version 声明；简写的当前状态必须有邻近的 current Version 上下文。",
       "partial 结果不能证明检查文档中的所有路线表述均为最新。"
     ]);
     expect(guide.data).toEqual({

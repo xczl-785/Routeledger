@@ -542,13 +542,50 @@ describe("route ledger service", () => {
         notDetectedAssertionCount: 0,
         unrecognizedFileCount: 0
       });
+      expect(stale.data.suggestedTodos).toEqual([
+        expect.objectContaining({
+          title: "同步 README.md 的 current version 指针",
+          file: "README.md",
+          reason: expect.stringMatching(
+            /current_version_title[\s\S]*current_version_id[\s\S]*current_version_state/
+          )
+        })
+      ]);
+      expect(stale.data.coverage.recommendedDeclarationTemplates).toEqual({
+        "zh-CN": [
+          `当前 Version 标题：${currentVersion.title}`,
+          `当前 Version ID：${currentVersion.id}`,
+          `当前 Version 状态：${currentVersion.state}`
+        ],
+        en: [
+          `Current Version Title: ${currentVersion.title}`,
+          `Current Version ID: ${currentVersion.id}`,
+          `Current Version State: ${currentVersion.state}`
+        ]
+      });
+
+      fs.writeFileSync(
+        readmePath,
+        ["当前版本发布说明", "当前状态：running"].join("\n"),
+        "utf8"
+      );
+      const standaloneAlias = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md"]
+      });
+      expect(standaloneAlias.data.checkedAssertions).toContainEqual(
+        expect.objectContaining({
+          kind: "current_version_state",
+          status: "not_detected"
+        })
+      );
 
       fs.writeFileSync(
         readmePath,
         [
           `当前 Version 标题：${currentVersion.title}`,
           `当前 Version ID：${currentVersion.id}`,
-          `当前 Version 状态：${currentVersion.state}`,
+          `当前状态：${currentVersion.state}`,
           "current pointer source: .routeledger/refs/current.json"
         ].join("\n"),
         "utf8"

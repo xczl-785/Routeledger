@@ -76,3 +76,12 @@ assert.equal(
 assert.deepEqual(releaseArguments({ previousRef: before, ref: "refs/heads/main" }), ["--previous-ref", before]);
 assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/heads/feature/provenance" }), []);
 assert.deepEqual(releaseArguments({ previousRef: null, ref: "refs/tags/routeledger-plugin-v0.3.6" }), ["--require-tag-ref"]);
+
+assert.match(workflow, /publish-attestation:[\s\S]*?contents: write/);
+assert.match(workflow, /needs: \[plugin-contract, quality\]/);
+assert.match(workflow, /actions\/download-artifact@v4/);
+assert.match(workflow, /gh release create "\$RELEASE_TAG" --verify-tag/);
+assert.match(workflow, /gh release download "\$RELEASE_TAG" --pattern "\$ASSET_NAME"/);
+assert.match(workflow, /cmp -s "\$ATTESTATION_PATH" "\$published_path"/);
+assert.match(workflow, /gh release upload "\$RELEASE_TAG" "\$ATTESTATION_PATH"/);
+assert.doesNotMatch(workflow, /gh release upload[^\n]*--clobber/);

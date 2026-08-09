@@ -574,7 +574,11 @@ const localizeDocDriftPresentation = (record, locale) => {
                 locale === "zh-CN"
                     ? `同步 ${target} 的 current Version 声明`
                     : `Synchronize the current Version declaration in ${target}`;
-            todo.reason = warnings.find((warning) => warning.code === "STALE_CURRENT_VERSION" && warning.file === todo.file)?.summary ?? todo.reason;
+            const matchingWarnings = warnings.filter((warning) => warning.code === "STALE_CURRENT_VERSION" && warning.file === todo.file);
+            todo.reason =
+                matchingWarnings.length === 0
+                    ? todo.reason
+                    : matchingWarnings.map((warning) => warning.summary).join("\n");
         }
         else if (todo.title.startsWith("修正文档真源表述：")) {
             const target = todo.title.slice("修正文档真源表述：".length);
@@ -598,11 +602,11 @@ const localizeDocDriftPresentation = (record, locale) => {
         coverage.limitations =
             locale === "zh-CN"
                 ? [
-                    "仅比较显式的中文或英文 current Version 声明。",
+                    "比较显式的中文或英文 current Version 声明；简写的当前状态必须有邻近的 current Version 上下文。",
                     "partial 结果不能证明检查文档中的所有路线表述均为最新。"
                 ]
                 : [
-                    "Only explicit Chinese or English current-Version declarations are compared.",
+                    "Explicit Chinese or English current-Version declarations are compared; short current-state aliases require nearby current-Version context.",
                     "A partial result does not prove that every route statement in the checked documents is current."
                 ];
     }

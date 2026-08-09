@@ -85,13 +85,13 @@ jobs:
           pnpm run check:codex-plugin-release "${args[@]}"
       - name: Create immutable release attestation
         if: startsWith(github.ref, 'refs/tags/routeledger-plugin-v') && matrix.os == 'ubuntu-latest'
-        run: pnpm attest:codex-plugin --tag "${{ github.ref_name }}" --output "${{ runner.temp }}/routeledger-plugin-attestation.json"
+        run: pnpm attest:codex-plugin --tag "${{ github.ref_name }}" --output "${{ runner.temp }}/${{ github.ref_name }}-attestation.json"
       - name: Upload immutable release attestation
         if: startsWith(github.ref, 'refs/tags/routeledger-plugin-v') && matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.ref_name }}-attestation
-          path: ${{ runner.temp }}/routeledger-plugin-attestation.json
+          path: ${{ runner.temp }}/${{ github.ref_name }}-attestation.json
           if-no-files-found: error
       - name: Smoke Codex Git marketplace ingestion
         run: pnpm smoke:codex-git-marketplace
@@ -122,3 +122,38 @@ jobs:
       # gate. Headless launcher logic (arg parsing, registry IO, view-model
       # build) is covered by the launcher and mission-control vitest suites,
       # which pnpm test above already exercises.
+
+  publish-attestation:
+    name: publish immutable attestation
+    if: startsWith(github.ref, 'refs/tags/routeledger-plugin-v')
+    needs: [plugin-contract, quality]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified attestation
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.ref_name }}-attestation
+          path: ${{ runner.temp }}/routeledger-attestation
+      - name: Publish durable GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          ASSET_NAME: ${{ github.ref_name }}-attestation.json
+          ATTESTATION_PATH: ${{ runner.temp }}/routeledger-attestation/${{ github.ref_name }}-attestation.json
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "RouteLedger Codex plugin ${RELEASE_TAG#routeledger-plugin-v}" --generate-notes
+          fi
+          published_path="${RUNNER_TEMP}/published-${ASSET_NAME}"
+          if gh release download "$RELEASE_TAG" --pattern "$ASSET_NAME" --output "$published_path" >/dev/null 2>&1; then
+            cmp -s "$ATTESTATION_PATH" "$published_path" || {
+              echo "Published attestation differs from the verified tag proof; refusing to overwrite it." >&2
+              exit 1
+            }
+          else
+            gh release upload "$RELEASE_TAG" "$ATTESTATION_PATH"
+          fi
