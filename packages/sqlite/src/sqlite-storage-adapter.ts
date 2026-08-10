@@ -717,7 +717,34 @@ interface ApprovalArtifactRow {
   created_at: string;
   expires_at: string;
   consumed_at: string | null;
+  authorization_provenance_json: string | null;
 }
+
+type ApprovalArtifactAuthorizationProvenance = Pick<
+  ApprovalArtifact,
+  | "authorizationGrantId"
+  | "approvalSource"
+  | "policyId"
+  | "policyDigest"
+  | "hostKind"
+  | "clientId"
+  | "sessionId"
+>;
+
+const getApprovalArtifactAuthorizationProvenance = (
+  artifact: ApprovalArtifact
+): ApprovalArtifactAuthorizationProvenance | null =>
+  artifact.authorizationGrantId === undefined
+    ? null
+    : {
+        authorizationGrantId: artifact.authorizationGrantId,
+        approvalSource: artifact.approvalSource,
+        policyId: artifact.policyId,
+        policyDigest: artifact.policyDigest,
+        hostKind: artifact.hostKind,
+        clientId: artifact.clientId,
+        sessionId: artifact.sessionId
+      };
 
 export class SQLiteStorageAdapter implements StoragePort {
   readonly db: BetterSqlite3.Database;
@@ -1214,7 +1241,8 @@ export class SQLiteStorageAdapter implements StoragePort {
           decision_ref,
           created_at,
           expires_at,
-          consumed_at
+          consumed_at,
+          authorization_provenance_json
         FROM approval_artifacts
         WHERE project_id = ?
         ORDER BY created_at ASC, id ASC`
@@ -1237,7 +1265,12 @@ export class SQLiteStorageAdapter implements StoragePort {
           decisionRef: row.decision_ref,
           createdAt: row.created_at,
           expiresAt: row.expires_at,
-          consumedAt: row.consumed_at
+          consumedAt: row.consumed_at,
+          ...(row.authorization_provenance_json === null
+            ? {}
+            : parseJson<ApprovalArtifactAuthorizationProvenance>(
+                row.authorization_provenance_json
+              ))
         })
       );
 
@@ -1724,7 +1757,8 @@ export class SQLiteStorageAdapter implements StoragePort {
         decision_ref,
         created_at,
         expires_at,
-        consumed_at
+        consumed_at,
+        authorization_provenance_json
       ) VALUES (
         @id,
         @schema_version,
@@ -1740,7 +1774,8 @@ export class SQLiteStorageAdapter implements StoragePort {
         @decision_ref,
         @created_at,
         @expires_at,
-        @consumed_at
+        @consumed_at,
+        @authorization_provenance_json
       )
     `);
 
@@ -2001,7 +2036,11 @@ export class SQLiteStorageAdapter implements StoragePort {
           decision_ref: approvalArtifact.decisionRef,
           created_at: approvalArtifact.createdAt,
           expires_at: approvalArtifact.expiresAt,
-          consumed_at: approvalArtifact.consumedAt
+          consumed_at: approvalArtifact.consumedAt,
+          authorization_provenance_json:
+            getApprovalArtifactAuthorizationProvenance(approvalArtifact) === null
+              ? null
+              : serializeJson(getApprovalArtifactAuthorizationProvenance(approvalArtifact))
         });
       }
     });

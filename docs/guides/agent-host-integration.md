@@ -76,4 +76,9 @@ Read-only inspection may be automated according to host policy. Keep normal
 writes prompted, and require the strongest available confirmation for
 `commit_l3_operation`. The server independently checks binding preflight,
 `expectedRouteLedgerRoot`, canonical storage rules, and approval artifacts;
-host approval UI does not replace those checks.
+host approval UI does not replace those checks. `approve_l3_operation` also
+requires either MCP structured elicitation or a valid bound policy in
+`.routeledger/l3-authorization.json`; unsupported interaction and invalid or
+non-matching policy fail closed. Use `recommend_l3_authorization_policy` to
+produce a complete conservative candidate instead of hand-authoring rules
+from an empty file.

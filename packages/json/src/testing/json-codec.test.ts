@@ -434,6 +434,41 @@ describe("@routeledger/json canonical codec", () => {
     expect(reencoded).toEqual(fixtureDocuments);
   });
 
+  it("round-trips trusted authorization provenance while preserving legacy artifacts", () => {
+    const snapshot = createJsonCodecSnapshot();
+    const legacyArtifact = snapshot.approvalArtifacts[0]!;
+    snapshot.approvalArtifacts = [
+      legacyArtifact,
+      {
+        ...legacyArtifact,
+        id: "approval-trusted-1",
+        decisionRef: "decision-trusted-1",
+        authorizationGrantId: "grant-1",
+        approvalSource: "user_interaction",
+        policyId: null,
+        policyDigest: null,
+        hostKind: "codex",
+        clientId: "codex-client",
+        sessionId: "session-1"
+      }
+    ];
+
+    const decoded = decodeProjectAggregateFromJsonDocuments(
+      encodeProjectAggregateToJsonDocuments(snapshot)
+    );
+
+    expect(decoded.approvalArtifacts[0]).not.toHaveProperty("authorizationGrantId");
+    expect(decoded.approvalArtifacts[1]).toMatchObject({
+      authorizationGrantId: "grant-1",
+      approvalSource: "user_interaction",
+      policyId: null,
+      policyDigest: null,
+      hostKind: "codex",
+      clientId: "codex-client",
+      sessionId: "session-1"
+    });
+  });
+
   it("batch pending operation payload JSON roundtrip does not drop batch fields", () => {
     const snapshot = createJsonCodecSnapshot();
     const batchPendingOperation: PendingOperation = {

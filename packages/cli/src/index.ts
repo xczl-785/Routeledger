@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
+  MemoryL3AuthorizationGrantStore,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
   type Actor,
@@ -23,6 +24,8 @@ import {
   isBatchPreviousCurrentPolicy,
   isRouteOperationWorkflowMode,
   type L3ActionType,
+  type L3AuthorizationGrantStore,
+  type PendingOperation,
   type ResidualAuditInput
 } from "@routeledger/core";
 import {
@@ -44,6 +47,28 @@ export interface RunCliOptions {
   projectRoot: string;
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
+  /** Trusted host bridge. The standalone CLI intentionally provides no approval UI. */
+  l3Authorization?: {
+    requestAuthorization(proposal: PendingOperation): Promise<{
+      approved: boolean;
+      decisionId: string;
+    }>;
+    grantStore?: L3AuthorizationGrantStore;
+    subjectId?: string;
+    hostKind?: string;
+    clientId?: string;
+    sessionId?: string;
+  };
+}
+
+interface CliL3AuthorizationRuntime {
+  requestAuthorization: NonNullable<RunCliOptions["l3Authorization"]>["requestAuthorization"];
+  grantStore: L3AuthorizationGrantStore;
+  subjectId: string;
+  routeledgerRootDigest: string;
+  hostKind: string;
+  clientId: string;
+  sessionId: string;
 }
 
 type CliResponse =
@@ -348,7 +373,10 @@ class ReadOnlySnapshotStorageAdapter implements StoragePort {
   }
 }
 
-const createService = (storage: StoragePort): RouteLedgerService => {
+const createService = (
+  storage: StoragePort,
+  l3Authorization?: CliL3AuthorizationRuntime
+): RouteLedgerService => {
   const service = new RouteLedgerService({
     storage,
     deps: {
@@ -358,7 +386,20 @@ const createService = (storage: StoragePort): RouteLedgerService => {
       idGenerator: {
         nextId: () => randomUUID()
       }
-    }
+    },
+    ...(l3Authorization === undefined
+      ? {}
+      : {
+          l3Authorization: {
+            grantStore: l3Authorization.grantStore,
+            audience: "routeledger-core",
+            subjectId: l3Authorization.subjectId,
+            routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
+            hostKind: l3Authorization.hostKind,
+            clientId: l3Authorization.clientId,
+            sessionId: l3Authorization.sessionId
+          }
+        })
   });
 
   return service;
@@ -605,11 +646,13 @@ const handleCommand = async ({
   argv,
   getStorage,
   getService
+  ,l3Authorization
 }: {
   projectRoot: string;
   argv: string[];
   getStorage: () => SQLiteStorageAdapter;
   getService: () => RouteLedgerService;
+  l3Authorization?: CliL3AuthorizationRuntime;
 }): Promise<CliResponse> => {
   const [command, subcommand, nested] = argv;
 
@@ -1246,14 +1289,58 @@ const handleCommand = async ({
       }
 
       if (subcommand === "approve") {
+        if (l3Authorization === undefined) {
+          throw new ApplicationError(
+            "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+            "Standalone CLI approval is disabled because no trusted user-interaction bridge is attached",
+            { pendingOperationId: requireFlagValue(argv, "--pending-operation-id") }
+          );
+        }
+        const pendingOperationId = requireFlagValue(argv, "--pending-operation-id");
+        const proposal = await service.getL3Proposal(projectId, pendingOperationId);
+        const decision = await l3Authorization.requestAuthorization(proposal);
+        if (!decision.approved) {
+          throw new ApplicationError(
+            "AUTHORIZATION_GRANT_REJECTED",
+            "The attached CLI host declined L3 authorization",
+            { pendingOperationId, reason: "HOST_DECLINED" }
+          );
+        }
+        const now = new Date();
+        const grantId = randomUUID();
+        await l3Authorization.grantStore.issue({
+          id: grantId,
+          issuer: `cli-host:${l3Authorization.clientId}`,
+          subjectId: l3Authorization.subjectId,
+          audience: "routeledger-core",
+          projectId,
+          routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
+          allowedActions: [proposal.actionType],
+          allowedTargetIds: [proposal.targetId],
+          operationDigest: proposal.digest.value,
+          scope: "operation",
+          source: "user_interaction",
+          policyId: null,
+          policyDigest: null,
+          decisionId: decision.decisionId,
+          hostKind: l3Authorization.hostKind,
+          clientId: l3Authorization.clientId,
+          sessionId: l3Authorization.sessionId,
+          nonce: randomUUID(),
+          createdAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+          maxUses: 1,
+          uses: 0,
+          status: "active",
+          revokedAt: null
+        });
         return {
           ok: true,
-          data: await service.approveL3Operation({
+          data: await service.authorizeL3Operation({
             projectId,
-            pendingOperationId: requireFlagValue(argv, "--pending-operation-id"),
-            approver: DEFAULT_APPROVER,
-            actor: DEFAULT_ACTOR,
-            decisionRef: getFlagValue(argv, "--decision-ref")
+            pendingOperationId,
+            grantId,
+            actor: DEFAULT_ACTOR
           })
         };
       }
@@ -1600,6 +1687,21 @@ const toCliError = (error: unknown): CliResponse => {
 export const runCli = async (options: RunCliOptions): Promise<number> => {
   let storage: SQLiteStorageAdapter | undefined;
   let service: RouteLedgerService | undefined;
+  const l3Authorization: CliL3AuthorizationRuntime | undefined =
+    options.l3Authorization === undefined
+      ? undefined
+      : {
+          requestAuthorization: options.l3Authorization.requestAuthorization,
+          grantStore:
+            options.l3Authorization.grantStore ?? new MemoryL3AuthorizationGrantStore(),
+          subjectId: options.l3Authorization.subjectId ?? DEFAULT_APPROVER.id,
+          routeledgerRootDigest: `sha256:${createHash("sha256")
+            .update(options.projectRoot)
+            .digest("hex")}`,
+          hostKind: options.l3Authorization.hostKind ?? "cli-host",
+          clientId: options.l3Authorization.clientId ?? "local-cli",
+          sessionId: options.l3Authorization.sessionId ?? randomUUID()
+        };
 
   const getStorage = (): SQLiteStorageAdapter => {
     storage ??= createStorage(options.projectRoot);
@@ -1607,7 +1709,7 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
   };
 
   const getService = (): RouteLedgerService => {
-    service ??= createService(getStorage());
+    service ??= createService(getStorage(), l3Authorization);
     return service;
   };
 
@@ -1616,7 +1718,8 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
       projectRoot: options.projectRoot,
       argv: options.argv,
       getStorage,
-      getService
+      getService,
+      l3Authorization
     });
     emitLine(options.stdout, response);
     return 0;

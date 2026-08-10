@@ -15,6 +15,8 @@ export * from "./ports/clock-port.js";
 export * from "./ports/id-generator-port.js";
 export * from "./ports/storage-port.js";
 export * from "./application/errors.js";
+export * from "./application/l3-authorization-grant.js";
+export * from "./application/l3-authorization.js";
 export * from "./application/routeledger-service.js";
 export * from "./application/types.js";
 export * from "./services/asset-service.js";

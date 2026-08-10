@@ -146,6 +146,23 @@ const createSiblingGroupingEdgeCaseDocuments = (): RouteLedgerJsonDocument[] =>
   });
 
 describe("@routeledger/json validate", () => {
+  it("rejects partial trusted authorization provenance while preserving legacy absence", () => {
+    const snapshot = createJsonCodecSnapshot();
+    expect(validateProjectAggregateSnapshot(snapshot).issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE" })
+      ])
+    );
+    snapshot.approvalArtifacts[0] = {
+      ...snapshot.approvalArtifacts[0]!,
+      authorizationGrantId: "grant-partial"
+    };
+    expect(validateProjectAggregateSnapshot(snapshot).issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE" })
+      ])
+    );
+  });
   it("accepts canonical DeferredItem and Constraint documents", () => {
     const result = validateRouteLedgerJsonDocuments(
       encodeProjectAggregateToJsonDocuments(createDeferredConstraintJsonSnapshot())

@@ -22,8 +22,11 @@ rules.
    rather than silently carried forward. Constraints remain rules, not work
    completion counts.
 5. L3 route changes follow proposal, approval or rejection, and commit.
-   Commit consumes a valid approval artifact; `confirm=true` alone is not an
-   approval. A retry of an already committed operation is a read-like replay
+   Approval artifacts are minted only after a trusted grant from structured
+   host elicitation, a reusable session grant, or a deterministically bound
+   policy. Invalid policy and unsupported interaction fail closed; the
+   standalone CLI cannot self-approve. Commit consumes a valid approval
+   artifact; `confirm=true` alone is not an approval. A retry of an already committed operation is a read-like replay
    only when the same consumed artifact still matches the operation ID,
    action, target, and digest exactly; it returns `replayed: true` without
    creating canonical events. Every mismatch fails closed.

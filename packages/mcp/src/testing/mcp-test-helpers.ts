@@ -29,7 +29,10 @@ import {
   resolveDefaultRouteLedgerDataDir,
   resolveWorkspaceConfigSync
 } from "../workspace-config.js";
-import { RouteLedgerService } from "../../../core/src/index.js";
+import {
+  MemoryL3AuthorizationGrantStore,
+  RouteLedgerService
+} from "../../../core/src/index.js";
 import { createTestDependencies } from "../../../core/src/testing/builders.js";
 
 export type ToolListResult = {
@@ -125,7 +128,21 @@ export const resolveTestRouteLedgerRoot = (
 
 export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) => {
   const routeledgerRoot = options.routeledgerRoot;
-  const registry = createRouteLedgerMcpRegistry(options);
+  const registry = createRouteLedgerMcpRegistry({
+    ...options,
+    l3Authorization:
+      options.l3Authorization ?? {
+        grantStore: new MemoryL3AuthorizationGrantStore(),
+        interaction: {
+          requestAuthorization: async () => ({
+            action: "accept" as const,
+            content: { approve: true, scope: "operation" }
+          })
+        },
+        sessionId: "vitest-session",
+        clientId: "vitest"
+      }
+  });
   const originalInvoke = registry.invoke.bind(registry);
 
   return {
@@ -214,6 +231,17 @@ export const createServer = (
     createRouteLedgerStdioServer({
       workspaceRoot: projectRoot,
       routeledgerRoot: projectRoot,
+      l3Authorization: {
+        grantStore: new MemoryL3AuthorizationGrantStore(),
+        interaction: {
+          requestAuthorization: async () => ({
+            action: "accept" as const,
+            content: { approve: true, scope: "operation" }
+          })
+        },
+        sessionId: "vitest-session",
+        clientId: "vitest"
+      },
       ...extraOptions
     }),
     {

@@ -274,7 +274,7 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-        expect(migrationCount.count).toBe(6);
+        expect(migrationCount.count).toBe(7);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
@@ -543,7 +543,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(6);
+      ).toBe(7);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -2094,7 +2094,14 @@ describe("sqlite storage adapter", () => {
         decisionRef: "decision://routeledger/shutdown-1",
         createdAt: "2026-06-27T03:01:00.000Z",
         expiresAt: "2026-06-28T03:01:00.000Z",
-        consumedAt: null
+        consumedAt: null,
+        authorizationGrantId: "grant-shutdown-1",
+        approvalSource: "user_interaction",
+        policyId: null,
+        policyDigest: null,
+        hostKind: "codex",
+        clientId: "codex-client",
+        sessionId: "session-1"
       };
 
       await adapter.saveProjectAggregate({
@@ -2118,7 +2125,12 @@ describe("sqlite storage adapter", () => {
       });
       expect(loaded?.approvalArtifacts[0]).toMatchObject({
         actionType: "shutdown_version",
-        pendingOperationId: pendingOperation.id
+        pendingOperationId: pendingOperation.id,
+        authorizationGrantId: "grant-shutdown-1",
+        approvalSource: "user_interaction",
+        hostKind: "codex",
+        clientId: "codex-client",
+        sessionId: "session-1"
       });
     } finally {
       adapter.close();

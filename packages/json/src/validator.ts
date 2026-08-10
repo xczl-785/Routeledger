@@ -1684,6 +1684,43 @@ export const validateProjectAggregateSnapshot = (
 
   for (const artifact of snapshot.approvalArtifacts) {
     const operation = pendingOperationsById.get(artifact.pendingOperationId);
+    const provenancePresent = [
+      artifact.authorizationGrantId,
+      artifact.approvalSource,
+      artifact.policyId,
+      artifact.policyDigest,
+      artifact.hostKind,
+      artifact.clientId,
+      artifact.sessionId
+    ].some((value) => value !== undefined);
+    const provenanceComplete =
+      typeof artifact.authorizationGrantId === "string" &&
+      artifact.authorizationGrantId.length > 0 &&
+      (artifact.approvalSource === "user_interaction" ||
+        artifact.approvalSource === "delegated_policy" ||
+        artifact.approvalSource === "preauthorized") &&
+      typeof artifact.hostKind === "string" &&
+      artifact.hostKind.length > 0 &&
+      artifact.policyId !== undefined &&
+      artifact.policyDigest !== undefined &&
+      artifact.clientId !== undefined &&
+      artifact.sessionId !== undefined &&
+      (artifact.approvalSource !== "delegated_policy" ||
+        (typeof artifact.policyId === "string" &&
+          artifact.policyId.length > 0 &&
+          typeof artifact.policyDigest === "string" &&
+          artifact.policyDigest.length > 0));
+
+    if (provenancePresent && !provenanceComplete) {
+      issues.push(
+        createIssue(
+          "error",
+          "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE",
+          "Trusted approval authorization provenance must be complete and internally consistent",
+          { path: getApprovalArtifactPath(artifact.id), details: { approvalArtifactId: artifact.id } }
+        )
+      );
+    }
 
     if (operation === undefined) {
       issues.push(

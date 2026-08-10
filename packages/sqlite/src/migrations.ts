@@ -971,6 +971,10 @@ DROP TABLE approval_artifacts_old;
 DROP TABLE pending_operations_old;
 `;
 
+const L3_AUTHORIZATION_PROVENANCE_SQL = `
+ALTER TABLE approval_artifacts ADD COLUMN authorization_provenance_json TEXT;
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -995,6 +999,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0006_advance_to_version_approval",
     sql: ADVANCE_TO_VERSION_APPROVAL_SQL
+  },
+  {
+    id: "0007_l3_authorization_provenance",
+    sql: L3_AUTHORIZATION_PROVENANCE_SQL
   }
 ];
 

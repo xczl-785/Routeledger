@@ -94,6 +94,14 @@ export const runCliJson = async (projectRoot: string, argv: string[]) => {
   const exitCode = await runCli({
     argv,
     projectRoot,
+    l3Authorization: {
+      requestAuthorization: async (proposal) => ({
+        approved: true,
+        decisionId: `test-decision-${proposal.id}`
+      }),
+      hostKind: "cli-test",
+      clientId: "vitest"
+    },
     stdout: (line) => stdout.push(line),
     stderr: (line) => stderr.push(line)
   });

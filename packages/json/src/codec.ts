@@ -410,6 +410,13 @@ interface JsonApprovalArtifact {
   created_at: string;
   expires_at: string;
   consumed_at: string | null;
+  authorization_grant_id?: string;
+  approval_source?: "user_interaction" | "delegated_policy" | "preauthorized";
+  policy_id?: string | null;
+  policy_digest?: string | null;
+  host_kind?: string;
+  client_id?: string | null;
+  session_id?: string | null;
 }
 
 type JsonDocumentPayload =
@@ -1643,7 +1650,16 @@ const encodeApprovalArtifact = (artifact: ApprovalArtifact): JsonApprovalArtifac
   decision_ref: artifact.decisionRef,
   created_at: artifact.createdAt,
   expires_at: artifact.expiresAt,
-  consumed_at: artifact.consumedAt
+  consumed_at: artifact.consumedAt,
+  ...(artifact.authorizationGrantId === undefined
+    ? {}
+    : { authorization_grant_id: artifact.authorizationGrantId }),
+  ...(artifact.approvalSource === undefined ? {} : { approval_source: artifact.approvalSource }),
+  ...(artifact.policyId === undefined ? {} : { policy_id: artifact.policyId }),
+  ...(artifact.policyDigest === undefined ? {} : { policy_digest: artifact.policyDigest }),
+  ...(artifact.hostKind === undefined ? {} : { host_kind: artifact.hostKind }),
+  ...(artifact.clientId === undefined ? {} : { client_id: artifact.clientId }),
+  ...(artifact.sessionId === undefined ? {} : { session_id: artifact.sessionId })
 });
 
 const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifact => ({
@@ -1658,7 +1674,16 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
   decisionRef: artifact.decision_ref,
   createdAt: artifact.created_at,
   expiresAt: artifact.expires_at,
-  consumedAt: artifact.consumed_at
+  consumedAt: artifact.consumed_at,
+  ...(artifact.authorization_grant_id === undefined
+    ? {}
+    : { authorizationGrantId: artifact.authorization_grant_id }),
+  ...(artifact.approval_source === undefined ? {} : { approvalSource: artifact.approval_source }),
+  ...(artifact.policy_id === undefined ? {} : { policyId: artifact.policy_id }),
+  ...(artifact.policy_digest === undefined ? {} : { policyDigest: artifact.policy_digest }),
+  ...(artifact.host_kind === undefined ? {} : { hostKind: artifact.host_kind }),
+  ...(artifact.client_id === undefined ? {} : { clientId: artifact.client_id }),
+  ...(artifact.session_id === undefined ? {} : { sessionId: artifact.session_id })
 });
 
 export const encodeProjectAggregateToJsonDocuments = (
