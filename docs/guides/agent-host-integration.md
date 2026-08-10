@@ -79,6 +79,10 @@ writes prompted, and require the strongest available confirmation for
 host approval UI does not replace those checks. `approve_l3_operation` also
 requires either MCP structured elicitation, a host-injected preauthorization
 grant, or an atomic delegated decision from a host-managed authority.
-Project files are never authorization authority. Use
+Project files are never authorization authority. The host-managed grant store
+must retain the exact consumption receipt across service reconstruction;
+canonical approval JSON alone cannot authorize commit. If approval must survive
+an MCP process restart, inject a persistent trusted store or integrity-proof
+implementation outside Agent write scope. Use
 `recommend_l3_authorization_policy` only to produce a conservative candidate
 for review and installation in host-managed storage outside Agent write scope.

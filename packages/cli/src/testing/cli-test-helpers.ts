@@ -5,7 +5,10 @@ import { execFileSync } from "node:child_process";
 
 import { expect } from "vitest";
 
-import type { ProjectAggregateSnapshot } from "@routeledger/core";
+import {
+  MemoryL3AuthorizationGrantStore,
+  type ProjectAggregateSnapshot
+} from "@routeledger/core";
 import {
   TEST_ACTOR,
   createUndoFixture,
@@ -17,9 +20,12 @@ import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 
 import { runCli } from "../index.js";
 
+const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
+
 export const createTempProjectRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-cli-"));
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
+  trustedGrantStores.delete(projectRoot);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       fs.rmSync(projectRoot, { recursive: true, force: true });
@@ -99,6 +105,13 @@ export const runCliJson = async (projectRoot: string, argv: string[]) => {
         approved: true,
         decisionId: `test-decision-${proposal.id}`
       }),
+      grantStore:
+        trustedGrantStores.get(projectRoot) ??
+        (() => {
+          const store = new MemoryL3AuthorizationGrantStore();
+          trustedGrantStores.set(projectRoot, store);
+          return store;
+        })(),
       hostKind: "cli-test",
       clientId: "vitest"
     },

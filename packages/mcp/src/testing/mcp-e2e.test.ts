@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, it, describe } from "vitest";
 
+import { MemoryL3AuthorizationGrantStore } from "@routeledger/core";
 import { runCli } from "../../../cli/src/index.js";
 import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry } from "../index.js";
 import { type JsonRpcResponse } from "../stdio-server.js";
@@ -14,6 +15,7 @@ describe("routeledger mcp registry", () => {
   it("CLI/MCP same scenario still reaches the same final RouteLedger state", async () => {
     const cliRoot = createTempProjectRoot();
     const mcpRoot = createTempProjectRoot();
+    const cliGrantStore = new MemoryL3AuthorizationGrantStore();
 
     const runCliJson = async (projectRoot: string, argv: string[]) => {
       const stdout: string[] = [];
@@ -26,6 +28,7 @@ describe("routeledger mcp registry", () => {
             approved: true,
             decisionId: `mcp-e2e-${proposal.id}`
           }),
+          grantStore: cliGrantStore,
           hostKind: "mcp-e2e",
           clientId: "vitest"
         },

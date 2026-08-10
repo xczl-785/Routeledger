@@ -29,6 +29,10 @@ project's absolute `workspaceRoot` (and optional in-workspace
 activation is scoped to the running MCP session. Approval metadata remains a
 host hint, while L3 approval itself uses MCP structured elicitation or a
 trusted host-injected grant and fails closed when neither is available. The
+canonical artifact is not authority by itself; commit also requires its
+matching host-owned consumption receipt. The default in-process store requires
+reauthorization after an MCP process restart; continuity requires persistent
+trusted storage outside Agent write scope. The
 0.5.0 plugin does not yet claim a complete three-tier normal Agent-turn
 approval experience; its Codex evidence covers the authorization kernel and
 native elicitation transport.

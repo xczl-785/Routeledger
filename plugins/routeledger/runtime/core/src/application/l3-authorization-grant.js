@@ -40,6 +40,7 @@ export const validateL3AuthorizationGrant = (grant, context) => {
 };
 export class MemoryL3AuthorizationGrantStore {
     grants = new Map();
+    receipts = new Map();
     async issue(grant) {
         if (this.grants.has(grant.id)) {
             throw new Error(`L3 authorization grant already exists: ${grant.id}`);
@@ -71,6 +72,19 @@ export class MemoryL3AuthorizationGrantStore {
         };
         this.grants.set(grantId, updated);
         return { ok: true, grant: cloneGrant(updated), consumedUse };
+    }
+    async recordConsumptionReceipt(receipt) {
+        if (this.receipts.has(receipt.approvalArtifactId)) {
+            throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
+        }
+        this.receipts.set(receipt.approvalArtifactId, structuredClone(receipt));
+    }
+    async verifyConsumptionReceipt(binding) {
+        const receipt = this.receipts.get(binding.approvalArtifactId);
+        if (receipt === undefined)
+            return false;
+        return (receipt.consumedUse > 0 &&
+            Object.entries(binding).every(([key, value]) => receipt[key] === value));
     }
     async revoke(grantId, revokedAt) {
         const grant = this.grants.get(grantId);

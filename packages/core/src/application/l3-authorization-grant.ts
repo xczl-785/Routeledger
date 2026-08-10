@@ -79,6 +79,35 @@ export type L3AuthorizationGrantConsumeResult =
   | L3AuthorizationGrantConsumption
   | L3AuthorizationGrantFailure;
 
+export interface L3AuthorizationReceiptBinding {
+  approvalArtifactId: string;
+  pendingOperationId: string;
+  grantId: string;
+  audience: string;
+  subjectId: string;
+  projectId: string;
+  routeledgerRootDigest: string;
+  actionType: L3ActionType;
+  targetId: string;
+  operationDigest: string;
+  approvalSource: L3AuthorizationGrantSource | undefined;
+  decisionRef: string;
+  approverId: string;
+  approverType: "user" | "agent" | "system";
+  approverDisplayName: string | undefined;
+  policyId: string | null | undefined;
+  policyDigest: string | null | undefined;
+  hostKind: string | undefined;
+  clientId: string | null | undefined;
+  sessionId: string | null | undefined;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface L3AuthorizationConsumptionReceipt extends L3AuthorizationReceiptBinding {
+  consumedUse: number;
+}
+
 export interface L3AuthorizationGrantStore {
   issue(grant: L3AuthorizationGrant): Promise<void>;
   get(grantId: string): Promise<L3AuthorizationGrant | null>;
@@ -87,6 +116,8 @@ export interface L3AuthorizationGrantStore {
     grantId: string,
     context: L3AuthorizationGrantContext
   ): Promise<L3AuthorizationGrantConsumeResult>;
+  recordConsumptionReceipt(receipt: L3AuthorizationConsumptionReceipt): Promise<void>;
+  verifyConsumptionReceipt(binding: L3AuthorizationReceiptBinding): Promise<boolean>;
   revoke(grantId: string, revokedAt: string): Promise<L3AuthorizationGrant | null>;
 }
 
@@ -127,6 +158,7 @@ export const validateL3AuthorizationGrant = (
 
 export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStore {
   private readonly grants = new Map<string, L3AuthorizationGrant>();
+  private readonly receipts = new Map<string, L3AuthorizationConsumptionReceipt>();
 
   async issue(grant: L3AuthorizationGrant): Promise<void> {
     if (this.grants.has(grant.id)) {
@@ -166,6 +198,27 @@ export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStor
     this.grants.set(grantId, updated);
 
     return { ok: true, grant: cloneGrant(updated), consumedUse };
+  }
+
+  async recordConsumptionReceipt(receipt: L3AuthorizationConsumptionReceipt): Promise<void> {
+    if (this.receipts.has(receipt.approvalArtifactId)) {
+      throw new Error(
+        `L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`
+      );
+    }
+    this.receipts.set(receipt.approvalArtifactId, structuredClone(receipt));
+  }
+
+  async verifyConsumptionReceipt(binding: L3AuthorizationReceiptBinding): Promise<boolean> {
+    const receipt = this.receipts.get(binding.approvalArtifactId);
+    if (receipt === undefined) return false;
+    return (
+      receipt.consumedUse > 0 &&
+      Object.entries(binding).every(
+        ([key, value]) =>
+          receipt[key as keyof L3AuthorizationConsumptionReceipt] === value
+      )
+    );
   }
 
   async revoke(grantId: string, revokedAt: string): Promise<L3AuthorizationGrant | null> {

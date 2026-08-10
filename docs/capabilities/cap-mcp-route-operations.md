@@ -25,7 +25,9 @@ rules.
    Approval artifacts are minted only after a trusted grant from structured
    host elicitation, a reusable interaction session grant, a host-injected
    preauthorization, or an atomically budgeted host-managed delegated
-   authority. Project files are never authority. Invalid grants and unsupported interaction fail closed; the
+   authority. Project files are never authority: the canonical approval artifact is an audit projection, while
+   `commit_l3_operation` verifies an exact host-owned consumption receipt bound to the artifact ID, proposal
+   digest, grant, root, and provenance. Invalid grants or receipts and unsupported interaction fail closed; the
    standalone CLI cannot self-approve. Commit consumes a valid approval
    artifact; `confirm=true` alone is not an approval. A retry of an already committed operation is a read-like replay
    only when the same consumed artifact still matches the operation ID,

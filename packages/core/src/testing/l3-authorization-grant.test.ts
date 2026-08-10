@@ -4,7 +4,8 @@ import {
   MemoryL3AuthorizationGrantStore,
   validateL3AuthorizationGrant,
   type L3AuthorizationGrant,
-  type L3AuthorizationGrantContext
+  type L3AuthorizationGrantContext,
+  type L3AuthorizationReceiptBinding
 } from "../index.js";
 
 const grant = (overrides: Partial<L3AuthorizationGrant> = {}): L3AuthorizationGrant => ({
@@ -52,6 +53,34 @@ const context = (
   ...overrides
 });
 
+const receiptBinding = (
+  overrides: Partial<L3AuthorizationReceiptBinding> = {}
+): L3AuthorizationReceiptBinding => ({
+  approvalArtifactId: "artifact-1",
+  pendingOperationId: "pending-1",
+  grantId: "grant-1",
+  audience: "routeledger-core",
+  subjectId: "user-1",
+  projectId: "project-1",
+  routeledgerRootDigest: "sha256:root-1",
+  actionType: "close_version",
+  targetId: "version-1",
+  operationDigest: "operation-1",
+  approvalSource: "user_interaction",
+  decisionRef: "decision-1",
+  approverId: "user-1",
+  approverType: "user",
+  approverDisplayName: "user-1",
+  policyId: null,
+  policyDigest: null,
+  hostKind: "codex",
+  clientId: "client-1",
+  sessionId: "session-1",
+  createdAt: "2026-08-10T04:30:00.000Z",
+  expiresAt: "2026-08-10T05:00:00.000Z",
+  ...overrides
+});
+
 describe("L3 authorization grant store", () => {
   it("atomically consumes a matching operation grant once", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
@@ -63,6 +92,19 @@ describe("L3 authorization grant store", () => {
       ok: false,
       code: "GRANT_INACTIVE"
     });
+  });
+
+  it("verifies only an exact host-owned consumption receipt", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    await store.recordConsumptionReceipt({ ...receiptBinding(), consumedUse: 1 });
+
+    await expect(store.verifyConsumptionReceipt(receiptBinding())).resolves.toBe(true);
+    await expect(
+      store.verifyConsumptionReceipt(receiptBinding({ decisionRef: "forged-decision" }))
+    ).resolves.toBe(false);
+    await expect(
+      store.verifyConsumptionReceipt(receiptBinding({ approvalArtifactId: "forged-artifact" }))
+    ).resolves.toBe(false);
   });
 
   it("rejects every security binding mismatch", () => {

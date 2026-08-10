@@ -76,7 +76,10 @@ import {
   isSelfReferentialUndoForVersion
 } from "./version-closeout-query.js";
 import type { VersionCloseoutSummary } from "./version-closeout-query.js";
-import type { L3AuthorizationGrantStore } from "./l3-authorization-grant.js";
+import type {
+  L3AuthorizationGrantStore,
+  L3AuthorizationReceiptBinding
+} from "./l3-authorization-grant.js";
 import {
   buildBalancedL3AuthorizationPolicy,
   type L3AuthorizationEvaluationContext,
@@ -142,6 +145,34 @@ export interface RouteLedgerServiceOptions {
     sessionId?: string;
   };
 }
+
+const buildAuthorizationReceiptBinding = (
+  artifact: ApprovalArtifact,
+  authorization: NonNullable<RouteLedgerServiceOptions["l3Authorization"]>
+): L3AuthorizationReceiptBinding => ({
+  approvalArtifactId: artifact.id,
+  pendingOperationId: artifact.pendingOperationId,
+  grantId: artifact.authorizationGrantId ?? "",
+  audience: authorization.audience,
+  subjectId: authorization.subjectId,
+  projectId: artifact.projectId,
+  routeledgerRootDigest: authorization.routeledgerRootDigest,
+  actionType: artifact.actionType,
+  targetId: artifact.targetId,
+  operationDigest: artifact.digest.value,
+  approvalSource: artifact.approvalSource,
+  decisionRef: artifact.decisionRef,
+  approverId: artifact.approver.id,
+  approverType: artifact.approver.type,
+  approverDisplayName: artifact.approver.displayName,
+  policyId: artifact.policyId,
+  policyDigest: artifact.policyDigest,
+  hostKind: artifact.hostKind,
+  clientId: artifact.clientId,
+  sessionId: artifact.sessionId,
+  createdAt: artifact.createdAt,
+  expiresAt: artifact.expiresAt
+});
 
 export interface InitProjectInput {
   name: string;
@@ -4316,6 +4347,7 @@ export class RouteLedgerService {
     }
 
     const now = this.deps.clock.now();
+    const approvalArtifactId = this.deps.idGenerator.nextId();
     const consumed = await this.l3Authorization.grantStore.consume(input.grantId, {
       audience: this.l3Authorization.audience,
       subjectId: this.l3Authorization.subjectId,
@@ -4354,7 +4386,7 @@ export class RouteLedgerService {
         grant.source === "delegated_policy" ? "RouteLedger deterministic policy" : grant.subjectId
     };
     const artifact: ApprovalArtifact = {
-      id: this.deps.idGenerator.nextId(),
+      id: approvalArtifactId,
       projectId: input.projectId,
       pendingOperationId: pendingOperation.id,
       actionType: pendingOperation.actionType,
@@ -4409,6 +4441,10 @@ export class RouteLedgerService {
     const updatedSnapshot = applyApprovalArtifact(snapshot, artifact);
     updatedSnapshot.events = updatedSnapshot.events.concat(events);
     await this.saveProjectAggregate(updatedSnapshot);
+    await this.l3Authorization.grantStore.recordConsumptionReceipt({
+      ...buildAuthorizationReceiptBinding(artifact, this.l3Authorization),
+      consumedUse: consumed.consumedUse
+    });
     return artifact;
   }
 
@@ -4555,6 +4591,18 @@ export class RouteLedgerService {
       );
     }
 
+    if (artifact.projectId !== pendingOperation.projectId) {
+      throw new ApplicationError(
+        "APPROVAL_ARTIFACT_PROJECT_MISMATCH",
+        "approval artifact project 与 pending operation 不一致",
+        {
+          expectedProjectId: pendingOperation.projectId,
+          actualProjectId: artifact.projectId,
+          approvalArtifactId: artifact.id
+        }
+      );
+    }
+
     if (artifact.pendingOperationId !== pendingOperation.id) {
       throw new ApplicationError(
         "APPROVAL_ARTIFACT_PENDING_OPERATION_MISMATCH",
@@ -4640,6 +4688,24 @@ export class RouteLedgerService {
         {
           expectedDigest: pendingOperation.digest.value,
           actualDigest: artifact.digest.value
+        }
+      );
+    }
+
+    if (
+      this.l3Authorization !== undefined &&
+      !(await this.l3Authorization.grantStore.verifyConsumptionReceipt(
+        buildAuthorizationReceiptBinding(artifact, this.l3Authorization)
+      ))
+    ) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "The approval artifact has no matching trusted authorization receipt",
+        {
+          approvalArtifactId: artifact.id,
+          pendingOperationId: pendingOperation.id,
+          authorizationGrantId: artifact.authorizationGrantId,
+          reason: "AUTHORIZATION_RECEIPT_INVALID"
         }
       );
     }

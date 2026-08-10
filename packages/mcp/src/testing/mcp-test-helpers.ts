@@ -57,6 +57,16 @@ export type ToolListResult = {
   };
 };
 
+const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
+
+const getTrustedGrantStore = (projectRoot: string): MemoryL3AuthorizationGrantStore => {
+  const existing = trustedGrantStores.get(projectRoot);
+  if (existing !== undefined) return existing;
+  const created = new MemoryL3AuthorizationGrantStore();
+  trustedGrantStores.set(projectRoot, created);
+  return created;
+};
+
 export const WRITE_TOOL_NAMES = new Set([
   "write_host_binding_config",
   "init_project",
@@ -194,6 +204,17 @@ export const createRegistry = (
   const registry = createBindingRegistry({
     workspaceRoot: projectRoot,
     routeledgerRoot: projectRoot,
+    l3Authorization: {
+      grantStore: getTrustedGrantStore(projectRoot),
+      interaction: {
+        requestAuthorization: async () => ({
+          action: "accept" as const,
+          content: { approve: true, scope: "operation" as const }
+        })
+      },
+      sessionId: "vitest-session",
+      trustedClientId: "vitest"
+    },
     ...extraOptions
   });
 
@@ -271,6 +292,7 @@ export const createCapturedServer = (
 };
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
+  trustedGrantStores.delete(projectRoot);
   fs.rmSync(projectRoot, {
     recursive: true,
     force: true,
