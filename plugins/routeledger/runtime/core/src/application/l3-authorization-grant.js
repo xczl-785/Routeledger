@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 const cloneGrant = (grant) => ({
     ...grant,
     allowedActions: [...grant.allowedActions],
@@ -62,7 +63,10 @@ export class MemoryL3AuthorizationGrantStore {
     grants = new Map();
     receipts = new Map();
     async issue(grant) {
-        if (this.grants.has(grant.id)) {
+        const existing = this.grants.get(grant.id);
+        if (existing !== undefined) {
+            if (isDeepStrictEqual(existing, grant))
+                return;
             throw new Error(`L3 authorization grant already exists: ${grant.id}`);
         }
         this.grants.set(grant.id, cloneGrant(grant));
@@ -142,7 +146,10 @@ export class MemoryL3AuthorizationGrantStore {
         return { grant: cloneGrant(grant), receipt: structuredClone(receipt) };
     }
     async recordConsumptionReceipt(receipt) {
-        if (this.receipts.has(receipt.approvalArtifactId)) {
+        const existing = this.receipts.get(receipt.approvalArtifactId);
+        if (existing !== undefined) {
+            if (isDeepStrictEqual(existing, receipt))
+                return;
             throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
         }
         this.receipts.set(receipt.approvalArtifactId, structuredClone(receipt));
