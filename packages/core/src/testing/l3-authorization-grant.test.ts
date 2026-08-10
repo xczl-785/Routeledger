@@ -107,6 +107,20 @@ describe("L3 authorization grant store", () => {
     ).resolves.toBe(false);
   });
 
+  it("does not consume a grant when atomic receipt creation fails", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    await store.issue(grant());
+    await expect(
+      store.consumeAndRecordReceipt("grant-1", context(), () => {
+        throw new Error("injected receipt failure");
+      })
+    ).rejects.toThrow("injected receipt failure");
+    await expect(store.get("grant-1")).resolves.toMatchObject({
+      uses: 0,
+      status: "active"
+    });
+  });
+
   it("rejects every security binding mismatch", () => {
     const candidate = grant({ maxUses: 2 });
     expect(validateL3AuthorizationGrant(candidate, context({ audience: "other" }))).toBe(

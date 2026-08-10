@@ -132,6 +132,15 @@ export interface BuildBalancedL3AuthorizationPolicyInput {
   clientId?: string;
 }
 
+export interface BuildBoundL3AuthorizationPolicyTemplateInput {
+  policyId: string;
+  projectId: string;
+  routeledgerRootDigest: string;
+  subjectId?: string;
+  hostKind?: string;
+  clientId?: string;
+}
+
 const actionSet = new Set<string>(L3_AUTHORIZATION_ACTIONS);
 const modeSet = new Set<string>(["interactive", "delegated", "preauthorized"]);
 const relationSet = new Set<string>(["current", "legal-successor", "other"]);
@@ -506,4 +515,38 @@ export const buildBalancedL3AuthorizationPolicy = (
     }
   ],
   alwaysPrompt: [...BALANCED_ALWAYS_PROMPT_ACTIONS]
+});
+
+const buildTemplateBinding = (
+  input: BuildBoundL3AuthorizationPolicyTemplateInput
+): L3AuthorizationPolicyBinding => ({
+  projectId: input.projectId,
+  routeledgerRootDigest: input.routeledgerRootDigest,
+  ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
+  ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
+  ...(input.clientId === undefined ? {} : { clientId: input.clientId })
+});
+
+export const buildInteractiveSafeL3AuthorizationPolicy = (
+  input: BuildBoundL3AuthorizationPolicyTemplateInput
+): L3AuthorizationPolicy => ({
+  schemaVersion: L3_AUTHORIZATION_POLICY_SCHEMA_VERSION,
+  policyId: input.policyId,
+  mode: "interactive",
+  binding: buildTemplateBinding(input),
+  defaultEffect: "prompt",
+  rules: [],
+  alwaysPrompt: [...L3_AUTHORIZATION_ACTIONS]
+});
+
+export const buildPreauthorizedL3AuthorizationPolicy = (
+  input: BuildBoundL3AuthorizationPolicyTemplateInput
+): L3AuthorizationPolicy => ({
+  schemaVersion: L3_AUTHORIZATION_POLICY_SCHEMA_VERSION,
+  policyId: input.policyId,
+  mode: "preauthorized",
+  binding: buildTemplateBinding(input),
+  defaultEffect: "deny",
+  rules: [],
+  alwaysPrompt: []
 });

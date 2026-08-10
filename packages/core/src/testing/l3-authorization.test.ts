@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBalancedL3AuthorizationPolicy,
+  buildInteractiveSafeL3AuthorizationPolicy,
+  buildPreauthorizedL3AuthorizationPolicy,
   digestL3AuthorizationPolicy,
   evaluateL3AuthorizationPolicy,
   validateL3AuthorizationPolicy,
@@ -51,6 +53,36 @@ describe("L3 authorization policy", () => {
     expect(digestL3AuthorizationPolicy(candidate)).toBe(
       digestL3AuthorizationPolicy(JSON.parse(JSON.stringify(candidate)))
     );
+  });
+
+  it("builds stable interactive-safe and preauthorized templates", () => {
+    const binding = {
+      policyId: "template-policy",
+      projectId: "project-1",
+      routeledgerRootDigest: "sha256:root-1",
+      subjectId: "user-1",
+      hostKind: "codex",
+      clientId: "client-1"
+    };
+    const interactive = buildInteractiveSafeL3AuthorizationPolicy(binding);
+    expect(validateL3AuthorizationPolicy(interactive)).toEqual({ valid: true, issues: [] });
+    expect(interactive).toMatchObject({
+      mode: "interactive",
+      defaultEffect: "prompt",
+      rules: []
+    });
+    expect(interactive.alwaysPrompt).toHaveLength(10);
+    expect(evaluateL3AuthorizationPolicy(interactive, context())).toMatchObject({
+      effect: "prompt",
+      code: "POLICY_ALWAYS_PROMPT"
+    });
+
+    const preauthorized = buildPreauthorizedL3AuthorizationPolicy(binding);
+    expect(validateL3AuthorizationPolicy(preauthorized)).toEqual({ valid: true, issues: [] });
+    expect(evaluateL3AuthorizationPolicy(preauthorized, context())).toMatchObject({
+      effect: "prompt",
+      code: "POLICY_PREAUTHORIZED_GRANT_REQUIRED"
+    });
   });
 
   it("allows only a fully matched normal route transition", () => {
