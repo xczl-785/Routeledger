@@ -44,7 +44,10 @@ requires an explicit BCP 47 `contentLocale`; missing, `null`, and `auto` are
 not accepted. With no `firstVersion`, initialization creates a Project logical
 root with an empty route and `currentVersionId: null`; when the user has already
 selected the first real node, pass its title, description, and explicit
-`initialTodos` in `firstVersion`. For an
+`initialTodos` in `firstVersion`. New projects still persist
+`initialVersionId: null`: that field is a legacy canonical pointer retained for
+older projects, while the Project itself is the route root and
+`currentVersionId` identifies the selected node. For an
 existing canonical data set, read it before writing. When JSON and SQLite
 disagree, stop on `JSON_SQLITE_CONFLICT`; do not delete either store to force
 a result.

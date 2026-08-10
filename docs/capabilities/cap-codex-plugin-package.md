@@ -87,6 +87,12 @@ detached-proof model.
 - `scripts/smoke-codex-plugin.mjs` and
   `scripts/smoke-codex-git-marketplace.mjs` verify the bundled and Git
   marketplace paths without changing a user profile.
+- `scripts/smoke-codex-host-plugin.mjs` starts one fresh, ephemeral Codex task
+  against the installed candidate and fails unless the host natively calls
+  `get_runtime_context` on the expected plugin version and exact runtime payload
+  digest. Full plugin-distribution bytes remain covered by the separate
+  marketplace/release checks. It is a credentialed pre-release gate, not a
+  credential-free CI check.
 
 ## Uncertainties
 
@@ -120,7 +126,9 @@ release, rather than being folded into the current advisory behavior.
 
 Run `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
 `pnpm check:codex-plugin-release`, and
-`pnpm smoke:codex-git-marketplace`. See
+`pnpm smoke:codex-git-marketplace`. After installing the exact candidate into
+the active Codex home, also run `pnpm smoke:codex-host-plugin`; a direct stdio
+runtime smoke does not replace this native host check. See
 [the installation guide](../guides/codex-plugin-installation.md) and
 [the release guide](../release/plugin-release.md) for operator instructions.
 The Git smoke creates branch and tag data only inside a temporary fixture

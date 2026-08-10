@@ -252,6 +252,7 @@ export interface VersionWindowSummary {
 export type CurrentContextNextActionType =
   | "review_pending_proposal"
   | "review_deferred"
+  | "work_todo"
   | "close_todo"
   | "close_version"
   | "prepare_version"
