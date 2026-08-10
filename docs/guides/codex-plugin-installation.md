@@ -28,7 +28,10 @@ project's absolute `workspaceRoot` (and optional in-workspace
 `routeledgerRoot`) through the host's available approval workflow. The
 activation is scoped to the running MCP session. Approval metadata remains a
 host hint, while L3 approval itself uses MCP structured elicitation or a
-deterministic bound policy and fails closed when neither is available.
+trusted host-injected grant and fails closed when neither is available. The
+0.5.0 plugin does not yet claim a complete three-tier normal Agent-turn
+approval experience; its Codex evidence covers the authorization kernel and
+native elicitation transport.
 Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.

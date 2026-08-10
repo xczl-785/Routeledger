@@ -75,6 +75,36 @@ describe("L3 authorization policy", () => {
     });
   });
 
+  it("keeps interactive mode prompt-only after explicit deny precedence", () => {
+    const candidate = policy();
+    candidate.mode = "interactive";
+    expect(evaluateL3AuthorizationPolicy(candidate, context())).toMatchObject({
+      effect: "prompt",
+      code: "POLICY_INTERACTIVE",
+      matchedRuleId: null
+    });
+    candidate.rules.unshift({
+      id: "deny-close-interactive",
+      effect: "deny",
+      actions: ["close_version"]
+    });
+    expect(evaluateL3AuthorizationPolicy(candidate, context())).toMatchObject({
+      effect: "deny",
+      code: "POLICY_DENY",
+      matchedRuleId: "deny-close-interactive"
+    });
+  });
+
+  it("never turns preauthorized mode rules into delegated allow", () => {
+    const candidate = policy();
+    candidate.mode = "preauthorized";
+    expect(evaluateL3AuthorizationPolicy(candidate, context())).toMatchObject({
+      effect: "prompt",
+      code: "POLICY_PREAUTHORIZED_GRANT_REQUIRED",
+      matchedRuleId: null
+    });
+  });
+
   it("falls back to prompt for a valid policy gap instead of stopping progress", () => {
     expect(
       evaluateL3AuthorizationPolicy(

@@ -109,6 +109,8 @@ export interface L3AuthorizationPolicyDecision {
     | "POLICY_PROMPT"
     | "POLICY_DENY"
     | "POLICY_ALWAYS_PROMPT"
+    | "POLICY_INTERACTIVE"
+    | "POLICY_PREAUTHORIZED_GRANT_REQUIRED"
     | "POLICY_BINDING_MISMATCH"
     | "POLICY_INVALID";
   policyId: string;
@@ -412,6 +414,24 @@ export const evaluateL3AuthorizationPolicy = (
       ...base,
       effect: "prompt",
       code: "POLICY_ALWAYS_PROMPT",
+      matchedRuleId: null,
+      issues: []
+    };
+  }
+  if (policy.mode === "interactive") {
+    return {
+      ...base,
+      effect: "prompt",
+      code: "POLICY_INTERACTIVE",
+      matchedRuleId: null,
+      issues: []
+    };
+  }
+  if (policy.mode === "preauthorized") {
+    return {
+      ...base,
+      effect: "prompt",
+      code: "POLICY_PREAUTHORIZED_GRANT_REQUIRED",
       matchedRuleId: null,
       issues: []
     };

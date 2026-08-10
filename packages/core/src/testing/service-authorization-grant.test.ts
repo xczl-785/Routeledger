@@ -84,6 +84,73 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       details: { reason: "LEGACY_APPROVAL_DISABLED" }
     });
   });
+
+  it("rejects a persisted legacy approved artifact after upgrade but preserves consumed replay", async () => {
+    const createLegacyFixture = async (commitBeforeUpgrade: boolean) => {
+      const storage = new MemoryStorageAdapter();
+      const legacyService = new RouteLedgerService({
+        storage,
+        deps: createTestDependencies()
+      });
+      const prepared = await createPreparedProject(legacyService, storage);
+      const proposal = await legacyService.proposeL3Operation({
+        projectId: prepared.projectId,
+        actionType: "start_version",
+        targetId: prepared.versionId,
+        reason: "legacy fixture",
+        actor: TEST_ACTOR
+      });
+      const artifact = await legacyService.approveL3Operation({
+        projectId: prepared.projectId,
+        pendingOperationId: proposal.id,
+        approver: TEST_ACTOR,
+        actor: TEST_ACTOR
+      });
+      if (commitBeforeUpgrade) {
+        await legacyService.commitL3Operation({
+          projectId: prepared.projectId,
+          pendingOperationId: proposal.id,
+          approvalArtifactId: artifact.id,
+          actor: TEST_ACTOR
+        });
+      }
+      const upgradedService = new RouteLedgerService({
+        storage,
+        deps: createTestDependencies(),
+        l3Authorization: {
+          grantStore: new MemoryL3AuthorizationGrantStore(),
+          audience: "routeledger-core",
+          subjectId: "local-user",
+          routeledgerRootDigest: "sha256:root-1",
+          hostKind: "codex"
+        }
+      });
+      return { upgradedService, prepared, proposal, artifact };
+    };
+
+    const unconsumed = await createLegacyFixture(false);
+    await expect(
+      unconsumed.upgradedService.commitL3Operation({
+        projectId: unconsumed.prepared.projectId,
+        pendingOperationId: unconsumed.proposal.id,
+        approvalArtifactId: unconsumed.artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({
+      code: "AUTHORIZATION_GRANT_REJECTED",
+      details: { reason: "LEGACY_ARTIFACT_REAUTHORIZATION_REQUIRED" }
+    });
+
+    const consumed = await createLegacyFixture(true);
+    await expect(
+      consumed.upgradedService.commitL3Operation({
+        projectId: consumed.prepared.projectId,
+        pendingOperationId: consumed.proposal.id,
+        approvalArtifactId: consumed.artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).resolves.toMatchObject({ replayed: true, approvalArtifact: { status: "consumed" } });
+  });
   it("mints an approval artifact only after atomically consuming a trusted grant", async () => {
     const { storage, grantStore, service, prepared, proposal } = await setup();
     await grantStore.issue(

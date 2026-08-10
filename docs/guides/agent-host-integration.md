@@ -77,8 +77,8 @@ writes prompted, and require the strongest available confirmation for
 `commit_l3_operation`. The server independently checks binding preflight,
 `expectedRouteLedgerRoot`, canonical storage rules, and approval artifacts;
 host approval UI does not replace those checks. `approve_l3_operation` also
-requires either MCP structured elicitation or a valid bound policy in
-`.routeledger/l3-authorization.json`; unsupported interaction and invalid or
-non-matching policy fail closed. Use `recommend_l3_authorization_policy` to
-produce a complete conservative candidate instead of hand-authoring rules
-from an empty file.
+requires either MCP structured elicitation, a host-injected preauthorization
+grant, or an atomic delegated decision from a host-managed authority.
+Project files are never authorization authority. Use
+`recommend_l3_authorization_policy` only to produce a conservative candidate
+for review and installation in host-managed storage outside Agent write scope.

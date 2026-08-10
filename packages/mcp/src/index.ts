@@ -7,8 +7,10 @@ import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
-  evaluateL3AuthorizationPolicy,
   type L3AuthorizationGrantStore,
+  type L3AuthorizationGrant,
+  type L3AuthorizationEvaluationContext,
+  validateL3AuthorizationGrant,
   type L3AuthorizationScope,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
@@ -21,6 +23,7 @@ import {
   isBatchPreviousCurrentPolicy,
   isRouteOperationWorkflowMode,
   type L3ActionType,
+  type PendingOperation,
   type ResidualAuditInput,
   type Todo
 } from "@routeledger/core";
@@ -68,11 +71,6 @@ import {
   type RetireConstraintToolInput,
   type ReviewDeferredToolInput
 } from "./input-adapter.js";
-import {
-  getL3AuthorizationPolicyPath,
-  resolveL3AuthorizationPolicyFile
-} from "./l3-authorization-policy-file.js";
-import { FileL3AuthorizationPolicyUsageStore } from "./l3-authorization-policy-usage.js";
 import {
   resolveRuntimeIdentity,
   type RuntimeIdentity
@@ -122,8 +120,34 @@ export interface RouteLedgerMcpRegistryOptions {
     grantStore: L3AuthorizationGrantStore;
     interaction: RouteLedgerMcpAuthorizationInteraction;
     sessionId: string;
-    clientId?: string;
+    /** Trusted host identity injected at startup; never derived from MCP clientInfo. */
+    trustedClientId?: string;
+    delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
   };
+}
+
+export interface RouteLedgerMcpDelegatedAuthorizationRequest {
+  authorityHandle: string;
+  proposal: Readonly<PendingOperation>;
+  context: Readonly<L3AuthorizationEvaluationContext>;
+}
+
+export type RouteLedgerMcpDelegatedAuthorizationResult =
+  | { effect: "allow"; grant: L3AuthorizationGrant }
+  | {
+      effect: "prompt" | "deny";
+      code: string;
+      policyId?: string;
+      policyDigest?: string;
+      matchedRuleId?: string;
+    };
+
+export interface RouteLedgerMcpDelegatedAuthorizationAuthority {
+  /** Opaque host-owned handle. Policy evaluation and budget consumption must be atomic. */
+  authorityHandle: string;
+  requestGrant(
+    request: RouteLedgerMcpDelegatedAuthorizationRequest
+  ): Promise<RouteLedgerMcpDelegatedAuthorizationResult>;
 }
 
 export interface RouteLedgerMcpAuthorizationRequest {
@@ -836,9 +860,9 @@ const createInstructions = (options: {
     "Legacy Undo records are audit-only and are not part of default tool discovery. Use get_current_context(includeLegacyUndo=true) only when a legacy blocker requires explicit audit.",
     "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
     "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
-    "L3 route changes are proposal-based: approve_l3_operation consumes a bound policy grant or requests structured host elicitation, then commit_l3_operation requires its approval artifact.",
+    "L3 route changes are proposal-based: approve_l3_operation consumes a host-injected grant or requests structured host elicitation, then commit_l3_operation requires its approval artifact. Project files are never authorization authority.",
     "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
-    "High-risk tools are shutdown_version, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; approve_l3_operation fails closed without trusted policy or host elicitation.",
+    "High-risk tools are shutdown_version, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; approve_l3_operation fails closed without a trusted host authority, preauthorization, or elicitation.",
     `Current host profile: ${hostLabel}. Default actor: ${actorLabel}. Default approver: ${approverLabel}.`
   ].join(" ");
 };
@@ -1281,7 +1305,9 @@ export const createRouteLedgerMcpRegistry = (
             : {
                 grantStore: options.l3Authorization.grantStore,
                 sessionId: options.l3Authorization.sessionId,
-                clientId: options.l3Authorization.clientId,
+                ...(options.l3Authorization.trustedClientId === undefined
+                  ? {}
+                  : { clientId: options.l3Authorization.trustedClientId }),
                 subjectId: resolveActor(DEFAULT_APPROVER, options.approver).id,
                 hostKind: options.hostProfile ?? "generic"
               }
@@ -2386,15 +2412,17 @@ export const createRouteLedgerMcpRegistry = (
           maxUses,
           subjectId: approver.id,
           hostKind: hostProfile,
-          ...(options.l3Authorization?.clientId === undefined
+          ...(options.l3Authorization?.trustedClientId === undefined
             ? {}
-            : { clientId: options.l3Authorization.clientId })
+            : { clientId: options.l3Authorization.trustedClientId })
         });
         return {
           ok: true,
           data: {
             policy,
-            installPath: getL3AuthorizationPolicyPath(initialBinding.routeledgerRoot!),
+            candidateOnly: true,
+            authorityPlacement: "host_managed_outside_agent_write_scope",
+            injectionContract: "RouteLedgerMcpDelegatedAuthorizationAuthority",
             coverage: {
               delegatedWhenLiveGatePasses: [...BALANCED_AUTO_ACTIONS],
               alwaysPrompt: [...BALANCED_ALWAYS_PROMPT_ACTIONS],
@@ -2404,7 +2432,8 @@ export const createRouteLedgerMcpRegistry = (
               "Verify the project and RouteLedger-root bindings.",
               "Verify the current-version and target list snapshot.",
               "Choose an expiry and maximum-use budget.",
-              "Keep shutdown, reopen, route editing, and current-pointer changes in alwaysPrompt."
+              "Keep shutdown, reopen, route editing, and current-pointer changes in alwaysPrompt.",
+              "Install only in a host-managed authority and inject its opaque handle at MCP startup; never save this candidate as project authority."
             ]
           }
         };
@@ -3256,13 +3285,19 @@ export const createRouteLedgerMcpRegistry = (
           operationDigest: proposal.digest.value,
           now: new Date().toISOString(),
           hostKind: hostProfile,
-          clientId: options.l3Authorization.clientId,
+          ...(options.l3Authorization.trustedClientId === undefined
+            ? {}
+            : { clientId: options.l3Authorization.trustedClientId }),
           sessionId: options.l3Authorization.sessionId
         };
         const reusableGrant = await options.l3Authorization.grantStore.findMatching(
           authorizationContext
         );
-        if (reusableGrant !== null && reusableGrant.scope === "session") {
+        if (
+          reusableGrant !== null &&
+          (reusableGrant.source === "preauthorized" ||
+            (reusableGrant.source === "user_interaction" && reusableGrant.scope === "session"))
+        ) {
           const artifact = await service.authorizeL3Operation({
             projectId: input.projectId,
             pendingOperationId: input.pendingOperationId,
@@ -3272,90 +3307,91 @@ export const createRouteLedgerMcpRegistry = (
           return { ok: true, data: artifact };
         }
 
-        const now = new Date();
-        let scope: L3AuthorizationScope = "operation";
-        let source: "user_interaction" | "delegated_policy" = "user_interaction";
-        let policyId: string | null = null;
-        let policyDigest: string | null = null;
-        let expiresAt = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
-        let maxUses = 1;
-        const policyResolution = resolveL3AuthorizationPolicyFile(initialBinding.routeledgerRoot!);
-        if (policyResolution.status === "invalid") {
-          throw new ApplicationError(
-            "AUTHORIZATION_POLICY_INVALID",
-            "The configured L3 authorization policy is invalid",
-            { path: policyResolution.path, issues: policyResolution.issues }
-          );
-        }
-        const policyDecision =
-          policyResolution.status === "ready"
-            ? evaluateL3AuthorizationPolicy(
-                policyResolution.policy,
-                await service.getL3AuthorizationEvaluationContext({
-                  projectId: input.projectId,
-                  pendingOperationId: input.pendingOperationId,
-                  routeledgerRootDigest: authorizationContext.routeledgerRootDigest,
-                  subjectId: approver.id,
-                  hostKind: hostProfile,
-                  ...(options.l3Authorization.clientId === undefined
-                    ? {}
-                    : { clientId: options.l3Authorization.clientId })
-                })
-              )
-            : null;
-
-        if (policyDecision?.effect === "deny") {
-          throw new ApplicationError(
-            "AUTHORIZATION_POLICY_DENIED",
-            "The L3 authorization policy denied this operation",
-            {
-              policyId: policyDecision.policyId,
-              policyDigest: policyDecision.policyDigest,
-              decisionCode: policyDecision.code,
-              matchedRuleId: policyDecision.matchedRuleId,
-              issues: policyDecision.issues
-            }
-          );
-        }
-        if (policyDecision?.effect === "allow") {
-          const matchedRule = policyResolution.status === "ready"
-            ? policyResolution.policy.rules.find((rule) => rule.id === policyDecision.matchedRuleId)
-            : undefined;
-          if (
-            matchedRule?.conditions?.maxUses === undefined ||
-            matchedRule.conditions.expiresAt === undefined
-          ) {
+        const delegatedAuthority = options.l3Authorization.delegatedAuthority;
+        if (delegatedAuthority !== undefined) {
+          if (delegatedAuthority.authorityHandle.trim().length === 0) {
             throw new ApplicationError(
-              "AUTHORIZATION_POLICY_INVALID",
-              "The matched L3 authorization rule has no enforceable budget",
-              { policyId: policyDecision.policyId, matchedRuleId: policyDecision.matchedRuleId }
+              "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+              "The host-managed delegated authority has no opaque startup handle",
+              { pendingOperationId: proposal.id }
             );
           }
-          const usage = new FileL3AuthorizationPolicyUsageStore(
-            initialBinding.routeledgerRoot!
-          ).consume({
-            policyDigest: policyDecision.policyDigest,
-            ruleId: matchedRule.id,
-            maxUses: matchedRule.conditions.maxUses,
-            expiresAt: matchedRule.conditions.expiresAt,
-            now: authorizationContext.now
+          const evaluationContext = await service.getL3AuthorizationEvaluationContext({
+            projectId: input.projectId,
+            pendingOperationId: input.pendingOperationId,
+            routeledgerRootDigest: authorizationContext.routeledgerRootDigest,
+            subjectId: approver.id,
+            hostKind: hostProfile,
+            ...(options.l3Authorization.trustedClientId === undefined
+              ? {}
+              : { clientId: options.l3Authorization.trustedClientId })
           });
-          if (!usage.ok) {
+          let authorityResult: RouteLedgerMcpDelegatedAuthorizationResult;
+          try {
+            authorityResult = await delegatedAuthority.requestGrant({
+              authorityHandle: delegatedAuthority.authorityHandle,
+              proposal,
+              context: evaluationContext
+            });
+          } catch (error) {
             throw new ApplicationError(
-              "AUTHORIZATION_POLICY_DENIED",
-              "The L3 authorization policy use budget is exhausted",
+              "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+              "The host-managed delegated authority could not make an atomic decision",
               {
-                policyId: policyDecision.policyId,
-                policyDigest: policyDecision.policyDigest,
-                matchedRuleId: matchedRule.id,
-                decisionCode: usage.code
+                authorityHandle: delegatedAuthority.authorityHandle,
+                pendingOperationId: proposal.id,
+                cause: error instanceof Error ? error.message : String(error)
               }
             );
           }
-          source = "delegated_policy";
-          policyId = policyDecision.policyId;
-          policyDigest = policyDecision.policyDigest;
-        } else {
+          if (authorityResult.effect === "deny") {
+            throw new ApplicationError(
+              "AUTHORIZATION_POLICY_DENIED",
+              "The host-managed delegated authority denied this operation",
+              {
+                authorityHandle: delegatedAuthority.authorityHandle,
+                decisionCode: authorityResult.code,
+                policyId: authorityResult.policyId,
+                policyDigest: authorityResult.policyDigest,
+                matchedRuleId: authorityResult.matchedRuleId
+              }
+            );
+          }
+          if (authorityResult.effect === "allow") {
+            const grant = authorityResult.grant;
+            const grantFailure = validateL3AuthorizationGrant(grant, authorizationContext);
+            if (
+              grantFailure !== null ||
+              grant.source !== "delegated_policy" ||
+              grant.scope !== "operation" ||
+              grant.maxUses !== 1 ||
+              grant.operationDigest !== proposal.digest.value ||
+              !grant.policyId ||
+              !grant.policyDigest
+            ) {
+              throw new ApplicationError(
+                "AUTHORIZATION_GRANT_REJECTED",
+                "The host-managed delegated authority returned an invalid one-shot grant",
+                {
+                  authorityHandle: delegatedAuthority.authorityHandle,
+                  reason: grantFailure ?? "DELEGATED_GRANT_SHAPE_INVALID"
+                }
+              );
+            }
+            await options.l3Authorization.grantStore.issue(grant);
+            return {
+              ok: true,
+              data: await service.authorizeL3Operation({
+                projectId: input.projectId,
+                pendingOperationId: input.pendingOperationId,
+                grantId: grant.id,
+                actor
+              })
+            };
+          }
+        }
+
+        {
           let decision: RouteLedgerMcpAuthorizationDecision;
           try {
             decision = await options.l3Authorization.interaction.requestAuthorization({
@@ -3401,49 +3437,50 @@ export const createRouteLedgerMcpRegistry = (
               }
             );
           }
-          scope = decision.content.scope === "session" ? "session" : "operation";
-          expiresAt = new Date(
+          const scope: L3AuthorizationScope =
+            decision.content.scope === "session" ? "session" : "operation";
+          const now = new Date();
+          const expiresAt = new Date(
             now.getTime() + (scope === "session" ? 8 * 60 * 60 * 1000 : 60 * 60 * 1000)
           ).toISOString();
-          maxUses = scope === "session" ? 16 : 1;
-        }
-        const grantId = randomUUID();
-        await options.l3Authorization.grantStore.issue({
-          id: grantId,
-          issuer: `mcp-client:${options.l3Authorization.clientId ?? "unknown"}`,
-          subjectId: approver.id,
-          audience: "routeledger-core",
-          projectId: proposal.projectId,
-          routeledgerRootDigest: digestRouteLedgerRoot(initialBinding.routeledgerRoot!),
-          allowedActions: [proposal.actionType],
-          allowedTargetIds: [proposal.targetId],
-          operationDigest: scope === "operation" ? proposal.digest.value : null,
-          scope,
-          source,
-          policyId,
-          policyDigest,
-          decisionId: `decision-${randomUUID()}`,
-          hostKind: hostProfile,
-          clientId: options.l3Authorization.clientId ?? null,
-          sessionId: options.l3Authorization.sessionId,
-          nonce: randomUUID(),
-          createdAt: now.toISOString(),
-          expiresAt,
-          maxUses,
-          uses: 0,
-          status: "active",
-          revokedAt: null
-        });
+          const grantId = randomUUID();
+          await options.l3Authorization.grantStore.issue({
+            id: grantId,
+            issuer: `mcp-interaction:${hostProfile}`,
+            subjectId: approver.id,
+            audience: "routeledger-core",
+            projectId: proposal.projectId,
+            routeledgerRootDigest: digestRouteLedgerRoot(initialBinding.routeledgerRoot!),
+            allowedActions: [proposal.actionType],
+            allowedTargetIds: [proposal.targetId],
+            operationDigest: scope === "operation" ? proposal.digest.value : null,
+            scope,
+            source: "user_interaction",
+            policyId: null,
+            policyDigest: null,
+            decisionId: `decision-${randomUUID()}`,
+            hostKind: hostProfile,
+            clientId: options.l3Authorization.trustedClientId ?? null,
+            sessionId: options.l3Authorization.sessionId,
+            nonce: randomUUID(),
+            createdAt: now.toISOString(),
+            expiresAt,
+            maxUses: scope === "session" ? 16 : 1,
+            uses: 0,
+            status: "active",
+            revokedAt: null
+          });
 
-        return {
-          ok: true,
-          data: await service.authorizeL3Operation({
-            projectId: input.projectId,
-            pendingOperationId: input.pendingOperationId,
-            grantId,
-            actor
-          })
-        };
+          return {
+            ok: true,
+            data: await service.authorizeL3Operation({
+              projectId: input.projectId,
+              pendingOperationId: input.pendingOperationId,
+              grantId,
+              actor
+            })
+          };
+        }
       }
     ),
     defineTool(

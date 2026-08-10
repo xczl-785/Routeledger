@@ -97,7 +97,6 @@ interface ProtocolState {
   initializedNotificationReceived: boolean;
   clientSupportsRoots: boolean;
   clientSupportsElicitation: boolean;
-  clientId: string | null;
   initializeRoots: string[];
   listedRoots: string[];
   latestRootsListRequestId: JsonRpcId | null;
@@ -653,7 +652,6 @@ export const createRouteLedgerStdioServer = (
     initializedNotificationReceived: false,
     clientSupportsRoots: false,
     clientSupportsElicitation: false,
-    clientId: options.l3Authorization?.clientId ?? null,
     initializeRoots: [],
     listedRoots: [],
     latestRootsListRequestId: null
@@ -713,7 +711,12 @@ export const createRouteLedgerStdioServer = (
       grantStore,
       interaction: options.l3Authorization?.interaction ?? { requestAuthorization },
       sessionId: authorizationSessionId,
-      ...(state.clientId === null ? {} : { clientId: state.clientId })
+      ...(options.l3Authorization?.trustedClientId === undefined
+        ? {}
+        : { trustedClientId: options.l3Authorization.trustedClientId }),
+      ...(options.l3Authorization?.delegatedAuthority === undefined
+        ? {}
+        : { delegatedAuthority: options.l3Authorization.delegatedAuthority })
     }
   });
   const initializeRegistry = buildRegistry(withAuthorization({
@@ -1015,7 +1018,6 @@ export const createRouteLedgerStdioServer = (
             state.initializeRoots = initializeRoots;
             state.clientSupportsRoots = isObject(params.capabilities.roots);
             state.clientSupportsElicitation = isObject(params.capabilities.elicitation);
-            state.clientId = params.clientInfo.name;
             const rebuildError = rebuildRegistry();
             if (rebuildError !== null) {
               state.initializeRoots = previousInitializeRoots;

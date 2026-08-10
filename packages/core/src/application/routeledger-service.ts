@@ -4543,6 +4543,18 @@ export class RouteLedgerService {
 
     const artifact = requireApprovalArtifact(snapshot, input.approvalArtifactId);
 
+    if (this.l3Authorization !== undefined && artifact.authorizationGrantId === undefined) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "Legacy unconsumed approval artifacts must be reauthorized by the trusted control plane",
+        {
+          approvalArtifactId: artifact.id,
+          pendingOperationId: pendingOperation.id,
+          reason: "LEGACY_ARTIFACT_REAUTHORIZATION_REQUIRED"
+        }
+      );
+    }
+
     if (artifact.pendingOperationId !== pendingOperation.id) {
       throw new ApplicationError(
         "APPROVAL_ARTIFACT_PENDING_OPERATION_MISMATCH",

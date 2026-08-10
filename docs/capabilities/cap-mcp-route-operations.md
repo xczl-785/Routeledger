@@ -23,8 +23,9 @@ rules.
    completion counts.
 5. L3 route changes follow proposal, approval or rejection, and commit.
    Approval artifacts are minted only after a trusted grant from structured
-   host elicitation, a reusable session grant, or a deterministically bound
-   policy. Invalid policy and unsupported interaction fail closed; the
+   host elicitation, a reusable interaction session grant, a host-injected
+   preauthorization, or an atomically budgeted host-managed delegated
+   authority. Project files are never authority. Invalid grants and unsupported interaction fail closed; the
    standalone CLI cannot self-approve. Commit consumes a valid approval
    artifact; `confirm=true` alone is not an approval. A retry of an already committed operation is a read-like replay
    only when the same consumed artifact still matches the operation ID,

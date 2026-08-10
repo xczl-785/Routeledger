@@ -210,6 +210,24 @@ export const evaluateL3AuthorizationPolicy = (policy, context) => {
             issues: []
         };
     }
+    if (policy.mode === "interactive") {
+        return {
+            ...base,
+            effect: "prompt",
+            code: "POLICY_INTERACTIVE",
+            matchedRuleId: null,
+            issues: []
+        };
+    }
+    if (policy.mode === "preauthorized") {
+        return {
+            ...base,
+            effect: "prompt",
+            code: "POLICY_PREAUTHORIZED_GRANT_REQUIRED",
+            matchedRuleId: null,
+            issues: []
+        };
+    }
     const allowRule = policy.rules.find((rule) => rule.effect === "allow" && ruleMatches(rule, context));
     if (allowRule !== undefined) {
         return {

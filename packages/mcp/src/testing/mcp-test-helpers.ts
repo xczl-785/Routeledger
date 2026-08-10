@@ -140,7 +140,7 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
           })
         },
         sessionId: "vitest-session",
-        clientId: "vitest"
+        trustedClientId: "vitest"
       }
   });
   const originalInvoke = registry.invoke.bind(registry);
@@ -240,7 +240,7 @@ export const createServer = (
           })
         },
         sessionId: "vitest-session",
-        clientId: "vitest"
+        trustedClientId: "vitest"
       },
       ...extraOptions
     }),

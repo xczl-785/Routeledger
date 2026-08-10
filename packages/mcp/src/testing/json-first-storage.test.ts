@@ -5,7 +5,10 @@ import crypto from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { RouteLedgerService } from "../../../core/src/index.js";
+import {
+  MemoryL3AuthorizationGrantStore,
+  RouteLedgerService
+} from "../../../core/src/index.js";
 import {
   createTestDependencies,
   createUndoFixture,
@@ -141,7 +144,7 @@ const createJsonFirstService = (
 };
 
 describe("JsonFirstStorageAdapter", () => {
-  it("decodes and commits a true legacy pending/approval start digest from canonical JSON", async () => {
+  it("decodes a true legacy pending/approval start digest but requires reauthorization after a trusted-control-plane upgrade", async () => {
     const projectRoot = createTempProjectRoot();
     const { storage, service } = createJsonFirstService(projectRoot);
     let sqliteStorage: SQLiteStorageAdapter | null = null;
@@ -282,8 +285,26 @@ describe("JsonFirstStorageAdapter", () => {
           nextId: () => `legacy-reload-${++reloadIdSequence}`
         }
       });
+      const upgradedService = new RouteLedgerService({
+        storage: reloaded.storage,
+        deps: {
+          clock: {
+            now: () => "2026-06-27T00:00:00.000Z"
+          },
+          idGenerator: {
+            nextId: () => `legacy-upgrade-${++reloadIdSequence}`
+          }
+        },
+        l3Authorization: {
+          grantStore: new MemoryL3AuthorizationGrantStore(),
+          audience: "routeledger-core",
+          subjectId: "local-user",
+          routeledgerRootDigest: "sha256:trusted-root-binding",
+          hostKind: "codex"
+        }
+      });
       await expect(
-        reloaded.service.commitL3Operation({
+        upgradedService.commitL3Operation({
           projectId: created.project.id,
           pendingOperationId: proposal.id,
           approvalArtifactId: approval.id,
@@ -292,9 +313,10 @@ describe("JsonFirstStorageAdapter", () => {
             type: "agent"
           }
         })
-      ).resolves.toMatchObject({
-        pendingOperation: {
-          status: "committed"
+      ).rejects.toMatchObject({
+        code: "AUTHORIZATION_GRANT_REJECTED",
+        details: {
+          reason: "LEGACY_ARTIFACT_REAUTHORIZATION_REQUIRED"
         }
       });
       reloaded.storage.close();
