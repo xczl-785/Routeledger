@@ -154,6 +154,11 @@ trusted receipt is created in the same state transaction that consumes a
 grant; if the subsequent canonical project save fails, retry reconstructs the
 same approval artifact from the receipt instead of consuming a second use.
 
+The state transaction lock is a host-side lease with a heartbeat, OS-process
+liveness check, owner-specific `lockId` release, and a pre-write revision
+check. An old or paused writer therefore cannot reclaim, overwrite, or release
+a newer owner's lock merely because a fixed wall-clock interval elapsed.
+
 This is a local OS-permission trust boundary, not protection against an Agent
 that already has unrestricted access to the host user's entire filesystem and
 processes. Under that stronger access level, no ordinary local config file can

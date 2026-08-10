@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { L3ActionType } from "./types.js";
 import type { L3AuthorizationScope } from "./l3-authorization.js";
 
@@ -228,7 +230,9 @@ export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStor
   private readonly receipts = new Map<string, L3AuthorizationConsumptionReceipt>();
 
   async issue(grant: L3AuthorizationGrant): Promise<void> {
-    if (this.grants.has(grant.id)) {
+    const existing = this.grants.get(grant.id);
+    if (existing !== undefined) {
+      if (isDeepStrictEqual(existing, grant)) return;
       throw new Error(`L3 authorization grant already exists: ${grant.id}`);
     }
     this.grants.set(grant.id, cloneGrant(grant));
@@ -335,7 +339,9 @@ export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStor
   }
 
   async recordConsumptionReceipt(receipt: L3AuthorizationConsumptionReceipt): Promise<void> {
-    if (this.receipts.has(receipt.approvalArtifactId)) {
+    const existing = this.receipts.get(receipt.approvalArtifactId);
+    if (existing !== undefined) {
+      if (isDeepStrictEqual(existing, receipt)) return;
       throw new Error(
         `L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`
       );

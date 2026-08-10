@@ -52,6 +52,15 @@ export interface LoadLocalL3AuthorityRuntimeInput {
   routeledgerRoot: string;
   hostKind: string;
   subjectId: string;
+  /** @internal Test-only hooks for exercising state-lock interruption boundaries. */
+  testHooks?: LocalL3AuthorityStateTestHooks;
+}
+
+export interface LocalL3AuthorityStateTestHooks {
+  afterStateRead?: () => void | Promise<void>;
+  heartbeatIntervalMs?: number;
+  lockWaitTimeoutMs?: number;
+  lockRetryMs?: number;
 }
 
 export interface InstallLocalL3AuthorityConfigInput {
@@ -82,12 +91,19 @@ interface LocalL3AuthorityState {
 interface LockMetadata {
   lockId: string;
   createdAt: string;
+  updatedAt: string;
   pid: number;
+}
+
+interface LocalL3AuthorityStateLock {
+  assertOwned(): Promise<void>;
+  release(): Promise<void>;
 }
 
 const LOCK_STALE_AFTER_MS = 30_000;
 const LOCK_WAIT_TIMEOUT_MS = 5_000;
 const LOCK_RETRY_MS = 20;
+const LOCK_HEARTBEAT_INTERVAL_MS = 5_000;
 
 const emptyState = (): LocalL3AuthorityState => ({
   schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
@@ -323,7 +339,10 @@ class LocalL3AuthorityStateFile {
   readonly statePath: string;
   private readonly lockPath: string;
 
-  constructor(statePath: string) {
+  constructor(
+    statePath: string,
+    private readonly testHooks?: LocalL3AuthorityStateTestHooks
+  ) {
     this.statePath = statePath;
     this.lockPath = `${statePath}.lock`;
   }
@@ -379,43 +398,119 @@ class LocalL3AuthorityStateFile {
   async transact<T>(
     mutate: (state: LocalL3AuthorityState) => T | Promise<T>
   ): Promise<T> {
-    const release = await this.acquireLock();
+    const lock = await this.acquireLock();
     try {
       const state = await this.read();
+      const expectedRevision = state.revision;
+      await this.testHooks?.afterStateRead?.();
       const result = await mutate(state);
-      state.revision += 1;
+      await lock.assertOwned();
+      const current = await this.read();
+      if (current.revision !== expectedRevision) {
+        throw new Error("Local L3 authority state revision changed during a locked transaction.");
+      }
+      state.revision = expectedRevision + 1;
+      await lock.assertOwned();
       await this.writeAtomic(state);
       return result;
     } finally {
-      await release();
+      await lock.release();
     }
   }
 
-  private async acquireLock(): Promise<() => Promise<void>> {
-    const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
+  private async acquireLock(): Promise<LocalL3AuthorityStateLock> {
+    const waitTimeoutMs = this.testHooks?.lockWaitTimeoutMs ?? LOCK_WAIT_TIMEOUT_MS;
+    const retryMs = this.testHooks?.lockRetryMs ?? LOCK_RETRY_MS;
+    const heartbeatIntervalMs =
+      this.testHooks?.heartbeatIntervalMs ?? LOCK_HEARTBEAT_INTERVAL_MS;
+    const deadline = Date.now() + waitTimeoutMs;
     while (Date.now() < deadline) {
+      const now = new Date().toISOString();
+      const metadata: LockMetadata = {
+        lockId: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+        pid: process.pid
+      };
+      const candidatePath = `${this.lockPath}.candidate-${metadata.lockId}`;
       try {
-        await fs.mkdir(this.lockPath, { mode: 0o700 });
-        const metadata: LockMetadata = {
-          lockId: randomUUID(),
-          createdAt: new Date().toISOString(),
-          pid: process.pid
+        await fs.mkdir(candidatePath, { mode: 0o700 });
+        await this.writeLockMetadata(metadata, candidatePath);
+        try {
+          await fs.rename(candidatePath, this.lockPath);
+        } catch (error) {
+          await fs.rm(candidatePath, { recursive: true, force: true });
+          try {
+            await fs.lstat(this.lockPath);
+            const contention = new Error(
+              "Local L3 authority state lock exists."
+            ) as NodeJS.ErrnoException;
+            contention.code = "EEXIST";
+            throw contention;
+          } catch (inspectionError) {
+            if ((inspectionError as NodeJS.ErrnoException).code !== "ENOENT") {
+              throw inspectionError;
+            }
+          }
+          throw error;
+        }
+        let heartbeatFailure: Error | null = null;
+        let heartbeatPending = Promise.resolve();
+        const heartbeat = setInterval(() => {
+          if (heartbeatFailure !== null) return;
+          heartbeatPending = heartbeatPending
+            .then(() => this.renewLock(metadata))
+            .catch((error: unknown) => {
+              heartbeatFailure =
+                error instanceof Error
+                  ? error
+                  : new Error("Local L3 authority lock heartbeat failed.");
+            });
+        }, heartbeatIntervalMs);
+        heartbeat.unref();
+        const assertOwned = async (): Promise<void> => {
+          await heartbeatPending;
+          if (heartbeatFailure !== null) throw heartbeatFailure;
+          const current = await this.readLockMetadata();
+          if (current?.lockId !== metadata.lockId) {
+            throw new Error("Local L3 authority state lock ownership was lost.");
+          }
         };
-        await fs.writeFile(
-          path.join(this.lockPath, "metadata.json"),
-          `${JSON.stringify(metadata, null, 2)}\n`,
-          { encoding: "utf8", mode: 0o600 }
-        );
-        return async () => {
-          await fs.rm(this.lockPath, { recursive: true, force: true });
+        return {
+          assertOwned,
+          release: async () => {
+            clearInterval(heartbeat);
+            await heartbeatPending;
+            const current = await this.readLockMetadata();
+            if (current?.lockId !== metadata.lockId) return;
+            const releasedPath = `${this.lockPath}.released-${metadata.lockId}`;
+            try {
+              await fs.rename(this.lockPath, releasedPath);
+              await fs.rm(releasedPath, { recursive: true, force: true });
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            }
+          }
         };
       } catch (error) {
+        await fs.rm(candidatePath, { recursive: true, force: true });
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        const lock = await fs.lstat(this.lockPath);
+        let lock;
+        try {
+          lock = await fs.lstat(this.lockPath);
+        } catch (inspectionError) {
+          if ((inspectionError as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw inspectionError;
+        }
         if (!lock.isDirectory() || lock.isSymbolicLink()) {
           throw new Error("Local L3 authority lock path is not a trusted directory.");
         }
-        if (Date.now() - lock.mtimeMs > LOCK_STALE_AFTER_MS) {
+        const metadata = await this.readLockMetadata();
+        const updatedAtMs = metadata === null ? lock.mtimeMs : Date.parse(metadata.updatedAt);
+        const leaseExpired =
+          !Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > LOCK_STALE_AFTER_MS;
+        const ownerAlive = metadata === null ? null : this.isProcessAlive(metadata.pid);
+        if (leaseExpired && ownerAlive !== true) {
           const stalePath = `${this.lockPath}.stale-${randomUUID()}`;
           try {
             await fs.rename(this.lockPath, stalePath);
@@ -425,10 +520,67 @@ class LocalL3AuthorityStateFile {
           }
           continue;
         }
-        await delay(LOCK_RETRY_MS);
+        await delay(retryMs);
       }
     }
     throw new Error("Timed out waiting for the local L3 authority state lock.");
+  }
+
+  private async readLockMetadata(): Promise<LockMetadata | null> {
+    try {
+      const value = JSON.parse(
+        await fs.readFile(path.join(this.lockPath, "metadata.json"), "utf8")
+      ) as Partial<LockMetadata>;
+      if (
+        !isNonEmptyString(value.lockId) ||
+        !isNonEmptyString(value.createdAt) ||
+        !isNonEmptyString(value.updatedAt) ||
+        !Number.isInteger(value.pid)
+      ) {
+        return null;
+      }
+      return value as LockMetadata;
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code === "ENOENT" ||
+        error instanceof SyntaxError
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async writeLockMetadata(
+    metadata: LockMetadata,
+    lockRoot = this.lockPath
+  ): Promise<void> {
+    const metadataPath = path.join(lockRoot, "metadata.json");
+    const temporaryPath = path.join(lockRoot, `.metadata-${metadata.lockId}.tmp`);
+    await fs.writeFile(temporaryPath, `${JSON.stringify(metadata, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
+    await fs.rename(temporaryPath, metadataPath);
+    await fs.utimes(lockRoot, new Date(), new Date());
+  }
+
+  private async renewLock(metadata: LockMetadata): Promise<void> {
+    const current = await this.readLockMetadata();
+    if (current?.lockId !== metadata.lockId) {
+      throw new Error("Local L3 authority state lock ownership was lost.");
+    }
+    metadata.updatedAt = new Date().toISOString();
+    await this.writeLockMetadata(metadata);
+  }
+
+  private isProcessAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
   }
 
   private async writeAtomic(state: LocalL3AuthorityState): Promise<void> {
@@ -710,7 +862,7 @@ export const loadLocalL3AuthorityRuntime = async (
     input.routeledgerRoot,
     "Local L3 authority state"
   );
-  const stateFile = new LocalL3AuthorityStateFile(statePath);
+  const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
   await stateFile.initialize();
   const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
   const policyDigest = digestL3AuthorizationPolicy(config.policy);

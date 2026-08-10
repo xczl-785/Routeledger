@@ -94,6 +94,22 @@ describe("L3 authorization grant store", () => {
     });
   });
 
+  it("accepts exact duplicate grant and receipt writes but rejects conflicting duplicates", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    await store.issue(grant());
+    await expect(store.issue(grant())).resolves.toBeUndefined();
+    await expect(store.issue(grant({ subjectId: "other-user" }))).rejects.toThrow(
+      "already exists"
+    );
+
+    const receipt = { ...receiptBinding(), consumedUse: 1 };
+    await store.recordConsumptionReceipt(receipt);
+    await expect(store.recordConsumptionReceipt(receipt)).resolves.toBeUndefined();
+    await expect(
+      store.recordConsumptionReceipt({ ...receipt, decisionRef: "different-decision" })
+    ).rejects.toThrow("already exists");
+  });
+
   it("verifies only an exact host-owned consumption receipt", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     await store.recordConsumptionReceipt({ ...receiptBinding(), consumedUse: 1 });

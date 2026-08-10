@@ -5,7 +5,10 @@ import { Readable, Writable } from "node:stream";
 
 import {
   buildBalancedL3AuthorizationPolicy,
+  MemoryL3AuthorizationGrantStore,
   type L3AuthorizationEvaluationContext,
+  type L3AuthorizationGrantStore,
+  type L3AuthorizationConsumptionReceipt,
   type L3AuthorizationReceiptBinding
 } from "@routeledger/core";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,6 +23,14 @@ import { runRouteLedgerStdioServer } from "../stdio-server.js";
 import { createRegistry } from "./mcp-test-helpers.js";
 
 const roots: string[] = [];
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+};
 
 const createFixture = async (maxUses = 2) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-local-l3-"));
@@ -191,6 +202,69 @@ describe("local L3 authorization runtime", () => {
     ).resolves.toBe(false);
   });
 
+  it("keeps exact duplicate issue and receipt writes idempotent across store implementations", async () => {
+    const fixture = await createFixture();
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const decision = await runtime.authority.requestGrant({
+      authorityHandle: runtime.authority.authorityHandle,
+      proposal: {} as never,
+      context: evaluationContext("store-contract")
+    });
+    if (decision.effect !== "allow") throw new Error("expected delegated grant");
+    const receipt: L3AuthorizationConsumptionReceipt = {
+      approvalArtifactId: "contract-artifact",
+      pendingOperationId: "contract-pending",
+      grantId: decision.grant.id,
+      audience: decision.grant.audience,
+      subjectId: decision.grant.subjectId,
+      projectId: decision.grant.projectId,
+      routeledgerRootDigest: decision.grant.routeledgerRootDigest,
+      actionType: "start_version",
+      targetId: "version-2",
+      operationDigest: "store-contract",
+      approvalSource: "delegated_policy",
+      decisionRef: decision.grant.decisionId,
+      approverId: "mcp-user",
+      approverType: "user",
+      approverDisplayName: "MCP user",
+      policyId: decision.grant.policyId,
+      policyDigest: decision.grant.policyDigest,
+      hostKind: "generic",
+      clientId: "trusted-client",
+      sessionId: null,
+      createdAt: decision.grant.createdAt,
+      expiresAt: decision.grant.expiresAt,
+      consumedUse: 1
+    };
+    const stores: Array<[string, L3AuthorizationGrantStore]> = [
+      ["memory", new MemoryL3AuthorizationGrantStore()],
+      ["persistent", runtime.grantStore]
+    ];
+    for (const [name, store] of stores) {
+      await store.issue(decision.grant);
+      await expect(store.issue(structuredClone(decision.grant)), name).resolves.toBeUndefined();
+      await expect(
+        store.issue({ ...decision.grant, issuer: "conflicting-issuer" }),
+        name
+      ).rejects.toThrow("already exists");
+      await store.recordConsumptionReceipt(receipt);
+      await expect(
+        store.recordConsumptionReceipt(structuredClone(receipt)),
+        name
+      ).resolves.toBeUndefined();
+      await expect(
+        store.recordConsumptionReceipt({ ...receipt, decisionRef: "conflicting-decision" }),
+        name
+      ).rejects.toThrow("already exists");
+    }
+  });
+
   it("atomically enforces the delegated rule budget across concurrent requests", async () => {
     const fixture = await createFixture(1);
     const runtime = await loadLocalL3AuthorityRuntime({
@@ -214,6 +288,150 @@ describe("local L3 authorization runtime", () => {
     expect(results.find((result) => result.effect === "deny")).toMatchObject({
       code: "POLICY_BUDGET_EXHAUSTED"
     });
+  });
+
+  it("does not reclaim an expired lease while its owner process is still alive", async () => {
+    const fixture = await createFixture(1);
+    let blockTransaction = false;
+    const entered = deferred();
+    const resume = deferred();
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user",
+      testHooks: {
+        heartbeatIntervalMs: 60_000,
+        lockWaitTimeoutMs: 150,
+        lockRetryMs: 10,
+        afterStateRead: async () => {
+          if (!blockTransaction) return;
+          entered.resolve();
+          await resume.promise;
+        }
+      }
+    });
+    blockTransaction = true;
+    const firstRequest = runtime.authority.requestGrant({
+      authorityHandle: runtime.authority.authorityHandle,
+      proposal: {} as never,
+      context: evaluationContext("long-transaction")
+    });
+    await entered.promise;
+
+    const lockPath = `${fixture.statePath}.lock`;
+    const metadataPath = path.join(lockPath, "metadata.json");
+    const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8")) as {
+      updatedAt: string;
+    };
+    metadata.updatedAt = "2000-01-01T00:00:00.000Z";
+    await fs.writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    const old = new Date("2000-01-01T00:00:00.000Z");
+    await fs.utimes(lockPath, old, old);
+
+    await expect(
+      runtime.authority.requestGrant({
+        authorityHandle: runtime.authority.authorityHandle,
+        proposal: {} as never,
+        context: evaluationContext("competing-transaction")
+      })
+    ).rejects.toThrow("Timed out waiting");
+    resume.resolve();
+    await expect(firstRequest).resolves.toMatchObject({ effect: "allow" });
+    blockTransaction = false;
+    await expect(
+      runtime.authority.requestGrant({
+        authorityHandle: runtime.authority.authorityHandle,
+        proposal: {} as never,
+        context: evaluationContext("competing-transaction")
+      })
+    ).resolves.toMatchObject({ effect: "deny", code: "POLICY_BUDGET_EXHAUSTED" });
+  });
+
+  it("heartbeats an active state lease and rejects a former owner's write and release", async () => {
+    const fixture = await createFixture();
+    let blockTransaction = false;
+    const entered = deferred();
+    const resume = deferred();
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user",
+      testHooks: {
+        heartbeatIntervalMs: 20,
+        afterStateRead: async () => {
+          if (!blockTransaction) return;
+          entered.resolve();
+          await resume.promise;
+        }
+      }
+    });
+    blockTransaction = true;
+    const transaction = runtime.grantStore.revoke("missing", new Date().toISOString());
+    await entered.promise;
+    const lockPath = `${fixture.statePath}.lock`;
+    const metadataPath = path.join(lockPath, "metadata.json");
+    const before = JSON.parse(await fs.readFile(metadataPath, "utf8")) as { updatedAt: string };
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    const after = JSON.parse(await fs.readFile(metadataPath, "utf8")) as { updatedAt: string };
+    expect(Date.parse(after.updatedAt)).toBeGreaterThan(Date.parse(before.updatedAt));
+
+    const formerLockPath = `${lockPath}.former`;
+    await fs.rename(lockPath, formerLockPath);
+    await fs.mkdir(lockPath, { mode: 0o700 });
+    const replacementMetadata = {
+      lockId: "replacement-owner",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      pid: process.pid
+    };
+    await fs.writeFile(
+      path.join(lockPath, "metadata.json"),
+      `${JSON.stringify(replacementMetadata, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 }
+    );
+    resume.resolve();
+    await expect(transaction).rejects.toThrow("ownership was lost");
+    await expect(fs.readFile(path.join(lockPath, "metadata.json"), "utf8")).resolves.toContain(
+      "replacement-owner"
+    );
+    await fs.rm(lockPath, { recursive: true, force: true });
+    await fs.rm(formerLockPath, { recursive: true, force: true });
+  });
+
+  it("fails closed when the state revision changes inside a locked transaction", async () => {
+    const fixture = await createFixture();
+    let blockTransaction = false;
+    const entered = deferred();
+    const resume = deferred();
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user",
+      testHooks: {
+        heartbeatIntervalMs: 60_000,
+        afterStateRead: async () => {
+          if (!blockTransaction) return;
+          entered.resolve();
+          await resume.promise;
+        }
+      }
+    });
+    blockTransaction = true;
+    const transaction = runtime.grantStore.revoke("missing", new Date().toISOString());
+    await entered.promise;
+    const state = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as {
+      revision: number;
+    };
+    state.revision += 1;
+    await fs.writeFile(fixture.statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    resume.resolve();
+    await expect(transaction).rejects.toThrow("revision changed");
   });
 
   it("recovers the same reserved grant after restart without consuming the policy budget twice", async () => {
