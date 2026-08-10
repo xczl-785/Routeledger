@@ -349,7 +349,7 @@ describe("local L3 authorization runtime", () => {
     ).resolves.toMatchObject({ effect: "deny", code: "POLICY_BUDGET_EXHAUSTED" });
   });
 
-  it("heartbeats an active state lease and rejects a former owner's write and release", async () => {
+  it("heartbeats an active state lease", async () => {
     const fixture = await createFixture();
     let blockTransaction = false;
     const entered = deferred();
@@ -378,7 +378,34 @@ describe("local L3 authorization runtime", () => {
     await new Promise((resolve) => setTimeout(resolve, 70));
     const after = JSON.parse(await fs.readFile(metadataPath, "utf8")) as { updatedAt: string };
     expect(Date.parse(after.updatedAt)).toBeGreaterThan(Date.parse(before.updatedAt));
+    resume.resolve();
+    await expect(transaction).resolves.toBeNull();
+  });
 
+  it("rejects a former owner's write without releasing the replacement owner", async () => {
+    const fixture = await createFixture();
+    let blockTransaction = false;
+    const entered = deferred();
+    const resume = deferred();
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user",
+      testHooks: {
+        heartbeatIntervalMs: 60_000,
+        afterStateRead: async () => {
+          if (!blockTransaction) return;
+          entered.resolve();
+          await resume.promise;
+        }
+      }
+    });
+    blockTransaction = true;
+    const transaction = runtime.grantStore.revoke("missing", new Date().toISOString());
+    await entered.promise;
+    const lockPath = `${fixture.statePath}.lock`;
     const formerLockPath = `${lockPath}.former`;
     await fs.rename(lockPath, formerLockPath);
     await fs.mkdir(lockPath, { mode: 0o700 });
