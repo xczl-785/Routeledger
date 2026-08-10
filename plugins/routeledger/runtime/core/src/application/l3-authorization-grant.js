@@ -3,7 +3,8 @@ const cloneGrant = (grant) => ({
     allowedActions: [...grant.allowedActions],
     allowedTargetIds: [...grant.allowedTargetIds]
 });
-const receiptMatchesAuthorizationContext = (receipt, grantId, context) => receipt.grantId === grantId &&
+const receiptMatchesAuthorizationContext = (receipt, grantId, context, pendingOperationId) => receipt.grantId === grantId &&
+    receipt.pendingOperationId === pendingOperationId &&
     receipt.audience === context.audience &&
     receipt.subjectId === context.subjectId &&
     receipt.projectId === context.projectId &&
@@ -14,8 +15,8 @@ const receiptMatchesAuthorizationContext = (receipt, grantId, context) => receip
     receipt.hostKind === context.hostKind &&
     (receipt.clientId == null || receipt.clientId === context.clientId) &&
     (receipt.sessionId == null || receipt.sessionId === context.sessionId);
-const validateCreatedReceipt = (receipt, grantId, context, consumedUse) => {
-    if (!receiptMatchesAuthorizationContext(receipt, grantId, context) ||
+const validateCreatedReceipt = (receipt, grantId, context, pendingOperationId, consumedUse) => {
+    if (!receiptMatchesAuthorizationContext(receipt, grantId, context, pendingOperationId) ||
         receipt.consumedUse !== consumedUse ||
         receipt.approvalArtifactId.trim().length === 0 ||
         receipt.pendingOperationId.trim().length === 0) {
@@ -92,8 +93,8 @@ export class MemoryL3AuthorizationGrantStore {
         this.grants.set(grantId, updated);
         return { ok: true, grant: cloneGrant(updated), consumedUse };
     }
-    async consumeAndRecordReceipt(grantId, context, createReceipt) {
-        const replayReceipt = [...this.receipts.values()].find((receipt) => receiptMatchesAuthorizationContext(receipt, grantId, context));
+    async consumeAndRecordReceipt(grantId, context, pendingOperationId, createReceipt) {
+        const replayReceipt = [...this.receipts.values()].find((receipt) => receiptMatchesAuthorizationContext(receipt, grantId, context, pendingOperationId));
         if (replayReceipt !== undefined) {
             const replayGrant = this.grants.get(grantId);
             if (replayGrant === undefined)
@@ -123,13 +124,22 @@ export class MemoryL3AuthorizationGrantStore {
             consumedUse
         };
         const receipt = createReceipt(consumption);
-        validateCreatedReceipt(receipt, grantId, context, consumedUse);
+        validateCreatedReceipt(receipt, grantId, context, pendingOperationId, consumedUse);
         if (this.receipts.has(receipt.approvalArtifactId)) {
             throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
         }
         this.grants.set(grantId, updated);
         this.receipts.set(receipt.approvalArtifactId, structuredClone(receipt));
         return { ...consumption, receipt: structuredClone(receipt) };
+    }
+    async findConsumedAuthorization(context, pendingOperationId) {
+        const receipt = [...this.receipts.values()].find((candidate) => receiptMatchesAuthorizationContext(candidate, candidate.grantId, context, pendingOperationId));
+        if (receipt === undefined)
+            return null;
+        const grant = this.grants.get(receipt.grantId);
+        if (grant === undefined)
+            return null;
+        return { grant: cloneGrant(grant), receipt: structuredClone(receipt) };
     }
     async recordConsumptionReceipt(receipt) {
         if (this.receipts.has(receipt.approvalArtifactId)) {

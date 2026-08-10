@@ -2626,7 +2626,7 @@ export class RouteLedgerService {
                 ? {}
                 : { sessionId: authorization.sessionId })
         };
-        const consumed = await authorization.grantStore.consumeAndRecordReceipt(input.grantId, authorizationContext, (consumption) => {
+        const consumed = await authorization.grantStore.consumeAndRecordReceipt(input.grantId, authorizationContext, pendingOperation.id, (consumption) => {
             const grant = consumption.grant;
             const approver = {
                 id: grant.subjectId,

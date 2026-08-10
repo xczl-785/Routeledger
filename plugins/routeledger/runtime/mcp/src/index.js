@@ -2189,6 +2189,18 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     : { clientId: options.l3Authorization.trustedClientId }),
                 sessionId: options.l3Authorization.sessionId
             };
+            const consumedReplay = await options.l3Authorization.grantStore.findConsumedAuthorization(authorizationContext, proposal.id);
+            if (consumedReplay !== null) {
+                return {
+                    ok: true,
+                    data: await service.authorizeL3Operation({
+                        projectId: input.projectId,
+                        pendingOperationId: input.pendingOperationId,
+                        grantId: consumedReplay.grant.id,
+                        actor
+                    })
+                };
+            }
             const reusableGrant = await options.l3Authorization.grantStore.findMatching(authorizationContext);
             if (reusableGrant !== null &&
                 (reusableGrant.source === "preauthorized" ||
