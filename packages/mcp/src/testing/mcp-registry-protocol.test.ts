@@ -111,7 +111,7 @@ describe("routeledger mcp registry", () => {
       const highRiskTools = tools.filter(
         (tool) => tool._meta.routeledger.riskLevel === "high-risk"
       );
-      expect(tools).toHaveLength(44);
+      expect(tools).toHaveLength(45);
       const runtimeContextTool = tools.find((tool) => tool.name === "get_runtime_context");
       const openMissionControlTool = tools.find((tool) => tool.name === "open_mission_control");
       const writeHostBindingConfigTool = tools.find(

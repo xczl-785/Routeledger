@@ -1,6 +1,9 @@
 import { createInterface, type Interface as ReadLineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+
+import { MemoryL3AuthorizationGrantStore } from "@routeledger/core";
 
 import {
   MCP_PROTOCOL_VERSION,
@@ -8,6 +11,8 @@ import {
   createRouteLedgerMcpRegistry,
   type RouteLedgerMcpRegistry,
   type RouteLedgerMcpRegistryOptions,
+  type RouteLedgerMcpAuthorizationDecision,
+  type RouteLedgerMcpAuthorizationRequest,
   type ToolDefinition,
   type ToolResponse
 } from "./index.js";
@@ -91,6 +96,7 @@ interface ProtocolState {
   initializeCompleted: boolean;
   initializedNotificationReceived: boolean;
   clientSupportsRoots: boolean;
+  clientSupportsElicitation: boolean;
   initializeRoots: string[];
   listedRoots: string[];
   latestRootsListRequestId: JsonRpcId | null;
@@ -634,23 +640,90 @@ const collectInitializeRoots = (params: Record<string, unknown>): string[] => {
 export const createRouteLedgerStdioServer = (
   options: CreateRouteLedgerStdioServerOptions
 ): RouteLedgerStdioServer => {
-  const buildRegistry = (registryOptions: RouteLedgerMcpRegistryOptions): RouteLedgerMcpRegistry =>
-    options.registryFactory?.(registryOptions) ?? createRouteLedgerMcpRegistry(registryOptions);
-  const initializeRegistry = buildRegistry({
-    ...options,
-    deferSessionRebind: true
-  });
-  let activeRegistry = initializeRegistry;
+  let nextOutboundRequestId = 1;
+  const pendingRequests = new Map<JsonRpcId, PendingRequestHandlers>();
+  const sendMessage = (message: JsonRpcMessage): void => {
+    options.sendMessage?.(message);
+  };
+  const grantStore = options.l3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
+  const authorizationSessionId = options.l3Authorization?.sessionId ?? randomUUID();
   const state: ProtocolState = {
     initializeCompleted: false,
     initializedNotificationReceived: false,
     clientSupportsRoots: false,
+    clientSupportsElicitation: false,
     initializeRoots: [],
     listedRoots: [],
     latestRootsListRequestId: null
   };
-  let nextOutboundRequestId = 1;
-  const pendingRequests = new Map<JsonRpcId, PendingRequestHandlers>();
+  const requestAuthorization = (
+    request: RouteLedgerMcpAuthorizationRequest
+  ): Promise<RouteLedgerMcpAuthorizationDecision> => {
+    if (!state.clientSupportsElicitation) {
+      return Promise.reject(
+        new Error("MCP client does not advertise the elicitation capability.")
+      );
+    }
+    const id = nextOutboundRequestId++;
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(id, {
+        resolve: (response) => {
+          if ("error" in response) {
+            reject(new Error(response.error.message));
+            return;
+          }
+          const result = response.result;
+          if (
+            !isObject(result) ||
+            (result.action !== "accept" &&
+              result.action !== "decline" &&
+              result.action !== "cancel")
+          ) {
+            reject(new Error("MCP elicitation response has an invalid action."));
+            return;
+          }
+          resolve({
+            action: result.action,
+            content: isObject(result.content) ? result.content : null
+          });
+        },
+        reject
+      });
+      sendMessage({
+        jsonrpc: JSONRPC_VERSION,
+        id,
+        method: "elicitation/create",
+        params: {
+          mode: "form",
+          message: request.message,
+          requestedSchema: request.requestedSchema
+        }
+      });
+    });
+  };
+  const buildRegistry = (registryOptions: RouteLedgerMcpRegistryOptions): RouteLedgerMcpRegistry =>
+    options.registryFactory?.(registryOptions) ?? createRouteLedgerMcpRegistry(registryOptions);
+  const withAuthorization = (
+    registryOptions: RouteLedgerMcpRegistryOptions
+  ): RouteLedgerMcpRegistryOptions => ({
+    ...registryOptions,
+    l3Authorization: {
+      grantStore,
+      interaction: options.l3Authorization?.interaction ?? { requestAuthorization },
+      sessionId: authorizationSessionId,
+      ...(options.l3Authorization?.trustedClientId === undefined
+        ? {}
+        : { trustedClientId: options.l3Authorization.trustedClientId }),
+      ...(options.l3Authorization?.delegatedAuthority === undefined
+        ? {}
+        : { delegatedAuthority: options.l3Authorization.delegatedAuthority })
+    }
+  });
+  const initializeRegistry = buildRegistry(withAuthorization({
+    ...options,
+    deferSessionRebind: true
+  }));
+  let activeRegistry = initializeRegistry;
 
   const rebuildRegistry = (): Error | null => {
     const effectiveRoots =
@@ -658,11 +731,11 @@ export const createRouteLedgerStdioServer = (
 
     let nextRegistry: RouteLedgerMcpRegistry;
     try {
-      nextRegistry = buildRegistry({
+      nextRegistry = buildRegistry(withAuthorization({
         ...options,
         mcpRoots: effectiveRoots,
         deferSessionRebind: true
-      });
+      }));
     } catch (error) {
       return error instanceof Error ? error : new Error(String(error));
     }
@@ -692,14 +765,14 @@ export const createRouteLedgerStdioServer = (
     // prevent the JSON-RPC response from being formed.
     let nextRegistry: RouteLedgerMcpRegistry;
     try {
-      nextRegistry = buildRegistry({
+      nextRegistry = buildRegistry(withAuthorization({
         ...options,
         workspaceRoot: nextBinding.workspaceRoot,
         workspaceRootSource: "explicit_arg",
         routeledgerRoot: nextBinding.routeledgerRoot,
         mcpRoots: undefined,
         deferSessionRebind: true
-      });
+      }));
     } catch (error) {
       return {
         ...createSessionRebindFailureResponse(nextBinding, error),
@@ -732,10 +805,6 @@ export const createRouteLedgerStdioServer = (
       }
     }
     return activationResponse;
-  };
-
-  const sendMessage = (message: JsonRpcMessage): void => {
-    options.sendMessage?.(message);
   };
 
   const requestRootsList = (): void => {
@@ -948,6 +1017,7 @@ export const createRouteLedgerStdioServer = (
             const previousInitializeRoots = state.initializeRoots;
             state.initializeRoots = initializeRoots;
             state.clientSupportsRoots = isObject(params.capabilities.roots);
+            state.clientSupportsElicitation = isObject(params.capabilities.elicitation);
             const rebuildError = rebuildRegistry();
             if (rebuildError !== null) {
               state.initializeRoots = previousInitializeRoots;
@@ -1086,6 +1156,14 @@ export const runRouteLedgerStdioServer = async (
     input: options.input,
     crlfDelay: Infinity
   });
+  let inboundRequestChain = Promise.resolve();
+
+  const dispatchAndWrite = async (parsed: unknown): Promise<void> => {
+    const response = await server.handleMessage(parsed);
+    if (response !== null) {
+      writeJsonRpcMessage(options.output, response);
+    }
+  };
 
   try {
     for await (const line of readline) {
@@ -1115,16 +1193,26 @@ export const runRouteLedgerStdioServer = async (
         continue;
       }
 
-      const response = await server.handleMessage(parsed);
+      const isClientResponse =
+        isObject(parsed) &&
+        !("method" in parsed) &&
+        "id" in parsed &&
+        ("result" in parsed || "error" in parsed);
 
-      if (response !== null) {
-        writeJsonRpcMessage(options.output, response);
+      if (isClientResponse) {
+        // A tool call may be suspended waiting for elicitation/create. Responses
+        // must bypass the ordinary request queue so they can resume that call.
+        await dispatchAndWrite(parsed);
+      } else {
+        inboundRequestChain = inboundRequestChain.then(() => dispatchAndWrite(parsed));
       }
 
       if (options.once) {
+        await inboundRequestChain;
         break;
       }
     }
+    await inboundRequestChain;
   } catch (error) {
     if (options.errorOutput !== undefined) {
       const detail = error instanceof Error ? error.stack ?? error.message : String(error);

@@ -7,9 +7,38 @@ import { expect, it, describe } from "vitest";
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
 import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
 import { decodeProjectAggregateFromJsonDocuments } from "@routeledger/json";
+import { runCli } from "../index.js";
 
 import { createTempProjectRoot, cleanupProjectRoot, removeSqliteFiles, readJsonDocuments, readDocumentBytesByPaths, runCliJson, runCliJsonWithFirstVersion, createVersionViaL3, setCurrentVersionViaL3 } from "./cli-test-helpers.js";
 describe("routeledger cli", () => {
+  it("standalone l3 approve fails closed without a trusted host bridge", async () => {
+    const projectRoot = createTempProjectRoot();
+    try {
+      const initialized = await runCliJson(projectRoot, [
+        "init_project", "--name", "No Bridge", "--content-locale", "en"
+      ]);
+      const projectId = initialized.stdoutJson.data.project.id as string;
+      const created = await runCliJson(projectRoot, [
+        "version", "create", "--project-id", projectId, "--title", "Version 1"
+      ]);
+      const pendingOperationId = created.stderrJson.error.details.pendingOperationId as string;
+      const stderr: string[] = [];
+      const exitCode = await runCli({
+        projectRoot,
+        argv: [
+          "l3", "approve", "--project-id", projectId,
+          "--pending-operation-id", pendingOperationId
+        ],
+        stderr: (line) => stderr.push(line)
+      });
+      expect(exitCode).toBe(1);
+      expect(JSON.parse(stderr[0]!)).toMatchObject({
+        error: { code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE" }
+      });
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
   it("init_project 默认只创建 Project 逻辑根", async () => {
     const projectRoot = createTempProjectRoot();
 

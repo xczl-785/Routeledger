@@ -28,8 +28,8 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(44);
-      expect(readOnly).toHaveLength(19);
+      expect(tools).toHaveLength(45);
+      expect(readOnly).toHaveLength(20);
       expect(writes).toHaveLength(21);
       expect(highRisk).toHaveLength(4);
       expect(writes.concat(highRisk)).toHaveLength(25);
@@ -66,7 +66,7 @@ describe("MCP tool description contract", () => {
 
     try {
       const descriptions = registry.tools.map((tool) => tool.description);
-      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3000);
+      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3200);
       for (const description of descriptions) {
         expect(description.length).toBeLessThanOrEqual(150);
       }
@@ -142,9 +142,9 @@ describe("MCP tool description contract", () => {
       `);
       expect(registry.instructions).toContain("CONFIRMATION_REQUIRED");
       expect(registry.instructions).toContain(
-        "propose_l3_operation first, then approve_l3_operation or reject_l3_operation, and only then commit_l3_operation"
+        "approve_l3_operation consumes a host-injected grant or requests structured host elicitation"
       );
-      expect(registry.instructions).toContain("commit_l3_operation is destructive");
+      expect(registry.instructions).toContain("Project files are never authorization authority");
     } finally {
       registry.close();
     }

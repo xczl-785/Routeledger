@@ -19,7 +19,7 @@ Use this Skill only for work governed by the RouteLedger MCP server. Do not use 
    Initialization creates only the Project logical root unless the user has explicitly selected a real `firstVersion` with its title, description, and initial Todos. Never invent a placeholder Version that the user must later carry through the lifecycle.
 5. Before every write/high-risk route operation, use the returned RouteLedger root assertion. This includes `dry_run` calls to `transition_version`, `close_version`, and `shutdown_version`, plus the proposal-creating `advance_to_version` call. They are binding-sensitive operations, not read-only MCP tools. Do not continue until the returned binding matches the intended project.
 
-Host approval metadata is an operator-flow hint, not a server-enforced prompt or a replacement for RouteLedger binding and L3 safeguards.
+Host approval metadata remains only a routing hint. L3 authorization itself is enforced by a bound deterministic policy grant or by the MCP client's structured elicitation response; chat text and tool annotations cannot create that grant.
 
 ## Operating strategy
 
@@ -35,6 +35,10 @@ An empty route is initialized, not broken: `next_action` will recommend `create_
 
 ### L3 route changes
 
-Use one sequence only: propose the L3 operation, obtain an approval artifact through `approve_l3_operation` or finish it with `reject_l3_operation`, then pass the approval artifact to `commit_l3_operation`. Do not treat `confirm` or chat text as an approval artifact. `shutdown_version` is the exceptional forced path and needs its explicit forced-path rationale.
+Use one sequence only: propose the L3 operation, obtain an approval artifact through `approve_l3_operation` or finish it with `reject_l3_operation`, then pass the approval artifact to `commit_l3_operation`. `approve_l3_operation` first consumes a host-injected preauthorization or valid interaction session grant, asks a host-managed delegated authority for an atomically budgeted one-shot grant, or requests structured user authorization. The canonical artifact is only an audit projection; commit also verifies its exact host-owned consumption receipt. Missing client support, authority, receipt, binding, approval, or digest fails closed. Project files are candidates only and never authorization authority. Do not treat `confirm`, `decisionRef`, or chat text as approval.
+
+When the user wants delegated approval, call `recommend_l3_authorization_policy` to generate a complete conservative candidate from live route state. Review its project/root/host bindings, current-version snapshot, target list, expiry, and use budget before handing it to a trusted host administrator. The balanced candidate delegates only gate-passing start, close, and advance operations; shutdown, reopen, route editing, and current-pointer changes stay interactive. Never save the candidate inside the project as authority, silently weaken `alwaysPrompt`, or change the default effect to allow.
+
+The standalone CLI has no trusted approval UI and therefore cannot approve L3 operations by itself. A host embedding the CLI must inject a trusted interaction bridge; otherwise approval fails closed.
 
 All canonical changes must go through MCP tools. Never edit canonical JSON directly. This Skill is guidance only: deleting it must not weaken MCP binding, approval, concurrency, or write safeguards.

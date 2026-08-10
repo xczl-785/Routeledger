@@ -76,6 +76,15 @@ import {
   isSelfReferentialUndoForVersion
 } from "./version-closeout-query.js";
 import type { VersionCloseoutSummary } from "./version-closeout-query.js";
+import type {
+  L3AuthorizationGrantStore,
+  L3AuthorizationReceiptBinding
+} from "./l3-authorization-grant.js";
+import {
+  buildBalancedL3AuthorizationPolicy,
+  type L3AuthorizationEvaluationContext,
+  type L3AuthorizationPolicy
+} from "./l3-authorization.js";
 import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
@@ -126,7 +135,44 @@ export interface RouteLedgerServiceOptions {
   storage: StoragePort;
   deps: DomainDependencies;
   projectRoot?: string;
+  l3Authorization?: {
+    grantStore: L3AuthorizationGrantStore;
+    audience: string;
+    subjectId: string;
+    routeledgerRootDigest: string;
+    hostKind: string;
+    clientId?: string;
+    sessionId?: string;
+  };
 }
+
+const buildAuthorizationReceiptBinding = (
+  artifact: ApprovalArtifact,
+  authorization: NonNullable<RouteLedgerServiceOptions["l3Authorization"]>
+): L3AuthorizationReceiptBinding => ({
+  approvalArtifactId: artifact.id,
+  pendingOperationId: artifact.pendingOperationId,
+  grantId: artifact.authorizationGrantId ?? "",
+  audience: authorization.audience,
+  subjectId: authorization.subjectId,
+  projectId: artifact.projectId,
+  routeledgerRootDigest: authorization.routeledgerRootDigest,
+  actionType: artifact.actionType,
+  targetId: artifact.targetId,
+  operationDigest: artifact.digest.value,
+  approvalSource: artifact.approvalSource,
+  decisionRef: artifact.decisionRef,
+  approverId: artifact.approver.id,
+  approverType: artifact.approver.type,
+  approverDisplayName: artifact.approver.displayName,
+  policyId: artifact.policyId,
+  policyDigest: artifact.policyDigest,
+  hostKind: artifact.hostKind,
+  clientId: artifact.clientId,
+  sessionId: artifact.sessionId,
+  createdAt: artifact.createdAt,
+  expiresAt: artifact.expiresAt
+});
 
 export interface InitProjectInput {
   name: string;
@@ -361,6 +407,13 @@ export interface ApproveL3OperationInput {
   actor: Actor;
   decisionRef?: string;
   expiresAt?: string;
+}
+
+export interface AuthorizeL3OperationInput {
+  projectId: string;
+  pendingOperationId: string;
+  grantId: string;
+  actor: Actor;
 }
 
 export interface CommitL3OperationInput {
@@ -3115,10 +3168,13 @@ export class RouteLedgerService {
 
   private readonly projectRoot: string | null;
 
+  private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
+
   constructor(options: RouteLedgerServiceOptions) {
     this.storage = options.storage;
     this.deps = options.deps;
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
+    this.l3Authorization = options.l3Authorization;
   }
 
   private async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
@@ -4141,7 +4197,75 @@ export class RouteLedgerService {
     return requirePendingOperation(snapshot, pendingOperationId);
   }
 
+  async getL3AuthorizationEvaluationContext(input: {
+    projectId: string;
+    pendingOperationId: string;
+    routeledgerRootDigest: string;
+    subjectId?: string;
+    hostKind?: string;
+    clientId?: string;
+  }): Promise<L3AuthorizationEvaluationContext> {
+    const snapshot = await requireProject(this.storage, input.projectId);
+    const proposal = requirePendingOperation(snapshot, input.pendingOperationId);
+    const currentVersion = snapshot.versions.find(
+      (version) => version.id === snapshot.project.currentVersionId
+    );
+    const targetRelation =
+      proposal.targetId === snapshot.project.currentVersionId
+        ? "current"
+        : currentVersion?.nextVersionId === proposal.targetId
+          ? "legal-successor"
+          : "other";
+
+    return {
+      projectId: input.projectId,
+      routeledgerRootDigest: input.routeledgerRootDigest,
+      actionType: proposal.actionType,
+      targetId: proposal.targetId,
+      currentVersionId: snapshot.project.currentVersionId,
+      targetRelation,
+      gateAllowed: proposal.gateSnapshot.allowed,
+      operationDigest: proposal.digest.value,
+      now: this.deps.clock.now(),
+      ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
+      ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
+      ...(input.clientId === undefined ? {} : { clientId: input.clientId })
+    };
+  }
+
+  async recommendBalancedL3AuthorizationPolicy(input: {
+    projectId: string;
+    policyId: string;
+    routeledgerRootDigest: string;
+    expiresAt: string;
+    maxUses: number;
+    subjectId?: string;
+    hostKind?: string;
+    clientId?: string;
+  }): Promise<L3AuthorizationPolicy> {
+    const snapshot = await requireProject(this.storage, input.projectId);
+    return buildBalancedL3AuthorizationPolicy({
+      policyId: input.policyId,
+      projectId: input.projectId,
+      routeledgerRootDigest: input.routeledgerRootDigest,
+      currentVersionId: snapshot.project.currentVersionId,
+      routeVersionIds: snapshot.versions.map((version) => version.id),
+      expiresAt: input.expiresAt,
+      maxUses: input.maxUses,
+      ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
+      ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
+      ...(input.clientId === undefined ? {} : { clientId: input.clientId })
+    });
+  }
+
   async approveL3Operation(input: ApproveL3OperationInput): Promise<ApprovalArtifact> {
+    if (this.l3Authorization !== undefined) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "Legacy L3 approval cannot bypass the configured trusted authorization control plane",
+        { pendingOperationId: input.pendingOperationId, reason: "LEGACY_APPROVAL_DISABLED" }
+      );
+    }
     const snapshot = await requireProject(this.storage, input.projectId);
     const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
 
@@ -4200,6 +4324,127 @@ export class RouteLedgerService {
     updatedSnapshot.events = updatedSnapshot.events.concat(events);
     await this.saveProjectAggregate(updatedSnapshot);
 
+    return artifact;
+  }
+
+  async authorizeL3Operation(input: AuthorizeL3OperationInput): Promise<ApprovalArtifact> {
+    if (this.l3Authorization === undefined) {
+      throw new ApplicationError(
+        "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+        "L3 trusted authorization control plane is not configured",
+        { pendingOperationId: input.pendingOperationId }
+      );
+    }
+
+    const snapshot = await requireProject(this.storage, input.projectId);
+    const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
+    if (pendingOperation.status !== "pending") {
+      throw new ApplicationError(
+        "PENDING_OPERATION_NOT_PENDING",
+        "pending operation 不是待授权状态",
+        { pendingOperationId: pendingOperation.id, status: pendingOperation.status }
+      );
+    }
+
+    const now = this.deps.clock.now();
+    const approvalArtifactId = this.deps.idGenerator.nextId();
+    const consumed = await this.l3Authorization.grantStore.consume(input.grantId, {
+      audience: this.l3Authorization.audience,
+      subjectId: this.l3Authorization.subjectId,
+      projectId: input.projectId,
+      routeledgerRootDigest: this.l3Authorization.routeledgerRootDigest,
+      actionType: pendingOperation.actionType,
+      targetId: pendingOperation.targetId,
+      operationDigest: pendingOperation.digest.value,
+      now,
+      hostKind: this.l3Authorization.hostKind,
+      ...(this.l3Authorization.clientId === undefined
+        ? {}
+        : { clientId: this.l3Authorization.clientId }),
+      ...(this.l3Authorization.sessionId === undefined
+        ? {}
+        : { sessionId: this.l3Authorization.sessionId })
+    });
+
+    if (!consumed.ok) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "L3 authorization grant did not authorize this operation",
+        {
+          pendingOperationId: pendingOperation.id,
+          grantId: input.grantId,
+          reason: consumed.code
+        }
+      );
+    }
+
+    const grant = consumed.grant;
+    const approver: Actor = {
+      id: grant.subjectId,
+      type: grant.source === "delegated_policy" ? "system" : "user",
+      displayName:
+        grant.source === "delegated_policy" ? "RouteLedger deterministic policy" : grant.subjectId
+    };
+    const artifact: ApprovalArtifact = {
+      id: approvalArtifactId,
+      projectId: input.projectId,
+      pendingOperationId: pendingOperation.id,
+      actionType: pendingOperation.actionType,
+      targetId: pendingOperation.targetId,
+      digest: pendingOperation.digest,
+      status: "approved",
+      approver,
+      decisionRef: grant.decisionId,
+      createdAt: now,
+      expiresAt: grant.expiresAt,
+      consumedAt: null,
+      authorizationGrantId: grant.id,
+      approvalSource: grant.source,
+      policyId: grant.policyId,
+      policyDigest: grant.policyDigest,
+      hostKind: grant.hostKind,
+      clientId: grant.clientId,
+      sessionId: grant.sessionId
+    };
+    const context = createDomainContext(this.deps, input.actor);
+    const events = createAuditEvents(
+      [
+        {
+          targetType: "approval_artifact",
+          targetId: artifact.id,
+          eventType: "approval_artifact.authorized",
+          toState: artifact.status,
+          metadata: {
+            pendingOperationId: pendingOperation.id,
+            authorizationGrantId: grant.id,
+            approvalSource: grant.source,
+            decisionRef: grant.decisionId,
+            policyId: grant.policyId,
+            policyDigest: grant.policyDigest,
+            hostKind: grant.hostKind,
+            clientId: grant.clientId,
+            sessionId: grant.sessionId,
+            consumedGrantUse: consumed.consumedUse,
+            expiresAt: artifact.expiresAt,
+            approverId: approver.id,
+            approverType: approver.type
+          }
+        }
+      ],
+      snapshot.project.id,
+      input.actor,
+      now,
+      context.operationId,
+      this.deps
+    );
+
+    const updatedSnapshot = applyApprovalArtifact(snapshot, artifact);
+    updatedSnapshot.events = updatedSnapshot.events.concat(events);
+    await this.saveProjectAggregate(updatedSnapshot);
+    await this.l3Authorization.grantStore.recordConsumptionReceipt({
+      ...buildAuthorizationReceiptBinding(artifact, this.l3Authorization),
+      consumedUse: consumed.consumedUse
+    });
     return artifact;
   }
 
@@ -4334,6 +4579,30 @@ export class RouteLedgerService {
 
     const artifact = requireApprovalArtifact(snapshot, input.approvalArtifactId);
 
+    if (this.l3Authorization !== undefined && artifact.authorizationGrantId === undefined) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "Legacy unconsumed approval artifacts must be reauthorized by the trusted control plane",
+        {
+          approvalArtifactId: artifact.id,
+          pendingOperationId: pendingOperation.id,
+          reason: "LEGACY_ARTIFACT_REAUTHORIZATION_REQUIRED"
+        }
+      );
+    }
+
+    if (artifact.projectId !== pendingOperation.projectId) {
+      throw new ApplicationError(
+        "APPROVAL_ARTIFACT_PROJECT_MISMATCH",
+        "approval artifact project 与 pending operation 不一致",
+        {
+          expectedProjectId: pendingOperation.projectId,
+          actualProjectId: artifact.projectId,
+          approvalArtifactId: artifact.id
+        }
+      );
+    }
+
     if (artifact.pendingOperationId !== pendingOperation.id) {
       throw new ApplicationError(
         "APPROVAL_ARTIFACT_PENDING_OPERATION_MISMATCH",
@@ -4419,6 +4688,24 @@ export class RouteLedgerService {
         {
           expectedDigest: pendingOperation.digest.value,
           actualDigest: artifact.digest.value
+        }
+      );
+    }
+
+    if (
+      this.l3Authorization !== undefined &&
+      !(await this.l3Authorization.grantStore.verifyConsumptionReceipt(
+        buildAuthorizationReceiptBinding(artifact, this.l3Authorization)
+      ))
+    ) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "The approval artifact has no matching trusted authorization receipt",
+        {
+          approvalArtifactId: artifact.id,
+          pendingOperationId: pendingOperation.id,
+          authorizationGrantId: artifact.authorizationGrantId,
+          reason: "AUTHORIZATION_RECEIPT_INVALID"
         }
       );
     }

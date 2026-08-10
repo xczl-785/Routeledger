@@ -1,5 +1,7 @@
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { MemoryL3AuthorizationGrantStore } from "../../core/src/index.js";
 import { MCP_PROTOCOL_VERSION, createSessionRebindFailureResponse, createRouteLedgerMcpRegistry } from "./index.js";
 const JSONRPC_VERSION = "2.0";
 const PARSE_ERROR = -32700;
@@ -389,31 +391,90 @@ const collectInitializeRoots = (params) => {
     return [...roots];
 };
 export const createRouteLedgerStdioServer = (options) => {
-    const buildRegistry = (registryOptions) => options.registryFactory?.(registryOptions) ?? createRouteLedgerMcpRegistry(registryOptions);
-    const initializeRegistry = buildRegistry({
-        ...options,
-        deferSessionRebind: true
-    });
-    let activeRegistry = initializeRegistry;
+    let nextOutboundRequestId = 1;
+    const pendingRequests = new Map();
+    const sendMessage = (message) => {
+        options.sendMessage?.(message);
+    };
+    const grantStore = options.l3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
+    const authorizationSessionId = options.l3Authorization?.sessionId ?? randomUUID();
     const state = {
         initializeCompleted: false,
         initializedNotificationReceived: false,
         clientSupportsRoots: false,
+        clientSupportsElicitation: false,
         initializeRoots: [],
         listedRoots: [],
         latestRootsListRequestId: null
     };
-    let nextOutboundRequestId = 1;
-    const pendingRequests = new Map();
+    const requestAuthorization = (request) => {
+        if (!state.clientSupportsElicitation) {
+            return Promise.reject(new Error("MCP client does not advertise the elicitation capability."));
+        }
+        const id = nextOutboundRequestId++;
+        return new Promise((resolve, reject) => {
+            pendingRequests.set(id, {
+                resolve: (response) => {
+                    if ("error" in response) {
+                        reject(new Error(response.error.message));
+                        return;
+                    }
+                    const result = response.result;
+                    if (!isObject(result) ||
+                        (result.action !== "accept" &&
+                            result.action !== "decline" &&
+                            result.action !== "cancel")) {
+                        reject(new Error("MCP elicitation response has an invalid action."));
+                        return;
+                    }
+                    resolve({
+                        action: result.action,
+                        content: isObject(result.content) ? result.content : null
+                    });
+                },
+                reject
+            });
+            sendMessage({
+                jsonrpc: JSONRPC_VERSION,
+                id,
+                method: "elicitation/create",
+                params: {
+                    mode: "form",
+                    message: request.message,
+                    requestedSchema: request.requestedSchema
+                }
+            });
+        });
+    };
+    const buildRegistry = (registryOptions) => options.registryFactory?.(registryOptions) ?? createRouteLedgerMcpRegistry(registryOptions);
+    const withAuthorization = (registryOptions) => ({
+        ...registryOptions,
+        l3Authorization: {
+            grantStore,
+            interaction: options.l3Authorization?.interaction ?? { requestAuthorization },
+            sessionId: authorizationSessionId,
+            ...(options.l3Authorization?.trustedClientId === undefined
+                ? {}
+                : { trustedClientId: options.l3Authorization.trustedClientId }),
+            ...(options.l3Authorization?.delegatedAuthority === undefined
+                ? {}
+                : { delegatedAuthority: options.l3Authorization.delegatedAuthority })
+        }
+    });
+    const initializeRegistry = buildRegistry(withAuthorization({
+        ...options,
+        deferSessionRebind: true
+    }));
+    let activeRegistry = initializeRegistry;
     const rebuildRegistry = () => {
         const effectiveRoots = state.initializeRoots.length > 0 ? state.initializeRoots : state.listedRoots;
         let nextRegistry;
         try {
-            nextRegistry = buildRegistry({
+            nextRegistry = buildRegistry(withAuthorization({
                 ...options,
                 mcpRoots: effectiveRoots,
                 deferSessionRebind: true
-            });
+            }));
         }
         catch (error) {
             return error instanceof Error ? error : new Error(String(error));
@@ -440,14 +501,14 @@ export const createRouteLedgerStdioServer = (options) => {
         // prevent the JSON-RPC response from being formed.
         let nextRegistry;
         try {
-            nextRegistry = buildRegistry({
+            nextRegistry = buildRegistry(withAuthorization({
                 ...options,
                 workspaceRoot: nextBinding.workspaceRoot,
                 workspaceRootSource: "explicit_arg",
                 routeledgerRoot: nextBinding.routeledgerRoot,
                 mcpRoots: undefined,
                 deferSessionRebind: true
-            });
+            }));
         }
         catch (error) {
             return {
@@ -482,9 +543,6 @@ export const createRouteLedgerStdioServer = (options) => {
             }
         }
         return activationResponse;
-    };
-    const sendMessage = (message) => {
-        options.sendMessage?.(message);
     };
     const requestRootsList = () => {
         if (!state.clientSupportsRoots) {
@@ -633,6 +691,7 @@ export const createRouteLedgerStdioServer = (options) => {
                         const previousInitializeRoots = state.initializeRoots;
                         state.initializeRoots = initializeRoots;
                         state.clientSupportsRoots = isObject(params.capabilities.roots);
+                        state.clientSupportsElicitation = isObject(params.capabilities.elicitation);
                         const rebuildError = rebuildRegistry();
                         if (rebuildError !== null) {
                             state.initializeRoots = previousInitializeRoots;
@@ -725,6 +784,13 @@ export const runRouteLedgerStdioServer = async (options) => {
         input: options.input,
         crlfDelay: Infinity
     });
+    let inboundRequestChain = Promise.resolve();
+    const dispatchAndWrite = async (parsed) => {
+        const response = await server.handleMessage(parsed);
+        if (response !== null) {
+            writeJsonRpcMessage(options.output, response);
+        }
+    };
     try {
         for await (const line of readline) {
             if (line.trim().length === 0) {
@@ -741,14 +807,24 @@ export const runRouteLedgerStdioServer = async (options) => {
                 }
                 continue;
             }
-            const response = await server.handleMessage(parsed);
-            if (response !== null) {
-                writeJsonRpcMessage(options.output, response);
+            const isClientResponse = isObject(parsed) &&
+                !("method" in parsed) &&
+                "id" in parsed &&
+                ("result" in parsed || "error" in parsed);
+            if (isClientResponse) {
+                // A tool call may be suspended waiting for elicitation/create. Responses
+                // must bypass the ordinary request queue so they can resume that call.
+                await dispatchAndWrite(parsed);
+            }
+            else {
+                inboundRequestChain = inboundRequestChain.then(() => dispatchAndWrite(parsed));
             }
             if (options.once) {
+                await inboundRequestChain;
                 break;
             }
         }
+        await inboundRequestChain;
     }
     catch (error) {
         if (options.errorOutput !== undefined) {

@@ -26,9 +26,17 @@ send Roots/rootUri; in that case `process cwd` may be the plugin cache and is
 not a project identity. Call `activate_routeledger_binding` with the host
 project's absolute `workspaceRoot` (and optional in-workspace
 `routeledgerRoot`) through the host's available approval workflow. The
-activation is scoped to the running MCP session. Approval metadata is a host
-hint, not a prompt the MCP server can force or a substitute for binding/L3
-safeguards. Activation may create or normalize only the binding
+activation is scoped to the running MCP session. Approval metadata remains a
+host hint, while L3 approval itself uses MCP structured elicitation or a
+trusted host-injected grant and fails closed when neither is available. The
+canonical artifact is not authority by itself; commit also requires its
+matching host-owned consumption receipt. The default in-process store requires
+reauthorization after an MCP process restart; continuity requires persistent
+trusted storage outside Agent write scope. The
+0.5.0 plugin does not yet claim a complete three-tier normal Agent-turn
+approval experience; its Codex evidence covers the authorization kernel and
+native elicitation transport.
+Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.
 

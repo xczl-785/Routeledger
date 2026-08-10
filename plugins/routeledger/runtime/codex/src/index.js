@@ -36,6 +36,7 @@ export const AUTO_APPROVAL_TOOLS = [
     "check_start_gate",
     "check_close_gate",
     "list_l3_proposals",
+    "recommend_l3_authorization_policy",
     "get_l3_proposal",
     "open_mission_control",
     "get_mission_control_status",

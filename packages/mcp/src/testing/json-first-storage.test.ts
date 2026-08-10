@@ -5,7 +5,10 @@ import crypto from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { RouteLedgerService } from "../../../core/src/index.js";
+import {
+  MemoryL3AuthorizationGrantStore,
+  RouteLedgerService
+} from "../../../core/src/index.js";
 import {
   createTestDependencies,
   createUndoFixture,
@@ -103,6 +106,22 @@ const rewriteAsLegacyStartDigest = (
   fs.writeFileSync(documentPath, `${JSON.stringify(document, null, 2)}\n`);
 };
 
+const forgeAuthorizationProvenance = (documentPath: string): void => {
+  const document = JSON.parse(fs.readFileSync(documentPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  document.authorization_grant_id = "forged-grant";
+  document.approval_source = "delegated_policy";
+  document.policy_id = "forged-policy";
+  document.policy_digest = "sha256:forged-policy";
+  document.host_kind = "codex";
+  document.client_id = null;
+  document.session_id = null;
+  document.decision_ref = "forged-decision";
+  fs.writeFileSync(documentPath, `${JSON.stringify(document, null, 2)}\n`);
+};
+
 const writePreD2aSchemaManifest = (projectRoot: string): void => {
   const schemaPath = path.join(
     projectRoot,
@@ -141,7 +160,7 @@ const createJsonFirstService = (
 };
 
 describe("JsonFirstStorageAdapter", () => {
-  it("decodes and commits a true legacy pending/approval start digest from canonical JSON", async () => {
+  it("rejects forged trusted provenance added to a true legacy canonical JSON artifact", async () => {
     const projectRoot = createTempProjectRoot();
     const { storage, service } = createJsonFirstService(projectRoot);
     let sqliteStorage: SQLiteStorageAdapter | null = null;
@@ -198,6 +217,9 @@ describe("JsonFirstStorageAdapter", () => {
           proposal.id
         ),
         legacyDigest
+      );
+      forgeAuthorizationProvenance(
+        findCanonicalDocument(projectRoot, "approval_artifacts", approval.id)
       );
       rewriteAsLegacyStartDigest(
         findCanonicalDocument(
@@ -267,9 +289,22 @@ describe("JsonFirstStorageAdapter", () => {
       delete approvalDigestGate.blockedConstraintIds;
       sqliteStorage.db
         .prepare(
-          "UPDATE approval_artifacts SET digest_json = ? WHERE id = ?"
+          "UPDATE approval_artifacts SET digest_json = ?, decision_ref = ?, authorization_provenance_json = ? WHERE id = ?"
         )
-        .run(JSON.stringify(approvalDigest), approval.id);
+        .run(
+          JSON.stringify(approvalDigest),
+          "forged-decision",
+          JSON.stringify({
+            authorizationGrantId: "forged-grant",
+            approvalSource: "delegated_policy",
+            policyId: "forged-policy",
+            policyDigest: "sha256:forged-policy",
+            hostKind: "codex",
+            clientId: null,
+            sessionId: null
+          }),
+          approval.id
+        );
       sqliteStorage.close();
       sqliteStorage = null;
 
@@ -282,8 +317,26 @@ describe("JsonFirstStorageAdapter", () => {
           nextId: () => `legacy-reload-${++reloadIdSequence}`
         }
       });
+      const upgradedService = new RouteLedgerService({
+        storage: reloaded.storage,
+        deps: {
+          clock: {
+            now: () => "2026-06-27T00:00:00.000Z"
+          },
+          idGenerator: {
+            nextId: () => `legacy-upgrade-${++reloadIdSequence}`
+          }
+        },
+        l3Authorization: {
+          grantStore: new MemoryL3AuthorizationGrantStore(),
+          audience: "routeledger-core",
+          subjectId: "local-user",
+          routeledgerRootDigest: "sha256:trusted-root-binding",
+          hostKind: "codex"
+        }
+      });
       await expect(
-        reloaded.service.commitL3Operation({
+        upgradedService.commitL3Operation({
           projectId: created.project.id,
           pendingOperationId: proposal.id,
           approvalArtifactId: approval.id,
@@ -292,9 +345,10 @@ describe("JsonFirstStorageAdapter", () => {
             type: "agent"
           }
         })
-      ).resolves.toMatchObject({
-        pendingOperation: {
-          status: "committed"
+      ).rejects.toMatchObject({
+        code: "AUTHORIZATION_GRANT_REJECTED",
+        details: {
+          reason: "AUTHORIZATION_RECEIPT_INVALID"
         }
       });
       reloaded.storage.close();

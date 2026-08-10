@@ -227,6 +227,14 @@ export interface ApprovalArtifact {
   createdAt: string;
   expiresAt: string;
   consumedAt: string | null;
+  /** Absent only on legacy artifacts created before the trusted authorization control plane. */
+  authorizationGrantId?: string;
+  approvalSource?: "user_interaction" | "delegated_policy" | "preauthorized";
+  policyId?: string | null;
+  policyDigest?: string | null;
+  hostKind?: string;
+  clientId?: string | null;
+  sessionId?: string | null;
 }
 
 export type CurrentContextRiskSeverity = "info" | "warning" | "blocking";

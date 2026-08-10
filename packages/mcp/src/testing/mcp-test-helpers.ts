@@ -29,7 +29,10 @@ import {
   resolveDefaultRouteLedgerDataDir,
   resolveWorkspaceConfigSync
 } from "../workspace-config.js";
-import { RouteLedgerService } from "../../../core/src/index.js";
+import {
+  MemoryL3AuthorizationGrantStore,
+  RouteLedgerService
+} from "../../../core/src/index.js";
 import { createTestDependencies } from "../../../core/src/testing/builders.js";
 
 export type ToolListResult = {
@@ -52,6 +55,16 @@ export type ToolListResult = {
       };
     }>;
   };
+};
+
+const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
+
+const getTrustedGrantStore = (projectRoot: string): MemoryL3AuthorizationGrantStore => {
+  const existing = trustedGrantStores.get(projectRoot);
+  if (existing !== undefined) return existing;
+  const created = new MemoryL3AuthorizationGrantStore();
+  trustedGrantStores.set(projectRoot, created);
+  return created;
 };
 
 export const WRITE_TOOL_NAMES = new Set([
@@ -125,7 +138,21 @@ export const resolveTestRouteLedgerRoot = (
 
 export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) => {
   const routeledgerRoot = options.routeledgerRoot;
-  const registry = createRouteLedgerMcpRegistry(options);
+  const registry = createRouteLedgerMcpRegistry({
+    ...options,
+    l3Authorization:
+      options.l3Authorization ?? {
+        grantStore: new MemoryL3AuthorizationGrantStore(),
+        interaction: {
+          requestAuthorization: async () => ({
+            action: "accept" as const,
+            content: { approve: true, scope: "operation" }
+          })
+        },
+        sessionId: "vitest-session",
+        trustedClientId: "vitest"
+      }
+  });
   const originalInvoke = registry.invoke.bind(registry);
 
   return {
@@ -177,6 +204,17 @@ export const createRegistry = (
   const registry = createBindingRegistry({
     workspaceRoot: projectRoot,
     routeledgerRoot: projectRoot,
+    l3Authorization: {
+      grantStore: getTrustedGrantStore(projectRoot),
+      interaction: {
+        requestAuthorization: async () => ({
+          action: "accept" as const,
+          content: { approve: true, scope: "operation" as const }
+        })
+      },
+      sessionId: "vitest-session",
+      trustedClientId: "vitest"
+    },
     ...extraOptions
   });
 
@@ -214,6 +252,17 @@ export const createServer = (
     createRouteLedgerStdioServer({
       workspaceRoot: projectRoot,
       routeledgerRoot: projectRoot,
+      l3Authorization: {
+        grantStore: new MemoryL3AuthorizationGrantStore(),
+        interaction: {
+          requestAuthorization: async () => ({
+            action: "accept" as const,
+            content: { approve: true, scope: "operation" }
+          })
+        },
+        sessionId: "vitest-session",
+        trustedClientId: "vitest"
+      },
       ...extraOptions
     }),
     {
@@ -243,6 +292,7 @@ export const createCapturedServer = (
 };
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
+  trustedGrantStores.delete(projectRoot);
   fs.rmSync(projectRoot, {
     recursive: true,
     force: true,
