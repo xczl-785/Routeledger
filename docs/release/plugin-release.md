@@ -42,10 +42,12 @@ marketplace identity, and deterministic distribution hashes.
    pnpm smoke:codex-host-plugin
    ```
 
-   This check uses an ephemeral, read-only `codex exec` task and verifies both
-   native MCP tool exposure and the loaded plugin version. It intentionally is
-   not part of credential-free CI. Directly launching the bundled stdio runtime
-   does not satisfy this gate because it bypasses host plugin activation.
+   This check uses an ephemeral, read-only `codex exec` task and verifies native
+   MCP tool exposure, the loaded plugin version, and the runtime payload digest
+   from candidate `release.json`. The separate plugin/marketplace release checks
+   retain responsibility for the full distribution digest. This host check is
+   intentionally not part of credential-free CI. Directly launching the bundled
+   stdio runtime does not satisfy this gate because it bypasses host activation.
 
 ## Tag contract
 

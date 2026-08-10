@@ -89,8 +89,10 @@ detached-proof model.
   marketplace paths without changing a user profile.
 - `scripts/smoke-codex-host-plugin.mjs` starts one fresh, ephemeral Codex task
   against the installed candidate and fails unless the host natively calls
-  `get_runtime_context` on the expected plugin version. It is a credentialed
-  pre-release gate, not a credential-free CI check.
+  `get_runtime_context` on the expected plugin version and exact runtime payload
+  digest. Full plugin-distribution bytes remain covered by the separate
+  marketplace/release checks. It is a credentialed pre-release gate, not a
+  credential-free CI check.
 
 ## Uncertainties
 

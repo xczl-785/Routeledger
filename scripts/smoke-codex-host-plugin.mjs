@@ -14,7 +14,14 @@ const pluginManifestPath = path.join(
   ".codex-plugin",
   "plugin.json"
 );
+const releaseMetadataPath = path.join(repositoryRoot, "plugins", "routeledger", "release.json");
 const expectedVersion = JSON.parse(fs.readFileSync(pluginManifestPath, "utf8")).version;
+const releaseMetadata = JSON.parse(fs.readFileSync(releaseMetadataPath, "utf8"));
+const expectedRuntimePayloadDigest = releaseMetadata.runtimeIdentity?.runtimePayloadDigest;
+
+if (typeof expectedRuntimePayloadDigest !== "string") {
+  throw new Error("Candidate release metadata has no runtimePayloadDigest.");
+}
 const prompt = [
   "RouteLedger host release acceptance probe.",
   "Call the RouteLedger MCP tool get_runtime_context exactly once.",
@@ -77,6 +84,7 @@ if (call.status !== "completed" || call.error !== null) {
 
 const structured = call.result?.structured_content ?? call.result?.structuredContent;
 const actualVersion = structured?.data?.runtimeIdentity?.pluginVersion;
+const actualRuntimePayloadDigest = structured?.data?.runtimeIdentity?.runtimePayloadDigest;
 
 if (structured?.ok !== true) {
   throw new Error("RouteLedger host call returned no successful structured result.");
@@ -88,6 +96,12 @@ if (actualVersion !== expectedVersion) {
   );
 }
 
+if (actualRuntimePayloadDigest !== expectedRuntimePayloadDigest) {
+  throw new Error(
+    `Codex host loaded runtime payload ${String(actualRuntimePayloadDigest)}, expected exact candidate ${expectedRuntimePayloadDigest}.`
+  );
+}
+
 console.log(
-  `Codex host plugin smoke passed: a fresh task called native get_runtime_context on RouteLedger ${actualVersion}.`
+  `Codex host plugin smoke passed: a fresh task called native get_runtime_context on the exact RouteLedger ${actualVersion} runtime payload.`
 );
