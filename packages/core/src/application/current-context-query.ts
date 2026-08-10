@@ -136,6 +136,7 @@ type DerivedCurrentContextData = {
   versions: ContextVersionSummary[];
   versionWindow: VersionWindowSummary;
   openTodos: ContextOpenTodoSummary[];
+  currentTodos: ContextOpenTodoSummary[];
   openUndos: ContextOpenUndoSummary[];
   deferred: ContextDeferredSummary[];
   constraints: ContextConstraintSummary[];
@@ -588,6 +589,20 @@ const buildNextAction = (options: {
     };
   }
 
+  if (currentVersion?.state === "running" && currentVersionOpenTodos.length > 0) {
+    const todo = currentVersionOpenTodos[0]!;
+
+    return {
+      actionType: "work_todo",
+      summary: "继续处理当前 version 的 open todo。",
+      reason: `todo ${todo.id} 是当前 version 按稳定顺序返回的首个开放工作项；该顺序用于确定性导航，不代表业务优先级。`,
+      targetId: todo.id,
+      requiresL3Approval: false,
+      recordIds: currentVersionOpenTodos.map((item) => item.id),
+      blockingRiskCodes
+    };
+  }
+
   if (currentVersion?.state === "complete" && currentVersionOpenTodos.length > 0) {
     const todo = currentVersionOpenTodos[0]!;
 
@@ -964,7 +979,7 @@ export const buildDerivedCurrentContextData = (
             }))
         );
   const closeGate =
-    currentVersion === null
+    currentVersion === null || currentVersion.state === "close"
       ? null
       : {
           ...evaluateCloseGate({
@@ -1026,6 +1041,7 @@ export const buildDerivedCurrentContextData = (
     versions: versionWindow.versions,
     versionWindow: versionWindow.summary,
     openTodos,
+    currentTodos: currentVersionOpenTodos,
     openUndos,
     deferred,
     constraints,
@@ -1098,6 +1114,10 @@ export const buildCurrentContextResult = (
   delete data.versionWindow;
   data.todos = baseContext.openTodos;
   delete data.openTodos;
+  data.todoScopes = {
+    todos: "all_open_route",
+    currentTodos: "current_version_open"
+  };
   delete data.openUndos;
   data.gates = {
     start: sanitizeLegacyGateDetails(baseContext.gates.start),
@@ -1115,6 +1135,13 @@ export const buildCurrentContextResult = (
     }
 
     data.todos = baseContext.openTodos.map((todo) => ({
+      id: todo.id,
+      versionId: todo.versionId,
+      title: todo.title,
+      status: todo.status,
+      updatedAt: todo.updatedAt
+    }));
+    data.currentTodos = baseContext.currentTodos.map((todo) => ({
       id: todo.id,
       versionId: todo.versionId,
       title: todo.title,
@@ -1166,6 +1193,7 @@ export const buildCurrentContextResult = (
     }));
     truncatedFields.push(
       "todos.description",
+      "currentTodos.description",
       "deferred.description",
       "constraints.rationale",
       "pendingL3Proposals.reason"
@@ -1178,6 +1206,7 @@ export const buildCurrentContextResult = (
   if (estimateBytes(data) > budgetBytes) {
     const maxItems = 3;
     const todosArray = data.todos as unknown[];
+    const currentTodosArray = data.currentTodos as unknown[];
     const deferredArray = data.deferred as unknown[];
     const dueDeferredArray = data.dueDeferred as unknown[];
     const constraintsArray = data.constraints as unknown[];
@@ -1187,6 +1216,11 @@ export const buildCurrentContextResult = (
     if (todosArray.length > maxItems) {
       omittedCounts.todos = todosArray.length - maxItems;
       data.todos = todosArray.slice(0, maxItems);
+    }
+
+    if (currentTodosArray.length > maxItems) {
+      omittedCounts.currentTodos = currentTodosArray.length - maxItems;
+      data.currentTodos = currentTodosArray.slice(0, maxItems);
     }
 
     if (deferredArray.length > maxItems) {
@@ -1250,6 +1284,11 @@ export const buildNextActionResult = (
       currentVersion: context.currentVersion,
       nextVersion: context.nextVersion,
       todos: context.openTodos,
+      currentTodos: context.currentTodos,
+      todoScopes: {
+        todos: "all_open_route",
+        currentTodos: "current_version_open"
+      },
       deferred: context.deferred,
       constraints: context.constraints,
       dueDeferred: context.dueDeferred,

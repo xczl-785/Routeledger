@@ -35,6 +35,18 @@ The previous-ref check rejects a changed distribution under unchanged SemVer
 and rejects a version regression. `release.json` must match the manifest,
 marketplace identity, and deterministic distribution hashes.
 
+6. After installing the exact candidate into the active Codex home, start a
+   fresh host task and require one native `get_runtime_context` call:
+
+   ```bash
+   pnpm smoke:codex-host-plugin
+   ```
+
+   This check uses an ephemeral, read-only `codex exec` task and verifies both
+   native MCP tool exposure and the loaded plugin version. It intentionally is
+   not part of credential-free CI. Directly launching the bundled stdio runtime
+   does not satisfy this gate because it bypasses host plugin activation.
+
 ## Tag contract
 
 For a normal release, the tag is exactly:
@@ -83,7 +95,8 @@ distribution or compliance requirement explicitly needs one.
 
 Use a clean Codex home and the canonical repository URL to add the marketplace,
 install `routeledger@routeledger-team`, run an MCP initialization and binding
-smoke, then remove it. The published 0.4.1 path passed branch install, upgrade,
+smoke, verify native host exposure with `pnpm smoke:codex-host-plugin`, then
+remove it. The published 0.4.1 path passed branch install, upgrade,
 tag-based reinstall, release-hash verification, Apache-2.0
 distribution checks, and the JSON-only runtime workflow. The
 repository's hermetic Git marketplace smoke covers the equivalent mechanics

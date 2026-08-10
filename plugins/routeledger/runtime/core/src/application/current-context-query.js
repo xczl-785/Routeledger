@@ -311,6 +311,18 @@ const buildNextAction = (options) => {
             blockingRiskCodes: ["CURRENT_VERSION_SHUTDOWN", ...blockingRiskCodes]
         };
     }
+    if (currentVersion?.state === "running" && currentVersionOpenTodos.length > 0) {
+        const todo = currentVersionOpenTodos[0];
+        return {
+            actionType: "work_todo",
+            summary: "继续处理当前 version 的 open todo。",
+            reason: `todo ${todo.id} 是当前 version 按稳定顺序返回的首个开放工作项；该顺序用于确定性导航，不代表业务优先级。`,
+            targetId: todo.id,
+            requiresL3Approval: false,
+            recordIds: currentVersionOpenTodos.map((item) => item.id),
+            blockingRiskCodes
+        };
+    }
     if (currentVersion?.state === "complete" && currentVersionOpenTodos.length > 0) {
         const todo = currentVersionOpenTodos[0];
         return {
@@ -610,7 +622,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
             residualAudit: operation.payload.residualAudit,
             residualAuditReviewed: operation.payload.residualAuditReviewed
         })));
-    const closeGate = currentVersion === null
+    const closeGate = currentVersion === null || currentVersion.state === "close"
         ? null
         : {
             ...evaluateCloseGate({
@@ -666,6 +678,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
         versions: versionWindow.versions,
         versionWindow: versionWindow.summary,
         openTodos,
+        currentTodos: currentVersionOpenTodos,
         openUndos,
         deferred,
         constraints,
@@ -728,6 +741,10 @@ export const buildCurrentContextResult = (snapshot, input) => {
     delete data.versionWindow;
     data.todos = baseContext.openTodos;
     delete data.openTodos;
+    data.todoScopes = {
+        todos: "all_open_route",
+        currentTodos: "current_version_open"
+    };
     delete data.openUndos;
     data.gates = {
         start: sanitizeLegacyGateDetails(baseContext.gates.start),
@@ -743,6 +760,13 @@ export const buildCurrentContextResult = (snapshot, input) => {
             truncatedFields.push("currentVersion.description");
         }
         data.todos = baseContext.openTodos.map((todo) => ({
+            id: todo.id,
+            versionId: todo.versionId,
+            title: todo.title,
+            status: todo.status,
+            updatedAt: todo.updatedAt
+        }));
+        data.currentTodos = baseContext.currentTodos.map((todo) => ({
             id: todo.id,
             versionId: todo.versionId,
             title: todo.title,
@@ -792,7 +816,7 @@ export const buildCurrentContextResult = (snapshot, input) => {
             createdAt: proposal.createdAt,
             gate: proposal.gate
         }));
-        truncatedFields.push("todos.description", "deferred.description", "constraints.rationale", "pendingL3Proposals.reason");
+        truncatedFields.push("todos.description", "currentTodos.description", "deferred.description", "constraints.rationale", "pendingL3Proposals.reason");
         if (input.includeLegacyUndo === true) {
             truncatedFields.push("legacyUndo.description");
         }
@@ -800,6 +824,7 @@ export const buildCurrentContextResult = (snapshot, input) => {
     if (estimateBytes(data) > budgetBytes) {
         const maxItems = 3;
         const todosArray = data.todos;
+        const currentTodosArray = data.currentTodos;
         const deferredArray = data.deferred;
         const dueDeferredArray = data.dueDeferred;
         const constraintsArray = data.constraints;
@@ -808,6 +833,10 @@ export const buildCurrentContextResult = (snapshot, input) => {
         if (todosArray.length > maxItems) {
             omittedCounts.todos = todosArray.length - maxItems;
             data.todos = todosArray.slice(0, maxItems);
+        }
+        if (currentTodosArray.length > maxItems) {
+            omittedCounts.currentTodos = currentTodosArray.length - maxItems;
+            data.currentTodos = currentTodosArray.slice(0, maxItems);
         }
         if (deferredArray.length > maxItems) {
             omittedCounts.deferred = deferredArray.length - maxItems;
@@ -858,6 +887,11 @@ export const buildNextActionResult = (snapshot, input) => {
             currentVersion: context.currentVersion,
             nextVersion: context.nextVersion,
             todos: context.openTodos,
+            currentTodos: context.currentTodos,
+            todoScopes: {
+                todos: "all_open_route",
+                currentTodos: "current_version_open"
+            },
             deferred: context.deferred,
             constraints: context.constraints,
             dueDeferred: context.dueDeferred,

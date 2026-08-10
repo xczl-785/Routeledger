@@ -25,7 +25,7 @@ Host approval metadata is an operator-flow hint, not a server-enforced prompt or
 
 ### Day-to-day work
 
-Read current work with `get_current_context` or `next_action`. Create/close Todo for current work. Use `defer_work` when work belongs in a future review version, and `review_deferred` to activate, defer again, or resolve that item. Record persistent rules as Constraints and retire them only when their audit rationale is complete.
+Read current work with `get_current_context` or `next_action`. In `get_current_context`, use `currentTodos` for the active Version; the legacy-compatible `todos` field contains all open route Todos and declares that scope under `todoScopes`. Create/close Todo for current work. Use `defer_work` when work belongs in a future review version, and `review_deferred` to activate, defer again, or resolve that item. Record persistent rules as Constraints and retire them only when their audit rationale is complete.
 
 ### Version progress
 

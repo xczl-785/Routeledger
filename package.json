@@ -18,6 +18,7 @@
     "smoke:mcp-package-profiles": "pnpm --filter @routeledger/mcp run package:profiles-smoke",
     "build:codex-plugin": "node ./scripts/build-codex-plugin.mjs",
     "smoke:codex-plugin": "node ./scripts/smoke-codex-plugin.mjs",
+    "smoke:codex-host-plugin": "node ./scripts/smoke-codex-host-plugin.mjs",
     "check:codex-plugin-release": "node ./scripts/check-codex-plugin-release.mjs",
     "attest:codex-plugin": "node ./scripts/create-codex-plugin-attestation.mjs",
     "smoke:codex-git-marketplace": "node ./scripts/smoke-codex-git-marketplace.mjs",

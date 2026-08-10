@@ -160,6 +160,10 @@ const ZH_NEXT_ACTIONS = {
         summary: "启动目标 Version。",
         reason: "目标 Version 已准备完成并通过 start gate。"
     },
+    work_todo: {
+        summary: "继续处理当前 Version 的开放 Todo。",
+        reason: "目标是按稳定顺序返回的当前工作项；该顺序不代表业务优先级。"
+    },
     none: {
         summary: "当前没有明确的单一步骤建议。",
         reason: "请结合完整上下文进一步判断。"
@@ -205,6 +209,10 @@ const EN_NEXT_ACTIONS = {
     start_version: {
         summary: "Start the target Version.",
         reason: "The target Version is ready and its start gate passes."
+    },
+    work_todo: {
+        summary: "Continue the current Version's open Todo.",
+        reason: "The target is the deterministically ordered current work item; this order is not a business priority."
     },
     none: {
         summary: "There is no single clear next action.",

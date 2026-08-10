@@ -1675,6 +1675,32 @@ describe("routeledger mcp registry", () => {
         approvalArtifactId: startApproval.id
       });
 
+      const runningTodo = getStructuredData<{ todo: { id: string } }>(
+        await callTool(server, "create-running-todo", "create_todo", {
+          projectId: initData.project.id,
+          versionId: initData.firstVersion!.id,
+          title: "execute current work"
+        })
+      ).todo;
+      const runningContext = getStructuredData<{
+        currentTodos: Array<{ id: string }>;
+        todoScopes: { todos: string; currentTodos: string };
+        nextAction: { actionType: string; targetId: string | null };
+      }>(
+        await callTool(server, "running-context", "get_current_context", {
+          projectId: initData.project.id
+        })
+      );
+
+      expect(runningContext).toMatchObject({
+        currentTodos: [{ id: runningTodo.id }],
+        todoScopes: {
+          todos: "all_open_route",
+          currentTodos: "current_version_open"
+        },
+        nextAction: { actionType: "work_todo", targetId: runningTodo.id }
+      });
+
       const runningGuide = getStructuredData<{
         status: string;
         recommendedSteps: unknown[];
@@ -1685,6 +1711,13 @@ describe("routeledger mcp registry", () => {
         })
       );
       expect(runningGuide).toMatchObject({ status: "noop", recommendedSteps: [] });
+
+      await callTool(server, "close-running-todo", "close_todo", {
+        projectId: initData.project.id,
+        todoId: runningTodo.id,
+        reason: "completed",
+        note: "covered by lifecycle regression"
+      });
 
       await callTool(server, "complete-current", "mark_version_complete", {
         projectId: initData.project.id,
@@ -1739,6 +1772,19 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id,
         pendingOperationId: closeProposal.pendingOperationId,
         approvalArtifactId: closeApproval.id
+      });
+
+      const closedContext = getStructuredData<{
+        currentVersion: { state: string };
+        gates: { close: unknown };
+      }>(
+        await callTool(server, "context-after-close", "get_current_context", {
+          projectId: initData.project.id
+        })
+      );
+      expect(closedContext).toMatchObject({
+        currentVersion: { state: "close" },
+        gates: { close: null }
       });
 
       const closedGuide = getStructuredData<{

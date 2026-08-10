@@ -297,6 +297,126 @@ describe("route ledger service", () => {
     });
   });
 
+  it("running current version recommends deterministic current Todo and scopes route Todos", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const currentVersion = createVersionFixture({
+      id: "version-running",
+      title: "V1.0",
+      state: "running",
+      isCurrent: true,
+      order: 1,
+      nextVersionId: "version-future"
+    });
+    const futureVersion = createVersionFixture({
+      id: "version-future",
+      title: "V2.0",
+      state: "wait",
+      isCurrent: false,
+      order: 2,
+      previousVersionId: currentVersion.id
+    });
+    const currentTodo = createTodoFixture({
+      id: "todo-current",
+      versionId: currentVersion.id,
+      title: "Implement current slice",
+      status: "wait"
+    });
+    const futureTodo = createTodoFixture({
+      id: "todo-future",
+      versionId: futureVersion.id,
+      title: "Implement future slice",
+      status: "wait"
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({
+        id: "project-1",
+        currentVersionId: currentVersion.id
+      }),
+      versions: [currentVersion, futureVersion],
+      workItems: [],
+      todos: [currentTodo, futureTodo],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const context = await service.getCurrentContext({ projectId: "project-1" });
+    const nextAction = await service.getNextAction({ projectId: "project-1" });
+
+    expect(context.data).toMatchObject({
+      currentTodos: [{ id: currentTodo.id, versionId: currentVersion.id }],
+      todos: [
+        { id: currentTodo.id, versionId: currentVersion.id },
+        { id: futureTodo.id, versionId: futureVersion.id }
+      ],
+      todoScopes: {
+        todos: "all_open_route",
+        currentTodos: "current_version_open"
+      },
+      nextAction: {
+        actionType: "work_todo",
+        targetId: currentTodo.id,
+        recordIds: [currentTodo.id]
+      }
+    });
+    expect(nextAction.data).toMatchObject({
+      currentTodos: [{ id: currentTodo.id }],
+      nextAction: {
+        actionType: "work_todo",
+        targetId: currentTodo.id
+      }
+    });
+  });
+
+  it("closed current version does not expose a pre-close gate", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const currentVersion = createVersionFixture({
+      id: "version-closed",
+      title: "V1.0",
+      state: "close",
+      isCurrent: true,
+      order: 1,
+      closedAt: "2026-08-10T00:00:00.000Z"
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({
+        id: "project-1",
+        currentVersionId: currentVersion.id
+      }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const context = await service.getCurrentContext({ projectId: "project-1" });
+
+    expect(context.data).toMatchObject({
+      currentVersion: { id: currentVersion.id, state: "close" },
+      gates: { close: null }
+    });
+  });
+
   it("current ready version with an allowed start gate recommends start_version", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
