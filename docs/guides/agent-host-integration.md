@@ -143,7 +143,12 @@ install authority, and project files cannot point the runtime to an authority.
 
 The state file atomically persists policy-use budgets, reserved and issued
 grants, exact consumption receipts, expiry, exhaustion, and revocation. MCP
-process reconstruction reloads that state. Rotating the installed policy
+restart recovers an exact reserved or issued operation grant before charging
+the matching policy budget again. This closes the interruption window between
+the delegated authority decision and grant issuance. A consumed authorization
+can only reconstruct the original pending operation; a second pending operation
+cannot reuse the receipt even when its action payload has the same digest.
+Process reconstruction reloads that state. Rotating the installed policy
 digest revokes outstanding delegated grants from the previous policy. A
 trusted receipt is created in the same state transaction that consumes a
 grant; if the subsequent canonical project save fails, retry reconstructs the

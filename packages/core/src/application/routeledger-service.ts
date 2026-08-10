@@ -4383,6 +4383,7 @@ export class RouteLedgerService {
     const consumed = await authorization.grantStore.consumeAndRecordReceipt(
       input.grantId,
       authorizationContext,
+      pendingOperation.id,
       (consumption) => {
         const grant = consumption.grant;
         const approver: Actor = {

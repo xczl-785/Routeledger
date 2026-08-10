@@ -15,7 +15,7 @@ import {
   loadLocalL3AuthorityRuntime,
   type LocalL3AuthorityConfig
 } from "../local-l3-authorization.js";
-import { MCP_PROTOCOL_VERSION } from "../index.js";
+import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry } from "../index.js";
 import { runRouteLedgerStdioServer } from "../stdio-server.js";
 import { createRegistry } from "./mcp-test-helpers.js";
 
@@ -169,6 +169,7 @@ describe("local L3 authorization runtime", () => {
     const consumed = await runtime.grantStore.consumeAndRecordReceipt(
       decision.grant.id,
       grantContext,
+      "pending-1",
       (consumption) => ({ ...binding, consumedUse: consumption.consumedUse })
     );
     expect(consumed).toMatchObject({ ok: true, consumedUse: 1, receipt: binding });
@@ -213,6 +214,44 @@ describe("local L3 authorization runtime", () => {
     expect(results.find((result) => result.effect === "deny")).toMatchObject({
       code: "POLICY_BUDGET_EXHAUSTED"
     });
+  });
+
+  it("recovers the same reserved grant after restart without consuming the policy budget twice", async () => {
+    const fixture = await createFixture(1);
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const first = await runtime.authority.requestGrant({
+      authorityHandle: runtime.authority.authorityHandle,
+      proposal: {} as never,
+      context: evaluationContext("reserved-restart")
+    });
+    if (first.effect !== "allow") throw new Error("expected delegated grant");
+
+    const restarted = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const recovered = await restarted.authority.requestGrant({
+      authorityHandle: restarted.authority.authorityHandle,
+      proposal: {} as never,
+      context: evaluationContext("reserved-restart")
+    });
+    expect(recovered).toMatchObject({ effect: "allow", grant: { id: first.grant.id } });
+    await expect(
+      restarted.authority.requestGrant({
+        authorityHandle: restarted.authority.authorityHandle,
+        proposal: {} as never,
+        context: evaluationContext("different-operation")
+      })
+    ).resolves.toMatchObject({ effect: "deny", code: "POLICY_BUDGET_EXHAUSTED" });
   });
 
   it("revokes outstanding delegated grants when the trusted policy rotates", async () => {
@@ -365,6 +404,63 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
+    let failCanonicalSave = true;
+    const interruptedRegistry = createRouteLedgerMcpRegistry({
+      workspaceRoot,
+      routeledgerRoot: workspaceRoot,
+      sqliteReadModel: "disabled",
+      hostProfile: "generic",
+      runtimeProfile: "json-only",
+      storageTestHooks: {
+        afterWriteLockAcquired: () => {
+          if (failCanonicalSave) {
+            failCanonicalSave = false;
+            throw new Error("injected post-receipt canonical save interruption");
+          }
+        }
+      },
+      l3Authorization: {
+        grantStore: runtime.grantStore,
+        delegatedAuthority: runtime.authority,
+        interaction: {
+          requestAuthorization: async () => {
+            throw new Error("host prompt must not be used");
+          }
+        },
+        sessionId: "interrupted-session"
+      }
+    });
+    const interrupted = await interruptedRegistry.invoke("approve_l3_operation", {
+      projectId,
+      pendingOperationId,
+      expectedRouteLedgerRoot: workspaceRoot
+    });
+    expect(interrupted.ok).toBe(false);
+    interruptedRegistry.close();
+
+    const abandonedLockMetadataPath = path.join(
+      workspaceRoot,
+      ".routeledger",
+      ".write-lock",
+      "metadata.json"
+    );
+    const abandonedLockMetadata = JSON.parse(
+      await fs.readFile(abandonedLockMetadataPath, "utf8")
+    ) as { updatedAt: string };
+    abandonedLockMetadata.updatedAt = "2000-01-01T00:00:00.000Z";
+    await fs.writeFile(
+      abandonedLockMetadataPath,
+      `${JSON.stringify(abandonedLockMetadata, null, 2)}\n`,
+      "utf8"
+    );
+
+    const recoveredRuntime = await loadLocalL3AuthorityRuntime({
+      configPath,
+      workspaceRoot,
+      routeledgerRoot: workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
     const output: string[] = [];
     const writable = new Writable({
       write(chunk, _encoding, callback) {
@@ -406,8 +502,8 @@ describe("local L3 authorization runtime", () => {
       hostProfile: "generic",
       runtimeProfile: "json-only",
       l3Authorization: {
-        grantStore: runtime.grantStore,
-        delegatedAuthority: runtime.authority
+        grantStore: recoveredRuntime.grantStore,
+        delegatedAuthority: recoveredRuntime.authority
       },
       input: Readable.from(lines),
       output: writable

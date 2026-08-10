@@ -9,6 +9,7 @@ import {
   validateL3AuthorizationGrant,
   validateL3AuthorizationPolicy,
   type L3AuthorizationConsumptionReceipt,
+  type L3ConsumedAuthorizationReplay,
   type L3AuthorizationGrant,
   type L3AuthorizationGrantConsumption,
   type L3AuthorizationGrantConsumeWithReceiptResult,
@@ -505,6 +506,7 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
   async consumeAndRecordReceipt(
     grantId: string,
     context: L3AuthorizationGrantContext,
+    pendingOperationId: string,
     createReceipt: (
       consumption: L3AuthorizationGrantConsumption
     ) => L3AuthorizationConsumptionReceipt
@@ -513,6 +515,7 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
       const replayReceipt = Object.values(state.receipts).find(
         (receipt) =>
           receipt.grantId === grantId &&
+          receipt.pendingOperationId === pendingOperationId &&
           receipt.audience === context.audience &&
           receipt.subjectId === context.subjectId &&
           receipt.projectId === context.projectId &&
@@ -550,6 +553,7 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
       const receipt = createReceipt(consumption);
       if (
         receipt.grantId !== grantId ||
+        receipt.pendingOperationId !== pendingOperationId ||
         receipt.audience !== context.audience ||
         receipt.subjectId !== context.subjectId ||
         receipt.projectId !== context.projectId ||
@@ -575,6 +579,34 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
       state.receipts[receipt.approvalArtifactId] = structuredClone(receipt);
       return { ...consumption, receipt: structuredClone(receipt) };
     });
+  }
+
+  async findConsumedAuthorization(
+    context: L3AuthorizationGrantContext,
+    pendingOperationId: string
+  ): Promise<L3ConsumedAuthorizationReplay | null> {
+    const state = await this.stateFile.read();
+    const receipt = Object.values(state.receipts).find(
+      (candidate) =>
+        candidate.pendingOperationId === pendingOperationId &&
+        candidate.audience === context.audience &&
+        candidate.subjectId === context.subjectId &&
+        candidate.projectId === context.projectId &&
+        candidate.routeledgerRootDigest === context.routeledgerRootDigest &&
+        candidate.actionType === context.actionType &&
+        candidate.targetId === context.targetId &&
+        candidate.operationDigest === context.operationDigest &&
+        candidate.hostKind === context.hostKind &&
+        (candidate.clientId == null || candidate.clientId === context.clientId) &&
+        (candidate.sessionId == null || candidate.sessionId === context.sessionId)
+    );
+    if (receipt === undefined) return null;
+    const grant = state.grants[receipt.grantId];
+    if (grant === undefined) return null;
+    return {
+      grant: structuredClone(grant),
+      receipt: structuredClone(receipt)
+    };
   }
 
   async recordConsumptionReceipt(receipt: L3AuthorizationConsumptionReceipt): Promise<void> {
@@ -737,7 +769,31 @@ export const loadLocalL3AuthorityRuntime = async (
         revokedAt: null
       };
       const usageKey = `${policyDigest}:${rule.id}`;
-      const allowed = await stateFile.transact((state) => {
+      const grantDecision = await stateFile.transact((state) => {
+        const recoverableGrant = [
+          ...Object.values(state.reservedGrants),
+          ...Object.values(state.grants)
+        ].find(
+          (candidate) =>
+            candidate.issuer === config.authorityId &&
+            candidate.source === "delegated_policy" &&
+            candidate.policyDigest === policyDigest &&
+            candidate.subjectId === grant.subjectId &&
+            candidate.projectId === grant.projectId &&
+            candidate.routeledgerRootDigest === grant.routeledgerRootDigest &&
+            candidate.hostKind === grant.hostKind &&
+            candidate.clientId === grant.clientId &&
+            candidate.sessionId === grant.sessionId &&
+            candidate.operationDigest === grant.operationDigest &&
+            candidate.allowedActions.includes(request.context.actionType) &&
+            candidate.allowedTargetIds.includes(request.context.targetId) &&
+            candidate.uses === 0 &&
+            candidate.status === "active" &&
+            Date.parse(now) < Date.parse(candidate.expiresAt)
+        );
+        if (recoverableGrant !== undefined) {
+          return { effect: "allow" as const, grant: structuredClone(recoverableGrant) };
+        }
         const usage = state.policyUsages[usageKey] ?? {
           policyDigest,
           ruleId: rule.id,
@@ -746,14 +802,14 @@ export const loadLocalL3AuthorityRuntime = async (
           updatedAt: now
         };
         if (usage.maxUses !== rule.conditions!.maxUses || usage.uses >= usage.maxUses) {
-          return false;
+          return { effect: "deny" as const };
         }
         state.policyUsages[usageKey] = { ...usage, uses: usage.uses + 1, updatedAt: now };
         state.reservedGrants[grant.id] = structuredClone(grant);
-        return true;
+        return { effect: "allow" as const, grant };
       });
-      return allowed
-        ? { effect: "allow", grant }
+      return grantDecision.effect === "allow"
+        ? grantDecision
         : {
             effect: "deny",
             code: "POLICY_BUDGET_EXHAUSTED",
