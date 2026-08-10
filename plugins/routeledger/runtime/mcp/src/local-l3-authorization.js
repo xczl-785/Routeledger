@@ -426,7 +426,15 @@ class LocalL3AuthorityStateFile {
             throw new Error("Local L3 authority state lock ownership was lost.");
         }
         metadata.updatedAt = new Date().toISOString();
-        await this.writeLockMetadata(metadata);
+        try {
+            await this.writeLockMetadata(metadata);
+        }
+        catch (error) {
+            if (error.code === "ENOENT") {
+                throw new Error("Local L3 authority state lock ownership was lost.");
+            }
+            throw error;
+        }
     }
     isProcessAlive(pid) {
         try {
