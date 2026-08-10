@@ -66,7 +66,17 @@ export interface RouteLedgerStdioServer {
   handleMessage: (message: unknown) => Promise<JsonRpcResponse | null>;
 }
 
-export interface CreateRouteLedgerStdioServerOptions extends RouteLedgerMcpRegistryOptions {
+type RouteLedgerRegistryL3Authorization = NonNullable<
+  RouteLedgerMcpRegistryOptions["l3Authorization"]
+>;
+
+export interface CreateRouteLedgerStdioServerOptions
+  extends Omit<RouteLedgerMcpRegistryOptions, "l3Authorization"> {
+  l3Authorization?: Omit<
+    RouteLedgerRegistryL3Authorization,
+    "interaction" | "sessionId"
+  > &
+    Partial<Pick<RouteLedgerRegistryL3Authorization, "interaction" | "sessionId">>;
   sendMessage?: (message: JsonRpcMessage) => void;
   /** Test-only factory injection for verifying session-rebind failure behavior. */
   registryFactory?: (options: RouteLedgerMcpRegistryOptions) => RouteLedgerMcpRegistry;
@@ -640,13 +650,17 @@ const collectInitializeRoots = (params: Record<string, unknown>): string[] => {
 export const createRouteLedgerStdioServer = (
   options: CreateRouteLedgerStdioServerOptions
 ): RouteLedgerStdioServer => {
+  const {
+    l3Authorization: configuredL3Authorization,
+    ...baseRegistryOptions
+  } = options;
   let nextOutboundRequestId = 1;
   const pendingRequests = new Map<JsonRpcId, PendingRequestHandlers>();
   const sendMessage = (message: JsonRpcMessage): void => {
     options.sendMessage?.(message);
   };
-  const grantStore = options.l3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
-  const authorizationSessionId = options.l3Authorization?.sessionId ?? randomUUID();
+  const grantStore = configuredL3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
+  const authorizationSessionId = configuredL3Authorization?.sessionId ?? randomUUID();
   const state: ProtocolState = {
     initializeCompleted: false,
     initializedNotificationReceived: false,
@@ -709,18 +723,18 @@ export const createRouteLedgerStdioServer = (
     ...registryOptions,
     l3Authorization: {
       grantStore,
-      interaction: options.l3Authorization?.interaction ?? { requestAuthorization },
-      sessionId: authorizationSessionId,
-      ...(options.l3Authorization?.trustedClientId === undefined
+      interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
+      sessionId: configuredL3Authorization?.sessionId ?? authorizationSessionId,
+      ...(configuredL3Authorization?.trustedClientId === undefined
         ? {}
-        : { trustedClientId: options.l3Authorization.trustedClientId }),
-      ...(options.l3Authorization?.delegatedAuthority === undefined
+        : { trustedClientId: configuredL3Authorization.trustedClientId }),
+      ...(configuredL3Authorization?.delegatedAuthority === undefined
         ? {}
-        : { delegatedAuthority: options.l3Authorization.delegatedAuthority })
+        : { delegatedAuthority: configuredL3Authorization.delegatedAuthority })
     }
   });
   const initializeRegistry = buildRegistry(withAuthorization({
-    ...options,
+    ...baseRegistryOptions,
     deferSessionRebind: true
   }));
   let activeRegistry = initializeRegistry;
@@ -732,7 +746,7 @@ export const createRouteLedgerStdioServer = (
     let nextRegistry: RouteLedgerMcpRegistry;
     try {
       nextRegistry = buildRegistry(withAuthorization({
-        ...options,
+        ...baseRegistryOptions,
         mcpRoots: effectiveRoots,
         deferSessionRebind: true
       }));
@@ -766,7 +780,7 @@ export const createRouteLedgerStdioServer = (
     let nextRegistry: RouteLedgerMcpRegistry;
     try {
       nextRegistry = buildRegistry(withAuthorization({
-        ...options,
+        ...baseRegistryOptions,
         workspaceRoot: nextBinding.workspaceRoot,
         workspaceRootSource: "explicit_arg",
         routeledgerRoot: nextBinding.routeledgerRoot,
@@ -1148,6 +1162,10 @@ export const runRouteLedgerStdioServer = async (
     runtimeProfile: options.runtimeProfile,
     actor: options.actor,
     approver: options.approver,
+    defaultResponseLocale: options.defaultResponseLocale,
+    ...(options.l3Authorization === undefined
+      ? {}
+      : { l3Authorization: options.l3Authorization }),
     sendMessage: (message) => {
       writeJsonRpcMessage(options.output, message);
     }

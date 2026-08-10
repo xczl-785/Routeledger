@@ -1,8 +1,29 @@
+import { isDeepStrictEqual } from "node:util";
 const cloneGrant = (grant) => ({
     ...grant,
     allowedActions: [...grant.allowedActions],
     allowedTargetIds: [...grant.allowedTargetIds]
 });
+const receiptMatchesAuthorizationContext = (receipt, grantId, context, pendingOperationId) => receipt.grantId === grantId &&
+    receipt.pendingOperationId === pendingOperationId &&
+    receipt.audience === context.audience &&
+    receipt.subjectId === context.subjectId &&
+    receipt.projectId === context.projectId &&
+    receipt.routeledgerRootDigest === context.routeledgerRootDigest &&
+    receipt.actionType === context.actionType &&
+    receipt.targetId === context.targetId &&
+    receipt.operationDigest === context.operationDigest &&
+    receipt.hostKind === context.hostKind &&
+    (receipt.clientId == null || receipt.clientId === context.clientId) &&
+    (receipt.sessionId == null || receipt.sessionId === context.sessionId);
+const validateCreatedReceipt = (receipt, grantId, context, pendingOperationId, consumedUse) => {
+    if (!receiptMatchesAuthorizationContext(receipt, grantId, context, pendingOperationId) ||
+        receipt.consumedUse !== consumedUse ||
+        receipt.approvalArtifactId.trim().length === 0 ||
+        receipt.pendingOperationId.trim().length === 0) {
+        throw new Error("L3 authorization consumption receipt does not match the consumed grant.");
+    }
+};
 export const validateL3AuthorizationGrant = (grant, context) => {
     if (grant.status !== "active")
         return "GRANT_INACTIVE";
@@ -42,7 +63,10 @@ export class MemoryL3AuthorizationGrantStore {
     grants = new Map();
     receipts = new Map();
     async issue(grant) {
-        if (this.grants.has(grant.id)) {
+        const existing = this.grants.get(grant.id);
+        if (existing !== undefined) {
+            if (isDeepStrictEqual(existing, grant))
+                return;
             throw new Error(`L3 authorization grant already exists: ${grant.id}`);
         }
         this.grants.set(grant.id, cloneGrant(grant));
@@ -73,8 +97,59 @@ export class MemoryL3AuthorizationGrantStore {
         this.grants.set(grantId, updated);
         return { ok: true, grant: cloneGrant(updated), consumedUse };
     }
-    async recordConsumptionReceipt(receipt) {
+    async consumeAndRecordReceipt(grantId, context, pendingOperationId, createReceipt) {
+        const replayReceipt = [...this.receipts.values()].find((receipt) => receiptMatchesAuthorizationContext(receipt, grantId, context, pendingOperationId));
+        if (replayReceipt !== undefined) {
+            const replayGrant = this.grants.get(grantId);
+            if (replayGrant === undefined)
+                return { ok: false, code: "GRANT_NOT_FOUND" };
+            return {
+                ok: true,
+                grant: cloneGrant(replayGrant),
+                consumedUse: replayReceipt.consumedUse,
+                receipt: structuredClone(replayReceipt)
+            };
+        }
+        const grant = this.grants.get(grantId);
+        if (grant === undefined)
+            return { ok: false, code: "GRANT_NOT_FOUND" };
+        const failure = validateL3AuthorizationGrant(grant, context);
+        if (failure !== null)
+            return { ok: false, code: failure };
+        const consumedUse = grant.uses + 1;
+        const updated = {
+            ...grant,
+            uses: consumedUse,
+            status: consumedUse >= grant.maxUses ? "exhausted" : "active"
+        };
+        const consumption = {
+            ok: true,
+            grant: cloneGrant(updated),
+            consumedUse
+        };
+        const receipt = createReceipt(consumption);
+        validateCreatedReceipt(receipt, grantId, context, pendingOperationId, consumedUse);
         if (this.receipts.has(receipt.approvalArtifactId)) {
+            throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
+        }
+        this.grants.set(grantId, updated);
+        this.receipts.set(receipt.approvalArtifactId, structuredClone(receipt));
+        return { ...consumption, receipt: structuredClone(receipt) };
+    }
+    async findConsumedAuthorization(context, pendingOperationId) {
+        const receipt = [...this.receipts.values()].find((candidate) => receiptMatchesAuthorizationContext(candidate, candidate.grantId, context, pendingOperationId));
+        if (receipt === undefined)
+            return null;
+        const grant = this.grants.get(receipt.grantId);
+        if (grant === undefined)
+            return null;
+        return { grant: cloneGrant(grant), receipt: structuredClone(receipt) };
+    }
+    async recordConsumptionReceipt(receipt) {
+        const existing = this.receipts.get(receipt.approvalArtifactId);
+        if (existing !== undefined) {
+            if (isDeepStrictEqual(existing, receipt))
+                return;
             throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
         }
         this.receipts.set(receipt.approvalArtifactId, structuredClone(receipt));

@@ -9,6 +9,7 @@ import { RouteLedgerDebugLogger } from "./debug-log.js";
 import { adaptCheckDocDriftInput, adaptDeferWorkInput, adaptGetCurrentContextInput, adaptListVersionsWindowInput, adaptRecordConstraintInput, adaptRetireConstraintInput, adaptReviewDeferredInput, InvalidToolInputError } from "./input-adapter.js";
 import { resolveRuntimeIdentity } from "./runtime-identity.js";
 import { localizeToolResponse, resolveResponseLocale, suggestContentLocale } from "./locale.js";
+export * from "./local-l3-authorization.js";
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
 const createServerInfo = (runtimeIdentity) => ({
     name: "routeledger",
@@ -1551,6 +1552,17 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     candidateOnly: true,
                     authorityPlacement: "host_managed_outside_agent_write_scope",
                     injectionContract: "RouteLedgerMcpDelegatedAuthorizationAuthority",
+                    installationContract: {
+                        configSchemaVersion: 1,
+                        trustedHostApi: "installLocalL3AuthorityConfig",
+                        runtimeOption: "--l3-authority-config",
+                        requiredHostInputs: [
+                            "absolute configPath outside workspace and RouteLedger root",
+                            "absolute statePath outside workspace and RouteLedger root",
+                            "explicit user confirmation of the reviewed candidate"
+                        ],
+                        agentCanInstall: false
+                    },
                     coverage: {
                         delegatedWhenLiveGatePasses: [...BALANCED_AUTO_ACTIONS],
                         alwaysPrompt: [...BALANCED_ALWAYS_PROMPT_ACTIONS],
@@ -2177,6 +2189,18 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     : { clientId: options.l3Authorization.trustedClientId }),
                 sessionId: options.l3Authorization.sessionId
             };
+            const consumedReplay = await options.l3Authorization.grantStore.findConsumedAuthorization(authorizationContext, proposal.id);
+            if (consumedReplay !== null) {
+                return {
+                    ok: true,
+                    data: await service.authorizeL3Operation({
+                        projectId: input.projectId,
+                        pendingOperationId: input.pendingOperationId,
+                        grantId: consumedReplay.grant.id,
+                        actor
+                    })
+                };
+            }
             const reusableGrant = await options.l3Authorization.grantStore.findMatching(authorizationContext);
             if (reusableGrant !== null &&
                 (reusableGrant.source === "preauthorized" ||

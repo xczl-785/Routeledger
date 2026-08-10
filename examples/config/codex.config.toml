@@ -33,6 +33,10 @@ args = [
   "routeledger-approver",
   "--approver-name",
   "RouteLedger Approver",
+  # Optional after a trusted host has installed a reviewed V1 authority config.
+  # The file and its statePath must stay outside this workspace.
+  # "--l3-authority-config",
+  # "/ABS/HOST-MANAGED/PATH/routeledger-authority.json",
 ]
 cwd = "/ABS/PATH/TO/ROUTELEDGER_REPO_ROOT"
 # Keep both binding paths explicit. routeledgerRoot must stay inside

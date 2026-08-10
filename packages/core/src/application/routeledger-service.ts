@@ -4328,7 +4328,8 @@ export class RouteLedgerService {
   }
 
   async authorizeL3Operation(input: AuthorizeL3OperationInput): Promise<ApprovalArtifact> {
-    if (this.l3Authorization === undefined) {
+    const authorization = this.l3Authorization;
+    if (authorization === undefined) {
       throw new ApplicationError(
         "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
         "L3 trusted authorization control plane is not configured",
@@ -4346,25 +4347,80 @@ export class RouteLedgerService {
       );
     }
 
+    const existingArtifact = snapshot.approvalArtifacts.find(
+      (artifact) =>
+        artifact.pendingOperationId === pendingOperation.id &&
+        artifact.authorizationGrantId === input.grantId &&
+        artifact.status === "approved"
+    );
+    if (
+      existingArtifact !== undefined &&
+      (await authorization.grantStore.verifyConsumptionReceipt(
+        buildAuthorizationReceiptBinding(existingArtifact, authorization)
+      ))
+    ) {
+      return existingArtifact;
+    }
+
     const now = this.deps.clock.now();
-    const approvalArtifactId = this.deps.idGenerator.nextId();
-    const consumed = await this.l3Authorization.grantStore.consume(input.grantId, {
-      audience: this.l3Authorization.audience,
-      subjectId: this.l3Authorization.subjectId,
+    const authorizationContext = {
+      audience: authorization.audience,
+      subjectId: authorization.subjectId,
       projectId: input.projectId,
-      routeledgerRootDigest: this.l3Authorization.routeledgerRootDigest,
+      routeledgerRootDigest: authorization.routeledgerRootDigest,
       actionType: pendingOperation.actionType,
       targetId: pendingOperation.targetId,
       operationDigest: pendingOperation.digest.value,
       now,
-      hostKind: this.l3Authorization.hostKind,
-      ...(this.l3Authorization.clientId === undefined
+      hostKind: authorization.hostKind,
+      ...(authorization.clientId === undefined
         ? {}
-        : { clientId: this.l3Authorization.clientId }),
-      ...(this.l3Authorization.sessionId === undefined
+        : { clientId: authorization.clientId }),
+      ...(authorization.sessionId === undefined
         ? {}
-        : { sessionId: this.l3Authorization.sessionId })
-    });
+        : { sessionId: authorization.sessionId })
+    };
+    const consumed = await authorization.grantStore.consumeAndRecordReceipt(
+      input.grantId,
+      authorizationContext,
+      pendingOperation.id,
+      (consumption) => {
+        const grant = consumption.grant;
+        const approver: Actor = {
+          id: grant.subjectId,
+          type: grant.source === "delegated_policy" ? "system" : "user",
+          displayName:
+            grant.source === "delegated_policy"
+              ? "RouteLedger deterministic policy"
+              : grant.subjectId
+        };
+        const artifact: ApprovalArtifact = {
+          id: this.deps.idGenerator.nextId(),
+          projectId: input.projectId,
+          pendingOperationId: pendingOperation.id,
+          actionType: pendingOperation.actionType,
+          targetId: pendingOperation.targetId,
+          digest: pendingOperation.digest,
+          status: "approved",
+          approver,
+          decisionRef: grant.decisionId,
+          createdAt: now,
+          expiresAt: grant.expiresAt,
+          consumedAt: null,
+          authorizationGrantId: grant.id,
+          approvalSource: grant.source,
+          policyId: grant.policyId,
+          policyDigest: grant.policyDigest,
+          hostKind: grant.hostKind,
+          clientId: grant.clientId,
+          sessionId: grant.sessionId
+        };
+        return {
+          ...buildAuthorizationReceiptBinding(artifact, authorization),
+          consumedUse: consumption.consumedUse
+        };
+      }
+    );
 
     if (!consumed.ok) {
       throw new ApplicationError(
@@ -4379,33 +4435,41 @@ export class RouteLedgerService {
     }
 
     const grant = consumed.grant;
+    const receipt = consumed.receipt;
     const approver: Actor = {
-      id: grant.subjectId,
-      type: grant.source === "delegated_policy" ? "system" : "user",
-      displayName:
-        grant.source === "delegated_policy" ? "RouteLedger deterministic policy" : grant.subjectId
+      id: receipt.approverId,
+      type: receipt.approverType,
+      ...(receipt.approverDisplayName === undefined
+        ? {}
+        : { displayName: receipt.approverDisplayName })
     };
     const artifact: ApprovalArtifact = {
-      id: approvalArtifactId,
+      id: receipt.approvalArtifactId,
       projectId: input.projectId,
-      pendingOperationId: pendingOperation.id,
-      actionType: pendingOperation.actionType,
-      targetId: pendingOperation.targetId,
+      pendingOperationId: receipt.pendingOperationId,
+      actionType: receipt.actionType,
+      targetId: receipt.targetId,
       digest: pendingOperation.digest,
       status: "approved",
       approver,
-      decisionRef: grant.decisionId,
-      createdAt: now,
-      expiresAt: grant.expiresAt,
+      decisionRef: receipt.decisionRef,
+      createdAt: receipt.createdAt,
+      expiresAt: receipt.expiresAt,
       consumedAt: null,
-      authorizationGrantId: grant.id,
-      approvalSource: grant.source,
-      policyId: grant.policyId,
-      policyDigest: grant.policyDigest,
-      hostKind: grant.hostKind,
-      clientId: grant.clientId,
-      sessionId: grant.sessionId
+      authorizationGrantId: receipt.grantId,
+      approvalSource: receipt.approvalSource,
+      policyId: receipt.policyId,
+      policyDigest: receipt.policyDigest,
+      hostKind: receipt.hostKind,
+      clientId: receipt.clientId,
+      sessionId: receipt.sessionId
     };
+
+    const latestSnapshot = await requireProject(this.storage, input.projectId);
+    const recoveredArtifact = latestSnapshot.approvalArtifacts.find(
+      (candidate) => candidate.id === artifact.id
+    );
+    if (recoveredArtifact !== undefined) return recoveredArtifact;
     const context = createDomainContext(this.deps, input.actor);
     const events = createAuditEvents(
       [
@@ -4431,20 +4495,16 @@ export class RouteLedgerService {
           }
         }
       ],
-      snapshot.project.id,
+      latestSnapshot.project.id,
       input.actor,
       now,
       context.operationId,
       this.deps
     );
 
-    const updatedSnapshot = applyApprovalArtifact(snapshot, artifact);
+    const updatedSnapshot = applyApprovalArtifact(latestSnapshot, artifact);
     updatedSnapshot.events = updatedSnapshot.events.concat(events);
     await this.saveProjectAggregate(updatedSnapshot);
-    await this.l3Authorization.grantStore.recordConsumptionReceipt({
-      ...buildAuthorizationReceiptBinding(artifact, this.l3Authorization),
-      consumedUse: consumed.consumedUse
-    });
     return artifact;
   }
 

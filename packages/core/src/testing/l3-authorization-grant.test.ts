@@ -94,6 +94,22 @@ describe("L3 authorization grant store", () => {
     });
   });
 
+  it("accepts exact duplicate grant and receipt writes but rejects conflicting duplicates", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    await store.issue(grant());
+    await expect(store.issue(grant())).resolves.toBeUndefined();
+    await expect(store.issue(grant({ subjectId: "other-user" }))).rejects.toThrow(
+      "already exists"
+    );
+
+    const receipt = { ...receiptBinding(), consumedUse: 1 };
+    await store.recordConsumptionReceipt(receipt);
+    await expect(store.recordConsumptionReceipt(receipt)).resolves.toBeUndefined();
+    await expect(
+      store.recordConsumptionReceipt({ ...receipt, decisionRef: "different-decision" })
+    ).rejects.toThrow("already exists");
+  });
+
   it("verifies only an exact host-owned consumption receipt", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     await store.recordConsumptionReceipt({ ...receiptBinding(), consumedUse: 1 });
@@ -105,6 +121,41 @@ describe("L3 authorization grant store", () => {
     await expect(
       store.verifyConsumptionReceipt(receiptBinding({ approvalArtifactId: "forged-artifact" }))
     ).resolves.toBe(false);
+  });
+
+  it("does not consume a grant when atomic receipt creation fails", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    await store.issue(grant());
+    await expect(
+      store.consumeAndRecordReceipt("grant-1", context(), "pending-1", () => {
+        throw new Error("injected receipt failure");
+      })
+    ).rejects.toThrow("injected receipt failure");
+    await expect(store.get("grant-1")).resolves.toMatchObject({
+      uses: 0,
+      status: "active"
+    });
+  });
+
+  it("does not replay a consumed authorization for a different pending operation", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    await store.issue(grant());
+    await store.consumeAndRecordReceipt("grant-1", context(), "pending-1", ({ consumedUse }) => ({
+      ...receiptBinding(),
+      consumedUse
+    }));
+
+    await expect(store.findConsumedAuthorization(context(), "pending-1")).resolves.toMatchObject({
+      grant: { id: "grant-1" },
+      receipt: { pendingOperationId: "pending-1" }
+    });
+    await expect(store.findConsumedAuthorization(context(), "pending-2")).resolves.toBeNull();
+    await expect(
+      store.consumeAndRecordReceipt("grant-1", context(), "pending-2", ({ consumedUse }) => ({
+        ...receiptBinding({ pendingOperationId: "pending-2" }),
+        consumedUse
+      }))
+    ).resolves.toEqual({ ok: false, code: "GRANT_INACTIVE" });
   });
 
   it("rejects every security binding mismatch", () => {

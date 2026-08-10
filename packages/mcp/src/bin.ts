@@ -3,6 +3,7 @@
 import { runRouteLedgerStdioServer } from "./stdio-server.js";
 import type { SqliteReadModelMode } from "./json-first-storage.js";
 import type { RouteLedgerMcpRuntimeProfile } from "./index.js";
+import { loadLocalL3AuthorityRuntime } from "./local-l3-authorization.js";
 
 const getFlagValue = (argv: string[], name: string): string | undefined => {
   const index = argv.findIndex((argument) => argument === name);
@@ -86,6 +87,40 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
       : process.env.ROUTELEDGER_MCP_SQLITE_READ_MODEL
   );
   const runtimeProfile = parseRuntimeProfile(process.env.ROUTELEDGER_MCP_RUNTIME_PROFILE);
+  const l3AuthorityConfig = getConfigValue(
+    argv,
+    "--l3-authority-config",
+    "ROUTELEDGER_MCP_L3_AUTHORITY_CONFIG"
+  );
+  const resolvedHostProfile =
+    hostProfile === "generic" ||
+    hostProfile === "codex" ||
+    hostProfile === "claude-code" ||
+    hostProfile === "cursor"
+      ? hostProfile
+      : "generic";
+  const l3AuthorityRuntime =
+    l3AuthorityConfig === undefined
+      ? undefined
+      : await loadLocalL3AuthorityRuntime({
+          configPath: l3AuthorityConfig,
+          workspaceRoot:
+            workspaceRoot ??
+            (() => {
+              throw new Error(
+                "--l3-authority-config requires an explicit --workspace-root or ROUTELEDGER_MCP_WORKSPACE_ROOT."
+              );
+            })(),
+          routeledgerRoot:
+            routeledgerRoot ??
+            (() => {
+              throw new Error(
+                "--l3-authority-config requires an explicit --routeledger-root or ROUTELEDGER_MCP_ROUTELEDGER_ROOT."
+              );
+            })(),
+          hostKind: resolvedHostProfile,
+          subjectId: approverId ?? "mcp-user"
+        });
 
   await runRouteLedgerStdioServer({
     workspaceRoot,
@@ -99,13 +134,7 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     sqliteReadModel,
     runtimeProfile,
     defaultResponseLocale,
-    hostProfile:
-      hostProfile === "generic" ||
-      hostProfile === "codex" ||
-      hostProfile === "claude-code" ||
-      hostProfile === "cursor"
-        ? hostProfile
-        : undefined,
+    hostProfile: resolvedHostProfile,
     actor:
       actorId === undefined && actorName === undefined
         ? undefined
@@ -120,6 +149,17 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
             id: approverId,
             displayName: approverName
           },
+    ...(l3AuthorityRuntime === undefined
+      ? {}
+      : {
+          l3Authorization: {
+            grantStore: l3AuthorityRuntime.grantStore,
+            ...(l3AuthorityRuntime.trustedClientId === undefined
+              ? {}
+              : { trustedClientId: l3AuthorityRuntime.trustedClientId }),
+            delegatedAuthority: l3AuthorityRuntime.authority
+          }
+        }),
     input: process.stdin,
     output: process.stdout,
     errorOutput: process.stderr,

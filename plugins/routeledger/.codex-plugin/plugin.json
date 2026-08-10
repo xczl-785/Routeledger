@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local MCP control plane with trusted L3 authorization for RouteLedger project routes.",
   "author": {
     "name": "RouteLedger"

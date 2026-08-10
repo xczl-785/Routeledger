@@ -7,6 +7,7 @@ import {
 } from "../index.js";
 import { createTestDependencies, TEST_ACTOR } from "./builders.js";
 import {
+  FailOnSaveStorageAdapter,
   MemoryStorageAdapter,
   createPreparedProject
 } from "./routeledger-service-test-helpers.js";
@@ -42,8 +43,7 @@ const createGrant = (
   ...overrides
 });
 
-const setup = async () => {
-  const storage = new MemoryStorageAdapter();
+const setup = async (storage: MemoryStorageAdapter = new MemoryStorageAdapter()) => {
   const grantStore = new MemoryL3AuthorizationGrantStore();
   const service = new RouteLedgerService({
     storage,
@@ -318,6 +318,47 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     expect(
       (await storage.loadProjectAggregate(prepared.projectId))?.events.at(-1)?.eventType
     ).toBe("approval_artifact.authorized");
+  });
+
+  it("recovers the exact approval artifact after canonical save fails post-consumption", async () => {
+    const storage = new FailOnSaveStorageAdapter();
+    const { grantStore, service, prepared, proposal } = await setup(storage);
+    await grantStore.issue(
+      createGrant(proposal.digest.value, {
+        projectId: prepared.projectId,
+        allowedTargetIds: [prepared.versionId]
+      })
+    );
+    storage.failOnce();
+    await expect(
+      service.authorizeL3Operation({
+        projectId: prepared.projectId,
+        pendingOperationId: proposal.id,
+        grantId: "grant-1",
+        actor: TEST_ACTOR
+      })
+    ).rejects.toThrow("injected save failure");
+    await expect(grantStore.get("grant-1")).resolves.toMatchObject({
+      uses: 1,
+      status: "exhausted"
+    });
+    expect((await storage.loadProjectAggregate(prepared.projectId))?.approvalArtifacts).toEqual([]);
+
+    const recovered = await service.authorizeL3Operation({
+      projectId: prepared.projectId,
+      pendingOperationId: proposal.id,
+      grantId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    expect(recovered).toMatchObject({
+      authorizationGrantId: "grant-1",
+      decisionRef: "decision-1",
+      status: "approved"
+    });
+    expect((await storage.loadProjectAggregate(prepared.projectId))?.approvalArtifacts).toEqual([
+      recovered
+    ]);
+    await expect(grantStore.get("grant-1")).resolves.toMatchObject({ uses: 1 });
   });
 
   it("rejects a grant that does not bind the exact operation digest", async () => {
