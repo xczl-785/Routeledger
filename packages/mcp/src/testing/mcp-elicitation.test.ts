@@ -274,14 +274,6 @@ describe("MCP L3 authorization elicitation", () => {
       const details = (structured(createResponse).error as {
         details: { pendingOperationId: string; targetId: string };
       }).details;
-      const proposalResponse = await call(server, "proposal", "get_l3_proposal", {
-        projectId,
-        pendingOperationId: details.pendingOperationId
-      });
-      if (structured(proposalResponse).data === undefined) {
-        throw new Error(JSON.stringify(structured(proposalResponse), null, 2));
-      }
-      const proposal = structured(proposalResponse).data as { targetId: string };
       fs.writeFileSync(
         path.join(projectRoot, ".routeledger", "l3-authorization.json"),
         `${JSON.stringify({
@@ -299,8 +291,11 @@ describe("MCP L3 authorization elicitation", () => {
             id: "allow-create",
             effect: "allow",
             actions: ["create_version"],
-            resources: { targetIds: [proposal.targetId] },
-            conditions: { gateMustPass: true }
+            conditions: {
+              gateMustPass: true,
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              maxUses: 1
+            }
           }],
           alwaysPrompt: []
         }, null, 2)}\n`,
@@ -318,6 +313,24 @@ describe("MCP L3 authorization elicitation", () => {
         policyDigest: expect.any(String)
       });
       expect(outbound).toHaveLength(0);
+
+      const secondCreate = await call(server, "create-2", "create_version", {
+        projectId,
+        title: "Version 2",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const secondPendingOperationId = (
+        structured(secondCreate).error as { details: { pendingOperationId: string } }
+      ).details.pendingOperationId;
+      const exhausted = await call(server, "approve-2", "approve_l3_operation", {
+        projectId,
+        pendingOperationId: secondPendingOperationId,
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(structured(exhausted).error).toMatchObject({
+        code: "AUTHORIZATION_POLICY_DENIED",
+        details: { decisionCode: "POLICY_USE_BUDGET_EXHAUSTED" }
+      });
     } finally {
       server.close();
       cleanupProjectRoot(projectRoot);

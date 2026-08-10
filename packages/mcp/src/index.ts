@@ -72,6 +72,7 @@ import {
   getL3AuthorizationPolicyPath,
   resolveL3AuthorizationPolicyFile
 } from "./l3-authorization-policy-file.js";
+import { FileL3AuthorizationPolicyUsageStore } from "./l3-authorization-policy-usage.js";
 import {
   resolveRuntimeIdentity,
   type RuntimeIdentity
@@ -3317,6 +3318,40 @@ export const createRouteLedgerMcpRegistry = (
           );
         }
         if (policyDecision?.effect === "allow") {
+          const matchedRule = policyResolution.status === "ready"
+            ? policyResolution.policy.rules.find((rule) => rule.id === policyDecision.matchedRuleId)
+            : undefined;
+          if (
+            matchedRule?.conditions?.maxUses === undefined ||
+            matchedRule.conditions.expiresAt === undefined
+          ) {
+            throw new ApplicationError(
+              "AUTHORIZATION_POLICY_INVALID",
+              "The matched L3 authorization rule has no enforceable budget",
+              { policyId: policyDecision.policyId, matchedRuleId: policyDecision.matchedRuleId }
+            );
+          }
+          const usage = new FileL3AuthorizationPolicyUsageStore(
+            initialBinding.routeledgerRoot!
+          ).consume({
+            policyDigest: policyDecision.policyDigest,
+            ruleId: matchedRule.id,
+            maxUses: matchedRule.conditions.maxUses,
+            expiresAt: matchedRule.conditions.expiresAt,
+            now: authorizationContext.now
+          });
+          if (!usage.ok) {
+            throw new ApplicationError(
+              "AUTHORIZATION_POLICY_DENIED",
+              "The L3 authorization policy use budget is exhausted",
+              {
+                policyId: policyDecision.policyId,
+                policyDigest: policyDecision.policyDigest,
+                matchedRuleId: matchedRule.id,
+                decisionCode: usage.code
+              }
+            );
+          }
           source = "delegated_policy";
           policyId = policyDecision.policyId;
           policyDigest = policyDecision.policyDigest;

@@ -106,6 +106,13 @@ export const validateL3AuthorizationPolicy = (policy) => {
             if (rule.effect === "allow" && rule.conditions?.gateMustPass !== true) {
                 addIssue(issues, "ALLOW_GATE_REQUIRED", `${base}.conditions.gateMustPass`, "allow rules must require a passing live gate");
             }
+            if (rule.effect === "allow" && !isIsoDate(rule.conditions?.expiresAt)) {
+                addIssue(issues, "ALLOW_EXPIRY_REQUIRED", `${base}.conditions.expiresAt`, "allow rules must have an ISO expiry");
+            }
+            if (rule.effect === "allow" &&
+                (!Number.isInteger(rule.conditions?.maxUses) || (rule.conditions?.maxUses ?? 0) <= 0)) {
+                addIssue(issues, "ALLOW_MAX_USES_REQUIRED", `${base}.conditions.maxUses`, "allow rules must have a positive maximum-use budget");
+            }
             if (rule.conditions?.allowedTargetRelations !== undefined) {
                 if (!Array.isArray(rule.conditions.allowedTargetRelations) ||
                     rule.conditions.allowedTargetRelations.length === 0 ||
