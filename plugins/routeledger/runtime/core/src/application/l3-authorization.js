@@ -292,3 +292,28 @@ export const buildBalancedL3AuthorizationPolicy = (input) => ({
     ],
     alwaysPrompt: [...BALANCED_ALWAYS_PROMPT_ACTIONS]
 });
+const buildTemplateBinding = (input) => ({
+    projectId: input.projectId,
+    routeledgerRootDigest: input.routeledgerRootDigest,
+    ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
+    ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
+    ...(input.clientId === undefined ? {} : { clientId: input.clientId })
+});
+export const buildInteractiveSafeL3AuthorizationPolicy = (input) => ({
+    schemaVersion: L3_AUTHORIZATION_POLICY_SCHEMA_VERSION,
+    policyId: input.policyId,
+    mode: "interactive",
+    binding: buildTemplateBinding(input),
+    defaultEffect: "prompt",
+    rules: [],
+    alwaysPrompt: [...L3_AUTHORIZATION_ACTIONS]
+});
+export const buildPreauthorizedL3AuthorizationPolicy = (input) => ({
+    schemaVersion: L3_AUTHORIZATION_POLICY_SCHEMA_VERSION,
+    policyId: input.policyId,
+    mode: "preauthorized",
+    binding: buildTemplateBinding(input),
+    defaultEffect: "deny",
+    rules: [],
+    alwaysPrompt: []
+});

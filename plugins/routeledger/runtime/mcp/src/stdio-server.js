@@ -391,13 +391,14 @@ const collectInitializeRoots = (params) => {
     return [...roots];
 };
 export const createRouteLedgerStdioServer = (options) => {
+    const { l3Authorization: configuredL3Authorization, ...baseRegistryOptions } = options;
     let nextOutboundRequestId = 1;
     const pendingRequests = new Map();
     const sendMessage = (message) => {
         options.sendMessage?.(message);
     };
-    const grantStore = options.l3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
-    const authorizationSessionId = options.l3Authorization?.sessionId ?? randomUUID();
+    const grantStore = configuredL3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
+    const authorizationSessionId = configuredL3Authorization?.sessionId ?? randomUUID();
     const state = {
         initializeCompleted: false,
         initializedNotificationReceived: false,
@@ -451,18 +452,18 @@ export const createRouteLedgerStdioServer = (options) => {
         ...registryOptions,
         l3Authorization: {
             grantStore,
-            interaction: options.l3Authorization?.interaction ?? { requestAuthorization },
-            sessionId: authorizationSessionId,
-            ...(options.l3Authorization?.trustedClientId === undefined
+            interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
+            sessionId: configuredL3Authorization?.sessionId ?? authorizationSessionId,
+            ...(configuredL3Authorization?.trustedClientId === undefined
                 ? {}
-                : { trustedClientId: options.l3Authorization.trustedClientId }),
-            ...(options.l3Authorization?.delegatedAuthority === undefined
+                : { trustedClientId: configuredL3Authorization.trustedClientId }),
+            ...(configuredL3Authorization?.delegatedAuthority === undefined
                 ? {}
-                : { delegatedAuthority: options.l3Authorization.delegatedAuthority })
+                : { delegatedAuthority: configuredL3Authorization.delegatedAuthority })
         }
     });
     const initializeRegistry = buildRegistry(withAuthorization({
-        ...options,
+        ...baseRegistryOptions,
         deferSessionRebind: true
     }));
     let activeRegistry = initializeRegistry;
@@ -471,7 +472,7 @@ export const createRouteLedgerStdioServer = (options) => {
         let nextRegistry;
         try {
             nextRegistry = buildRegistry(withAuthorization({
-                ...options,
+                ...baseRegistryOptions,
                 mcpRoots: effectiveRoots,
                 deferSessionRebind: true
             }));
@@ -502,7 +503,7 @@ export const createRouteLedgerStdioServer = (options) => {
         let nextRegistry;
         try {
             nextRegistry = buildRegistry(withAuthorization({
-                ...options,
+                ...baseRegistryOptions,
                 workspaceRoot: nextBinding.workspaceRoot,
                 workspaceRootSource: "explicit_arg",
                 routeledgerRoot: nextBinding.routeledgerRoot,
@@ -776,6 +777,10 @@ export const runRouteLedgerStdioServer = async (options) => {
         runtimeProfile: options.runtimeProfile,
         actor: options.actor,
         approver: options.approver,
+        defaultResponseLocale: options.defaultResponseLocale,
+        ...(options.l3Authorization === undefined
+            ? {}
+            : { l3Authorization: options.l3Authorization }),
         sendMessage: (message) => {
             writeJsonRpcMessage(options.output, message);
         }
