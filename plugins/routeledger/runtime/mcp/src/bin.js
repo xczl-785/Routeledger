@@ -1,6 +1,10 @@
 #!/usr/bin/env node
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { runRouteLedgerStdioServer } from "./stdio-server.js";
 import { loadLocalL3AuthorityRuntime } from "./local-l3-authorization.js";
+import { createLocalL3AuthorityBroker } from "./local-l3-authority-broker.js";
 const getFlagValue = (argv, name) => {
     const index = argv.findIndex((argument) => argument === name);
     if (index === -1) {
@@ -28,6 +32,22 @@ export const parseRuntimeProfile = (value) => {
     }
     throw new Error("Invalid MCP runtime profile. ROUTELEDGER_MCP_RUNTIME_PROFILE must be full or json-only.");
 };
+export const discoverDefaultCodexL3AuthorityRegistry = async (env = process.env) => {
+    const codexHome = env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+    const registryRoot = path.join(codexHome, "routeledger", "l3-authority-v2");
+    try {
+        const marker = await fs.lstat(path.join(registryRoot, "registry-v2.json"));
+        if (!marker.isFile() || marker.isSymbolicLink()) {
+            throw new Error("The default Codex L3 authority registry marker is not a trusted regular file.");
+        }
+        return registryRoot;
+    }
+    catch (error) {
+        if (error.code === "ENOENT")
+            return undefined;
+        throw error;
+    }
+};
 export const main = async (argv = process.argv.slice(2)) => {
     const workspaceRootFlag = getFlagValue(argv, "--workspace-root");
     const workspaceRootEnv = process.env.ROUTELEDGER_MCP_WORKSPACE_ROOT;
@@ -45,12 +65,21 @@ export const main = async (argv = process.argv.slice(2)) => {
         : process.env.ROUTELEDGER_MCP_SQLITE_READ_MODEL);
     const runtimeProfile = parseRuntimeProfile(process.env.ROUTELEDGER_MCP_RUNTIME_PROFILE);
     const l3AuthorityConfig = getConfigValue(argv, "--l3-authority-config", "ROUTELEDGER_MCP_L3_AUTHORITY_CONFIG");
+    const configuredL3AuthorityRegistry = getConfigValue(argv, "--l3-authority-registry", "ROUTELEDGER_MCP_L3_AUTHORITY_REGISTRY");
+    const l3TrustedClientId = getConfigValue(argv, "--l3-trusted-client-id", "ROUTELEDGER_MCP_L3_TRUSTED_CLIENT_ID");
     const resolvedHostProfile = hostProfile === "generic" ||
         hostProfile === "codex" ||
         hostProfile === "claude-code" ||
         hostProfile === "cursor"
         ? hostProfile
         : "generic";
+    const l3AuthorityRegistry = configuredL3AuthorityRegistry ??
+        (resolvedHostProfile === "codex"
+            ? await discoverDefaultCodexL3AuthorityRegistry()
+            : undefined);
+    if (l3AuthorityConfig !== undefined && l3AuthorityRegistry !== undefined) {
+        throw new Error("Use either the V1 --l3-authority-config compatibility path or the V2 --l3-authority-registry broker, not both.");
+    }
     const l3AuthorityRuntime = l3AuthorityConfig === undefined
         ? undefined
         : await loadLocalL3AuthorityRuntime({
@@ -100,6 +129,16 @@ export const main = async (argv = process.argv.slice(2)) => {
                         : { trustedClientId: l3AuthorityRuntime.trustedClientId }),
                     delegatedAuthority: l3AuthorityRuntime.authority
                 }
+            }),
+        ...(l3AuthorityRegistry === undefined
+            ? {}
+            : {
+                l3AuthorityBroker: createLocalL3AuthorityBroker({
+                    registryRoot: l3AuthorityRegistry,
+                    hostKind: resolvedHostProfile,
+                    subjectId: approverId ?? (resolvedHostProfile === "codex" ? "routeledger-approver" : "mcp-user"),
+                    trustedClientId: l3TrustedClientId ?? (resolvedHostProfile === "codex" ? "codex-local-host" : null)
+                })
             }),
         input: process.stdin,
         output: process.stdout,

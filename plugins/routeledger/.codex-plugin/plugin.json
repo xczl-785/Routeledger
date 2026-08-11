@@ -1,7 +1,7 @@
 {
   "name": "routeledger",
-  "version": "0.5.1",
-  "description": "Local MCP control plane with trusted L3 authorization for RouteLedger project routes.",
+  "version": "0.6.0",
+  "description": "Local MCP control plane with host-owned three-mode L3 authorization for RouteLedger project routes.",
   "author": {
     "name": "RouteLedger"
   },
@@ -16,7 +16,7 @@
     "capabilities": [
       "Read RouteLedger context",
       "Write RouteLedger canonical JSON through MCP",
-      "Authorize L3 route changes through host interaction or bound policy"
+      "Authorize L3 route changes through interactive, delegated, or finite preauthorized profiles"
     ],
     "defaultPrompt": [
       "Check the current RouteLedger context; if it is unbound, bind the current host project before route work.",
