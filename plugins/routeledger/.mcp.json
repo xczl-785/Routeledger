@@ -9,7 +9,8 @@
         "codex",
         "--sqlite-read-model",
         "disabled"
-      ]
+      ],
+      "env_vars": ["CODEX_HOME"]
     }
   }
 }
