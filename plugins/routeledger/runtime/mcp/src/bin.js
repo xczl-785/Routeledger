@@ -5,6 +5,7 @@ import path from "node:path";
 import { runRouteLedgerStdioServer } from "./stdio-server.js";
 import { loadLocalL3AuthorityRuntime } from "./local-l3-authorization.js";
 import { createLocalL3AuthorityBroker } from "./local-l3-authority-broker.js";
+import { resolveCodexL3PermissionMode } from "../../codex/src/index.js";
 const getFlagValue = (argv, name) => {
     const index = argv.findIndex((argument) => argument === name);
     if (index === -1) {
@@ -66,12 +67,17 @@ export const main = async (argv = process.argv.slice(2)) => {
     const l3AuthorityConfig = getConfigValue(argv, "--l3-authority-config", "ROUTELEDGER_MCP_L3_AUTHORITY_CONFIG");
     const configuredL3AuthorityRegistry = getConfigValue(argv, "--l3-authority-registry", "ROUTELEDGER_MCP_L3_AUTHORITY_REGISTRY");
     const l3TrustedClientId = getConfigValue(argv, "--l3-trusted-client-id", "ROUTELEDGER_MCP_L3_TRUSTED_CLIENT_ID");
+    const mcpRequestStateSecret = getConfigValue(argv, "--mcp-request-state-secret", "ROUTELEDGER_MCP_REQUEST_STATE_SECRET");
+    if (mcpRequestStateSecret !== undefined && mcpRequestStateSecret.length < 32) {
+        throw new Error("MCP request-state secret must be at least 32 characters.");
+    }
     const resolvedHostProfile = hostProfile === "generic" ||
         hostProfile === "codex" ||
         hostProfile === "claude-code" ||
         hostProfile === "cursor"
         ? hostProfile
         : "generic";
+    const hostPermissionContext = resolvedHostProfile === "codex" ? resolveCodexL3PermissionMode(process.env) : undefined;
     const l3AuthorityRegistry = configuredL3AuthorityRegistry ??
         (resolvedHostProfile === "codex"
             ? await discoverDefaultLocalL3AuthorityRegistry()
@@ -106,6 +112,8 @@ export const main = async (argv = process.argv.slice(2)) => {
         runtimeProfile,
         defaultResponseLocale,
         hostProfile: resolvedHostProfile,
+        ...(mcpRequestStateSecret === undefined ? {} : { mcpRequestStateSecret }),
+        ...(hostPermissionContext === undefined ? {} : { hostPermissionContext }),
         actor: actorId === undefined && actorName === undefined
             ? undefined
             : {
