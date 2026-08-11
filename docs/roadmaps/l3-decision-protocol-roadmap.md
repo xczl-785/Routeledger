@@ -81,7 +81,7 @@ state.
 
 | Version | Outcome | State | Entry gate | Result gate | Deferred / constraints |
 | --- | --- | --- | --- | --- | --- |
-| L3-D1 | Host-neutral decision contract and compatible logical phase projection | `ready_for_checkpoint` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
+| L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `wait` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `wait` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
 | L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `wait` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
@@ -138,7 +138,7 @@ can be projected into an honest logical phase without changing stored JSON.
 | Repository and handoff orientation | `passed` | Clean source branch at `6167bf6`; accepted protocol and assessment reread | D1 boundary confirmed |
 | Canonical RouteLedger admission | `deferred_infrastructure` | Plugin 0.6.0 installed/enabled, but current task exposes no RouteLedger MCP tools | Document roadmap temporarily owns execution tracking |
 | D1 Contract Gate | `passed` | Public request/result/adapter contract, exact-resolution validator, phase projection, and transition guard implemented in `packages/core/src/application/l3-decision.ts` | Contract frozen for D1 |
-| D1 Result Gate | `passed` | 13 focused decision tests; 51 repository test files / 578 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check`; no canonical schema or codec changes | D1 is ready for a Git checkpoint; D2 remains `wait` |
+| D1 Result Gate | `passed` | Implementation commit `163daca`; 13 focused decision tests; 51 repository test files / 578 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check`; no canonical schema or codec changes | D1 closed in this roadmap; D2 remains `wait` |
 | D1 Integrity Gate | `deferred_to_D2` | D1 is an additive, unintegrated core contract; independent audit has more information value after D2 routes existing authorization paths through this seam | D2 must trigger Integrity review before its close |
 
 ## 8. Deferred and decision log
