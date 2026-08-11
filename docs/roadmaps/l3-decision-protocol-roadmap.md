@@ -85,8 +85,8 @@ state.
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `complete` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
 | L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `in_progress` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
-| L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `wait` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
-| L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `wait` | D4 and D5 accepted | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | No merge, tag, publish, or release without separate authorization |
+| L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `complete` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
+| L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `in_progress` | D4 implementation boundary and D5 accepted; Desktop acceptance intentionally runs from main | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | Merge/main testing/tag order is separately authorized; tag only after main acceptance |
 
 ## 6. L3-D1 contract gate
 
@@ -223,17 +223,41 @@ closed. Codex-specific profile identifiers remain outside core.
 | D4 live capability probe | `passed` | Codex CLI/app-server 0.147.0 schema and live `permissionProfile/list`; current Desktop child environment exposed `CODEX_PERMISSION_PROFILE=:danger-full-access` | Dynamic mode discovery is available; fallback is exceptional rather than the default |
 | D4 provider gate | `passed` | Five provider tests cover all built-ins, explicit fallback, missing context, unknown profile, and invalid fallback; MCP regression proves unavailable context stops before proposal creation | No mode guessing or orphan proposal on unavailable host context |
 | D4 integration regression | `passed` | 55 test files / 597 tests; 6 JSONL client tests; full typecheck, lint, and `git diff --check` | Candidate is ready for packaging and fresh-host behavior validation |
-| D4 Desktop three-mode acceptance | `pending` | Requires installing the exact candidate and starting fresh Desktop tasks in each mode | D4 remains `in_progress`; D5 stays `wait` |
+| D4 Desktop three-mode acceptance | `pending_on_main` | User selected merged `main` as the only final test surface; no local candidate install | D4 remains `in_progress`; its frozen host/core boundary allowed independent D5 work to close |
 
-## 11. Deferred and decision log
+## 11. L3-D5 generic MCP contract and evidence
+
+The generic adapter now serves two protocol eras through the same D1/D3 decision seam. MCP
+`2025-11-25` retains the existing stateful structured elicitation exchange. MCP `2026-07-28`
+supports `server/discover`, per-request version metadata, native `InputRequiredResult`, keyed
+`inputResponses`, and opaque request-state retry.
+
+The 2026 request state is HMAC-protected by an explicit host secret, expires after ten minutes,
+binds the normalized original arguments and exact pending proposal, and can resume after the MCP
+process is reconstructed with the same host secret. Missing configuration fails before proposal
+creation. Client metadata, natural-language claims, project files, and Codex permission fields are
+not authority.
+
+| Checkpoint | Status | Evidence | Impact |
+| --- | --- | --- | --- |
+| MCP 2025 compatibility | `passed` | Existing six-case elicitation suite remains green, including no-capability failure, decline, delegated budget, finite preauthorization, and trusted provenance | No behavior regression in the stable stateful protocol |
+| MCP 2026 negotiation and MRTR | `passed` | Generic non-Codex stdio server discovers both eras, accepts 2026 requests without legacy initialize, returns native `input_required`, and completes from matching `inputResponses` | One adapter contract serves both protocol eras |
+| Integrity and recovery matrix | `passed` | Restart resumes the same proposal; exact duplicate retry replays one commit; tampered state, changed arguments, response-only retry, expired state, and wrong process secret fail closed; missing secret creates no proposal | No authorization or commit duplication across tested retry/crash paths |
+| D5 Result Gate | `passed` | Implementation commit `5ee198f`; 57 repository test files / 603 tests; 6 JSONL client tests; full typecheck, lint, and focused 2025/2026 suites | D5 closed; D6 enters release-candidate work |
+
+The generic implementation is intentionally local and single-user. Remote authority, OAuth,
+organizations, cross-device state, and multi-user policy remain outside this route.
+
+## 12. Deferred and decision log
 
 | ID | Item | Reason | Review trigger | Candidate disposition |
 | --- | --- | --- | --- | --- |
 | L3-DEF-001 | Restore RouteLedger MCP lifecycle tracking | Current task tool snapshot lacks installed RouteLedger tools | A fresh or reloaded host exposes `get_runtime_context` | Reconcile roadmap state through MCP; retain truthful historical events |
 | L3-DEF-002 | Decide whether intermediate logical phases should be persisted | D1 intentionally uses compatibility projection | Projection is stable and D3 recovery requirements are measured | Activate a later migration only with schema/rollback proof, otherwise retain projection |
 | L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Current support remains unknown | D4 fresh-host capability probe | Dynamic mapping if supported; explicit plugin fallback otherwise |
+| L3-DEF-004 | Run three-mode Codex Desktop acceptance from merged main | User selected main as the only final test surface; no local candidate install | After D6 candidate merges through protected-branch CI | Test all three fresh task modes before creating the immutable release tag |
 
-## 12. Update discipline
+## 13. Update discipline
 
 At every stable checkpoint, update this file with:
 
