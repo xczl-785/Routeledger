@@ -6,6 +6,7 @@ It is not a release record and does not replace a bound project's canonical
 
 ## Entry points
 
+- [L3 decision protocol implementation roadmap](roadmaps/l3-decision-protocol-roadmap.md) is the active traditional-document execution record while RouteLedger MCP access is unavailable. It tracks L3-D1 through L3-D6 states, gates, evidence, residuals, and the exact condition for restoring canonical lifecycle tracking.
 - [L3 decision protocol and host-adapter handoff](handoffs/l3-authorization-local-route-handoff.md) is the single portable continuation entry, including the accepted L3-D1 through L3-D6 route, current authorization blocker, cleanup inventory, and exact next action.
 - [L3 route-transition decision protocol](guides/l3-route-transition-decision-protocol.md) is the accepted post-0.6.0 product and architecture baseline: permission modes automate decision resolution while the complete L3 transition pipeline still runs.
 - [L3 decision protocol implementation assessment](guides/l3-decision-protocol-implementation-assessment.md) records the current-code gap, interface/state-machine/adapter migration plan, and effort estimate before implementation begins.
@@ -23,3 +24,7 @@ Code, tests, generated plugin metadata, and the current Git state are the
 source of truth for implementation and release verification. Guides use
 placeholder paths such as `/ABS/PATH/TO/ROUTELEDGER_REPO_ROOT`; they never
 identify a maintainer workstation or a managed project.
+
+When RouteLedger MCP access is unavailable, the active roadmap may temporarily
+record implementation progress. It must not be treated as an approval artifact
+or used to justify direct edits to canonical `.routeledger` data.

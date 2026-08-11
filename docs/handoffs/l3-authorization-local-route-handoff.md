@@ -6,6 +6,13 @@
 - `truth-sources`: 用户已确认的产品定义、两份 L3 设计文档、当前源码、RouteLedger MCP live context
 - `current-entry`: 先恢复可用的 L3 宿主决策通道，再提交 `L3-D1～D6` 版本链；随后从 L3-D1 以测试驱动方式开始接口与状态投影
 
+> 2026-08-11 execution note: the current Codex task can see the installed RouteLedger 0.6.0
+> plugin in local configuration but does not expose its MCP tools. By explicit user decision,
+> implementation progress is temporarily tracked in
+> [`L3 decision protocol implementation roadmap`](../roadmaps/l3-decision-protocol-roadmap.md).
+> This does not authorize direct `.routeledger` edits, fabricate L3 approval, or weaken the
+> product protocol. Canonical lifecycle tracking resumes only after live MCP binding verification.
+
 这是本任务唯一的 task-level handoff。它替代本文件此前以“物理点击证明”为中心的交接内容，
 但不抹除 0.5.0～0.6.0 已发布实现的历史事实。另一次 handoff 只在用户再次明确要求转接时进行。
 
