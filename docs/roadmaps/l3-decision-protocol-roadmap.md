@@ -82,7 +82,7 @@ state.
 | Version | Outcome | State | Entry gate | Result gate | Deferred / constraints |
 | --- | --- | --- | --- | --- | --- |
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
-| L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `wait` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
+| L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `ready_for_checkpoint` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `wait` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
 | L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `wait` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `wait` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
@@ -141,7 +141,34 @@ can be projected into an honest logical phase without changing stored JSON.
 | D1 Result Gate | `passed` | Implementation commit `163daca`; 13 focused decision tests; 51 repository test files / 578 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check`; no canonical schema or codec changes | D1 closed in this roadmap; D2 remains `wait` |
 | D1 Integrity Gate | `deferred_to_D2` | D1 is an additive, unintegrated core contract; independent audit has more information value after D2 routes existing authorization paths through this seam | D2 must trigger Integrity review before its close |
 
-## 8. Deferred and decision log
+## 8. L3-D2 contract and evidence
+
+### Observable result
+
+`approve_l3_operation` delegates decision-source selection to one compatibility adapter. Replay,
+preauthorized, delegated, and interactive paths all produce a D1 exact resolution before the
+existing service consumes the grant and creates the approval artifact.
+
+### Frozen boundary
+
+- the adapter may find, request, validate, and issue an exact authorization grant;
+- every resolved result must pass the D1 exact-request validator;
+- only the existing `authorizeL3Operation` service creates canonical approval artifacts;
+- the adapter cannot commit route mutations;
+- existing low-level tools, error codes, interaction schema, finite budgets, trusted provenance,
+  and external call counts remain unchanged;
+- one-call proposal-to-commit orchestration remains D3.
+
+### Evidence log
+
+| Checkpoint | Status | Evidence | Impact |
+| --- | --- | --- | --- |
+| D2 Contract Gate | `passed` | `ExistingL3DecisionAdapter` implements the D1 interface; handler owns the final service call | Shared adapter seam is frozen |
+| Existing path regression | `passed` | Five direct seam tests plus unchanged MCP elicitation, local authorization, broker, profile, write-guard, and replay suites | Four source paths and negative behavior remain equivalent |
+| D2 Result Gate | `passed` | 52 repository test files / 583 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check` | D2 is ready for a Git checkpoint; D3 remains `wait` |
+| D2 Integrity Gate | `passed` | Side-by-side old/new path audit plus pre-existing authorization and elicitation tests whose oracles were not rewritten for this refactor | No blocking finding; D3 remains separately gated |
+
+## 9. Deferred and decision log
 
 | ID | Item | Reason | Review trigger | Candidate disposition |
 | --- | --- | --- | --- | --- |
@@ -149,7 +176,7 @@ can be projected into an honest logical phase without changing stored JSON.
 | L3-DEF-002 | Decide whether intermediate logical phases should be persisted | D1 intentionally uses compatibility projection | Projection is stable and D3 recovery requirements are measured | Activate a later migration only with schema/rollback proof, otherwise retain projection |
 | L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Current support remains unknown | D4 fresh-host capability probe | Dynamic mapping if supported; explicit plugin fallback otherwise |
 
-## 9. Update discipline
+## 10. Update discipline
 
 At every stable checkpoint, update this file with:
 
