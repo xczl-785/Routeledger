@@ -6,7 +6,7 @@ It is not a release record and does not replace a bound project's canonical
 
 ## Entry points
 
-- [L3 local authorization route handoff](handoffs/l3-authorization-local-route-handoff.md) records the V1/V2/V3 continuation route after 0.6.0, including the incomplete Codex chooser and deferred MCP protocol work.
+- [L3 decision protocol and host-adapter handoff](handoffs/l3-authorization-local-route-handoff.md) is the single portable continuation entry, including the accepted L3-D1 through L3-D6 route, current authorization blocker, cleanup inventory, and exact next action.
 - [L3 route-transition decision protocol](guides/l3-route-transition-decision-protocol.md) is the accepted post-0.6.0 product and architecture baseline: permission modes automate decision resolution while the complete L3 transition pipeline still runs.
 - [L3 decision protocol implementation assessment](guides/l3-decision-protocol-implementation-assessment.md) records the current-code gap, interface/state-machine/adapter migration plan, and effort estimate before implementation begins.
 - [Capability index](capabilities/capability-index.md) maps product rules to source and tests.

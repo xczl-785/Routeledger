@@ -1,326 +1,309 @@
-# L3 local authorization route handoff
+# L3 决策协议与宿主适配路线交接
 
-Status: continuation handoff after the published RouteLedger plugin `0.6.0`.
+- `role`: 在新 Codex 线程中恢复并继续完整的 L3 决策协议改造任务
+- `state`: 产品定义与实施评估已接受并推送；代码尚未开始；canonical 新版本链已完成预检，但因宿主授权返回 `HOST_DECLINED` 未写入
+- `updated`: 2026-08-11；源码基线 `559ee57`，本文件所在提交为更新后的分支 tip
+- `truth-sources`: 用户已确认的产品定义、两份 L3 设计文档、当前源码、RouteLedger MCP live context
+- `current-entry`: 先恢复可用的 L3 宿主决策通道，再提交 `L3-D1～D6` 版本链；随后从 L3-D1 以测试驱动方式开始接口与状态投影
 
-> Direction update: the product/trust interpretation in this historical handoff is superseded by
-> [`L3 route-transition decision protocol`](../guides/l3-route-transition-decision-protocol.md).
-> In particular, L3 is now defined as a route-transition decision protocol whose full internal
-> flow runs in every mode; permission modes control decision automation, and physical-click proof
-> is no longer a universal prerequisite. The implementation facts and deferred-work inventory in
-> this handoff remain useful historical evidence.
+这是本任务唯一的 task-level handoff。它替代本文件此前以“物理点击证明”为中心的交接内容，
+但不抹除 0.5.0～0.6.0 已发布实现的历史事实。另一次 handoff 只在用户再次明确要求转接时进行。
 
-Baseline: `main` at `1b2308e62c296febc7b3902684d6b949184a71c8`, tag
-`routeledger-plugin-v0.6.0`.
+## 1. 整体任务与最终结果
 
-Handoff branch: `docs/v3-codex-authorization-handoff`.
-
-This is a task-level handoff, not a release approval. It records the whole local authorization
-route so that V2 work remains visible while the next machine continues the V3 Codex experience.
-It does not authorize merging `main`, tagging, publishing, or writing a bound project's canonical
-RouteLedger JSON.
-
-## 1. Outcome and current product truth
-
-The intended product is a host-native authorization chooser for L3 operations, comparable in
-shape to Codex's approval choices:
-
-1. **Every time ask** — every exact operation needs a trusted user decision (`interactive`).
-2. **Approve for me** — deterministic recommended rules may approve matching operations
-   (`delegated`).
-3. **Full access for this project** — a bounded, finite grant for the current project and session
-   or time window (`preauthorized`). It is not permanent, cross-project, unlimited, remote, or
-   multi-user access.
-
-The authority must never be natural-language text, an Agent claim, a project-local file, a bare
-MCP form response, or an MCP App click. A trusted host adapter must turn an authenticated user
-decision into the broker's internal profile/grant state. Other local MCP hosts may later provide
-the same contract through their own trusted adapter or external configuration. When no trusted
-host interaction exists, the system fails closed.
-
-Plugin `0.6.0` completed the local authorization security kernel and control plane. It did **not**
-complete the native Codex three-choice product experience. In particular, the current plugin can
-discover an already provisioned host-owned registry and can read or recommend authorization
-state, but it cannot use a verified native Codex user gesture to install or switch the mode.
-
-## 2. Why an internal Profile exists
-
-The Profile mechanism did not originate as a requested user-facing object. It emerged while
-closing a critical trust-boundary defect:
-
-1. The first delegated-policy design placed authority and usage state under the project-local
-   `.routeledger` directory.
-2. A normal workspace-write Agent could then edit its own allow policy or reset its budget. That
-   made self-authorization possible.
-3. Authority moved outside the workspace and RouteLedger root into host-owned storage.
-4. The broker still needed one durable record that bound project/root identity, selected mode,
-   allowed scope, budget, revision, invalidation epoch, and digest. That record became the
-   internal Profile.
-5. Because the inspected Codex app-server wire did not provide verifiable per-elicitation user
-   identity or user-gesture provenance, implementation and testing converged on pre-provisioned
-   Profiles. This proved the three modes and their security properties, but shifted acceptance
-   away from the original native-chooser experience.
-
-The architecture correction is therefore not to remove the Profile from the security model. It
-is to hide `profileId`, `profileDigest`, `modeEpoch`, and related broker bookkeeping from normal
-users. The Codex chooser and settings surface should be the product entry; Profile remains trusted
-internal state and may appear only in advanced diagnostics or audit evidence.
-
-## 3. Recovered version chain
-
-The route was originally split into V1, V2, and V3. A proposed V4 for remote or multi-user
-authority was explicitly removed because it is not a product requirement. Different local
-projects are separate authorization bindings, not separate users.
-
-| Version | Intended result | Completed | Still open | State |
-| --- | --- | --- | --- | --- |
-| V1 — authorization kernel and trust boundary | Agent cannot manufacture authority; grants, budgets, receipts, replay, and commit are durable and fail closed | External host-owned config/state; persistent atomic grant/budget/receipt handling; fencing, leases, concurrency and crash recovery; exact replay isolation; no self-reported client identity as authority. Released in `0.5.1` and strengthened in `0.6.0` | Optional explicit adoption ceremony from the legacy `0.5.1` delegated config into the newer registry remains deferred. No automatic migration or widening is allowed | Complete as the operational foundation; adoption is a separately deferred compatibility item |
-| V2 — MCP-native interaction and protocol compatibility | The same authorization challenge works safely across supported local MCP hosts and protocol generations | MCP 2025 structured elicitation wire; accept/decline/cancel and fail-closed behavior; Codex app-server protocol probe; outer-tool versus inner-L3 approval separation; normal-turn evidence | MCP 2026-07-28 MRTR/InputRequiredResult adapter; protocol negotiation; requestState and retry negative matrix; generic stdio MCP conformance; no-popup trusted external-config fallback; additional local-host adapters | Partially complete and intentionally deferred, **not removed** |
-| V3 — Codex three-mode experience | A user selects the L3 authorization mode in trusted Codex UI; RouteLedger securely applies, displays, switches, and revokes it | Profile schema, host registry, broker, three-mode evaluation, finite grants, provenance, revoke/commit lifecycle, migration guards, normal-turn harness. Released as the `0.6.0` control-plane slice | Trusted Codex user-decision adapter; native three-choice chooser; mode settings/re-entry; user-facing view/revoke; hiding Profile internals; real Desktop acceptance | Security kernel complete; product experience incomplete |
-
-### Why V2 was not finished earlier
-
-V2 first depended on V1's trusted persistent state. V1 is now complete, so that dependency no
-longer blocks it. V2 was then deliberately placed after the Codex path because Codex's current MCP
-2025 interaction was enough to investigate and build V3, while MCP 2026 and generic-host work did
-not block that investigation. This was an ordering decision, not a scope deletion.
-
-The remaining V2 work must stay in the release route and acceptance plan. A future thread must not
-declare the local multi-host goal complete merely because the Codex chooser works.
-
-## 4. Accepted decisions and fixed boundaries
-
-- Profile is internal trusted state, not the primary product concept.
-- The user-facing choices are every-time ask, approve-for-me, and bounded current-project full
-  access.
-- `delegated` uses deterministic rules. Natural-language instructions never grant authority.
-- The product should recommend a complete deterministic rule checklist so omission of one common
-  rule does not unexpectedly stop routine work. The user may remove or tighten individual rules.
-- Widening scope, changing to a more permissive mode, or increasing TTL/use budget requires a new
-  trusted user decision. Tightening and emergency revoke take effect immediately through the
-  trusted broker.
-- `preauthorized` is finite and explicitly scoped to actions, target IDs, project/root, subject,
-  trusted client, TTL, and use budget. No wildcard target, infinite TTL, infinite uses, or
-  cross-project grant.
-- An unmatched preauthorization denies. It may offer a separately initiated one-time interactive
-  decision, but must not silently fall back to delegated authority.
-- A bare Codex outer tool approval does not constitute RouteLedger L3 authorization.
-- An MCP App, Agent message, `confirm`, `decisionRef`, or self-reported client name cannot install,
-  switch, widen, mint, or revoke authority.
-- Scope is local, single OS user, multiple projects. Remote authority, organizations, multi-user
-  identity, OAuth, and cross-device synchronization remain out of scope.
-
-## 5. Evidence boundary that must be re-admitted
-
-The `0.6.0` G0 probe and public Codex app-server contract showed structured MCP elicitation but no
-stable per-elicitation user identity or user-gesture attestation. Therefore a headless client that
-returns `accept` proves only the JSON-RPC/form wire. It does not prove that a physical user clicked
-a trusted Codex control. `auto_review` is a reviewer subagent and must never be treated as user
-authority.
-
-This is an evidence-based limitation of the inspected host version, not a permanent claim about
-Codex. The next machine must recheck the installed Codex version, current app-server schema, and
-current official documentation before selecting an implementation path.
-
-## 6. Recommended continuing version route
-
-The durable order preserves the earlier `V1 -> V3 -> V2` decision while ensuring V2 closes before
-the integrated local-host result is released.
-
-### V3-R1 — trusted Codex capability admission
-
-**Todo**
-
-- Record the installed Codex version and feature/schema output on the target machine.
-- Re-run a normal Agent turn and inspect native approval/elicitation events.
-- Determine whether Codex exposes a trusted, non-forgeable user decision that can bind the
-  canonical project, action, target, operation digest, selected mode, TTL, and use budget.
-- Prove that headless `accept`, MCP App messages, Agent arguments, and `auto_review` cannot create
-  that authority.
-
-**Constraint**
-
-- Do not invent trust with prompt wording, client names, DOM events, or a project-local secret.
-- If no suitable host capability exists, record `BLOCKED_BY_HOST_CAPABILITY` and keep the existing
-  control plane fail closed.
-
-**Acceptance**
-
-- PASS only when a trusted Codex gesture can be cryptographically or structurally bound to the
-  exact broker decision, or when an explicitly trusted host-private adapter supplies equivalent
-  provenance.
-
-### V3-R2 — native chooser and user-facing settings
-
-**Todo**
-
-- Present the three choices on first L3 use and provide a clear settings/re-entry path.
-- Render canonical action, target, project, duration, use budget, and risk summary in trusted host
-  chrome rather than Agent-authored prose.
-- Install the broker Profile/grant only after the trusted decision from V3-R1.
-- Provide the recommended delegated-rule checklist with safe defaults and visible fallback
-  behavior.
-- Show user concepts and remaining access, not Profile identifiers. Keep identifiers available in
-  advanced diagnostics/audit evidence.
-- Add safe mode switching, tightening, and revoke semantics; preserve existing `0.6.0` Profiles
-  without widening them during migration.
-
-**Deferred**
-
-- Visual management UI inside an untrusted MCP App remains read/request-only unless Codex makes it
-  part of a trusted authorization surface.
-
-**Acceptance**
-
-- A real Desktop user can select all three modes, understand their effective scope, revisit the
-  selection, and revoke access. Each resulting operation carries matching broker provenance and
-  survives restart without widening.
-
-### V2-R1 — MCP 2026 protocol closeout
-
-**Todo**
-
-- Add the MCP 2026-07-28 MRTR / `InputRequiredResult` + `inputResponses` + `requestState` adapter.
-- Negotiate MCP 2025 versus MCP 2026 while sharing one canonical authorization challenge and
-  broker decision model.
-- Test tampered `requestState`, duplicate delivery, disconnect, timeout, retry, and crash recovery.
-- Prove retries cannot double-consume a budget or double-commit an operation.
-
-**Constraint**
-
-- Protocol differences are adapters only. They must not introduce a second authorization model or
-  weaken the V1/V3 trust boundary.
-
-**Acceptance**
-
-- The same exact proposal produces equivalent safe outcomes on both protocol paths, including all
-  negative and retry cases.
-
-### V2-R2 — generic local MCP host conformance
-
-**Todo**
-
-- Add generic stdio MCP conformance outside Codex.
-- Specify and test a no-popup fallback based on trusted external host configuration or adapter
-  injection.
-- Document how another local Agent platform can mount its trusted interaction adapter.
-- Verify absence of UI fails closed while read-only status and proposal creation remain usable.
-
-**Constraint**
-
-- No authority in project files, natural-language instructions, self-reported host identity, or
-  ordinary MCP tools.
-- This remains local and single-user; do not expand into remote or multi-user infrastructure.
-
-**Acceptance**
-
-- At least one non-Codex local stdio harness proves the adapter/config contract, binding checks,
-  finite grants, revoke, restart, and negative forgery cases.
-
-### V3-R3 — integrated local-host product and release candidate
-
-**Todo**
-
-- Treat Codex as the first trusted-host adapter and the generic V2 contract as the extension point
-  for other local Agent platforms.
-- Unify user-facing status, remaining budget, pending authorization, and revoke projections.
-- Run upgrade, downgrade/fail-closed, restart, concurrency, clock, crash, revoke-versus-commit, and
-  exact replay matrices.
-
-**Acceptance**
-
-- Real Codex Desktop manual acceptance for all three choices.
-- Normal Agent-turn acceptance with outer and inner approval counted separately.
-- Malicious client/App/Agent negative tests.
-- MCP 2025, MCP 2026, Codex, and generic stdio adapter coverage.
-- Full tests, typecheck, lint, package/plugin/marketplace/MCP/host smokes, previous-tag release
-  check, clean generated runtime identity, and an independent read-only security audit.
-- Protected-branch PR and required CI. Merge, tag, GitHub Release, and anonymous provenance
-  verification require separate explicit release authorization.
-
-## 7. Important deferred work that must remain visible
-
-The following items are not required to begin V3-R1, but must not disappear:
-
-1. V2 MCP 2026 MRTR adapter and protocol negotiation.
-2. V2 requestState/retry/disconnect/timeout negative matrix.
-3. V2 generic local stdio host conformance and trusted no-popup fallback.
-4. V1-to-new-registry explicit adoption ceremony. The legacy path may continue unchanged until a
-   trusted ceremony can preserve policy usage and receipt provenance without widening authority.
-5. User-facing Profile abstraction cleanup and migration of existing `0.6.0` Profiles.
-
-Remote, multi-user, organization, OAuth, and cross-device features are excluded rather than
-deferred.
-
-## 8. Source reading order
-
-Start from current code and Git state; this handoff is routing context, not implementation truth.
-
-1. [`docs/guides/l3-authorization-v3-host-broker.md`](../guides/l3-authorization-v3-host-broker.md)
-2. [`docs/release/release-notes/0.6.0.md`](../release/release-notes/0.6.0.md)
-3. [`packages/core/src/application/l3-authorization-profile.ts`](../../packages/core/src/application/l3-authorization-profile.ts)
-4. [`packages/mcp/src/local-l3-authority-broker.ts`](../../packages/mcp/src/local-l3-authority-broker.ts)
-5. [`packages/mcp/src/local-l3-authority-registry.ts`](../../packages/mcp/src/local-l3-authority-registry.ts)
-6. [`packages/mcp/src/local-l3-authorization.ts`](../../packages/mcp/src/local-l3-authorization.ts)
-7. [`packages/mcp/src/index.ts`](../../packages/mcp/src/index.ts)
-8. [`packages/mcp/src/bin.ts`](../../packages/mcp/src/bin.ts) and
-   [`packages/mcp/src/stdio-server.ts`](../../packages/mcp/src/stdio-server.ts)
-9. [`packages/codex/src/index.ts`](../../packages/codex/src/index.ts)
-10. [`scripts/smoke-codex-app-server-normal-turn.mjs`](../../scripts/smoke-codex-app-server-normal-turn.mjs)
-11. [`scripts/testing/setup-codex-l3-normal-turn-fixture.ts`](../../scripts/testing/setup-codex-l3-normal-turn-fixture.ts)
-
-Official host references used by the previous probe:
-
-- [Codex App Server approvals](https://learn.chatgpt.com/docs/app-server#approvals)
-- [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-
-## 9. New-machine recovery
-
-1. Fetch the repository and inspect the real Git root, `main`/upstream, working tree, tags, and
-   remote branches. Do not assume this handoff branch has been merged.
-2. Read this document from `origin/docs/v3-codex-authorization-handoff` if it is not yet on `main`.
-3. Use published `0.6.0` as the product baseline. Verify tag
-   `routeledger-plugin-v0.6.0` and release commit before testing.
-4. Upgrade/install the plugin from the RouteLedger marketplace, list installed plugins, then start
-   a new Codex task or restart Codex so the loaded runtime is not stale.
-5. Verify `pluginVersion=0.6.0` and runtime payload digest
-   `30a4fea0b4643458cd1bea2087c13c72660af9c81e3efac8e7849937925724c8` through the loaded runtime.
-6. Create a feature branch from the latest `main` for V3-R1. Do not implement V3-R2 until the host
-   capability admission has a defensible PASS.
-7. Before any RouteLedger write, call the loaded runtime context and verify binding, project root,
-   RouteLedger root, and current version. Never edit canonical RouteLedger JSON directly.
-
-Published `0.6.0` provenance recorded at handoff:
-
-- GitHub Release: <https://github.com/xczl-785/Routeledger/releases/tag/routeledger-plugin-v0.6.0>
-- Runtime payload SHA-256: `30a4fea0b4643458cd1bea2087c13c72660af9c81e3efac8e7849937925724c8`
-- Full plugin distribution SHA-256: `dc2932d4ebc119fb51a67d27cd338eaf6813c84d12caed9a09781583d11fda88`
-- Runtime distribution SHA-256: `9d8d5e45a64ab6ba69b75e9d1b67e08e7fc07ac1fe04d06a9ab475451c63dd35`
-
-## 10. Portable continuation prompt
+RouteLedger 需要同时适配 Codex 插件和通用 MCP，并提供分级的 L3 交互体验。最终结果不是
+让高权限绕过 L3，而是让权限模式控制“决策如何得到”，同时每次路线转换仍完整执行：
 
 ```text
-Continue RouteLedger's local L3 authorization route from
-docs/handoffs/l3-authorization-local-route-handoff.md.
-
-Act as an ordinary engineering collaborator, not release controller. Re-admit live Git, current
-code, installed Codex version, app-server schema, and loaded plugin identity before making claims.
-The immediate target is V3-R1 trusted Codex capability admission. Do not simulate authority with
-natural language, a bare elicitation accept, MCP App DOM/click, client-reported identity, or
-project-local state. If Codex lacks a verifiable trusted user-decision capability, report
-BLOCKED_BY_HOST_CAPABILITY and keep the system fail closed.
-
-Preserve the complete route: V1 foundation is operationally complete but explicit legacy adoption
-is deferred; V2 is partially complete and its MCP 2026 MRTR, negotiation, negative/retry matrix,
-generic stdio conformance, and local trusted-host fallback remain required after the Codex chooser
-slice. V3 0.6.0 is the security control plane, not a completed three-choice user experience.
-
-Do not expand into remote, multi-user, organizations, OAuth, or cross-device work. Do not write
-canonical RouteLedger JSON directly. Use feature branch -> full regression -> independent
-read-only audit -> PR/required CI. Merge, tag, and release need explicit authorization.
+exact proposal
+  -> decision resolution
+  -> exact decision artifact
+  -> commit-time live validation
+  -> atomic commit
+  -> receipt and audit
 ```
 
-## 11. Continuation rule
+用户期望的三级行为是：
 
-This handoff is the durable continuation entry until the user explicitly requests another
-handoff. Ordinary progress should update the active engineering documentation and version route;
-do not create a new handoff file for every checkpoint.
+1. 请求批准：没有匹配授权时等待宿主中的用户决定；
+2. 替我审批：确定性规则自动解决匹配 proposal；
+3. 完全访问：在有限项目/会话/时间 capability 内自动解决。
+
+高权限减少的是用户与工具之间的往返，不是内部状态、数据或审计。Codex 和通用 MCP 是同一
+核心协议的平级 adapter，任何一方都不能定义 core。
+
+## 2. 当前权限、边界和非目标
+
+### 已获授权
+
+- 整理 RouteLedger canonical 版本链；
+- 更新任务级 handoff 和相关索引；
+- 保守盘点、清理已被完全吸收的中间文档；
+- 提交并推送本轮源码文档和 RouteLedger 数据变更；
+- 后续按已确认路线推进接口、状态机和 adapter。
+
+### 当前不在范围内
+
+- 远程、多用户、组织、OAuth、跨设备权限；
+- 把 Mission Control 变成 canonical 写入或主审批面；
+- 在第一阶段迁移 canonical JSON schema；
+- 用自然语言、`confirm`、`decisionRef` 或 Agent 自报身份代替 L3 决策；
+- 为了降低摩擦而删除 digest、live validation、receipt、idempotency 或 audit。
+
+### 仍需单独授权的外部效果
+
+- 合并受保护的 `main`；
+- tag、GitHub Release、npm/package 或 plugin 正式发布；
+- 删除仍有独有信息或兼容消费者的历史资产；
+- 扩展到远程或多用户权限模型。
+
+## 3. 当前真实状态
+
+### 3.1 已完成并接受
+
+- 插件 `0.6.0` 已实现本地单用户授权内核：finite grant、profile、policy、receipt、replay、
+  revoke、commit claim/finalize 和 host-owned registry。
+- 新产品定义已写入
+  [`L3 route-transition decision protocol`](../guides/l3-route-transition-decision-protocol.md)。
+- 当前代码差异、接口方向、状态机、adapter 分工和 20～34 人日估算已写入
+  [`L3 decision protocol implementation assessment`](../guides/l3-decision-protocol-implementation-assessment.md)。
+- 源码分支 `docs/v3-codex-authorization-handoff` 已推送到 `origin`；定义提交为
+  `ec65b09`，实施评估提交为 `559ee57`。
+
+### 3.2 尚未开始
+
+- 没有生产代码改动；
+- 没有新的 decision interface、state projection 或 adapter；
+- 没有一调用 `proposal -> decision -> commit` 编排；
+- 没有 Codex live mode provider；
+- 没有 MCP 2026 `InputRequiredResult` adapter。
+
+曾短暂创建三份 TDD 测试草稿，但在用户要求“先落地情况、不要急着改代码”后已全部撤销，
+未进入任何提交。
+
+### 3.3 Canonical RouteLedger 状态
+
+- workspace root：`D:\Program\plugins`
+- RouteLedger root：`D:\Program\plugins\Routeledger-Internal`
+- project：`RouteLedger Plugin Closeout Tracking`
+- project id：`6a63dcd2-a1b4-4301-b314-de0e2436d86c`
+- content locale：`zh-CN`
+- runtime：plugin `0.6.0`，JSON-only，payload digest
+  `30a4fea0b4643458cd1bea2087c13c72660af9c81e3efac8e7849937925724c8`
+- current：已关闭的 `V2.16 Agent-Neutral Workspace Binding 契约重塑`
+- 当前直接后继：WAIT 的 `V2.2 UI Mission Control 只读看板完整形态`
+
+2026-08-11 已对 `L3-D1～D6` 做成功 batch preflight。第一次尝试把它们插在 V2.16 与
+V2.2 之间，被 append-only 规则正确拒绝；第二个计划改为先追加到 V2.2 之后，再把 V2.2
+重排到 L3-D6 之后，preflight 通过。
+
+随后创建 proposal `739f37c8-8e2e-427c-a4b4-98aa775764e9`，digest
+`6781bf231e333051b83aff50c51465cd1ccd23620a324cd27d520410378b5dbf`。调用
+`approve_l3_operation` 时宿主返回 `AUTHORIZATION_GRANT_REJECTED/HOST_DECLINED`。不得用聊天
+授权绕过，因此该 proposal 已明确 reject。**没有 Version 或 Todo 被创建，也没有路线重排。**
+
+下一线程必须把这视为“版本链设计 ready，canonical commit 被当前宿主决策通道阻断”，而
+不是“版本链已落地”或“实现进行中”。
+
+## 4. 已接受的版本链
+
+目标前向顺序：
+
+```text
+V2.16 (closed current)
+  -> L3-D1 决策接口与状态投影
+  -> L3-D2 现有授权路径 Adapter 化
+  -> L3-D3 一调用执行编排与兼容工具
+  -> L3-D4 Codex 权限 Adapter 与三级交互
+  -> L3-D5 通用 MCP Adapter 与协议兼容
+  -> L3-D6 迁移清理、全量回归与发布候选
+  -> V2.2 UI Mission Control 只读看板完整形态
+```
+
+由于 V2.16 已关闭且已经有直接后继，合法操作顺序是：
+
+1. 在当前顶层尾节点 V2.2 后 batch-create `L3-D1～D6`；
+2. 授权并提交 batch proposal；
+3. 对 V2.2 创建 reorder proposal，把它移动到 L3-D6 之后；
+4. 授权并提交 reorder proposal；
+5. 确认 V2.16 的直接后继为 L3-D1；
+6. 准备并 advance 到 L3-D1。
+
+每个新 Version 的完整 description、Todo、Undo、Boundary 和 Acceptance 已保存在被拒绝的
+proposal 中，可读取该 proposal 复用；不要凭记忆重新缩减它们。
+
+## 5. 工作地图
+
+| 工作区 | 状态 | 稳定结果或剩余工作 |
+| --- | --- | --- |
+| 产品定义 | accepted | L3 是路线转换决策协议；权限控制决策自动化 |
+| 当前实现评估 | complete | 现有内核保留，MCP handler/宿主决策边界需要拆分 |
+| Canonical 版本链 | ready / blocked | 精确 batch 已预检；需要可用宿主 L3 决策后重新 propose/approve/commit |
+| L3-D1 接口与状态投影 | ready | 第一段代码工作，5～8 人日切片的一部分 |
+| L3-D2 兼容 adapter | pending | 抽离 replay/preauthorized/delegated/interactive 分支 |
+| L3-D3 一调用编排 | pending | 自动模式一调用完成，交互模式可恢复 |
+| L3-D4 Codex adapter | pending | live capability probe、动态映射或配置 fallback、Desktop 验收 |
+| L3-D5 通用 MCP adapter | pending | MCP 2025/2026、stdio conformance、无 UI fallback |
+| L3-D6 清理和 RC | pending | 内部概念降噪、兼容迁移、全量异常矩阵和发布候选审计 |
+| 正式发布 | not authorized | merge/tag/release/publish 必须另行明确授权 |
+
+## 6. 已接受决策与证据边界
+
+### 必须保持的决策
+
+- L3 在所有权限模式下都完整运行；
+- permission mode 只改变 decision source 和交互次数；
+- trusted Agent host 可以作为决策来源，RouteLedger 不复制每个平台的完整 sandbox；
+- 物理点击证明不是通用产品硬门槛，可由特定 adapter/部署按需要求；
+- Profile 是兼容期内部 capability 记录，不是用户必须理解的产品中心；
+- core 中不得出现 Codex 专属配置；
+- generic MCP 不得假装知道 Codex 当前会话模式；
+- 新 API 优先使用 `decisionArtifact` 语义，存储和兼容 API 暂留 `ApprovalArtifact`。
+
+### 被否定或取代的方向
+
+- “拿不到可验证的用户点击就整个产品 fail closed”已被取代；
+- 把 Codex 插件形态和 RouteLedger L3 内核视为同一层已被否定；
+- 直接依赖外部 Agent 平台保证全部路线正确性已被否定：平台负责调用决策，RouteLedger
+  仍负责 exact binding、live validation、atomic commit 和 audit；
+- 直接删掉 L3 或在完全访问下跳过内部操作已被否定。
+
+### 未知和证据限制
+
+- 当前 Codex 是否公开当前对话权限模式的稳定运行时字段仍未知；必须 live probe；
+- 本次 `HOST_DECLINED` 只证明当前加载的 MCP interaction 没有给出 accept，不证明所有 Codex
+  版本永久不能提供该能力；
+- MCP 2026 adapter 尚未实现，也未在目标客户端实测；
+- 工作量估算为 20～34 人日，最大变量是宿主能力和协议兼容矩阵。
+
+## 7. 资产分类与待清理清单
+
+### 7.1 当前真源：保留
+
+1. `docs/guides/l3-route-transition-decision-protocol.md`：产品和架构定义；
+2. `docs/guides/l3-decision-protocol-implementation-assessment.md`：当前代码差异和实施顺序；
+3. 本 handoff：唯一继续入口；
+4. canonical RouteLedger MCP live state：版本和 Todo 的操作真源。
+
+### 7.2 稳定历史结果：保留
+
+- `docs/release/release-notes/0.5.0.md`、`0.5.1.md`、`0.6.0.md`；
+- `docs/guides/l3-authorization-v3-host-broker.md`；
+- `packages/core/src/application/l3-authorization*.ts`；
+- `packages/mcp/src/local-l3-authority-*.ts` 和 `local-l3-authorization.ts`；
+- 现有 broker/profile/grant/receipt/interaction 测试和 smoke。
+
+这些材料描述已发布行为或仍被代码消费。即使新产品定义不同，也不能作为“过时文档”直接删除。
+
+### 7.3 代码清理候选：到 L3-D6 前不得提前删除
+
+| 候选 | 位置 | 处理原则 |
+| --- | --- | --- |
+| 超长决策 handler | `packages/mcp/src/index.ts` 的 `approve_l3_operation` | L3-D2 抽成 resolver/adapters，先保持行为等价 |
+| 物理点击通用门槛 | `trustedDecision` 和 V3 interactive 校验 | Codex/generic adapter 就位并有负面测试后再收窄 |
+| Profile 用户可见字段 | status/recommendation projection 中的 id/digest/epoch | 内部保留，普通用户表面隐藏 |
+| approval 命名 | `ApprovalArtifact`、approve/commit 兼容 API | 新 API 投影为 decision；旧数据和工具保留兼容 |
+| Codex 静态 tool approval 分类 | `packages/codex/src/index.ts` | 与 live mode provider/fallback 一起重评，不先删除 |
+| 旧 profile/adoption ceremony | broker/registry migration 路径 | 有真实旧数据升级测试后才能删除 |
+| 旧 smoke 假设 | Codex app-server、normal-turn、elicitation scripts | adapter 验收矩阵建立后分类为保留/重写/删除 |
+
+### 7.4 RouteLedger 旧 Version 清理候选
+
+- `Initial Version`：无业务内容的初始化占位，优先 shutdown 候选；
+- `V2.15 Workspace Config 定位契约重塑`：父节点仍 WAIT，但 A/B 已完成且 V2.16 已关闭，
+  状态失真；
+- `V2.15C 数据目录迁移与跳转执行层`：V2.16 明确否定原路径，需 shutdown 或重新定义，
+  不得原样推进；
+- `V3 Package 发布准备与跨平台验证`：0.6.0 plugin 已发布，但 npm/package/cross-platform
+  仍可能有效，需拆分已完成与剩余；
+- `V4`、`V5`：长期 backlog，保留但不阻塞 L3；
+- `V6`：混合杂项容器，需把独有 Todo 分流后才能 shutdown；
+- `V7`：SUSPEND，部分模块拆分与 L3-D1/D2 重叠，需吸收重叠项并保留非 L3 工程债；
+- `V2.2 UI`：需求仍有效，只需后移，不应 shutdown。
+
+本轮没有对这些 Version 执行 shutdown，因为新的 batch 变更已在授权处失败；继续发起更多必然
+失败的 L3 proposal 只会制造审计噪音。
+
+### 7.5 已清理的中间资产
+
+- 本文件此前的 V1/V2/V3-R1/R2/R3 路线叙述已被新定义和实施评估完整吸收，因此在原路径
+  重写；旧字节仍可从 Git 历史 `a5b02e5` 恢复；
+- 未提交的三份 decision 测试草稿已经删除；没有独有结论，行为要求已进入实施评估和目标
+  L3-D1 Todo。
+
+没有删除 raw evidence、release evidence、用户文件或机器私有授权状态。
+
+## 8. 最短阅读顺序
+
+1. 仓库 `Agents.md` 和当前用户指令；
+2. [`L3 route-transition decision protocol`](../guides/l3-route-transition-decision-protocol.md)；
+3. [`L3 decision protocol implementation assessment`](../guides/l3-decision-protocol-implementation-assessment.md)；
+4. 本 handoff 的 canonical 状态、版本链和下一步；
+5. `packages/mcp/src/index.ts` 中 `approve_l3_operation`；
+6. `packages/core/src/application/routeledger-service.ts` 中 `authorizeL3Operation` 和
+   `commitL3Operation`；
+7. `packages/core/src/application/l3-authorization*.ts`；
+8. `packages/codex/src/index.ts` 的 tool approval config；
+9. 仅在查历史行为时阅读 0.5.0～0.6.0 release notes 和旧 broker guide。
+
+不要先重放旧对话，也不要先从历史 V3-R1“物理点击 admission”重新开始。
+
+## 9. 工作区与恢复
+
+### 源码仓库
+
+- 路径：`D:\Program\plugins\Routeledger`
+- remote：`https://github.com/xczl-785/Routeledger.git`
+- branch：`docs/v3-codex-authorization-handoff`
+- 本 handoff 更新前 HEAD：`559ee57`
+- 受保护保留分支：`codex-marketplace`，不得删除、重命名、合并、rebase 或 force-push
+
+### Canonical 数据仓库
+
+- 路径：`D:\Program\plugins\Routeledger-Internal`
+- remote：`https://github.com/xczl-785/Routeledger-Internal.git`
+- branch：`main`
+- 本轮开始时本地已比 `origin/main` ahead 1：`524e5e4`
+- 本轮新增的是一个 rejected proposal 及两条 audit event；没有 Version/Todo 变更
+
+canonical 文件只能由 RouteLedger MCP 工具写入。Git 可以提交 MCP 产生的数据文件，但不得
+手工编辑它们来伪造版本链或授权结果。
+
+### 机器本地依赖
+
+- 本次使用的 plugin cache runtime 位于当前 Windows 用户 Codex cache；该路径不应成为代码
+  或文档的运行依赖；
+- detached release attestation 可从 0.6.0 GitHub Release 恢复；
+- 当前宿主 interaction 返回 `HOST_DECLINED`，这一运行时状态不可通过 Git 转移。
+
+## 10. 精确下一步
+
+1. 新线程先调用 `get_runtime_context`，核对 workspace、RouteLedger root、project、locale 和
+   runtime identity；
+2. 调用 `get_current_context`，确认没有 pending L3 proposal，且 rejected proposal 已保留为
+   audit；
+3. 确定一个能让 `approve_l3_operation` 得到有效决策的宿主路径：真实 structured
+   interaction、已配置 delegated authority，或严格匹配的 finite preauthorization；
+4. 读取 rejected proposal `739f37c8-8e2e-427c-a4b4-98aa775764e9`，复用其中完整
+   `batchItems` 重新执行 preflight/propose；
+5. approve 并 commit batch；然后 reorder V2.2 到 L3-D6 后并提交；
+6. 复核结构后 prepare/advance 到 L3-D1；
+7. 进入代码时使用 TDD：先写 decision result/state transition 的失败测试，再实现最小公共
+   接口和兼容状态投影；
+8. 不要在 L3-D1 顺手实现一调用编排、Codex adapter 或数据迁移。
+
+如果宿主仍返回 `HOST_DECLINED`，不要重复制造 proposal；记录 live evidence，并先修复/配置
+宿主决策通道。聊天文本不能作为替代授权。
+
+## 11. 验证标准
+
+交接恢复后，新 Agent 应能在不读旧对话的情况下说明：
+
+- L3 的新定义和三级权限真正控制什么；
+- 哪些 0.6.0 内核必须保留；
+- 为什么 Codex 与 generic MCP 是 adapter；
+- 当前没有代码实现，也没有 canonical 新版本；
+- 版本链为何要先 append 再 reorder；
+- 哪个 proposal 被拒绝、为什么被拒绝；
+- 第一段代码只做到接口、状态投影和兼容测试；
+- merge/tag/release 仍未获授权。
