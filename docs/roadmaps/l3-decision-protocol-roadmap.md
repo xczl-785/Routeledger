@@ -83,7 +83,7 @@ state.
 | --- | --- | --- | --- | --- | --- |
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
-| L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `in_progress` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
+| L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `complete` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
 | L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `wait` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `wait` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
 | L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `wait` | D4 and D5 accepted | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | No merge, tag, publish, or release without separate authorization |
@@ -189,12 +189,22 @@ the existing propose, approve, reject, and commit tools remain available.
 - registry restart and crash-persistent idempotency remain D5; Codex mode discovery remains D4;
 - no canonical JSON schema or persisted phase migration is introduced in D3.
 
-### Planned evidence
+### Evidence
 
 - focused core tests for resolved, input-required, denied, and mismatched resolutions;
 - MCP tests for one-call automatic completion, exact retry replay, idempotency-key conflict, and
   continued availability of the low-level tools;
 - full tests, typecheck, lint, package-facing contract checks, and `git diff --check`.
+
+| Checkpoint | Status | Evidence | Impact |
+| --- | --- | --- | --- |
+| D3 Contract Gate | `passed` | Host-neutral orchestrator exposes committed, input-required, and denied results with exact recovery-state validation | Stable core API is ready for D4/D5 adapters |
+| Automatic one-call and retry matrix | `passed` | `execute_l3_operation` completed through delegated authority without elicitation; concurrent duplicates shared one in-flight execution; sequential retry replayed the original commit; mismatched key reuse failed closed; low-level tools remained registered | One-call path adds convenience without bypassing proposal/artifact semantics |
+| D3 Result Gate | `passed` | Implementation commit `0b03f78`; 54 test files / 591 tests; 6 JSONL client tests; full typecheck and lint; full/json-only MCP package profile smokes; `git diff --check` | D3 closed; D4 may enter after a fresh-host capability probe |
+| D3 Integrity Gate | `passed_after_rework` | Review found that proposal reuse alone did not serialize concurrent duplicate authorization; registry in-flight coalescing and a concurrent duplicate oracle were added before closure | No known double-authorize, double-consume, or double-commit path remains inside one registry lifetime |
+
+Registry restart and crash-persistent idempotency remain explicitly deferred to D5; this D3 gate
+does not claim persistence beyond the live registry process.
 
 ## 10. Deferred and decision log
 
