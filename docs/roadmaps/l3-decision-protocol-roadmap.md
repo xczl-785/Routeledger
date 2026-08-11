@@ -248,7 +248,22 @@ not authority.
 The generic implementation is intentionally local and single-user. Remote authority, OAuth,
 organizations, cross-device state, and multi-user policy remain outside this route.
 
-## 12. Deferred and decision log
+## 12. L3-D6 release-candidate gate
+
+Cleanup and compatibility work is resolved in
+`docs/release/0.7.0-release-candidate-audit.md`. The generated plugin is 0.7.0 and the complete
+source/distribution gate is green. Default status output hides profile bookkeeping; the new
+high-level API returns `decisionArtifact`; legacy persistence, readers, low-level tools, V1/V2
+authority, grants, receipts, and replay remain intact.
+
+| Checkpoint | Status | Evidence | Impact |
+| --- | --- | --- | --- |
+| D6 cleanup gate | `passed` | Decision artifact projection, summary-first status, explicit internal diagnostics, no canonical schema migration | Product semantics are simpler without deleting migration evidence |
+| D6 recovery gate | `passed` | Duplicate/retry/restart/tamper/expiry/revoke/concurrency/receipt and legacy matrices reconciled in the RC audit | No unresolved compatibility blocker found |
+| D6 source/distribution gate | `passed` | 57 files / 604 tests, 6 JSONL tests, typecheck, lint, two-profile MCP package smoke, plugin and Git marketplace smokes, previous-0.6.0 release check | Candidate may enter protected-branch PR |
+| D6 native host and Desktop gate | `pending_on_main` | User selected merged `main` as the only final test surface | D6 remains `in_progress`; no tag before this gate passes |
+
+## 13. Deferred and decision log
 
 | ID | Item | Reason | Review trigger | Candidate disposition |
 | --- | --- | --- | --- | --- |
@@ -257,7 +272,7 @@ organizations, cross-device state, and multi-user policy remain outside this rou
 | L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Current support remains unknown | D4 fresh-host capability probe | Dynamic mapping if supported; explicit plugin fallback otherwise |
 | L3-DEF-004 | Run three-mode Codex Desktop acceptance from merged main | User selected main as the only final test surface; no local candidate install | After D6 candidate merges through protected-branch CI | Test all three fresh task modes before creating the immutable release tag |
 
-## 13. Update discipline
+## 14. Update discipline
 
 At every stable checkpoint, update this file with:
 
