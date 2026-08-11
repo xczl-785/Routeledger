@@ -589,11 +589,28 @@ describe("MCP L3 authorization elicitation", () => {
       expect(structured(status).data).toMatchObject({
         controlPlane: "host_authority_broker_v2",
         profile: {
-          profileId: "profile-preauthorized",
-          mode: "preauthorized",
-          modeEpoch: 1
+          mode: "preauthorized"
         },
         management: "host_only"
+      });
+      expect((structured(status).data as { profile: Record<string, unknown> }).profile).not.toHaveProperty(
+        "profileId"
+      );
+      const internalStatus = await call(
+        preauthorized,
+        "authorization-status-internal",
+        "get_l3_authorization_status",
+        { detail: "internal" }
+      );
+      expect(structured(internalStatus).data).toMatchObject({
+        profile: {
+          mode: "preauthorized",
+          internal: {
+            profileId: "profile-preauthorized",
+            modeEpoch: 1,
+            profileRevision: 1
+          }
+        }
       });
       const recommendation = await call(
         preauthorized,

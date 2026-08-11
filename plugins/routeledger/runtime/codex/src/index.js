@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+export * from "./l3-permission-mode.js";
 export class CodexProjectConfigError extends Error {
     code;
     constructor(code, message) {
@@ -74,7 +75,7 @@ export const PROMPT_APPROVAL_TOOLS = [
     "reorder_versions",
     "propose_l3_operation"
 ];
-export const APPROVE_APPROVAL_TOOLS = ["commit_l3_operation"];
+export const APPROVE_APPROVAL_TOOLS = ["execute_l3_operation", "commit_l3_operation"];
 const assertAbsolutePath = (value, fieldName) => {
     if (value.trim().length === 0) {
         throw new CodexProjectConfigError("EMPTY_PATH", `${fieldName} must be a non-empty absolute path.`);

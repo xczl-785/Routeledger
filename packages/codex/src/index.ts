@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+export * from "./l3-permission-mode.js";
+
 export interface CodexActorConfig {
   id: string;
   displayName: string;
@@ -153,7 +155,7 @@ export const PROMPT_APPROVAL_TOOLS = [
   "propose_l3_operation"
 ] as const;
 
-export const APPROVE_APPROVAL_TOOLS = ["commit_l3_operation"] as const;
+export const APPROVE_APPROVAL_TOOLS = ["execute_l3_operation", "commit_l3_operation"] as const;
 
 const assertAbsolutePath = (value: string, fieldName: string): string => {
   if (value.trim().length === 0) {

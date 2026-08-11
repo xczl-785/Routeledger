@@ -11,10 +11,11 @@ import {
   type L3AuthorizationGrant,
   type L3AuthorizationEvaluationContext,
   type L3AuthorizationProfileV2,
+  createExactProposalDecisionRequest,
   digestL3AuthorizationPolicy,
   digestL3AuthorizationProfile,
-  validateL3AuthorizationGrant,
-  type L3AuthorizationScope,
+  orchestrateL3Operation,
+  projectDecisionArtifact,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
   type Actor,
@@ -83,12 +84,20 @@ import {
   resolveResponseLocale,
   suggestContentLocale
 } from "./locale.js";
+import {
+  ExistingL3DecisionAdapter,
+  requireResolvedExistingL3Decision
+} from "./existing-l3-decision-adapter.js";
 
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
 export * from "./local-l3-authority-broker.js";
+export * from "./existing-l3-decision-adapter.js";
+export * from "./mcp-decision-input.js";
+export * from "./mcp-request-state.js";
 
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
+export const MCP_MRTR_PROTOCOL_VERSION = "2026-07-28";
 
 export type RouteLedgerHostProfileName = "generic" | "codex" | "claude-code" | "cursor";
 /**
@@ -121,6 +130,18 @@ export interface RouteLedgerMcpRegistryOptions {
     enabled?: boolean;
   };
   defaultResponseLocale?: string;
+  hostPermissionContext?:
+    | {
+        status: "resolved";
+        mode: "interactive" | "delegated" | "preauthorized";
+        source: "codex_permission_profile" | "plugin_config";
+        fallbackUsed: boolean;
+      }
+    | {
+        status: "unavailable";
+        code: string;
+        reason: string;
+      };
   /** Stdio owns the swap so a bootstrap response can be emitted before old resources close. */
   deferSessionRebind?: boolean;
   /** Trusted startup identity used to build candidates before a bound profile exists. */
@@ -880,9 +901,9 @@ const createInstructions = (options: {
     "Legacy Undo records are audit-only and are not part of default tool discovery. Use get_current_context(includeLegacyUndo=true) only when a legacy blocker requires explicit audit.",
     "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
     "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
-    "L3 route changes are proposal-based: approve_l3_operation consumes a host-injected grant or requests structured host elicitation, then commit_l3_operation requires its approval artifact. Project files are never authorization authority.",
+    "L3 route changes are proposal-based: execute_l3_operation performs the proposal, decision, artifact, and commit chain with an idempotency key; the low-level propose, approve, reject, and commit tools remain available. Project files are never authorization authority.",
     "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
-    "High-risk tools are shutdown_version, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; approve_l3_operation fails closed without a trusted host authority, preauthorization, or elicitation.",
+    "High-risk tools are shutdown_version, execute_l3_operation, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; L3 decision tools fail closed without a trusted host authority, preauthorization, or elicitation.",
     `Current host profile: ${hostLabel}. Default actor: ${actorLabel}. Default approver: ${approverLabel}.`
   ].join(" ");
 };
@@ -906,6 +927,24 @@ const digestAuthorizationPath = (candidate: string): string => {
 
 const digestRouteLedgerRoot = (routeledgerRoot: string): string =>
   digestAuthorizationPath(routeledgerRoot);
+
+const canonicalizeExecutionInput = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalizeExecutionInput);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalizeExecutionInput(item)])
+    );
+  }
+  return value;
+};
+
+const digestExecutionInput = (value: unknown): string =>
+  `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalizeExecutionInput(value)))
+    .digest("hex")}`;
 
 const createService = (
   workspaceRoot: string,
@@ -1395,6 +1434,208 @@ export const createRouteLedgerMcpRegistry = (
       // Debug logging is optional and must never change MCP tool semantics.
     }
   };
+  const executionRequests = new Map<
+    string,
+    { fingerprint: string; proposalId: Promise<string>; inFlight?: Promise<ToolResponse> }
+  >();
+  const createExistingL3DecisionAdapter = (proposal: Readonly<PendingOperation>) => {
+    if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
+      throw new ApplicationError(
+        "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+        options.hostPermissionContext.reason,
+        { reason: options.hostPermissionContext.code, pendingOperationId: proposal.id }
+      );
+    }
+    if (options.l3Authorization === undefined) {
+      throw new ApplicationError(
+        "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+        "This MCP connection has no trusted L3 authorization control plane",
+        { pendingOperationId: proposal.id }
+      );
+    }
+
+    const l3Authorization = options.l3Authorization;
+    const activeProfile = l3Authorization.profile;
+    if (
+      hostProfile === "codex" &&
+      options.hostPermissionContext?.status === "resolved" &&
+      activeProfile !== undefined &&
+      activeProfile.mode !== options.hostPermissionContext.mode
+    ) {
+      throw new ApplicationError(
+        "AUTHORIZATION_PROFILE_DISABLED",
+        "The bound RouteLedger authorization profile does not match the effective Codex permission mode",
+        {
+          reason: "CODEX_ROUTELEDGER_MODE_MISMATCH",
+          effectiveMode: options.hostPermissionContext.mode,
+          configuredMode: activeProfile.mode,
+          profileId: activeProfile.profileId
+        }
+      );
+    }
+    if (activeProfile?.status === "disabled") {
+      throw new ApplicationError(
+        "AUTHORIZATION_PROFILE_DISABLED",
+        "The bound L3 authorization profile is disabled",
+        { profileId: activeProfile.profileId, modeEpoch: activeProfile.modeEpoch }
+      );
+    }
+    const authorizationContext = {
+      audience: "routeledger-core",
+      subjectId: approver.id,
+      projectId: proposal.projectId,
+      routeledgerRootDigest: digestRouteLedgerRoot(initialBinding.routeledgerRoot!),
+      ...(activeProfile === undefined
+        ? {}
+        : {
+            profileId: activeProfile.profileId,
+            modeEpoch: activeProfile.modeEpoch,
+            profileDigest: activeProfile.profileDigest
+          }),
+      actionType: proposal.actionType,
+      targetId: proposal.targetId,
+      operationDigest: proposal.digest.value,
+      now: new Date().toISOString(),
+      hostKind: hostProfile,
+      ...(l3Authorization.trustedClientId === undefined
+        ? {}
+        : { clientId: l3Authorization.trustedClientId }),
+      sessionId: l3Authorization.sessionId
+    };
+
+    return new ExistingL3DecisionAdapter({
+      proposal,
+      authorizationContext,
+      grantStore: l3Authorization.grantStore,
+      interaction: l3Authorization.interaction,
+      sessionId: l3Authorization.sessionId,
+      hostProfile,
+      ...(l3Authorization.trustedClientId === undefined
+        ? {}
+        : { trustedClientId: l3Authorization.trustedClientId }),
+      ...(activeProfile === undefined ? {} : { profile: activeProfile }),
+      ...(l3Authorization.delegatedAuthority === undefined
+        ? {}
+        : { delegatedAuthority: l3Authorization.delegatedAuthority }),
+      getEvaluationContext: () =>
+        service.getL3AuthorizationEvaluationContext({
+          projectId: proposal.projectId,
+          pendingOperationId: proposal.id,
+          routeledgerRootDigest: authorizationContext.routeledgerRootDigest,
+          ...(activeProfile === undefined
+            ? {}
+            : {
+                profileId: activeProfile.profileId,
+                modeEpoch: activeProfile.modeEpoch,
+                profileDigest: activeProfile.profileDigest
+              }),
+          subjectId: approver.id,
+          hostKind: hostProfile,
+          ...(l3Authorization.trustedClientId === undefined
+            ? {}
+            : { clientId: l3Authorization.trustedClientId })
+        })
+    });
+  };
+  const executeExistingL3Proposal = async (
+    proposal: Readonly<PendingOperation>,
+    idempotencyKey: string
+  ): Promise<ToolResponse> => {
+    if (proposal.status === "committed" && proposal.approvalArtifactId !== null) {
+      const committed = await service.commitL3Operation({
+        projectId: proposal.projectId,
+        pendingOperationId: proposal.id,
+        approvalArtifactId: proposal.approvalArtifactId,
+        actor
+      });
+      return {
+        ok: true,
+        data: {
+          status: "committed",
+          proposalId: proposal.id,
+          decisionArtifact: projectDecisionArtifact(committed.approvalArtifact),
+          commit: committed
+        }
+      };
+    }
+    if (proposal.status === "rejected") {
+      return {
+        ok: true,
+        data: {
+          status: "denied",
+          proposalId: proposal.id,
+          code: "PREVIOUSLY_REJECTED",
+          reason: proposal.rejectionReason,
+          rejection: proposal
+        }
+      };
+    }
+
+    const result = await orchestrateL3Operation({
+      proposal,
+      adapter: createExistingL3DecisionAdapter(proposal),
+      port: {
+        authorize: async (_proposal, decision) => {
+          if (decision.authorizationGrantId === undefined) {
+            throw new ApplicationError(
+              "AUTHORIZATION_GRANT_REJECTED",
+              "The resolved L3 decision has no exact authorization grant",
+              { pendingOperationId: proposal.id, reason: "AUTHORIZATION_GRANT_ID_REQUIRED" }
+            );
+          }
+          return service.authorizeL3Operation({
+            projectId: proposal.projectId,
+            pendingOperationId: proposal.id,
+            grantId: decision.authorizationGrantId,
+            actor
+          });
+        },
+        commit: (_proposal, artifact) =>
+          service.commitL3Operation({
+            projectId: proposal.projectId,
+            pendingOperationId: proposal.id,
+            approvalArtifactId: artifact.id,
+            actor
+          }),
+        reject: (_proposal, denial) =>
+          service.rejectL3Operation({
+            projectId: proposal.projectId,
+            pendingOperationId: proposal.id,
+            reason: `${denial.code}: ${denial.reason}`,
+            actor
+          })
+      }
+    });
+
+    if (result.status === "committed") {
+      await appendDebugLog("execute_l3_operation", {
+        type: "l3.commit",
+        projectId: proposal.projectId,
+        versionId: proposal.targetId,
+        pendingOperationId: proposal.id,
+        payload: {
+          actionType: proposal.actionType,
+          approvalArtifactId: result.approvalArtifact.id,
+          replayed: result.commit.replayed,
+          idempotencyKey
+        }
+      });
+    }
+
+    return {
+      ok: true,
+      data:
+        result.status === "committed"
+          ? {
+              status: result.status,
+              proposalId: result.proposalId,
+              decision: result.decision,
+              decisionArtifact: projectDecisionArtifact(result.approvalArtifact),
+              commit: result.commit
+            }
+          : result
+    };
+  };
   let toolDefinitions: ToolDefinition[] = [];
   let guardedTools: Array<ToolRegistration> = [];
   let pendingSessionRebind: RouteLedgerPendingSessionRebind | null = null;
@@ -1617,13 +1858,29 @@ export const createRouteLedgerMcpRegistry = (
     defineTool(
       "get_l3_authorization_status",
       { what: "Inspect active L3 authorization." },
-      objectSchema({}),
+      objectSchema({
+        detail: {
+          type: "string",
+          enum: ["summary", "internal"],
+          description: "Use internal only for host diagnostics; summary is the product default."
+        }
+      }),
       {
         title: "Get L3 Authorization Status",
         riskLevel: "read-only"
       },
-      async () => {
+      async (input) => {
         const profile = options.l3Authorization?.profile;
+        const effectiveMode =
+          options.hostPermissionContext?.status === "resolved"
+            ? {
+                mode: options.hostPermissionContext.mode,
+                source: options.hostPermissionContext.source,
+                fallbackUsed: options.hostPermissionContext.fallbackUsed,
+                profileCompatible:
+                  profile === undefined ? null : profile.mode === options.hostPermissionContext.mode
+              }
+            : options.hostPermissionContext ?? null;
         return {
           ok: true,
           data:
@@ -1636,17 +1893,15 @@ export const createRouteLedgerMcpRegistry = (
                         ? "unavailable"
                         : "v1_compatibility",
                   profile: null,
+                  effectiveMode,
                   management: "host_only"
                 }
               : {
                   controlPlane: "host_authority_broker_v2",
+                  effectiveMode,
                   profile: {
-                    profileId: profile.profileId,
                     status: profile.status,
                     mode: profile.mode,
-                    modeEpoch: profile.modeEpoch,
-                    profileRevision: profile.profileRevision,
-                    profileDigest: profile.profileDigest,
                     limits: profile.limits,
                     delegatedPolicy:
                       profile.delegatedPolicy === null
@@ -1657,7 +1912,17 @@ export const createRouteLedgerMcpRegistry = (
                             defaultEffect: profile.delegatedPolicy.defaultEffect,
                             ruleCount: profile.delegatedPolicy.rules.length,
                             alwaysPrompt: profile.delegatedPolicy.alwaysPrompt
+                          },
+                    ...(input.detail === "internal"
+                      ? {
+                          internal: {
+                            profileId: profile.profileId,
+                            modeEpoch: profile.modeEpoch,
+                            profileRevision: profile.profileRevision,
+                            profileDigest: profile.profileDigest
                           }
+                        }
+                      : {})
                   },
                   management: "host_only",
                   trustedUserDecisionProvenance: "required"
@@ -3446,6 +3711,152 @@ export const createRouteLedgerMcpRegistry = (
       })
     ),
     defineTool(
+      "execute_l3_operation",
+      {
+        what: "Execute one exact L3 operation end to end.",
+        parameter: "action, target, reason, and idempotency key",
+        warning: "key reuse requires the same input"
+      },
+      objectSchema(
+        {
+          projectId: stringSchema("RouteLedger project ID."),
+          actionType: {
+            type: "string",
+            enum: [
+              "start_version",
+              "close_version",
+              "shutdown_version",
+              "reopen_version",
+              "set_current_version",
+              "advance_to_version",
+              "create_version",
+              "insert_version",
+              "create_child_version",
+              "reorder_versions"
+            ],
+            description: "L3 action type."
+          },
+          targetId: stringSchema("Target record ID."),
+          reason: stringSchema("Proposal reason."),
+          idempotencyKey: stringSchema("Caller-stable key for exact retry within this MCP registry lifetime."),
+          payload: payloadSchema
+        },
+        ["projectId", "actionType", "targetId", "reason", "idempotencyKey"]
+      ),
+      {
+        title: "Execute L3 Operation",
+        riskLevel: "high-risk",
+        destructive: true,
+        idempotent: true,
+        recommendedApprovalMode: "approve"
+      },
+      async (input) => {
+        if (options.l3Authorization === undefined) {
+          throw new ApplicationError(
+            "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+            "This MCP connection has no trusted L3 authorization control plane"
+          );
+        }
+        if (options.l3Authorization.profile?.status === "disabled") {
+          throw new ApplicationError(
+            "AUTHORIZATION_PROFILE_DISABLED",
+            "The bound L3 authorization profile is disabled",
+            {
+              profileId: options.l3Authorization.profile.profileId,
+              modeEpoch: options.l3Authorization.profile.modeEpoch
+            }
+          );
+        }
+        if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
+          throw new ApplicationError(
+            "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+            options.hostPermissionContext.reason,
+            { reason: options.hostPermissionContext.code }
+          );
+        }
+        if (
+          hostProfile === "codex" &&
+          options.hostPermissionContext?.status === "resolved" &&
+          options.l3Authorization.profile !== undefined &&
+          options.l3Authorization.profile.mode !== options.hostPermissionContext.mode
+        ) {
+          throw new ApplicationError(
+            "AUTHORIZATION_PROFILE_DISABLED",
+            "The bound RouteLedger authorization profile does not match the effective Codex permission mode",
+            {
+              reason: "CODEX_ROUTELEDGER_MODE_MISMATCH",
+              effectiveMode: options.hostPermissionContext.mode,
+              configuredMode: options.l3Authorization.profile.mode
+            }
+          );
+        }
+        if (input.idempotencyKey.trim().length === 0) {
+          throw new InvalidToolInputError("idempotencyKey must be non-empty", {
+            toolName: "execute_l3_operation",
+            path: "$.idempotencyKey",
+            expected: "non-empty string"
+          });
+        }
+
+        const exactInput = {
+          projectId: input.projectId,
+          actionType: input.actionType,
+          targetId: input.targetId,
+          reason: input.reason,
+          payload: input.payload ?? {}
+        };
+        const fingerprint = digestExecutionInput(exactInput);
+        const existing = executionRequests.get(input.idempotencyKey);
+        if (existing !== undefined && existing.fingerprint !== fingerprint) {
+          throw new InvalidToolInputError(
+            "idempotencyKey is already bound to a different L3 execution request",
+            {
+              toolName: "execute_l3_operation",
+              path: "$.idempotencyKey",
+              reason: "IDEMPOTENCY_KEY_REUSE_MISMATCH",
+              idempotencyKey: input.idempotencyKey
+            }
+          );
+        }
+
+        let entry = existing;
+        if (entry === undefined) {
+          const resumeProposalId = (input as Record<string, unknown>)[
+            "__routeledgerMcpResumeProposalId"
+          ];
+          const proposalId =
+            typeof resumeProposalId === "string" && resumeProposalId.trim().length > 0
+              ? Promise.resolve(resumeProposalId)
+              : service
+                  .proposeL3Operation({
+                    ...exactInput,
+                    actionType: input.actionType as L3ActionType,
+                    actor
+                  })
+                  .then((proposal) => proposal.id);
+          entry = { fingerprint, proposalId };
+          executionRequests.set(input.idempotencyKey, entry);
+          proposalId.catch(() => {
+            if (executionRequests.get(input.idempotencyKey) === entry) {
+              executionRequests.delete(input.idempotencyKey);
+            }
+          });
+        }
+
+        const pendingOperationId = await entry.proposalId;
+        const proposal = await service.getL3Proposal(input.projectId, pendingOperationId);
+        if (entry.inFlight === undefined) {
+          entry.inFlight = executeExistingL3Proposal(proposal, input.idempotencyKey);
+        }
+        const inFlight = entry.inFlight;
+        try {
+          return await inFlight;
+        } finally {
+          if (entry.inFlight === inFlight) delete entry.inFlight;
+        }
+      }
+    ),
+    defineTool(
       "approve_l3_operation",
       {
         what: "Request trusted host authorization for an L3 proposal.",
@@ -3467,312 +3878,28 @@ export const createRouteLedgerMcpRegistry = (
         riskLevel: "high-risk"
       },
       async (input) => {
-        if (options.l3Authorization === undefined) {
-          throw new ApplicationError(
-            "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-            "This MCP connection has no trusted L3 authorization control plane",
-            { pendingOperationId: input.pendingOperationId }
-          );
-        }
-
-        const activeProfile = options.l3Authorization.profile;
-        if (activeProfile?.status === "disabled") {
-          throw new ApplicationError(
-            "AUTHORIZATION_PROFILE_DISABLED",
-            "The bound L3 authorization profile is disabled",
-            { profileId: activeProfile.profileId, modeEpoch: activeProfile.modeEpoch }
-          );
-        }
-
         const proposal = await service.getL3Proposal(input.projectId, input.pendingOperationId);
-        const authorizationContext = {
-          audience: "routeledger-core",
-          subjectId: approver.id,
-          projectId: proposal.projectId,
-          routeledgerRootDigest: digestRouteLedgerRoot(initialBinding.routeledgerRoot!),
-          ...(activeProfile === undefined
-            ? {}
-            : {
-                profileId: activeProfile.profileId,
-                modeEpoch: activeProfile.modeEpoch,
-                profileDigest: activeProfile.profileDigest
-              }),
-          actionType: proposal.actionType,
-          targetId: proposal.targetId,
-          operationDigest: proposal.digest.value,
-          now: new Date().toISOString(),
-          hostKind: hostProfile,
-          ...(options.l3Authorization.trustedClientId === undefined
-            ? {}
-            : { clientId: options.l3Authorization.trustedClientId }),
-          sessionId: options.l3Authorization.sessionId
-        };
-        const consumedReplay =
-          await options.l3Authorization.grantStore.findConsumedAuthorization(
-            authorizationContext,
-            proposal.id
-          );
-        if (consumedReplay !== null) {
-          return {
-            ok: true,
-            data: await service.authorizeL3Operation({
-              projectId: input.projectId,
-              pendingOperationId: input.pendingOperationId,
-              grantId: consumedReplay.grant.id,
-              actor
-            })
-          };
-        }
-        const reusableGrant =
-          activeProfile === undefined || activeProfile.mode === "preauthorized"
-            ? await options.l3Authorization.grantStore.findMatching(authorizationContext)
-            : null;
-        if (
-          reusableGrant !== null &&
-          (activeProfile === undefined
-            ? reusableGrant.source === "preauthorized" ||
-              (reusableGrant.source === "user_interaction" && reusableGrant.scope === "session")
-            : reusableGrant.source === "preauthorized")
-        ) {
-          const artifact = await service.authorizeL3Operation({
-            projectId: input.projectId,
-            pendingOperationId: input.pendingOperationId,
-            grantId: reusableGrant.id,
-            actor
-          });
-          return { ok: true, data: artifact };
-        }
-
-        if (activeProfile?.mode === "preauthorized") {
+        const adapter = createExistingL3DecisionAdapter(proposal);
+        const decision = requireResolvedExistingL3Decision(
+          await adapter.resolve(createExactProposalDecisionRequest(proposal))
+        );
+        if (decision.authorizationGrantId === undefined) {
           throw new ApplicationError(
-            "PREAUTHORIZATION_GRANT_REQUIRED",
-            "The active preauthorized profile has no matching finite grant",
-            {
-              profileId: activeProfile.profileId,
-              modeEpoch: activeProfile.modeEpoch,
-              pendingOperationId: proposal.id
-            }
+            "AUTHORIZATION_GRANT_REJECTED",
+            "The resolved L3 decision has no exact authorization grant",
+            { pendingOperationId: proposal.id, reason: "AUTHORIZATION_GRANT_ID_REQUIRED" }
           );
         }
 
-        const delegatedAuthority =
-          activeProfile === undefined || activeProfile.mode === "delegated"
-            ? options.l3Authorization.delegatedAuthority
-            : undefined;
-        if (delegatedAuthority !== undefined) {
-          if (delegatedAuthority.authorityHandle.trim().length === 0) {
-            throw new ApplicationError(
-              "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-              "The host-managed delegated authority has no opaque startup handle",
-              { pendingOperationId: proposal.id }
-            );
-          }
-          const evaluationContext = await service.getL3AuthorizationEvaluationContext({
+        return {
+          ok: true,
+          data: await service.authorizeL3Operation({
             projectId: input.projectId,
             pendingOperationId: input.pendingOperationId,
-            routeledgerRootDigest: authorizationContext.routeledgerRootDigest,
-            ...(options.l3Authorization.profile === undefined
-              ? {}
-              : {
-                  profileId: options.l3Authorization.profile.profileId,
-                  modeEpoch: options.l3Authorization.profile.modeEpoch,
-                  profileDigest: options.l3Authorization.profile.profileDigest
-                }),
-            subjectId: approver.id,
-            hostKind: hostProfile,
-            ...(options.l3Authorization.trustedClientId === undefined
-              ? {}
-              : { clientId: options.l3Authorization.trustedClientId })
-          });
-          let authorityResult: RouteLedgerMcpDelegatedAuthorizationResult;
-          try {
-            authorityResult = await delegatedAuthority.requestGrant({
-              authorityHandle: delegatedAuthority.authorityHandle,
-              proposal,
-              context: evaluationContext
-            });
-          } catch (error) {
-            throw new ApplicationError(
-              "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-              "The host-managed delegated authority could not make an atomic decision",
-              {
-                authorityHandle: delegatedAuthority.authorityHandle,
-                pendingOperationId: proposal.id,
-                cause: error instanceof Error ? error.message : String(error)
-              }
-            );
-          }
-          if (authorityResult.effect === "deny") {
-            throw new ApplicationError(
-              "AUTHORIZATION_POLICY_DENIED",
-              "The host-managed delegated authority denied this operation",
-              {
-                authorityHandle: delegatedAuthority.authorityHandle,
-                decisionCode: authorityResult.code,
-                policyId: authorityResult.policyId,
-                policyDigest: authorityResult.policyDigest,
-                matchedRuleId: authorityResult.matchedRuleId
-              }
-            );
-          }
-          if (authorityResult.effect === "allow") {
-            const grant = authorityResult.grant;
-            const grantFailure = validateL3AuthorizationGrant(grant, authorizationContext);
-            if (
-              grantFailure !== null ||
-              grant.source !== "delegated_policy" ||
-              grant.scope !== "operation" ||
-              grant.maxUses !== 1 ||
-              grant.operationDigest !== proposal.digest.value ||
-              !grant.policyId ||
-              !grant.policyDigest
-            ) {
-              throw new ApplicationError(
-                "AUTHORIZATION_GRANT_REJECTED",
-                "The host-managed delegated authority returned an invalid one-shot grant",
-                {
-                  authorityHandle: delegatedAuthority.authorityHandle,
-                  reason: grantFailure ?? "DELEGATED_GRANT_SHAPE_INVALID"
-                }
-              );
-            }
-            await options.l3Authorization.grantStore.issue(grant);
-            return {
-              ok: true,
-              data: await service.authorizeL3Operation({
-                projectId: input.projectId,
-                pendingOperationId: input.pendingOperationId,
-                grantId: grant.id,
-                actor
-              })
-            };
-          }
-        }
-
-        {
-          let decision: RouteLedgerMcpAuthorizationDecision;
-          try {
-            decision = await options.l3Authorization.interaction.requestAuthorization({
-              message: [
-                "RouteLedger requests authorization for one L3 route operation.",
-                `Action: ${proposal.actionType}.`,
-                `Target: ${proposal.targetId}.`,
-                `Operation digest: ${proposal.digest.value}.`,
-                activeProfile === undefined
-                  ? "Choose operation for one exact proposal or session for the same action and target in this MCP session."
-                  : "This V3 interaction authorizes only this exact operation."
-              ].join(" "),
-              requestedSchema: {
-                type: "object",
-                properties: {
-                  approve: { type: "boolean", title: "Approve this RouteLedger operation" },
-                  scope: {
-                    type: "string",
-                    title: "Authorization scope",
-                    enum: activeProfile === undefined ? ["operation", "session"] : ["operation"]
-                  }
-                },
-                required: ["approve", "scope"]
-              }
-            });
-          } catch (error) {
-            throw new ApplicationError(
-              "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-              "The MCP client could not provide a trusted L3 authorization interaction",
-              {
-                pendingOperationId: proposal.id,
-                cause: error instanceof Error ? error.message : String(error)
-              }
-            );
-          }
-          if (decision.action !== "accept" || decision.content?.approve !== true) {
-            throw new ApplicationError(
-              "AUTHORIZATION_GRANT_REJECTED",
-              decision.action === "cancel"
-                ? "L3 authorization was cancelled by the host user"
-                : "L3 authorization was declined by the host user",
-              {
-                pendingOperationId: proposal.id,
-                reason: decision.action === "cancel" ? "HOST_CANCELLED" : "HOST_DECLINED"
-              }
-            );
-          }
-          if (
-            activeProfile !== undefined &&
-            (decision.trustedDecision?.kind !== "trusted_host_user" ||
-              decision.trustedDecision.hostKind !== hostProfile ||
-              decision.trustedDecision.decisionId.trim().length === 0)
-          ) {
-            throw new ApplicationError(
-              "TRUSTED_HOST_USER_DECISION_REQUIRED",
-              "V3 interactive authorization requires verifiable trusted-host user provenance",
-              {
-                profileId: activeProfile.profileId,
-                modeEpoch: activeProfile.modeEpoch,
-                pendingOperationId: proposal.id
-              }
-            );
-          }
-          const scope: L3AuthorizationScope =
-            activeProfile === undefined && decision.content.scope === "session"
-              ? "session"
-              : "operation";
-          const now = new Date();
-          const expiresAt = new Date(
-            now.getTime() +
-              Math.min(
-                scope === "session" ? 8 * 60 * 60 * 1000 : 60 * 60 * 1000,
-                (activeProfile?.limits.maxGrantTtlSeconds ?? 8 * 60 * 60) * 1000
-              )
-          ).toISOString();
-          const grantId = randomUUID();
-          await options.l3Authorization.grantStore.issue({
-            id: grantId,
-            issuer: `mcp-interaction:${hostProfile}`,
-            subjectId: approver.id,
-            audience: "routeledger-core",
-            projectId: proposal.projectId,
-            routeledgerRootDigest: digestRouteLedgerRoot(initialBinding.routeledgerRoot!),
-            ...(options.l3Authorization.profile === undefined
-              ? {}
-              : {
-                  profileId: options.l3Authorization.profile.profileId,
-                  modeEpoch: options.l3Authorization.profile.modeEpoch,
-                  profileDigest: options.l3Authorization.profile.profileDigest
-                }),
-            allowedActions: [proposal.actionType],
-            allowedTargetIds: [proposal.targetId],
-            operationDigest: scope === "operation" ? proposal.digest.value : null,
-            scope,
-            source: "user_interaction",
-            policyId: null,
-            policyDigest: null,
-            decisionId:
-              activeProfile === undefined
-                ? `decision-${randomUUID()}`
-                : decision.trustedDecision!.decisionId,
-            hostKind: hostProfile,
-            clientId: options.l3Authorization.trustedClientId ?? null,
-            sessionId: options.l3Authorization.sessionId,
-            nonce: randomUUID(),
-            createdAt: now.toISOString(),
-            expiresAt,
-            maxUses: scope === "session" ? 16 : 1,
-            uses: 0,
-            status: "active",
-            revokedAt: null
-          });
-
-          return {
-            ok: true,
-            data: await service.authorizeL3Operation({
-              projectId: input.projectId,
-              pendingOperationId: input.pendingOperationId,
-              grantId,
-              actor
-            })
-          };
-        }
+            grantId: decision.authorizationGrantId,
+            actor
+          })
+        };
       }
     ),
     defineTool(

@@ -7,6 +7,7 @@ import { MemoryL3AuthorizationGrantStore } from "@routeledger/core";
 
 import {
   MCP_PROTOCOL_VERSION,
+  MCP_MRTR_PROTOCOL_VERSION,
   createSessionRebindFailureResponse,
   createRouteLedgerMcpRegistry,
   type RouteLedgerMcpRegistry,
@@ -16,6 +17,15 @@ import {
   type ToolDefinition,
   type ToolResponse
 } from "./index.js";
+import {
+  McpDecisionInputRequiredError,
+  readMcpAuthorizationDecision
+} from "./mcp-decision-input.js";
+import {
+  digestMcpToolArguments,
+  sealMcpRequestState,
+  verifyMcpRequestState
+} from "./mcp-request-state.js";
 import type {
   BoundLocalL3Authority,
   LocalL3AuthorityBroker
@@ -86,6 +96,8 @@ export interface CreateRouteLedgerStdioServerOptions
   sendMessage?: (message: JsonRpcMessage) => void;
   /** Test-only factory injection for verifying session-rebind failure behavior. */
   registryFactory?: (options: RouteLedgerMcpRegistryOptions) => RouteLedgerMcpRegistry;
+  /** Explicit HMAC secret used to protect 2026-07-28 requestState across retries/restarts. */
+  mcpRequestStateSecret?: string;
 }
 
 export interface RunRouteLedgerStdioServerOptions extends CreateRouteLedgerStdioServerOptions {
@@ -118,6 +130,11 @@ interface ProtocolState {
   latestRootsListRequestId: JsonRpcId | null;
 }
 
+interface ActiveMcpRequestContext {
+  readonly era: "2025" | "2026";
+  readonly inputResponses?: unknown;
+}
+
 type PendingRequestHandlers = {
   resolve: (response: JsonRpcResponse) => void;
   reject: (error: Error) => void;
@@ -135,6 +152,7 @@ const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
 const SERVER_NOT_INITIALIZED = -32002;
+const ROUTELEDGER_INPUT_KEY = "routeledger_l3_decision";
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -615,6 +633,23 @@ const buildInitializeResult = (registry: RouteLedgerMcpRegistry) => ({
   instructions: registry.instructions
 });
 
+const read2026RequestMeta = (params: Record<string, unknown>): Record<string, unknown> | null => {
+  const meta = params._meta;
+  if (!isObject(meta)) return null;
+  return meta["io.modelcontextprotocol/protocolVersion"] === MCP_MRTR_PROTOCOL_VERSION
+    ? meta
+    : null;
+};
+
+const to2026Result = (registry: RouteLedgerMcpRegistry, result: Record<string, unknown>) => ({
+  resultType: "complete",
+  ...result,
+  _meta: {
+    ...(isObject(result._meta) ? result._meta : {}),
+    "io.modelcontextprotocol/serverInfo": registry.serverInfo
+  }
+});
+
 const normalizeRootUriCandidate = (value: unknown): string | null => {
   if (typeof value !== "string" || value.trim().length === 0) {
     return null;
@@ -687,6 +722,8 @@ export const createRouteLedgerStdioServer = (
   };
   let nextOutboundRequestId = 1;
   const pendingRequests = new Map<JsonRpcId, PendingRequestHandlers>();
+  let activeMcpRequestContext: ActiveMcpRequestContext | null = null;
+  let pendingMcpAuthorizationRequest: RouteLedgerMcpAuthorizationRequest | null = null;
   const sendMessage = (message: JsonRpcMessage): void => {
     options.sendMessage?.(message);
   };
@@ -704,6 +741,15 @@ export const createRouteLedgerStdioServer = (
   const requestAuthorization = (
     request: RouteLedgerMcpAuthorizationRequest
   ): Promise<RouteLedgerMcpAuthorizationDecision> => {
+    if (activeMcpRequestContext?.era === "2026") {
+      const decision = readMcpAuthorizationDecision(
+        activeMcpRequestContext.inputResponses,
+        ROUTELEDGER_INPUT_KEY
+      );
+      if (decision !== null) return Promise.resolve(decision);
+      pendingMcpAuthorizationRequest = request;
+      return Promise.reject(new McpDecisionInputRequiredError(request));
+    }
     if (!state.clientSupportsElicitation) {
       return Promise.reject(
         new Error("MCP client does not advertise the elicitation capability.")
@@ -1063,6 +1109,21 @@ export const createRouteLedgerStdioServer = (
 
       try {
         switch (request.method) {
+          case "server/discover": {
+            const params = requireObjectParams(
+              request,
+              "server/discover requires object params."
+            );
+            if (isJsonRpcErrorResponse(params)) return params;
+            return successResponse(
+              request.id,
+              to2026Result(activeRegistry, {
+                supportedVersions: [MCP_MRTR_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION],
+                capabilities: activeRegistry.serverCapabilities,
+                instructions: activeRegistry.instructions
+              })
+            );
+          }
           case "initialize": {
             if (state.initializeCompleted) {
               return errorResponse(
@@ -1147,36 +1208,49 @@ export const createRouteLedgerStdioServer = (
             state.initializeCompleted = true;
             return successResponse(request.id, buildInitializeResult(activeRegistry));
           }
-          case "ping":
-            return successResponse(request.id, {});
+          case "ping": {
+            const params = requireObjectParams(request, "ping params must be an object.");
+            if (isJsonRpcErrorResponse(params)) return params;
+            return successResponse(
+              request.id,
+              read2026RequestMeta(params) === null
+                ? {}
+                : to2026Result(activeRegistry, {})
+            );
+          }
           case "tools/list": {
-            const initializationError = requireInitialized(state, request);
-
-            if (initializationError !== null) {
-              return initializationError;
-            }
-
             const params = requireObjectParams(request, "tools/list params must be an object.");
 
             if (isJsonRpcErrorResponse(params)) {
               return params;
             }
 
-            return successResponse(request.id, {
-              tools: activeRegistry.tools
-            });
-          }
-          case "tools/call": {
-            const initializationError = requireInitialized(state, request);
+            const is2026Request = read2026RequestMeta(params) !== null;
+            const initializationError = is2026Request ? null : requireInitialized(state, request);
 
             if (initializationError !== null) {
               return initializationError;
             }
 
+            const result = { tools: activeRegistry.tools };
+            return successResponse(
+              request.id,
+              is2026Request ? to2026Result(activeRegistry, result) : result
+            );
+          }
+          case "tools/call": {
             const params = requireObjectParams(request, "tools/call params must be an object.");
 
             if (isJsonRpcErrorResponse(params)) {
               return params;
+            }
+
+            const requestMeta = read2026RequestMeta(params);
+            const is2026Request = requestMeta !== null;
+            const initializationError = is2026Request ? null : requireInitialized(state, request);
+
+            if (initializationError !== null) {
+              return initializationError;
             }
 
             const brokerError = await ensureBrokerBinding();
@@ -1202,31 +1276,168 @@ export const createRouteLedgerStdioServer = (
               );
             }
 
+            if (
+              is2026Request &&
+              toolCall.name === "execute_l3_operation" &&
+              options.mcpRequestStateSecret === undefined
+            ) {
+              return successResponse(
+                request.id,
+                to2026Result(
+                  activeRegistry,
+                  toCallToolResult(activeRegistry, toolCall.name, {
+                    ok: false,
+                    error: {
+                      code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+                      message:
+                        "MCP 2026 L3 execution requires ROUTELEDGER_MCP_REQUEST_STATE_SECRET."
+                    }
+                  })
+                )
+              );
+            }
+
             const toolDefinition = activeRegistry.getTool(toolCall.name);
             const validationError =
               toolDefinition === undefined
                 ? null
                 : validateToolInput(toolDefinition, toolCall.arguments);
             const invocationRegistry = activeRegistry;
-            const toolResponse =
-              validationError === null
-                ? await invocationRegistry.invoke(toolCall.name, toolCall.arguments)
-                : {
-                    ...validationError,
-                    meta: await invocationRegistry.getRuntimeContextMeta()
-                  };
+            let invocationArguments = toolCall.arguments;
+            if (is2026Request && toolCall.name === "execute_l3_operation") {
+              const argumentsDigest = digestMcpToolArguments(toolCall.arguments);
+              if (params.requestState !== undefined) {
+                if (typeof params.requestState !== "string") {
+                  return errorResponse(request.id, INVALID_PARAMS, "requestState must be a string.");
+                }
+                if (options.mcpRequestStateSecret === undefined) {
+                  return errorResponse(
+                    request.id,
+                    INVALID_PARAMS,
+                    "MCP 2026 request-state verification is not configured."
+                  );
+                }
+                let resumed;
+                try {
+                  resumed = verifyMcpRequestState(params.requestState, options.mcpRequestStateSecret, {
+                    toolName: toolCall.name,
+                    argumentsDigest
+                  });
+                } catch (error) {
+                  return errorResponse(
+                    request.id,
+                    INVALID_PARAMS,
+                    error instanceof Error ? error.message : String(error)
+                  );
+                }
+                invocationArguments = {
+                  ...toolCall.arguments,
+                  __routeledgerMcpResumeProposalId: resumed.pendingOperationId
+                };
+              } else if (params.inputResponses !== undefined) {
+                return errorResponse(
+                  request.id,
+                  INVALID_PARAMS,
+                  "inputResponses require the matching requestState."
+                );
+              }
+            }
+            activeMcpRequestContext = {
+              era: is2026Request ? "2026" : "2025",
+              ...(params.inputResponses === undefined
+                ? {}
+                : { inputResponses: params.inputResponses })
+            };
+            pendingMcpAuthorizationRequest = null;
+            let toolResponse;
+            try {
+              toolResponse =
+                validationError === null
+                  ? await invocationRegistry.invoke(toolCall.name, invocationArguments)
+                  : {
+                      ...validationError,
+                      meta: await invocationRegistry.getRuntimeContextMeta()
+                    };
+            } finally {
+              activeMcpRequestContext = null;
+            }
             const rebindResponse =
               validationError === null && toolCall.name === "activate_routeledger_binding"
                 ? await activatePendingSessionRebind(invocationRegistry)
                 : null;
 
+            const effectiveToolResponse = rebindResponse ?? toolResponse;
+            if (
+              is2026Request &&
+              toolCall.name === "execute_l3_operation" &&
+              effectiveToolResponse.ok &&
+              isObject(effectiveToolResponse.data) &&
+              effectiveToolResponse.data.status === "input_required"
+            ) {
+              if (
+                options.mcpRequestStateSecret === undefined ||
+                pendingMcpAuthorizationRequest === null
+              ) {
+                return successResponse(
+                  request.id,
+                  to2026Result(
+                    activeRegistry,
+                    toCallToolResult(activeRegistry, toolCall.name, {
+                      ok: false,
+                      error: {
+                        code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+                        message:
+                          "MCP 2026 interactive authorization requires an explicit request-state secret."
+                      }
+                    })
+                  )
+                );
+              }
+              const requestState = effectiveToolResponse.data.requestState;
+              if (!isObject(requestState) || typeof requestState.proposalId !== "string") {
+                return errorResponse(request.id, INTERNAL_ERROR, "Invalid L3 input-required state.");
+              }
+              const authorizationRequest =
+                pendingMcpAuthorizationRequest as unknown as RouteLedgerMcpAuthorizationRequest;
+              const now = new Date();
+              return successResponse(request.id, {
+                resultType: "input_required",
+                inputRequests: {
+                  [ROUTELEDGER_INPUT_KEY]: {
+                    method: "elicitation/create",
+                    params: {
+                      mode: "form",
+                      message: authorizationRequest.message,
+                      requestedSchema: authorizationRequest.requestedSchema
+                    }
+                  }
+                },
+                requestState: sealMcpRequestState(
+                  {
+                    schemaVersion: 1,
+                    toolName: "execute_l3_operation",
+                    argumentsDigest: digestMcpToolArguments(toolCall.arguments),
+                    pendingOperationId: requestState.proposalId,
+                    issuedAt: now.toISOString(),
+                    expiresAt: new Date(now.getTime() + 10 * 60_000).toISOString()
+                  },
+                  options.mcpRequestStateSecret
+                ),
+                _meta: {
+                  "io.modelcontextprotocol/serverInfo": activeRegistry.serverInfo
+                }
+              });
+            }
+            const callResult = toCallToolResult(
+              activeRegistry,
+              toolCall.name,
+              effectiveToolResponse
+            );
             return successResponse(
               request.id,
-              toCallToolResult(
-                activeRegistry,
-                toolCall.name,
-                rebindResponse ?? toolResponse
-              )
+              is2026Request
+                ? to2026Result(activeRegistry, callResult)
+                : callResult
             );
           }
           case "notifications/initialized":
@@ -1271,6 +1482,8 @@ export const runRouteLedgerStdioServer = async (
     sqliteReadModel: options.sqliteReadModel,
     hostProfile: options.hostProfile,
     runtimeProfile: options.runtimeProfile,
+    hostPermissionContext: options.hostPermissionContext,
+    mcpRequestStateSecret: options.mcpRequestStateSecret,
     actor: options.actor,
     approver: options.approver,
     defaultResponseLocale: options.defaultResponseLocale,

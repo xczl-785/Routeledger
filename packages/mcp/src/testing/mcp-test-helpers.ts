@@ -94,6 +94,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "create_child_version",
   "reorder_versions",
   "propose_l3_operation",
+  "execute_l3_operation",
   "approve_l3_operation",
   "commit_l3_operation",
   "reject_l3_operation"

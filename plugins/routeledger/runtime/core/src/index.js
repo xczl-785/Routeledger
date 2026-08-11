@@ -15,6 +15,8 @@ export * from "./ports/clock-port.js";
 export * from "./ports/id-generator-port.js";
 export * from "./ports/storage-port.js";
 export * from "./application/errors.js";
+export * from "./application/l3-decision.js";
+export * from "./application/l3-operation-orchestrator.js";
 export * from "./application/l3-authorization-grant.js";
 export * from "./application/l3-authorization-profile.js";
 export * from "./application/l3-authorization.js";
