@@ -129,8 +129,228 @@ V2.16 (closed current)
 5. 确认 V2.16 的直接后继为 L3-D1；
 6. 准备并 advance 到 L3-D1。
 
-每个新 Version 的完整 description、Todo、Undo、Boundary 和 Acceptance 已保存在被拒绝的
-proposal 中，可读取该 proposal 复用；不要凭记忆重新缩减它们。
+下面的规划是 portable truth。另一台机器即使不读取本机 rejected proposal，也能重建完整
+版本链；若需要复现原始输入和 digest，再从 `Routeledger-Internal` 读取该 proposal。
+
+### 4.1 L3-D1 决策接口与状态投影
+
+**目标**
+
+建立宿主无关的 L3 decision request/result 契约，并基于现有 `PendingOperation`、
+`ApprovalArtifact`、grant receipt 和 commit 数据提供兼容状态投影。
+
+**Todo**
+
+1. 定义 `ExactProposalDecisionRequest`、`DecisionResolution` 与 `L3DecisionAdapter` 公共契约；
+2. 实现 `proposed`、`decision_required`、`decision_resolved`、`committing`、`committed`、
+   `rejected`、`stale`、`failed` 的逻辑投影和非法跳转保护；
+3. 覆盖 interactive、delegated、preauthorized、stale、replay、rejected 和 failed；
+4. 增加 focused behavior test 和 public-contract test；
+5. 证明 canonical schema 和现有外部行为不变。
+
+**Undo / Boundary**
+
+- 不把 Codex 专属字段放进 core；
+- 不绕过 proposal、digest、live validation、receipt 或 audit；
+- 本阶段不迁移 canonical JSON；
+- 不实现一调用外部编排和用户模式切换。
+
+**Acceptance**
+
+所有现有 L3 结果能用统一状态语言表达，非法的 `proposed -> committing` shortcut 被拒绝，
+现有 L3 测试保持兼容，存储格式没有迁移。
+
+初始 Todo 标题：
+
+- `定义 ExactProposalDecisionRequest、DecisionResolution 与 L3DecisionAdapter 公共契约`
+- `实现基于现有数据的 L3 logical phase 投影与非法跳转保护`
+- `补充接口、状态投影和兼容性测试，确认 canonical schema 不变`
+
+### 4.2 L3-D2 现有授权路径 Adapter 化
+
+**目标**
+
+把 decision source 选择从 `approve_l3_operation` 的超长 handler 抽离为 host-neutral
+resolver/adapters，同时严格保持 0.6.0 行为。
+
+**Todo**
+
+1. 包装 consumed replay；
+2. 包装 matching finite grant / preauthorized 路径；
+3. 包装 delegated authority 和一次性 grant 校验；
+4. 包装 structured interaction 和 interaction grant；
+5. 保留 profile/broker/registry 兼容路径；
+6. 将 `approve_l3_operation` 收敛为兼容编排入口；
+7. 运行现有授权、receipt、profile、elicitation 和 negative matrices。
+
+**Undo / Boundary**
+
+- 不删除现有低层工具；
+- 不减弱 finite capability、exact binding、budget 或 receipt 校验；
+- preauthorization miss 不得静默降级；
+- 本阶段保持外部交互次数不变，一调用执行属于 L3-D3。
+
+**Acceptance**
+
+interactive、delegated、preauthorized 和 replay 全部经过统一 adapter 边界，既有成功和失败
+结果等价，canonical 数据不迁移。
+
+初始 Todo 标题：
+
+- `抽取 replay、preauthorized、delegated、interactive 决策 resolver`
+- `将 approve_l3_operation 收敛为调用统一 adapter 的兼容入口`
+- `运行现有 L3 授权、receipt、profile 与 MCP interaction 回归矩阵`
+
+### 4.3 L3-D3 一调用执行编排与兼容工具
+
+**目标**
+
+允许宿主用一次外部调用请求 L3 操作，并得到最终 committed result 或可恢复的
+`input_required`，内部完整协议不减少。
+
+**Todo**
+
+1. 定义高层 execute L3 application API 与 MCP tool contract；
+2. 实现 `propose -> resolve -> decision artifact -> live validation -> atomic commit`；
+3. 自动模式在一次请求中完成 proposal-to-commit；
+4. 交互模式返回并恢复 request state；
+5. 设计 idempotency、duplicate delivery 和 retry；
+6. 保留 propose/approve/commit 作为兼容和诊断工具。
+
+**Undo / Boundary**
+
+- 不折叠或删除内部状态转换；
+- adapter 不得直接写 canonical 数据；
+- retry 不得重复消费 grant 或重复 commit；
+- 宿主 mode discovery 留给 L3-D4/D5。
+
+**Acceptance**
+
+匹配 delegated policy 和 finite capability 的操作一调用完成；interactive 可以安全恢复；
+重复请求不会 double-consume 或 double-commit；低层工具继续可用。
+
+初始 Todo 标题：
+
+- `定义高层 execute L3 application API 与 MCP tool 契约`
+- `实现自动模式的一调用 proposal-to-commit 编排`
+- `实现 input_required 恢复、幂等重试与低层工具兼容测试`
+
+### 4.4 L3-D4 Codex 权限 Adapter 与三级交互
+
+**目标**
+
+把 Codex 实现为第一个 host adapter，同时明确 Codex 不是 core permission model。
+
+**Todo**
+
+1. 实测当前 Codex 是否暴露 effective conversation permission context；
+2. 能读取时映射为 interactive/delegated/preauthorized；
+3. 不能读取时提供明确的 plugin-config fallback，不猜测当前模式；
+4. 请求批准模式使用 Codex 原生 tool approval/interaction；
+5. 替我审批模式调用确定性 RouteLedger policy；
+6. 完全访问模式消费当前项目、会话或时间窗的 finite capability；
+7. 展示 effective mode 和剩余额度，普通界面隐藏 profile 内部字段；
+8. 完成真实 Codex Desktop 验收。
+
+**Undo / Boundary**
+
+- 不猜 conversation mode；
+- 不把 physical-click attestation 当成通用硬门槛；
+- 不把 Codex 配置或事件类型放进 core；
+- 本阶段不定义 generic MCP 行为。
+
+**Acceptance**
+
+真实 Codex session 中可以证明三种用户行为；三种行为产生相同的 canonical mutation 和 audit
+语义；模式不可用时结果明确且不静默放宽。
+
+初始 Todo 标题：
+
+- `实测 Codex 当前对话权限上下文与原生 tool approval 能力`
+- `实现 Codex mode provider、映射与不可用时的显式 fallback`
+- `完成三级交互、状态展示和真实 Codex Desktop 验收`
+
+### 4.5 L3-D5 通用 MCP Adapter 与协议兼容
+
+**目标**
+
+提供独立于 Codex 的 host-neutral MCP decision adapter 和 conformance contract。
+
+**Todo**
+
+1. 将 MCP 2025 structured elicitation 接到统一 adapter；
+2. 实现 MCP 2026 `InputRequiredResult`、`inputResponses`、`requestState` 和协议协商；
+3. 定义无 UI 宿主的显式 configuration/capability injection；
+4. 建立至少一个非 Codex stdio conformance harness；
+5. 覆盖 tampered request state、duplicate、disconnect、timeout、retry 和 crash recovery。
+
+**Undo / Boundary**
+
+- generic MCP 不得假装知道 Codex mode；
+- natural-language claims 和 project files 不能成为 authority；
+- 不创建第二套 core decision model；
+- 只覆盖本地单用户宿主，不扩展远程、组织、OAuth、多用户或跨设备。
+
+**Acceptance**
+
+MCP 2025、MCP 2026 和至少一个非 Codex stdio harness 对相同 proposal 产生等价结果；无 UI
+fallback 有显式配置；异常和重试不导致授权或提交重复消费。
+
+初始 Todo 标题：
+
+- `接入 MCP 2025 elicitation 到统一 decision adapter`
+- `实现 MCP 2026 requestState/inputResponses 协议适配与协商`
+- `建立非 Codex stdio conformance、无 UI fallback 和异常重试矩阵`
+
+### 4.6 L3-D6 迁移清理、全量回归与发布候选
+
+**目标**
+
+只有在新 adapters 和 orchestrator 证明兼容后，才移除过时产品仪式并形成 release candidate。
+
+**Todo**
+
+1. 默认产品面隐藏 profileId/profileDigest/modeEpoch；
+2. 新 API 把 `ApprovalArtifact` 投影为 `DecisionArtifact`；
+3. 审核 `trustedDecision`、physical-click proof、profile adoption 和重复 ceremony；
+4. 保留并验证旧数据 reader、旧工具和升级/降级路径；
+5. 覆盖 restart、concurrency、clock、crash、expiry、revoke、replay 和 receipt recovery；
+6. 运行 full tests、typecheck、lint、package/plugin/marketplace/MCP/host smokes；
+7. 形成 release-candidate audit 和 portable handoff。
+
+**Undo / Boundary**
+
+- 没有 migration proof 不删除 raw evidence 或 legacy reader；
+- 不在本 Version 自动 merge、tag、publish 或 release；
+- 正式发布仍需用户另行授权。
+
+**Acceptance**
+
+清理清单全部 resolved 或显式 deferred；兼容和异常矩阵通过；完整回归为 green；release
+candidate 没有隐藏的 machine-local 依赖。
+
+初始 Todo 标题：
+
+- `盘点 Profile、trustedDecision、旧命名与重复 ceremony 的清理候选`
+- `完成旧数据/旧工具兼容、升级降级与异常恢复矩阵`
+- `运行全量测试、typecheck、lint、package/plugin/host smokes 并形成发布候选审计`
+
+### 4.7 Canonical 重建参数
+
+- 所有六个 Version 都是 top-level sibling，`parentVersionId = null`；
+- batch 顺序和 `clientKey` 固定为 `l3-d1`、`l3-d2`、`l3-d3`、`l3-d4`、`l3-d5`、
+  `l3-d6`；
+- `partialAllowed = false`；
+- 第一步 anchor：`afterVersionId = 31ca96d7-675f-42e0-8c4f-f5a9d2c20a06`
+  （旧 V2.2 UI），`beforeVersionId = null`；
+- `setCurrentTo = null`；
+- `previousCurrentPolicy = leave_as_is`；
+- batch commit 后，reorder `31ca96d7-675f-42e0-8c4f-f5a9d2c20a06` 到 L3-D6 的新 ID
+  之后；
+- 最终结构必须由 `get_version_structure` 验证为
+  `V2.16 -> L3-D1 -> ... -> L3-D6 -> V2.2`；
+- 不复用 rejected proposal 做 commit；读取它仅用于恢复输入，必须重新 preflight/propose 并
+  使用新的 exact artifact。
 
 ## 5. 工作地图
 
