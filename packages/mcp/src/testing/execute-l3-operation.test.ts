@@ -89,9 +89,15 @@ describe("execute_l3_operation", () => {
         ok: true,
         data: {
           status: "committed",
+          decisionArtifact: {
+            proposalId: expect.any(String),
+            source: "delegated_policy",
+            operationDigest: expect.any(String)
+          },
           commit: { replayed: false }
         }
       });
+      expect(first.data).not.toHaveProperty("approvalArtifact");
       expect(retry).toMatchObject({
         ok: true,
         data: {

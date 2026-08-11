@@ -38,6 +38,38 @@ export interface ExactDecision {
   readonly authorizationGrantId?: string;
 }
 
+export interface DecisionArtifact {
+  readonly id: string;
+  readonly proposalId: string;
+  readonly projectId: string;
+  readonly actionType: L3ActionType;
+  readonly targetId: string;
+  readonly operationDigest: string;
+  readonly status: ApprovalArtifact["status"];
+  readonly source: ApprovalArtifact["approvalSource"] | "legacy";
+  readonly decisionRef: string;
+  readonly decidedAt: string;
+  readonly expiresAt: string;
+  readonly consumedAt: string | null;
+}
+
+export const projectDecisionArtifact = (
+  artifact: Readonly<ApprovalArtifact>
+): DecisionArtifact => ({
+  id: artifact.id,
+  proposalId: artifact.pendingOperationId,
+  projectId: artifact.projectId,
+  actionType: artifact.actionType,
+  targetId: artifact.targetId,
+  operationDigest: artifact.digest.value,
+  status: artifact.status,
+  source: artifact.approvalSource ?? "legacy",
+  decisionRef: artifact.decisionRef,
+  decidedAt: artifact.createdAt,
+  expiresAt: artifact.expiresAt,
+  consumedAt: artifact.consumedAt
+});
+
 export interface L3DecisionInputRequest {
   readonly proposalId: string;
   readonly projectId: string;

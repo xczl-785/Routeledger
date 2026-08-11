@@ -4,11 +4,11 @@
 
 The canonical Git repository is `xczl-785/Routeledger`. Its root contains the
 marketplace descriptor and the single generated `routeledger` plugin
-distribution. The current Git marketplace release is 0.4.4, fixed by immutable
-tag `routeledger-plugin-v0.4.4`. It includes canonical approval round-trip
-fixes, explicit external-attestation provenance status, the stable attestation
-locator, and durable GitHub Release publication without changing the
-detached-proof model.
+distribution. The current published Git marketplace release is 0.6.0, fixed by
+immutable tag `routeledger-plugin-v0.6.0`; 0.7.0 is the current release
+candidate. The distribution uses explicit external-attestation provenance,
+the stable attestation locator, and durable GitHub Release publication without
+changing the detached-proof model.
 `main` is the release branch.
 `codex-marketplace` remains only the historical 0.3.3 branch anchor.
 

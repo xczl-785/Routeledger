@@ -178,7 +178,7 @@ describe("stdio host authority broker binding", () => {
       ok: true,
       data: {
         controlPlane: "host_authority_broker_v2",
-        profile: { profileId: "profile-runner" }
+        profile: { mode: "preauthorized" }
       }
     });
   });
@@ -247,7 +247,7 @@ describe("stdio host authority broker binding", () => {
             ok: true,
             data: {
               controlPlane: "host_authority_broker_v2",
-              profile: { profileId: "profile-activated" }
+              profile: { mode: "preauthorized" }
             }
           }
         }

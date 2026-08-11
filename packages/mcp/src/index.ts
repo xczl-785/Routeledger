@@ -15,6 +15,7 @@ import {
   digestL3AuthorizationPolicy,
   digestL3AuthorizationProfile,
   orchestrateL3Operation,
+  projectDecisionArtifact,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
   type Actor,
@@ -1552,7 +1553,7 @@ export const createRouteLedgerMcpRegistry = (
         data: {
           status: "committed",
           proposalId: proposal.id,
-          approvalArtifact: committed.approvalArtifact,
+          decisionArtifact: projectDecisionArtifact(committed.approvalArtifact),
           commit: committed
         }
       };
@@ -1621,7 +1622,19 @@ export const createRouteLedgerMcpRegistry = (
       });
     }
 
-    return { ok: true, data: result };
+    return {
+      ok: true,
+      data:
+        result.status === "committed"
+          ? {
+              status: result.status,
+              proposalId: result.proposalId,
+              decision: result.decision,
+              decisionArtifact: projectDecisionArtifact(result.approvalArtifact),
+              commit: result.commit
+            }
+          : result
+    };
   };
   let toolDefinitions: ToolDefinition[] = [];
   let guardedTools: Array<ToolRegistration> = [];
@@ -1845,12 +1858,18 @@ export const createRouteLedgerMcpRegistry = (
     defineTool(
       "get_l3_authorization_status",
       { what: "Inspect active L3 authorization." },
-      objectSchema({}),
+      objectSchema({
+        detail: {
+          type: "string",
+          enum: ["summary", "internal"],
+          description: "Use internal only for host diagnostics; summary is the product default."
+        }
+      }),
       {
         title: "Get L3 Authorization Status",
         riskLevel: "read-only"
       },
-      async () => {
+      async (input) => {
         const profile = options.l3Authorization?.profile;
         const effectiveMode =
           options.hostPermissionContext?.status === "resolved"
@@ -1881,12 +1900,8 @@ export const createRouteLedgerMcpRegistry = (
                   controlPlane: "host_authority_broker_v2",
                   effectiveMode,
                   profile: {
-                    profileId: profile.profileId,
                     status: profile.status,
                     mode: profile.mode,
-                    modeEpoch: profile.modeEpoch,
-                    profileRevision: profile.profileRevision,
-                    profileDigest: profile.profileDigest,
                     limits: profile.limits,
                     delegatedPolicy:
                       profile.delegatedPolicy === null
@@ -1897,7 +1912,17 @@ export const createRouteLedgerMcpRegistry = (
                             defaultEffect: profile.delegatedPolicy.defaultEffect,
                             ruleCount: profile.delegatedPolicy.rules.length,
                             alwaysPrompt: profile.delegatedPolicy.alwaysPrompt
+                          },
+                    ...(input.detail === "internal"
+                      ? {
+                          internal: {
+                            profileId: profile.profileId,
+                            modeEpoch: profile.modeEpoch,
+                            profileRevision: profile.profileRevision,
+                            profileDigest: profile.profileDigest
                           }
+                        }
+                      : {})
                   },
                   management: "host_only",
                   trustedUserDecisionProvenance: "required"

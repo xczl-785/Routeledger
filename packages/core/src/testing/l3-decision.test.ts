@@ -11,6 +11,7 @@ import {
   assertDecisionResolutionMatchesRequest,
   assertL3DecisionPhaseTransition,
   createExactProposalDecisionRequest,
+  projectDecisionArtifact,
   projectL3DecisionPhase
 } from "../index.js";
 
@@ -112,6 +113,26 @@ const receipt = (
 });
 
 describe("L3 decision contract", () => {
+  it("projects the persisted approval record into product decision semantics", () => {
+    expect(projectDecisionArtifact(artifact("consumed"))).toEqual({
+      id: "artifact-1",
+      proposalId: "proposal-1",
+      projectId: "project-1",
+      actionType: "start_version",
+      targetId: "version-1",
+      operationDigest: "digest-1",
+      status: "consumed",
+      source: "delegated_policy",
+      decisionRef: "decision-1",
+      decidedAt: "2026-08-11T00:00:30.000Z",
+      expiresAt: "2026-08-11T01:00:00.000Z",
+      consumedAt: "2026-08-11T00:01:00.000Z"
+    });
+    expect(projectDecisionArtifact({ ...artifact(), approvalSource: undefined }).source).toBe(
+      "legacy"
+    );
+  });
+
   it("lets a host adapter resolve only the exact proposal request", async () => {
     const adapter: L3DecisionAdapter = {
       id: "test-adapter",
