@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   digestL3AuthorizationPolicy,
   evaluateL3AuthorizationPolicy,
+  validateL3AuthorizationProfile,
   validateL3AuthorizationGrant,
   validateL3AuthorizationPolicy,
   type L3AuthorizationConsumptionReceipt,
@@ -14,9 +15,11 @@ import {
   type L3AuthorizationGrantConsumption,
   type L3AuthorizationGrantConsumeWithReceiptResult,
   type L3AuthorizationGrantConsumeResult,
+  type L3AuthorizationCommitResult,
   type L3AuthorizationGrantContext,
   type L3AuthorizationGrantStore,
   type L3AuthorizationPolicy,
+  type L3AuthorizationProfileV2,
   type L3AuthorizationReceiptBinding
 } from "@routeledger/core";
 
@@ -44,6 +47,25 @@ export interface LocalL3AuthorityRuntime {
   configPath: string;
   statePath: string;
   policyDigest: string;
+}
+
+export interface LocalL3AuthorityProfileRuntime {
+  profile: L3AuthorizationProfileV2;
+  grantStore: L3AuthorizationGrantStore;
+  trustedClientId?: string;
+  statePath: string;
+  delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
+}
+
+export interface LoadLocalL3AuthorityProfileRuntimeInput {
+  profile: L3AuthorizationProfileV2;
+  statePath: string;
+  workspaceRoot: string;
+  routeledgerRoot: string;
+  hostKind: string;
+  subjectId: string;
+  /** @internal Test-only hooks for exercising state-lock interruption boundaries. */
+  testHooks?: LocalL3AuthorityStateTestHooks;
 }
 
 export interface LoadLocalL3AuthorityRuntimeInput {
@@ -324,7 +346,17 @@ const parseState = (value: unknown): LocalL3AuthorityState => {
       !isNonEmptyString(receipt.grantId) ||
       !isNonEmptyString(receipt.operationDigest) ||
       !Number.isInteger(receipt.consumedUse) ||
-      (receipt.consumedUse as number) <= 0
+      (receipt.consumedUse as number) <= 0 ||
+      (receipt.status !== undefined &&
+        receipt.status !== "authorized" &&
+        receipt.status !== "commit_claimed" &&
+        receipt.status !== "committed" &&
+        receipt.status !== "revoked") ||
+      ((receipt.status === "commit_claimed" || receipt.status === "committed") &&
+        !isNonEmptyString(receipt.commitClaimId)) ||
+      (receipt.status === "commit_claimed" && !isNonEmptyString(receipt.commitClaimedAt)) ||
+      (receipt.status === "committed" && !isNonEmptyString(receipt.committedAt)) ||
+      (receipt.status === "revoked" && !isNonEmptyString(receipt.revokedAt))
     ) {
       throw new Error("Local L3 authority receipt state is invalid and cannot be trusted.");
     }
@@ -373,15 +405,18 @@ class LocalL3AuthorityStateFile {
       const previous = state.activePolicies[authorityId];
       if (previous?.policyDigest === policyDigest) return;
       for (const [grantId, grant] of Object.entries(state.reservedGrants)) {
-        if (grant.issuer === authorityId && grant.policyDigest !== policyDigest) {
+        const grantAuthorizationDigest = grant.profileId === undefined
+          ? grant.policyDigest
+          : grant.profileDigest;
+        if (grant.issuer === authorityId && grantAuthorizationDigest !== policyDigest) {
           delete state.reservedGrants[grantId];
         }
       }
       for (const [grantId, grant] of Object.entries(state.grants)) {
         if (
           grant.issuer === authorityId &&
-          grant.source === "delegated_policy" &&
-          grant.policyDigest !== policyDigest &&
+          (grant.profileId !== undefined || grant.source === "delegated_policy") &&
+          (grant.profileId === undefined ? grant.policyDigest : grant.profileDigest) !== policyDigest &&
           grant.status === "active"
         ) {
           state.grants[grantId] = {
@@ -679,6 +714,9 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
           receipt.subjectId === context.subjectId &&
           receipt.projectId === context.projectId &&
           receipt.routeledgerRootDigest === context.routeledgerRootDigest &&
+          receipt.profileId === context.profileId &&
+          receipt.modeEpoch === context.modeEpoch &&
+          receipt.profileDigest === context.profileDigest &&
           receipt.actionType === context.actionType &&
           receipt.targetId === context.targetId &&
           receipt.operationDigest === context.operationDigest &&
@@ -717,6 +755,9 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
         receipt.subjectId !== context.subjectId ||
         receipt.projectId !== context.projectId ||
         receipt.routeledgerRootDigest !== context.routeledgerRootDigest ||
+        receipt.profileId !== context.profileId ||
+        receipt.modeEpoch !== context.modeEpoch ||
+        receipt.profileDigest !== context.profileDigest ||
         receipt.actionType !== context.actionType ||
         receipt.targetId !== context.targetId ||
         receipt.operationDigest !== context.operationDigest ||
@@ -747,11 +788,15 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
     const state = await this.stateFile.read();
     const receipt = Object.values(state.receipts).find(
       (candidate) =>
+        candidate.status !== "revoked" &&
         candidate.pendingOperationId === pendingOperationId &&
         candidate.audience === context.audience &&
         candidate.subjectId === context.subjectId &&
         candidate.projectId === context.projectId &&
         candidate.routeledgerRootDigest === context.routeledgerRootDigest &&
+        candidate.profileId === context.profileId &&
+        candidate.modeEpoch === context.modeEpoch &&
+        candidate.profileDigest === context.profileDigest &&
         candidate.actionType === context.actionType &&
         candidate.targetId === context.targetId &&
         candidate.operationDigest === context.operationDigest &&
@@ -792,12 +837,113 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
     );
   }
 
+  async claimCommit(
+    binding: L3AuthorizationReceiptBinding,
+    claim: { claimId: string; claimedAt: string }
+  ): Promise<L3AuthorizationCommitResult> {
+    return this.stateFile.transact((state) => {
+      const receipt = state.receipts[binding.approvalArtifactId];
+      if (receipt === undefined) return { ok: false as const, code: "RECEIPT_NOT_FOUND" as const };
+      if (!this.receiptMatchesBinding(receipt, binding)) {
+        return { ok: false as const, code: "RECEIPT_BINDING_MISMATCH" as const };
+      }
+      if (receipt.status === "revoked") {
+        return { ok: false as const, code: "RECEIPT_REVOKED" as const };
+      }
+      if (receipt.status === "commit_claimed" || receipt.status === "committed") {
+        if (receipt.commitClaimId !== claim.claimId) {
+          return { ok: false as const, code: "RECEIPT_CLAIMED_BY_OTHER" as const };
+        }
+        return { ok: true as const, receipt: structuredClone(receipt), replayed: true };
+      }
+      const claimed: L3AuthorizationConsumptionReceipt = {
+        ...receipt,
+        status: "commit_claimed",
+        commitClaimId: claim.claimId,
+        commitClaimedAt: claim.claimedAt,
+        committedAt: null,
+        revokedAt: null
+      };
+      state.receipts[receipt.approvalArtifactId] = claimed;
+      return { ok: true as const, receipt: structuredClone(claimed), replayed: false };
+    });
+  }
+
+  async finalizeCommit(
+    binding: L3AuthorizationReceiptBinding,
+    claimId: string,
+    committedAt: string
+  ): Promise<L3AuthorizationCommitResult> {
+    return this.stateFile.transact((state) => {
+      const receipt = state.receipts[binding.approvalArtifactId];
+      if (receipt === undefined) return { ok: false as const, code: "RECEIPT_NOT_FOUND" as const };
+      if (!this.receiptMatchesBinding(receipt, binding)) {
+        return { ok: false as const, code: "RECEIPT_BINDING_MISMATCH" as const };
+      }
+      if (receipt.status === "revoked") {
+        return { ok: false as const, code: "RECEIPT_REVOKED" as const };
+      }
+      if (receipt.commitClaimId !== claimId || receipt.status === "authorized") {
+        return { ok: false as const, code: "RECEIPT_CLAIMED_BY_OTHER" as const };
+      }
+      if (receipt.status === "committed") {
+        return { ok: true as const, receipt: structuredClone(receipt), replayed: true };
+      }
+      const committed: L3AuthorizationConsumptionReceipt = {
+        ...receipt,
+        status: "committed",
+        committedAt
+      };
+      state.receipts[receipt.approvalArtifactId] = committed;
+      return { ok: true as const, receipt: structuredClone(committed), replayed: false };
+    });
+  }
+
+  async revokeProfileReceipts(
+    profileId: string,
+    beforeModeEpoch: number,
+    revokedAt: string
+  ): Promise<number> {
+    return this.stateFile.transact((state) => {
+      let revoked = 0;
+      for (const [approvalArtifactId, receipt] of Object.entries(state.receipts)) {
+        if (
+          receipt.profileId === profileId &&
+          receipt.modeEpoch !== undefined &&
+          receipt.modeEpoch < beforeModeEpoch &&
+          (receipt.status === undefined || receipt.status === "authorized")
+        ) {
+          state.receipts[approvalArtifactId] = { ...receipt, status: "revoked", revokedAt };
+          revoked += 1;
+        }
+      }
+      return revoked;
+    });
+  }
+
+  private receiptMatchesBinding(
+    receipt: L3AuthorizationConsumptionReceipt,
+    binding: L3AuthorizationReceiptBinding
+  ): boolean {
+    return Object.entries(binding).every(
+      ([key, value]) => receipt[key as keyof L3AuthorizationConsumptionReceipt] === value
+    );
+  }
+
   async revoke(grantId: string, revokedAt: string): Promise<L3AuthorizationGrant | null> {
     return this.stateFile.transact((state) => {
       const grant = state.grants[grantId];
       if (grant === undefined) return null;
       const updated: L3AuthorizationGrant = { ...grant, status: "revoked", revokedAt };
       state.grants[grantId] = updated;
+      for (const [approvalArtifactId, receipt] of Object.entries(state.receipts)) {
+        if (
+          receipt.grantId === grantId &&
+          (receipt.status === undefined || receipt.status === "authorized")
+        ) {
+          state.receipts[approvalArtifactId] = { ...receipt, status: "revoked", revokedAt };
+        }
+      }
       return structuredClone(updated);
     });
   }
@@ -988,4 +1134,173 @@ export const loadLocalL3AuthorityRuntime = async (
     statePath,
     policyDigest
   };
+};
+
+export const loadLocalL3AuthorityProfileRuntime = async (
+  input: LoadLocalL3AuthorityProfileRuntimeInput
+): Promise<LocalL3AuthorityProfileRuntime> => {
+  const validation = validateL3AuthorizationProfile(input.profile);
+  if (!validation.valid) {
+    throw new Error(
+      `Local L3 authorization profile is invalid: ${validation.issues[0]?.code ?? "UNKNOWN"}.`
+    );
+  }
+  if (
+    input.profile.binding.subjectId !== input.subjectId ||
+    input.profile.binding.hostKind !== input.hostKind
+  ) {
+    throw new Error("Local L3 authorization profile does not match the trusted host identity.");
+  }
+  const statePath = await assertTrustedPath(
+    input.statePath,
+    input.workspaceRoot,
+    input.routeledgerRoot,
+    "Local L3 authority profile state"
+  );
+  const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
+  await stateFile.initialize();
+  const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
+  const baseRuntime = {
+    profile: structuredClone(input.profile),
+    grantStore,
+    ...(input.profile.binding.trustedClientId === null
+      ? {}
+      : { trustedClientId: input.profile.binding.trustedClientId }),
+    statePath
+  };
+  await stateFile.activatePolicy(
+    input.profile.profileId,
+    input.profile.profileDigest,
+    new Date().toISOString()
+  );
+  await grantStore.revokeProfileReceipts(
+    input.profile.profileId,
+    input.profile.modeEpoch,
+    new Date().toISOString()
+  );
+  if (input.profile.status !== "active" || input.profile.mode !== "delegated") {
+    return baseRuntime;
+  }
+  const policy = input.profile.delegatedPolicy;
+  if (policy === null) {
+    throw new Error("An active delegated profile requires a deterministic policy.");
+  }
+  const policyDigest = digestL3AuthorizationPolicy(policy);
+  const authorityHandle = `local-profile:${input.profile.profileId}:${input.profile.profileDigest}`;
+  const delegatedAuthority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
+    authorityHandle,
+    requestGrant: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
+      if (request.authorityHandle !== authorityHandle) {
+        throw new Error("Local L3 profile authority handle mismatch.");
+      }
+      if (
+        request.context.profileId !== input.profile.profileId ||
+        request.context.modeEpoch !== input.profile.modeEpoch ||
+        request.context.profileDigest !== input.profile.profileDigest
+      ) {
+        return { effect: "deny", code: "PROFILE_PROVENANCE_MISMATCH" };
+      }
+      const decision = evaluateL3AuthorizationPolicy(policy, request.context);
+      if (decision.effect !== "allow" || decision.matchedRuleId === null) {
+        return {
+          effect: decision.effect === "prompt" ? "prompt" : "deny",
+          code: decision.code,
+          policyId: decision.policyId,
+          policyDigest: decision.policyDigest,
+          ...(decision.matchedRuleId === null ? {} : { matchedRuleId: decision.matchedRuleId })
+        };
+      }
+      const rule = policy.rules.find((candidate) => candidate.id === decision.matchedRuleId);
+      if (rule?.conditions?.maxUses === undefined || rule.conditions.expiresAt === undefined) {
+        throw new Error("Matched delegated rule has no finite budget or expiry.");
+      }
+      const now = request.context.now;
+      const grant: L3AuthorizationGrant = {
+        id: `grant-${randomUUID()}`,
+        issuer: input.profile.profileId,
+        subjectId: input.profile.binding.subjectId,
+        audience: "routeledger-core",
+        projectId: request.context.projectId,
+        routeledgerRootDigest: request.context.routeledgerRootDigest,
+        profileId: input.profile.profileId,
+        modeEpoch: input.profile.modeEpoch,
+        profileDigest: input.profile.profileDigest,
+        allowedActions: [request.context.actionType],
+        allowedTargetIds: [request.context.targetId],
+        operationDigest: request.context.operationDigest,
+        scope: "operation",
+        source: "delegated_policy",
+        policyId: policy.policyId,
+        policyDigest,
+        decisionId: `decision-${randomUUID()}`,
+        hostKind: input.profile.binding.hostKind,
+        clientId: input.profile.binding.trustedClientId,
+        sessionId: null,
+        nonce: randomUUID(),
+        createdAt: now,
+        expiresAt: minimumIsoTimestamp(
+          rule.conditions.expiresAt,
+          new Date(
+            Date.parse(now) + input.profile.limits.maxGrantTtlSeconds * 1000
+          ).toISOString()
+        ),
+        maxUses: 1,
+        uses: 0,
+        status: "active",
+        revokedAt: null
+      };
+      const usageKey = `${input.profile.profileDigest}:${rule.id}`;
+      const grantDecision = await stateFile.transact((state) => {
+        const recoverableGrant = [
+          ...Object.values(state.reservedGrants),
+          ...Object.values(state.grants)
+        ].find(
+          (candidate) =>
+            candidate.issuer === input.profile.profileId &&
+            candidate.source === "delegated_policy" &&
+            candidate.profileId === input.profile.profileId &&
+            candidate.modeEpoch === input.profile.modeEpoch &&
+            candidate.profileDigest === input.profile.profileDigest &&
+            candidate.subjectId === grant.subjectId &&
+            candidate.projectId === grant.projectId &&
+            candidate.routeledgerRootDigest === grant.routeledgerRootDigest &&
+            candidate.hostKind === grant.hostKind &&
+            candidate.clientId === grant.clientId &&
+            candidate.sessionId === null &&
+            candidate.operationDigest === grant.operationDigest &&
+            candidate.allowedActions.includes(request.context.actionType) &&
+            candidate.allowedTargetIds.includes(request.context.targetId) &&
+            candidate.uses === 0 &&
+            candidate.status === "active" &&
+            Date.parse(now) < Date.parse(candidate.expiresAt)
+        );
+        if (recoverableGrant !== undefined) {
+          return { effect: "allow" as const, grant: structuredClone(recoverableGrant) };
+        }
+        const usage = state.policyUsages[usageKey] ?? {
+          policyDigest: input.profile.profileDigest,
+          ruleId: rule.id,
+          uses: 0,
+          maxUses: rule.conditions!.maxUses!,
+          updatedAt: now
+        };
+        if (usage.maxUses !== rule.conditions!.maxUses || usage.uses >= usage.maxUses) {
+          return { effect: "deny" as const };
+        }
+        state.policyUsages[usageKey] = { ...usage, uses: usage.uses + 1, updatedAt: now };
+        state.reservedGrants[grant.id] = structuredClone(grant);
+        return { effect: "allow" as const, grant };
+      });
+      return grantDecision.effect === "allow"
+        ? grantDecision
+        : {
+            effect: "deny",
+            code: "POLICY_BUDGET_EXHAUSTED",
+            policyId: policy.policyId,
+            policyDigest,
+            matchedRuleId: rule.id
+          };
+    }
+  };
+  return { ...baseRuntime, delegatedAuthority };
 };

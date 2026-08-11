@@ -232,6 +232,9 @@ export interface ApprovalArtifact {
   approvalSource?: "user_interaction" | "delegated_policy" | "preauthorized";
   policyId?: string | null;
   policyDigest?: string | null;
+  profileId?: string;
+  modeEpoch?: number;
+  profileDigest?: string;
   hostKind?: string;
   clientId?: string | null;
   sessionId?: string | null;

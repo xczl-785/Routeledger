@@ -123,6 +123,92 @@ describe("L3 authorization grant store", () => {
     ).resolves.toBe(false);
   });
 
+  it("linearizes commit claims against receipt revocation", async () => {
+    const wonByCommit = new MemoryL3AuthorizationGrantStore();
+    const binding = receiptBinding({
+      profileId: "profile-1",
+      modeEpoch: 1,
+      profileDigest: "profile-digest-1"
+    });
+    await wonByCommit.recordConsumptionReceipt({
+      ...binding,
+      consumedUse: 1,
+      status: "authorized",
+      commitClaimId: null,
+      commitClaimedAt: null,
+      committedAt: null,
+      revokedAt: null
+    });
+    await expect(
+      wonByCommit.claimCommit(binding, {
+        claimId: "claim-1",
+        claimedAt: "2026-08-10T04:31:00.000Z"
+      })
+    ).resolves.toMatchObject({ ok: true, receipt: { status: "commit_claimed" } });
+    await expect(
+      wonByCommit.revokeProfileReceipts("profile-1", 2, "2026-08-10T04:32:00.000Z")
+    ).resolves.toBe(0);
+    await expect(
+      wonByCommit.finalizeCommit(binding, "claim-1", "2026-08-10T04:33:00.000Z")
+    ).resolves.toMatchObject({ ok: true, receipt: { status: "committed" } });
+
+    const wonByRevoke = new MemoryL3AuthorizationGrantStore();
+    await wonByRevoke.recordConsumptionReceipt({
+      ...binding,
+      consumedUse: 1,
+      status: "authorized",
+      commitClaimId: null,
+      commitClaimedAt: null,
+      committedAt: null,
+      revokedAt: null
+    });
+    await expect(
+      wonByRevoke.revokeProfileReceipts("profile-1", 2, "2026-08-10T04:31:00.000Z")
+    ).resolves.toBe(1);
+    await expect(
+      wonByRevoke.claimCommit(binding, {
+        claimId: "claim-1",
+        claimedAt: "2026-08-10T04:32:00.000Z"
+      })
+    ).resolves.toEqual({ ok: false, code: "RECEIPT_REVOKED" });
+  });
+
+  it("makes exact claim and finalize retries idempotent but rejects another claimant", async () => {
+    const store = new MemoryL3AuthorizationGrantStore();
+    const binding = receiptBinding({
+      profileId: "profile-1",
+      modeEpoch: 1,
+      profileDigest: "profile-digest-1"
+    });
+    await store.recordConsumptionReceipt({
+      ...binding,
+      consumedUse: 1,
+      status: "authorized",
+      commitClaimId: null,
+      commitClaimedAt: null,
+      committedAt: null,
+      revokedAt: null
+    });
+    const claim = { claimId: "claim-1", claimedAt: "2026-08-10T04:31:00.000Z" };
+    await expect(store.claimCommit(binding, claim)).resolves.toMatchObject({
+      ok: true,
+      replayed: false
+    });
+    await expect(store.claimCommit(binding, claim)).resolves.toMatchObject({
+      ok: true,
+      replayed: true
+    });
+    await expect(
+      store.claimCommit(binding, { ...claim, claimId: "claim-2" })
+    ).resolves.toEqual({ ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" });
+    await expect(
+      store.finalizeCommit(binding, "claim-1", "2026-08-10T04:32:00.000Z")
+    ).resolves.toMatchObject({ ok: true, replayed: false });
+    await expect(
+      store.finalizeCommit(binding, "claim-1", "2026-08-10T04:32:00.000Z")
+    ).resolves.toMatchObject({ ok: true, replayed: true });
+  });
+
   it("does not consume a grant when atomic receipt creation fails", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     await store.issue(grant());
@@ -192,6 +278,36 @@ describe("L3 authorization grant store", () => {
     );
   });
 
+  it("requires exact v2 profile provenance without breaking an all-v1 grant", () => {
+    expect(validateL3AuthorizationGrant(grant(), context())).toBeNull();
+    const v2Grant = grant({
+      profileId: "profile-1",
+      modeEpoch: 2,
+      profileDigest: "profile-digest-1"
+    });
+    const v2Context = context({
+      profileId: "profile-1",
+      modeEpoch: 2,
+      profileDigest: "profile-digest-1"
+    });
+    expect(validateL3AuthorizationGrant(v2Grant, v2Context)).toBeNull();
+    expect(
+      validateL3AuthorizationGrant(v2Grant, { ...v2Context, profileId: "other-profile" })
+    ).toBe("GRANT_PROFILE_MISMATCH");
+    expect(validateL3AuthorizationGrant(v2Grant, { ...v2Context, modeEpoch: 3 })).toBe(
+      "GRANT_MODE_EPOCH_MISMATCH"
+    );
+    expect(
+      validateL3AuthorizationGrant(v2Grant, { ...v2Context, profileDigest: "other-digest" })
+    ).toBe("GRANT_PROFILE_DIGEST_MISMATCH");
+    expect(
+      validateL3AuthorizationGrant(
+        grant({ profileId: "profile-1" }),
+        context({ profileId: "profile-1" })
+      )
+    ).toBe("GRANT_SCOPE_INVALID");
+  });
+
   it("rejects expired, revoked, exhausted, and malformed operation grants", () => {
     expect(validateL3AuthorizationGrant(grant(), context({ now: "2026-08-10T05:00:00.000Z" }))).toBe(
       "GRANT_EXPIRED"
@@ -232,5 +348,40 @@ describe("L3 authorization grant store", () => {
       scope: "session"
     });
     await expect(store.findMatching(context({ targetId: "other" }))).resolves.toBeNull();
+  });
+
+  it("enforces operation, session, and time-window scope invariants and rejects turn grants", () => {
+    expect(validateL3AuthorizationGrant(grant({ maxUses: 2 }), context())).toBe(
+      "GRANT_SCOPE_INVALID"
+    );
+    expect(
+      validateL3AuthorizationGrant(
+        grant({ scope: "session", operationDigest: null, sessionId: null, maxUses: 2 }),
+        context()
+      )
+    ).toBe("GRANT_SCOPE_INVALID");
+    expect(
+      validateL3AuthorizationGrant(
+        grant({
+          scope: "time_window",
+          operationDigest: null,
+          sessionId: null,
+          maxUses: 2
+        }),
+        context({ operationDigest: "operation-2" })
+      )
+    ).toBeNull();
+    expect(
+      validateL3AuthorizationGrant(
+        grant({ scope: "time_window", operationDigest: null, maxUses: 2 }),
+        context()
+      )
+    ).toBe("GRANT_SCOPE_INVALID");
+    expect(
+      validateL3AuthorizationGrant(
+        grant({ scope: "turn", operationDigest: null, maxUses: 2 }),
+        context()
+      )
+    ).toBe("GRANT_SCOPE_INVALID");
   });
 });

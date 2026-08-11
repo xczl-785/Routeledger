@@ -43,8 +43,25 @@ const createGrant = (
   ...overrides
 });
 
-const setup = async (storage: MemoryStorageAdapter = new MemoryStorageAdapter()) => {
-  const grantStore = new MemoryL3AuthorizationGrantStore();
+class FailOnceFinalizeGrantStore extends MemoryL3AuthorizationGrantStore {
+  private failNextFinalize = true;
+
+  override finalizeCommit(
+    ...args: Parameters<MemoryL3AuthorizationGrantStore["finalizeCommit"]>
+  ): ReturnType<MemoryL3AuthorizationGrantStore["finalizeCommit"]> {
+    if (this.failNextFinalize) {
+      this.failNextFinalize = false;
+      return Promise.reject(new Error("injected finalize failure"));
+    }
+    return super.finalizeCommit(...args);
+  }
+}
+
+const setup = async (
+  storage: MemoryStorageAdapter = new MemoryStorageAdapter(),
+  profile?: { profileId: string; modeEpoch: number; profileDigest: string },
+  grantStore: MemoryL3AuthorizationGrantStore = new MemoryL3AuthorizationGrantStore()
+) => {
   const service = new RouteLedgerService({
     storage,
     deps: createTestDependencies(),
@@ -53,6 +70,7 @@ const setup = async (storage: MemoryStorageAdapter = new MemoryStorageAdapter())
       audience: "routeledger-core",
       subjectId: "local-user",
       routeledgerRootDigest: "sha256:root-1",
+      ...profile,
       hostKind: "codex",
       clientId: "codex-client",
       sessionId: "session-1"
@@ -70,6 +88,98 @@ const setup = async (storage: MemoryStorageAdapter = new MemoryStorageAdapter())
 };
 
 describe("RouteLedgerService trusted L3 authorization", () => {
+  it("rejects a V2 artifact from an old profile epoch before claiming commit", async () => {
+    const profileV1 = {
+      profileId: "profile-1",
+      modeEpoch: 1,
+      profileDigest: "profile-digest-1"
+    };
+    const fixture = await setup(new MemoryStorageAdapter(), profileV1);
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId],
+        ...profileV1
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      grantId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    const rotated = new RouteLedgerService({
+      storage: fixture.storage,
+      deps: createTestDependencies(),
+      l3Authorization: {
+        grantStore: fixture.grantStore,
+        audience: "routeledger-core",
+        subjectId: "local-user",
+        routeledgerRootDigest: "sha256:root-1",
+        profileId: "profile-1",
+        modeEpoch: 2,
+        profileDigest: "profile-digest-2",
+        hostKind: "codex",
+        clientId: "codex-client",
+        sessionId: "session-1"
+      }
+    });
+    await expect(
+      rotated.commitL3Operation({
+        projectId: fixture.prepared.projectId,
+        pendingOperationId: fixture.proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({
+      code: "AUTHORIZATION_GRANT_REJECTED",
+      details: { reason: "AUTHORIZATION_PROFILE_EPOCH_INACTIVE" }
+    });
+  });
+
+  it("recovers exact commit finalization after canonical save already succeeded", async () => {
+    const profile = {
+      profileId: "profile-1",
+      modeEpoch: 1,
+      profileDigest: "profile-digest-1"
+    };
+    const grantStore = new FailOnceFinalizeGrantStore();
+    const fixture = await setup(new MemoryStorageAdapter(), profile, grantStore);
+    await grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId],
+        ...profile
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      grantId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    await expect(
+      fixture.service.commitL3Operation({
+        projectId: fixture.prepared.projectId,
+        pendingOperationId: fixture.proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toThrow("injected finalize failure");
+    expect(
+      (await fixture.storage.loadProjectAggregate(fixture.prepared.projectId))?.pendingOperations[0]
+        ?.status
+    ).toBe("committed");
+    await expect(
+      fixture.service.commitL3Operation({
+        projectId: fixture.prepared.projectId,
+        pendingOperationId: fixture.proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).resolves.toMatchObject({ replayed: true });
+  });
+
   it("rejects the legacy approval method when the trusted control plane is configured", async () => {
     const { service, prepared, proposal } = await setup();
     await expect(
