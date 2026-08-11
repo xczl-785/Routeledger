@@ -6,6 +6,7 @@ It is not a release record and does not replace a bound project's canonical
 
 ## Entry points
 
+- [L3 local authorization route handoff](handoffs/l3-authorization-local-route-handoff.md) records the V1/V2/V3 continuation route after 0.6.0, including the incomplete Codex chooser and deferred MCP protocol work.
 - [Capability index](capabilities/capability-index.md) maps product rules to source and tests.
 - [Agent-host integration](guides/agent-host-integration.md) describes the one-server, one-binding runtime contract.
 - [L3 authorization V3 host authority broker](guides/l3-authorization-v3-host-broker.md) defines the local three-mode trust boundary, broker contract, and acceptance gates.
