@@ -163,6 +163,18 @@ describe("@routeledger/json validate", () => {
       ])
     );
   });
+  it("rejects partial V2 profile provenance", () => {
+    const snapshot = createJsonCodecSnapshot();
+    snapshot.approvalArtifacts[0] = {
+      ...snapshot.approvalArtifacts[0]!,
+      profileId: "profile-partial"
+    };
+    expect(validateProjectAggregateSnapshot(snapshot).issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "APPROVAL_PROFILE_PROVENANCE_INCOMPLETE" })
+      ])
+    );
+  });
   it("accepts canonical DeferredItem and Constraint documents", () => {
     const result = validateRouteLedgerJsonDocuments(
       encodeProjectAggregateToJsonDocuments(createDeferredConstraintJsonSnapshot())

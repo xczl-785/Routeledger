@@ -661,11 +661,24 @@ export const createRouteLedgerStdioServer = (
     l3AuthorityBroker,
     ...baseRegistryOptions
   } = options;
+  if (
+    l3AuthorityBroker !== undefined &&
+    baseRegistryOptions.approver?.id !== undefined &&
+    baseRegistryOptions.approver.id !== l3AuthorityBroker.identity.subjectId
+  ) {
+    throw new Error(
+      "Configured approver identity must match the host authority broker subject."
+    );
+  }
   const registryBaseOptions: RouteLedgerMcpRegistryOptions = {
     ...baseRegistryOptions,
     ...(l3AuthorityBroker === undefined
       ? {}
       : {
+          approver: {
+            ...(baseRegistryOptions.approver ?? {}),
+            id: l3AuthorityBroker.identity.subjectId
+          },
           l3AuthorityCandidateIdentity: {
             subjectId: l3AuthorityBroker.identity.subjectId,
             trustedClientId: l3AuthorityBroker.identity.trustedClientId
@@ -868,7 +881,7 @@ export const createRouteLedgerStdioServer = (
         : null;
       const workspaceRoot = binding?.workspaceRoot;
       const routeledgerRoot = binding?.routeledgerRoot;
-      const projectId = activeProject?.id;
+      const projectId = activeProject?.id ?? runtimeContext?.projectId;
       if (
         typeof workspaceRoot !== "string" ||
         typeof routeledgerRoot !== "string" ||
@@ -1264,6 +1277,9 @@ export const runRouteLedgerStdioServer = async (
     ...(options.l3Authorization === undefined
       ? {}
       : { l3Authorization: options.l3Authorization }),
+    ...(options.l3AuthorityBroker === undefined
+      ? {}
+      : { l3AuthorityBroker: options.l3AuthorityBroker }),
     sendMessage: (message) => {
       writeJsonRpcMessage(options.output, message);
     }

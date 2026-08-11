@@ -58,15 +58,17 @@ export const parseRuntimeProfile = (
   );
 };
 
-export const discoverDefaultCodexL3AuthorityRegistry = async (
-  env: NodeJS.ProcessEnv = process.env
-): Promise<string | undefined> => {
-  const codexHome = env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
-  const registryRoot = path.join(codexHome, "routeledger", "l3-authority-v2");
+export const discoverDefaultLocalL3AuthorityRegistry = async (): Promise<string | undefined> => {
+  const registryRoot = path.join(
+    os.homedir(),
+    ".routeledger",
+    "host-authority",
+    "l3-v2"
+  );
   try {
     const marker = await fs.lstat(path.join(registryRoot, "registry-v2.json"));
     if (!marker.isFile() || marker.isSymbolicLink()) {
-      throw new Error("The default Codex L3 authority registry marker is not a trusted regular file.");
+      throw new Error("The default local L3 authority registry marker is not a trusted regular file.");
     }
     return registryRoot;
   } catch (error) {
@@ -134,7 +136,7 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
   const l3AuthorityRegistry =
     configuredL3AuthorityRegistry ??
     (resolvedHostProfile === "codex"
-      ? await discoverDefaultCodexL3AuthorityRegistry()
+      ? await discoverDefaultLocalL3AuthorityRegistry()
       : undefined);
   if (l3AuthorityConfig !== undefined && l3AuthorityRegistry !== undefined) {
     throw new Error(

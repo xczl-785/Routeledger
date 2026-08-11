@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -18,6 +19,7 @@ import {
 import { createRouteLedgerMcpRegistry, MCP_PROTOCOL_VERSION } from "../index.js";
 import {
   createRouteLedgerStdioServer,
+  runRouteLedgerStdioServer,
   type JsonRpcMessage
 } from "../stdio-server.js";
 
@@ -89,6 +91,174 @@ afterEach(async () => {
 });
 
 describe("stdio host authority broker binding", () => {
+  it("rejects an approver identity that conflicts with the trusted broker subject", () => {
+    expect(() =>
+      createRouteLedgerStdioServer({
+        hostProfile: "codex",
+        sqliteReadModel: "disabled",
+        approver: { id: "other-subject" },
+        l3AuthorityBroker: createLocalL3AuthorityBroker({
+          registryRoot: "/unused-in-construction",
+          hostKind: "codex",
+          subjectId: "trusted-subject",
+          trustedClientId: "trusted-client"
+        }),
+        sendMessage: () => undefined
+      })
+    ).toThrow("Configured approver identity must match the host authority broker subject.");
+  });
+
+  it("forwards the host broker through the real stdio runner", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-l3-broker-runner-"));
+    roots.push(root);
+    const projectRoot = path.join(root, "project");
+    const registryRoot = path.join(root, "host", "registry");
+    await fs.mkdir(projectRoot);
+    await fs.mkdir(path.dirname(registryRoot), { recursive: true, mode: 0o700 });
+    await fs.chmod(path.dirname(registryRoot), 0o700);
+    const projectId = await initializeProject(projectRoot, "Runner project");
+    const binding = {
+      projectId,
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      subjectId: "mcp-user",
+      hostKind: "codex",
+      trustedClientId: "codex-desktop"
+    } as const;
+    await installProfile(registryRoot, binding, "profile-runner");
+
+    const requests = [
+      {
+        jsonrpc: "2.0",
+        id: "initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "self-reported-codex", version: "1" }
+        }
+      },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      {
+        jsonrpc: "2.0",
+        id: "status",
+        method: "tools/call",
+        params: { name: "get_l3_authorization_status", arguments: {} }
+      }
+    ];
+    let output = "";
+    await runRouteLedgerStdioServer({
+      workspaceRoot: projectRoot,
+      workspaceRootSource: "explicit_arg",
+      routeledgerRoot: projectRoot,
+      hostProfile: "codex",
+      sqliteReadModel: "disabled",
+      l3AuthorityBroker: createLocalL3AuthorityBroker({
+        registryRoot,
+        hostKind: "codex",
+        subjectId: "mcp-user",
+        trustedClientId: "codex-desktop"
+      }),
+      input: Readable.from(requests.map((request) => `${JSON.stringify(request)}\n`)),
+      output: new Writable({
+        write(chunk, _encoding, callback) {
+          output += chunk.toString();
+          callback();
+        }
+      })
+    });
+    const status = output
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((response) => response.id === "status") as {
+        result?: { structuredContent?: unknown };
+      } | undefined;
+    expect(status?.result?.structuredContent).toMatchObject({
+      ok: true,
+      data: {
+        controlPlane: "host_authority_broker_v2",
+        profile: { profileId: "profile-runner" }
+      }
+    });
+  });
+
+  it("selects the host profile after an explicit session activation", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-l3-broker-activation-"));
+    roots.push(root);
+    const projectRoot = path.join(root, "project");
+    const bootstrapRoot = path.join(root, "bootstrap");
+    const registryRoot = path.join(root, "host", "registry");
+    await fs.mkdir(projectRoot);
+    await fs.mkdir(bootstrapRoot);
+    await fs.mkdir(path.dirname(registryRoot), { recursive: true, mode: 0o700 });
+    await fs.chmod(path.dirname(registryRoot), 0o700);
+    const projectId = await initializeProject(projectRoot, "Activated project");
+    const binding = {
+      projectId,
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      subjectId: "mcp-user",
+      hostKind: "codex",
+      trustedClientId: "codex-desktop"
+    } as const;
+    await installProfile(registryRoot, binding, "profile-activated");
+
+    const observedProfiles: Array<string | null> = [];
+    const previousCwd = process.cwd();
+    process.chdir(bootstrapRoot);
+    const server = createRouteLedgerStdioServer({
+      hostProfile: "codex",
+      sqliteReadModel: "disabled",
+      l3AuthorityBroker: createLocalL3AuthorityBroker({
+        registryRoot,
+        hostKind: "codex",
+        subjectId: "mcp-user",
+        trustedClientId: "codex-desktop"
+      }),
+      registryFactory: (options) => {
+        observedProfiles.push(options.l3Authorization?.profile?.profileId ?? null);
+        return createRouteLedgerMcpRegistry(options);
+      },
+      sendMessage: () => undefined
+    });
+    try {
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "self-reported-codex", version: "1" }
+        }
+      });
+      await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+      const activation = await call(server, "activate", "activate_routeledger_binding", {
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot
+      });
+      expect(activation).toMatchObject({ result: { structuredContent: { ok: true } } });
+
+      const status = await call(server, "status", "get_l3_authorization_status", {});
+      expect(status).toMatchObject({
+        result: {
+          structuredContent: {
+            ok: true,
+            data: {
+              controlPlane: "host_authority_broker_v2",
+              profile: { profileId: "profile-activated" }
+            }
+          }
+        }
+      });
+      expect(observedProfiles.at(-1)).toBe("profile-activated");
+    } finally {
+      process.chdir(previousCwd);
+      server.close();
+    }
+  });
+
   it("selects from canonical runtime identity and drops the old profile during A to B rebind", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-l3-broker-stdio-"));
     roots.push(root);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global setTimeout */
 
 import process from "node:process";
 
@@ -8,6 +9,12 @@ const cwd = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_CWD;
 const prompt = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT;
 const expectedTool = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TOOL;
 const expectedInner = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_INNER ?? "none";
+const expectedAuthorizationMode = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_AUTH_MODE;
+const expectedToolStatus =
+  process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TOOL_STATUS ??
+  (expectedInner === "none" ? "completed" : "failed");
+const expectedResultToken = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_RESULT_TOKEN;
+const approvalsReviewer = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_APPROVALS_REVIEWER;
 const activateBinding = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_ACTIVATE === "1";
 const timeoutMs = Number(process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TIMEOUT_MS ?? 180_000);
 
@@ -16,8 +23,10 @@ if (!cwd || !prompt || !expectedTool) {
     "ROUTELEDGER_CODEX_NORMAL_TURN_CWD, ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT, and ROUTELEDGER_CODEX_NORMAL_TURN_TOOL are required."
   );
 }
-if (!["none", "bare_accept_rejected", "cancel"].includes(expectedInner)) {
-  throw new Error("ROUTELEDGER_CODEX_NORMAL_TURN_INNER must be none, bare_accept_rejected, or cancel.");
+if (!["none", "bare_accept_rejected", "cancel", "auto_review_cancel"].includes(expectedInner)) {
+  throw new Error(
+    "ROUTELEDGER_CODEX_NORMAL_TURN_INNER must be none, bare_accept_rejected, cancel, or auto_review_cancel."
+  );
 }
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
   throw new Error("ROUTELEDGER_CODEX_NORMAL_TURN_TIMEOUT_MS must be a positive number.");
@@ -29,7 +38,16 @@ client.stderr.on("data", (chunk) => stderr.push(String(chunk)));
 
 const timeline = [];
 let innerRequests = 0;
+let outerRequests = 0;
 client.on("message", (message) => {
+  if (
+    message?.method === "item/agentMessage/delta" ||
+    message?.method === "thread/tokenUsage/updated" ||
+    message?.method === "account/rateLimits/updated" ||
+    message?.method === "mcpServer/startupStatus/updated"
+  ) {
+    return;
+  }
   const item = message?.params?.item;
   timeline.push({
     method: message?.method ?? null,
@@ -55,10 +73,35 @@ client.onServerRequest("tool/requestUserInput", (params) => {
   return { answers };
 });
 
-client.onServerRequest("mcpServer/elicitation/request", () => {
+client.onServerRequest("mcpServer/elicitation/request", async (params, request) => {
+  if (params?._meta?.codex_approval_kind === "mcp_tool_call") {
+    outerRequests += 1;
+    return { action: "accept", content: {} };
+  }
+  const properties = params?.requestedSchema?.properties;
+  const isRouteLedgerAuthorization =
+    properties !== null &&
+    typeof properties === "object" &&
+    Object.hasOwn(properties, "approve") &&
+    Object.hasOwn(properties, "scope");
+  if (!isRouteLedgerAuthorization) {
+    throw new Error(`Unexpected non-RouteLedger MCP elicitation: ${JSON.stringify(params)}`);
+  }
   innerRequests += 1;
   if (expectedInner === "none") {
     throw new Error("Unexpected inner RouteLedger elicitation in a no-prompt scenario.");
+  }
+  if (expectedInner === "auto_review_cancel") {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const resolved = client.messages.some(
+      (message) =>
+        message?.method === "serverRequest/resolved" &&
+        String(message?.params?.requestId) === String(request?.id)
+    );
+    if (resolved) {
+      throw new Error("auto_review resolved the inner RouteLedger authorization request.");
+    }
+    return { action: "cancel", content: null };
   }
   return expectedInner === "cancel"
     ? { action: "cancel", content: null }
@@ -82,7 +125,8 @@ try {
     cwd,
     approvalPolicy: "on-request",
     sandbox: "workspace-write",
-    serviceName: "routeledger-normal-turn-smoke"
+    serviceName: "routeledger-normal-turn-smoke",
+    ...(approvalsReviewer === undefined ? {} : { approvalsReviewer })
   });
   const threadId = started?.thread?.id;
   if (typeof threadId !== "string") throw new Error("Codex app-server returned no thread id.");
@@ -95,6 +139,23 @@ try {
     });
     if (activation?.structuredContent?.ok !== true) {
       throw new Error(`RouteLedger setup activation failed: ${JSON.stringify(activation?.structuredContent)}`);
+    }
+  }
+  if (expectedAuthorizationMode !== undefined) {
+    const status = await client.request("mcpServer/tool/call", {
+      threadId,
+      server: "routeledger",
+      tool: "get_l3_authorization_status",
+      arguments: {}
+    });
+    const authorization = status?.structuredContent?.data;
+    if (
+      authorization?.controlPlane !== "host_authority_broker_v2" ||
+      authorization?.profile?.mode !== expectedAuthorizationMode
+    ) {
+      throw new Error(
+        `Expected active V3 ${expectedAuthorizationMode} profile, received ${JSON.stringify(authorization)}.`
+      );
     }
   }
   const turn = await client.request("turn/start", {
@@ -114,6 +175,17 @@ try {
   if (toolCalls.length !== 1) {
     throw new Error(`Expected exactly one completed ${expectedTool} normal-turn call, observed ${toolCalls.length}.`);
   }
+  if (toolCalls[0]?.status !== expectedToolStatus) {
+    throw new Error(
+      `Expected ${expectedTool} status ${expectedToolStatus}, observed ${String(toolCalls[0]?.status)}.`
+    );
+  }
+  if (
+    expectedResultToken !== undefined &&
+    !JSON.stringify(toolCalls[0]).includes(expectedResultToken)
+  ) {
+    throw new Error(`${expectedTool} result did not include ${expectedResultToken}.`);
+  }
   if (expectedInner !== "none" && innerRequests !== 1) {
     throw new Error(`Expected exactly one inner elicitation, observed ${innerRequests}.`);
   }
@@ -124,7 +196,14 @@ try {
     }
   }
   process.stdout.write(
-    `${JSON.stringify({ ok: true, turnStatus: completed.params.turn.status, expectedTool, innerRequests, timeline }, null, 2)}\n`
+    `${JSON.stringify({
+      ok: true,
+      turnStatus: completed.params.turn.status,
+      expectedTool,
+      outerRequests,
+      innerRequests,
+      timeline
+    }, null, 2)}\n`
   );
 } catch (error) {
   process.stderr.write(`${stderr.join("")}\n`);

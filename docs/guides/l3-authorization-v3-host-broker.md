@@ -29,11 +29,13 @@ startup and stored outside both the workspace and the RouteLedger root. A worksp
 must not be able to write the registry. This boundary does not claim to resist a process that has
 arbitrary write access as the same OS user.
 
-For Codex, an explicit generated MCP config may pass `--l3-authority-registry` and
-`--l3-trusted-client-id`. The bundled plugin also discovers an already initialized registry at
-`$CODEX_HOME/routeledger/l3-authority-v2` (or `~/.codex/routeledger/l3-authority-v2`) only when its
-trusted `registry-v2.json` marker already exists. MCP startup never creates or installs an
-authority profile. A missing registry or missing bound profile remains neutral and fail-closed.
+An explicit generated MCP config may pass `--l3-authority-registry` and
+`--l3-trusted-client-id`. The bundled Codex plugin also discovers the host-independent local
+registry at `~/.routeledger/host-authority/l3-v2` only when its trusted `registry-v2.json` marker
+already exists. This keeps the trust boundary stable across Codex, CLI, and other local MCP hosts
+instead of depending on a host-specific configuration directory being forwarded to the MCP child
+process. MCP startup never creates or installs an authority profile. A missing registry or missing
+bound profile remains neutral and fail-closed.
 
 ```text
 Agent or MCP App
@@ -126,16 +128,29 @@ ship status, recommendation, request, and protocol-smoke surfaces, but must not 
 App or bare elicitation response is the authority writer.
 
 `scripts/smoke-codex-app-server-normal-turn.mjs` is the authenticated local release probe. It
-starts a real thread and turn, auto-resolves only the outer app-tool prompt, records the final
-`mcpToolCall`, and can prove that a bare inner elicitation acceptance is rejected. The required
-environment is:
+starts a real thread and turn, distinguishes Codex outer MCP-tool approval by
+`_meta.codex_approval_kind=mcp_tool_call` from RouteLedger's inner authorization schema, records
+the final `mcpToolCall`, and can prove that a bare inner elicitation acceptance is rejected. It can
+also hold an inner request unanswered while `auto_review` is active and verify that the reviewer
+does not resolve it. The required environment is:
 
 ```text
 ROUTELEDGER_CODEX_NORMAL_TURN_CWD=<isolated bound workspace>
 ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT=<one exact RouteLedger tool request>
 ROUTELEDGER_CODEX_NORMAL_TURN_TOOL=<expected tool name>
-ROUTELEDGER_CODEX_NORMAL_TURN_INNER=none|bare_accept_rejected|cancel
+ROUTELEDGER_CODEX_NORMAL_TURN_INNER=none|bare_accept_rejected|cancel|auto_review_cancel
+ROUTELEDGER_CODEX_NORMAL_TURN_AUTH_MODE=interactive|delegated|preauthorized
+ROUTELEDGER_CODEX_NORMAL_TURN_TOOL_STATUS=completed|failed
+ROUTELEDGER_CODEX_NORMAL_TURN_RESULT_TOKEN=<optional expected result marker>
+ROUTELEDGER_CODEX_NORMAL_TURN_APPROVALS_REVIEWER=<optional user|auto_review wire value>
 ```
+
+The local three-mode fixture is created outside the Agent turn with
+`scripts/testing/setup-codex-l3-normal-turn-fixture.ts`. A release probe must use an isolated
+workspace and host registry, verify zero approval artifacts after rejected interactive attempts,
+verify `delegated_policy` and `preauthorized` artifact sources, and complete at least one
+approve-to-commit cycle whose host-owned receipt ends in `committed` with the same profile ID,
+mode epoch, and profile digest.
 
 This automated probe is not the Desktop user-interaction gate. That gate requires the exact
 candidate installed in Codex Desktop, a native prompt showing the canonical project/action/target

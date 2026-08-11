@@ -1721,6 +1721,27 @@ export const validateProjectAggregateSnapshot = (
         )
       );
     }
+    const profileProvenancePresent =
+      artifact.profileId !== undefined ||
+      artifact.modeEpoch !== undefined ||
+      artifact.profileDigest !== undefined;
+    const profileProvenanceComplete =
+      typeof artifact.profileId === "string" &&
+      artifact.profileId.length > 0 &&
+      Number.isInteger(artifact.modeEpoch) &&
+      artifact.modeEpoch! > 0 &&
+      typeof artifact.profileDigest === "string" &&
+      artifact.profileDigest.length > 0;
+    if (profileProvenancePresent && !profileProvenanceComplete) {
+      issues.push(
+        createIssue(
+          "error",
+          "APPROVAL_PROFILE_PROVENANCE_INCOMPLETE",
+          "V2 approval profile provenance must include profileId, modeEpoch, and profileDigest",
+          { path: getApprovalArtifactPath(artifact.id), details: { approvalArtifactId: artifact.id } }
+        )
+      );
+    }
 
     if (operation === undefined) {
       issues.push(

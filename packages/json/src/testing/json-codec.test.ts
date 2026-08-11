@@ -447,6 +447,9 @@ describe("@routeledger/json canonical codec", () => {
         approvalSource: "user_interaction",
         policyId: null,
         policyDigest: null,
+        profileId: "profile-1",
+        modeEpoch: 2,
+        profileDigest: "profile-digest-1",
         hostKind: "codex",
         clientId: "codex-client",
         sessionId: "session-1"
@@ -463,6 +466,9 @@ describe("@routeledger/json canonical codec", () => {
       approvalSource: "user_interaction",
       policyId: null,
       policyDigest: null,
+      profileId: "profile-1",
+      modeEpoch: 2,
+      profileDigest: "profile-digest-1",
       hostKind: "codex",
       clientId: "codex-client",
       sessionId: "session-1"
