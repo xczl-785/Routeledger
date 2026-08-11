@@ -139,6 +139,7 @@ ROUTELEDGER_CODEX_NORMAL_TURN_CWD=<isolated bound workspace>
 ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT=<one exact RouteLedger tool request>
 ROUTELEDGER_CODEX_NORMAL_TURN_TOOL=<expected tool name>
 ROUTELEDGER_CODEX_NORMAL_TURN_INNER=none|bare_accept_rejected|cancel|auto_review_cancel
+ROUTELEDGER_CODEX_NORMAL_TURN_OUTER=<required exact non-negative count>
 ROUTELEDGER_CODEX_NORMAL_TURN_AUTH_MODE=interactive|delegated|preauthorized
 ROUTELEDGER_CODEX_NORMAL_TURN_TOOL_STATUS=completed|failed
 ROUTELEDGER_CODEX_NORMAL_TURN_RESULT_TOKEN=<optional expected result marker>

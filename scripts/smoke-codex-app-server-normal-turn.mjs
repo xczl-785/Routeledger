@@ -9,6 +9,8 @@ const cwd = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_CWD;
 const prompt = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT;
 const expectedTool = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TOOL;
 const expectedInner = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_INNER ?? "none";
+const expectedOuterRaw = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_OUTER;
+const expectedOuter = Number(expectedOuterRaw);
 const expectedAuthorizationMode = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_AUTH_MODE;
 const expectedToolStatus =
   process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TOOL_STATUS ??
@@ -18,9 +20,9 @@ const approvalsReviewer = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_APPROVALS_RE
 const activateBinding = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_ACTIVATE === "1";
 const timeoutMs = Number(process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TIMEOUT_MS ?? 180_000);
 
-if (!cwd || !prompt || !expectedTool) {
+if (!cwd || !prompt || !expectedTool || expectedOuterRaw === undefined) {
   throw new Error(
-    "ROUTELEDGER_CODEX_NORMAL_TURN_CWD, ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT, and ROUTELEDGER_CODEX_NORMAL_TURN_TOOL are required."
+    "ROUTELEDGER_CODEX_NORMAL_TURN_CWD, ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT, ROUTELEDGER_CODEX_NORMAL_TURN_TOOL, and ROUTELEDGER_CODEX_NORMAL_TURN_OUTER are required."
   );
 }
 if (!["none", "bare_accept_rejected", "cancel", "auto_review_cancel"].includes(expectedInner)) {
@@ -30,6 +32,9 @@ if (!["none", "bare_accept_rejected", "cancel", "auto_review_cancel"].includes(e
 }
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
   throw new Error("ROUTELEDGER_CODEX_NORMAL_TURN_TIMEOUT_MS must be a positive number.");
+}
+if (!Number.isSafeInteger(expectedOuter) || expectedOuter < 0) {
+  throw new Error("ROUTELEDGER_CODEX_NORMAL_TURN_OUTER must be a non-negative integer.");
 }
 
 const client = spawnCodexAppServerJsonlClient({ cwd, defaultTimeoutMs: timeoutMs });
@@ -188,6 +193,9 @@ try {
   }
   if (expectedInner !== "none" && innerRequests !== 1) {
     throw new Error(`Expected exactly one inner elicitation, observed ${innerRequests}.`);
+  }
+  if (outerRequests !== expectedOuter) {
+    throw new Error(`Expected exactly ${expectedOuter} outer approvals, observed ${outerRequests}.`);
   }
   if (expectedInner === "bare_accept_rejected") {
     const serialized = JSON.stringify(toolCalls[0]);
