@@ -25,7 +25,9 @@ const pluginName = "routeledger";
 const marketplaceName = "routeledger-team";
 const releaseBranch = "main";
 const baselineVersion = "0.3.3";
-const upgradedVersion = "0.6.0";
+const upgradedVersion = JSON.parse(
+  await fs.readFile(path.join(sourcePluginRoot, ".codex-plugin", "plugin.json"), "utf8")
+).version;
 const baselineTag = "routeledger-plugin-v0.3.3";
 const fixtureAttributes = "plugins/routeledger/** -text\n";
 const codexCommand = process.platform === "win32" ? "codex.cmd" : "codex";
