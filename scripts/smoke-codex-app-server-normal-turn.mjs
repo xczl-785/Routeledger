@@ -8,6 +8,7 @@ const cwd = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_CWD;
 const prompt = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_PROMPT;
 const expectedTool = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TOOL;
 const expectedInner = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_INNER ?? "none";
+const activateBinding = process.env.ROUTELEDGER_CODEX_NORMAL_TURN_ACTIVATE === "1";
 const timeoutMs = Number(process.env.ROUTELEDGER_CODEX_NORMAL_TURN_TIMEOUT_MS ?? 180_000);
 
 if (!cwd || !prompt || !expectedTool) {
@@ -85,6 +86,17 @@ try {
   });
   const threadId = started?.thread?.id;
   if (typeof threadId !== "string") throw new Error("Codex app-server returned no thread id.");
+  if (activateBinding) {
+    const activation = await client.request("mcpServer/tool/call", {
+      threadId,
+      server: "routeledger",
+      tool: "activate_routeledger_binding",
+      arguments: { workspaceRoot: cwd, routeledgerRoot: cwd }
+    });
+    if (activation?.structuredContent?.ok !== true) {
+      throw new Error(`RouteLedger setup activation failed: ${JSON.stringify(activation?.structuredContent)}`);
+    }
+  }
   const turn = await client.request("turn/start", {
     threadId,
     input: [{ type: "text", text: prompt }]
