@@ -87,6 +87,29 @@ implementation outside Agent write scope. Use
 `recommend_l3_authorization_policy` only to produce a conservative candidate
 for review and installation in host-managed storage outside Agent write scope.
 
+### MCP 2025 and 2026 decision interaction
+
+RouteLedger supports both interaction eras without changing the core proposal,
+artifact, commit, or receipt semantics:
+
+- MCP `2025-11-25` keeps the stateful structured `elicitation/create` request;
+- MCP `2026-07-28` supports `server/discover`, per-request protocol metadata,
+  and native multi round-trip `input_required` results;
+- a 2026 retry must echo the exact `requestState` and provide the matching
+  `inputResponses`; the retry remains bound to the original tool arguments and
+  pending proposal;
+- 2026 L3 execution requires an explicit host secret of at least 32 characters
+  in `ROUTELEDGER_MCP_REQUEST_STATE_SECRET`. RouteLedger uses it only to protect
+  opaque request state across retries and process restarts. Do not put the
+  secret in project files or Agent-writable configuration;
+- missing configuration, expired state, modified state, changed arguments, or
+  response-only retries fail before authorization is consumed.
+
+For a host without an interaction UI, configure the existing finite delegated
+or preauthorized authority explicitly. RouteLedger never infers Codex modes in
+the generic MCP adapter and never treats client identity metadata, natural
+language, or project files as authorization authority.
+
 ## Local trusted L3 authority
 
 The V1 local authority is opt-in. It is enabled only when the host starts the

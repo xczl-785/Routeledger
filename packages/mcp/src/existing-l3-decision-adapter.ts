@@ -21,6 +21,10 @@ import type {
   RouteLedgerMcpAuthorizationInteraction,
   RouteLedgerMcpDelegatedAuthorizationAuthority
 } from "./index.js";
+import {
+  isMcpDecisionInputRequiredError,
+  toL3DecisionInputRequest
+} from "./mcp-decision-input.js";
 
 export type ExistingL3DecisionResolution =
   | Exclude<DecisionResolution, { status: "denied" }>
@@ -258,6 +262,12 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
         }
       });
     } catch (error) {
+      if (isMcpDecisionInputRequiredError(error)) {
+        return {
+          status: "input_required",
+          request: toL3DecisionInputRequest(request, error)
+        };
+      }
       throw new ApplicationError(
         "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
         "The MCP client could not provide a trusted L3 authorization interaction",

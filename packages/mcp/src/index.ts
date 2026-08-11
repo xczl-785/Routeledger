@@ -92,8 +92,11 @@ export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
 export * from "./local-l3-authority-broker.js";
 export * from "./existing-l3-decision-adapter.js";
+export * from "./mcp-decision-input.js";
+export * from "./mcp-request-state.js";
 
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
+export const MCP_MRTR_PROTOCOL_VERSION = "2026-07-28";
 
 export type RouteLedgerHostProfileName = "generic" | "codex" | "claude-code" | "cursor";
 /**
@@ -3793,13 +3796,19 @@ export const createRouteLedgerMcpRegistry = (
 
         let entry = existing;
         if (entry === undefined) {
-          const proposalId = service
-            .proposeL3Operation({
-              ...exactInput,
-              actionType: input.actionType as L3ActionType,
-              actor
-            })
-            .then((proposal) => proposal.id);
+          const resumeProposalId = (input as Record<string, unknown>)[
+            "__routeledgerMcpResumeProposalId"
+          ];
+          const proposalId =
+            typeof resumeProposalId === "string" && resumeProposalId.trim().length > 0
+              ? Promise.resolve(resumeProposalId)
+              : service
+                  .proposeL3Operation({
+                    ...exactInput,
+                    actionType: input.actionType as L3ActionType,
+                    actor
+                  })
+                  .then((proposal) => proposal.id);
           entry = { fingerprint, proposalId };
           executionRequests.set(input.idempotencyKey, entry);
           proposalId.catch(() => {
