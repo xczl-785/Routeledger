@@ -1,9 +1,14 @@
 #!/usr/bin/env tsx
 
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { runRouteLedgerStdioServer } from "./stdio-server.js";
 import type { SqliteReadModelMode } from "./json-first-storage.js";
 import type { RouteLedgerMcpRuntimeProfile } from "./index.js";
 import { loadLocalL3AuthorityRuntime } from "./local-l3-authorization.js";
+import { createLocalL3AuthorityBroker } from "./local-l3-authority-broker.js";
 
 const getFlagValue = (argv: string[], name: string): string | undefined => {
   const index = argv.findIndex((argument) => argument === name);
@@ -53,6 +58,25 @@ export const parseRuntimeProfile = (
   );
 };
 
+export const discoverDefaultLocalL3AuthorityRegistry = async (): Promise<string | undefined> => {
+  const registryRoot = path.join(
+    os.homedir(),
+    ".routeledger",
+    "host-authority",
+    "l3-v2"
+  );
+  try {
+    const marker = await fs.lstat(path.join(registryRoot, "registry-v2.json"));
+    if (!marker.isFile() || marker.isSymbolicLink()) {
+      throw new Error("The default local L3 authority registry marker is not a trusted regular file.");
+    }
+    return registryRoot;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+};
+
 export const main = async (argv: string[] = process.argv.slice(2)): Promise<void> => {
   const workspaceRootFlag = getFlagValue(argv, "--workspace-root");
   const workspaceRootEnv = process.env.ROUTELEDGER_MCP_WORKSPACE_ROOT;
@@ -92,6 +116,16 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     "--l3-authority-config",
     "ROUTELEDGER_MCP_L3_AUTHORITY_CONFIG"
   );
+  const configuredL3AuthorityRegistry = getConfigValue(
+    argv,
+    "--l3-authority-registry",
+    "ROUTELEDGER_MCP_L3_AUTHORITY_REGISTRY"
+  );
+  const l3TrustedClientId = getConfigValue(
+    argv,
+    "--l3-trusted-client-id",
+    "ROUTELEDGER_MCP_L3_TRUSTED_CLIENT_ID"
+  );
   const resolvedHostProfile =
     hostProfile === "generic" ||
     hostProfile === "codex" ||
@@ -99,6 +133,16 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     hostProfile === "cursor"
       ? hostProfile
       : "generic";
+  const l3AuthorityRegistry =
+    configuredL3AuthorityRegistry ??
+    (resolvedHostProfile === "codex"
+      ? await discoverDefaultLocalL3AuthorityRegistry()
+      : undefined);
+  if (l3AuthorityConfig !== undefined && l3AuthorityRegistry !== undefined) {
+    throw new Error(
+      "Use either the V1 --l3-authority-config compatibility path or the V2 --l3-authority-registry broker, not both."
+    );
+  }
   const l3AuthorityRuntime =
     l3AuthorityConfig === undefined
       ? undefined
@@ -159,6 +203,18 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
               : { trustedClientId: l3AuthorityRuntime.trustedClientId }),
             delegatedAuthority: l3AuthorityRuntime.authority
           }
+        }),
+    ...(l3AuthorityRegistry === undefined
+      ? {}
+      : {
+          l3AuthorityBroker: createLocalL3AuthorityBroker({
+            registryRoot: l3AuthorityRegistry,
+            hostKind: resolvedHostProfile,
+            subjectId:
+              approverId ?? (resolvedHostProfile === "codex" ? "routeledger-approver" : "mcp-user"),
+            trustedClientId:
+              l3TrustedClientId ?? (resolvedHostProfile === "codex" ? "codex-local-host" : null)
+          })
         }),
     input: process.stdin,
     output: process.stdout,

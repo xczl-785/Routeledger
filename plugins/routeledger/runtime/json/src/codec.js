@@ -986,6 +986,9 @@ const encodeApprovalArtifact = (artifact) => ({
     ...(artifact.approvalSource === undefined ? {} : { approval_source: artifact.approvalSource }),
     ...(artifact.policyId === undefined ? {} : { policy_id: artifact.policyId }),
     ...(artifact.policyDigest === undefined ? {} : { policy_digest: artifact.policyDigest }),
+    ...(artifact.profileId === undefined ? {} : { profile_id: artifact.profileId }),
+    ...(artifact.modeEpoch === undefined ? {} : { mode_epoch: artifact.modeEpoch }),
+    ...(artifact.profileDigest === undefined ? {} : { profile_digest: artifact.profileDigest }),
     ...(artifact.hostKind === undefined ? {} : { host_kind: artifact.hostKind }),
     ...(artifact.clientId === undefined ? {} : { client_id: artifact.clientId }),
     ...(artifact.sessionId === undefined ? {} : { session_id: artifact.sessionId })
@@ -1009,6 +1012,9 @@ const decodeApprovalArtifact = (artifact) => ({
     ...(artifact.approval_source === undefined ? {} : { approvalSource: artifact.approval_source }),
     ...(artifact.policy_id === undefined ? {} : { policyId: artifact.policy_id }),
     ...(artifact.policy_digest === undefined ? {} : { policyDigest: artifact.policy_digest }),
+    ...(artifact.profile_id === undefined ? {} : { profileId: artifact.profile_id }),
+    ...(artifact.mode_epoch === undefined ? {} : { modeEpoch: artifact.mode_epoch }),
+    ...(artifact.profile_digest === undefined ? {} : { profileDigest: artifact.profile_digest }),
     ...(artifact.host_kind === undefined ? {} : { hostKind: artifact.host_kind }),
     ...(artifact.client_id === undefined ? {} : { clientId: artifact.client_id }),
     ...(artifact.session_id === undefined ? {} : { sessionId: artifact.session_id })

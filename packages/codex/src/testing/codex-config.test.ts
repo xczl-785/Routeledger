@@ -158,7 +158,9 @@ describe("@routeledger/codex", () => {
       source: {
         kind: "workspace",
         routeLedgerWorkspaceRoot: "/tools/RouteLedger"
-      }
+      },
+      l3AuthorityRegistryRoot: "/Users/test/.codex/routeledger/l3-authority-v2",
+      l3TrustedClientId: "codex-local-host"
     });
 
     expect(config).toContain('[mcp_servers.routeledger]');
@@ -172,6 +174,10 @@ describe("@routeledger/codex", () => {
     expect(config).toContain('"codex"');
     expect(config).toContain('"--actor-id"');
     expect(config).toContain('"codex-agent"');
+    expect(config).toContain('"--l3-authority-registry"');
+    expect(config).toContain('"/Users/test/.codex/routeledger/l3-authority-v2"');
+    expect(config).toContain('"--l3-trusted-client-id"');
+    expect(config).toContain('"codex-local-host"');
     expect(config).not.toContain('cwd = "/projects/alpha"');
     expect(config).toContain(
       "[mcp_servers.routeledger.tools.get_runtime_context]\napproval_mode = \"auto\""

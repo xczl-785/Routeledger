@@ -8,6 +8,7 @@ It is not a release record and does not replace a bound project's canonical
 
 - [Capability index](capabilities/capability-index.md) maps product rules to source and tests.
 - [Agent-host integration](guides/agent-host-integration.md) describes the one-server, one-binding runtime contract.
+- [L3 authorization V3 host authority broker](guides/l3-authorization-v3-host-broker.md) defines the local three-mode trust boundary, broker contract, and acceptance gates.
 - [Codex plugin installation](guides/codex-plugin-installation.md) describes the published Git marketplace installation and runtime boundary.
 - [New MCP tool checklist](guides/new-tool-checklist.md) lists the registry, contract, doc, and release steps for adding a tool.
 - [Plugin release](release/plugin-release.md), the [release policy](release/release-policy.md), and the [0.4.4 release note](release/release-notes/0.4.4.md) record the current Git marketplace release state; Git plugin publication does not publish `@routeledger/mcp` to npm.

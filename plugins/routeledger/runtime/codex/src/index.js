@@ -27,6 +27,7 @@ const DEFAULT_FRAGMENT_SUFFIX = ".fragment.toml";
 export const AUTO_APPROVAL_TOOLS = [
     "get_current_context",
     "get_runtime_context",
+    "get_l3_authorization_status",
     "discover_routeledger_roots",
     "plan_routeledger_binding",
     "render_host_binding_config",
@@ -37,6 +38,7 @@ export const AUTO_APPROVAL_TOOLS = [
     "check_close_gate",
     "list_l3_proposals",
     "recommend_l3_authorization_policy",
+    "recommend_l3_authorization_profile",
     "get_l3_proposal",
     "open_mission_control",
     "get_mission_control_status",
@@ -137,6 +139,12 @@ const normalizeInput = (input) => {
     const startupTimeoutSec = input.startupTimeoutSec ?? DEFAULT_STARTUP_TIMEOUT_SEC;
     const toolTimeoutSec = input.toolTimeoutSec ?? DEFAULT_TOOL_TIMEOUT_SEC;
     const defaultToolsApprovalMode = input.defaultToolsApprovalMode ?? DEFAULT_APPROVAL_MODE;
+    const l3AuthorityRegistryRoot = input.l3AuthorityRegistryRoot === undefined
+        ? undefined
+        : assertAbsolutePath(input.l3AuthorityRegistryRoot, "l3AuthorityRegistryRoot");
+    const l3TrustedClientId = input.l3TrustedClientId === undefined
+        ? undefined
+        : assertNonEmpty(input.l3TrustedClientId, "l3TrustedClientId");
     if (!Number.isInteger(startupTimeoutSec) ||
         startupTimeoutSec <= 0 ||
         !Number.isInteger(toolTimeoutSec) ||
@@ -176,7 +184,9 @@ const normalizeInput = (input) => {
         approver,
         startupTimeoutSec,
         toolTimeoutSec,
-        defaultToolsApprovalMode
+        defaultToolsApprovalMode,
+        ...(l3AuthorityRegistryRoot === undefined ? {} : { l3AuthorityRegistryRoot }),
+        ...(l3TrustedClientId === undefined ? {} : { l3TrustedClientId })
     };
 };
 const normalizeGlobalInput = (input) => {
@@ -193,7 +203,13 @@ const normalizeGlobalInput = (input) => {
         approver: normalizedProjectInput.approver,
         startupTimeoutSec: normalizedProjectInput.startupTimeoutSec,
         toolTimeoutSec: normalizedProjectInput.toolTimeoutSec,
-        defaultToolsApprovalMode: normalizedProjectInput.defaultToolsApprovalMode
+        defaultToolsApprovalMode: normalizedProjectInput.defaultToolsApprovalMode,
+        ...(normalizedProjectInput.l3AuthorityRegistryRoot === undefined
+            ? {}
+            : { l3AuthorityRegistryRoot: normalizedProjectInput.l3AuthorityRegistryRoot }),
+        ...(normalizedProjectInput.l3TrustedClientId === undefined
+            ? {}
+            : { l3TrustedClientId: normalizedProjectInput.l3TrustedClientId })
     };
 };
 const buildCommandShape = (input) => {
@@ -213,6 +229,12 @@ const buildCommandShape = (input) => {
         "--approver-name",
         input.approver.displayName
     ];
+    if (input.l3AuthorityRegistryRoot !== undefined) {
+        sharedArgs.push("--l3-authority-registry", toForwardSlashes(input.l3AuthorityRegistryRoot));
+    }
+    if (input.l3TrustedClientId !== undefined) {
+        sharedArgs.push("--l3-trusted-client-id", input.l3TrustedClientId);
+    }
     if (input.source.kind === "workspace") {
         return {
             command: input.source.command ?? "pnpm",

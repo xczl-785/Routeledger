@@ -10,6 +10,9 @@ const receiptMatchesAuthorizationContext = (receipt, grantId, context, pendingOp
     receipt.subjectId === context.subjectId &&
     receipt.projectId === context.projectId &&
     receipt.routeledgerRootDigest === context.routeledgerRootDigest &&
+    receipt.profileId === context.profileId &&
+    receipt.modeEpoch === context.modeEpoch &&
+    receipt.profileDigest === context.profileDigest &&
     receipt.actionType === context.actionType &&
     receipt.targetId === context.targetId &&
     receipt.operationDigest === context.operationDigest &&
@@ -39,6 +42,12 @@ export const validateL3AuthorizationGrant = (grant, context) => {
         return "GRANT_PROJECT_MISMATCH";
     if (grant.routeledgerRootDigest !== context.routeledgerRootDigest)
         return "GRANT_ROOT_MISMATCH";
+    if (grant.profileId !== context.profileId)
+        return "GRANT_PROFILE_MISMATCH";
+    if (grant.modeEpoch !== context.modeEpoch)
+        return "GRANT_MODE_EPOCH_MISMATCH";
+    if (grant.profileDigest !== context.profileDigest)
+        return "GRANT_PROFILE_DIGEST_MISMATCH";
     if (!grant.allowedActions.includes(context.actionType))
         return "GRANT_ACTION_MISMATCH";
     if (!grant.allowedTargetIds.includes(context.targetId))
@@ -57,6 +66,39 @@ export const validateL3AuthorizationGrant = (grant, context) => {
     if (grant.sessionId !== null && grant.sessionId !== context.sessionId) {
         return "GRANT_SESSION_MISMATCH";
     }
+    const hasCompleteProfileProvenance = typeof grant.profileId === "string" &&
+        grant.profileId.trim().length > 0 &&
+        Number.isInteger(grant.modeEpoch) &&
+        grant.modeEpoch > 0 &&
+        typeof grant.profileDigest === "string" &&
+        grant.profileDigest.trim().length > 0;
+    const hasNoProfileProvenance = grant.profileId === undefined &&
+        grant.modeEpoch === undefined &&
+        grant.profileDigest === undefined;
+    if (!hasCompleteProfileProvenance && !hasNoProfileProvenance)
+        return "GRANT_SCOPE_INVALID";
+    if (grant.allowedActions.length === 0 ||
+        grant.allowedTargetIds.length === 0 ||
+        grant.maxUses <= 0) {
+        return "GRANT_SCOPE_INVALID";
+    }
+    if (grant.scope === "operation" &&
+        (grant.operationDigest === null ||
+            grant.allowedActions.length !== 1 ||
+            grant.allowedTargetIds.length !== 1 ||
+            grant.maxUses !== 1)) {
+        return "GRANT_SCOPE_INVALID";
+    }
+    if (grant.scope === "session" &&
+        (grant.operationDigest !== null || grant.sessionId === null || grant.sessionId.trim().length === 0)) {
+        return "GRANT_SCOPE_INVALID";
+    }
+    if (grant.scope === "time_window" &&
+        (grant.operationDigest !== null || grant.sessionId !== null)) {
+        return "GRANT_SCOPE_INVALID";
+    }
+    if (grant.scope === "turn")
+        return "GRANT_SCOPE_INVALID";
     return null;
 };
 export class MemoryL3AuthorizationGrantStore {
@@ -161,6 +203,75 @@ export class MemoryL3AuthorizationGrantStore {
         return (receipt.consumedUse > 0 &&
             Object.entries(binding).every(([key, value]) => receipt[key] === value));
     }
+    async claimCommit(binding, claim) {
+        const receipt = this.receipts.get(binding.approvalArtifactId);
+        if (receipt === undefined)
+            return { ok: false, code: "RECEIPT_NOT_FOUND" };
+        if (!this.receiptMatchesBinding(receipt, binding)) {
+            return { ok: false, code: "RECEIPT_BINDING_MISMATCH" };
+        }
+        if (receipt.status === "revoked")
+            return { ok: false, code: "RECEIPT_REVOKED" };
+        if (receipt.status === "commit_claimed" || receipt.status === "committed") {
+            if (receipt.commitClaimId !== claim.claimId) {
+                return { ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" };
+            }
+            return { ok: true, receipt: structuredClone(receipt), replayed: true };
+        }
+        const claimed = {
+            ...receipt,
+            status: "commit_claimed",
+            commitClaimId: claim.claimId,
+            commitClaimedAt: claim.claimedAt,
+            committedAt: null,
+            revokedAt: null
+        };
+        this.receipts.set(receipt.approvalArtifactId, claimed);
+        return { ok: true, receipt: structuredClone(claimed), replayed: false };
+    }
+    async finalizeCommit(binding, claimId, committedAt) {
+        const receipt = this.receipts.get(binding.approvalArtifactId);
+        if (receipt === undefined)
+            return { ok: false, code: "RECEIPT_NOT_FOUND" };
+        if (!this.receiptMatchesBinding(receipt, binding)) {
+            return { ok: false, code: "RECEIPT_BINDING_MISMATCH" };
+        }
+        if (receipt.status === "revoked")
+            return { ok: false, code: "RECEIPT_REVOKED" };
+        if (receipt.commitClaimId !== claimId || receipt.status === "authorized") {
+            return { ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" };
+        }
+        if (receipt.status === "committed") {
+            return { ok: true, receipt: structuredClone(receipt), replayed: true };
+        }
+        const committed = {
+            ...receipt,
+            status: "committed",
+            committedAt
+        };
+        this.receipts.set(receipt.approvalArtifactId, committed);
+        return { ok: true, receipt: structuredClone(committed), replayed: false };
+    }
+    async revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt) {
+        let revoked = 0;
+        for (const [approvalArtifactId, receipt] of this.receipts) {
+            if (receipt.profileId === profileId &&
+                receipt.modeEpoch !== undefined &&
+                receipt.modeEpoch < beforeModeEpoch &&
+                (receipt.status === undefined || receipt.status === "authorized")) {
+                this.receipts.set(approvalArtifactId, {
+                    ...receipt,
+                    status: "revoked",
+                    revokedAt
+                });
+                revoked += 1;
+            }
+        }
+        return revoked;
+    }
+    receiptMatchesBinding(receipt, binding) {
+        return Object.entries(binding).every(([key, value]) => receipt[key] === value);
+    }
     async revoke(grantId, revokedAt) {
         const grant = this.grants.get(grantId);
         if (grant === undefined)
@@ -171,6 +282,16 @@ export class MemoryL3AuthorizationGrantStore {
             revokedAt
         };
         this.grants.set(grantId, updated);
+        for (const [approvalArtifactId, receipt] of this.receipts) {
+            if (receipt.grantId === grantId &&
+                (receipt.status === undefined || receipt.status === "authorized")) {
+                this.receipts.set(approvalArtifactId, {
+                    ...receipt,
+                    status: "revoked",
+                    revokedAt
+                });
+            }
+        }
         return cloneGrant(updated);
     }
 }

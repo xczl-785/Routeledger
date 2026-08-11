@@ -16,6 +16,10 @@ export interface L3AuthorizationGrant {
   audience: string;
   projectId: string;
   routeledgerRootDigest: string;
+  /** V2 profile provenance. The three fields are all present or all absent for v1 compatibility. */
+  profileId?: string;
+  modeEpoch?: number;
+  profileDigest?: string;
   allowedActions: L3ActionType[];
   allowedTargetIds: string[];
   operationDigest: string | null;
@@ -41,6 +45,9 @@ export interface L3AuthorizationGrantContext {
   subjectId: string;
   projectId: string;
   routeledgerRootDigest: string;
+  profileId?: string;
+  modeEpoch?: number;
+  profileDigest?: string;
   actionType: L3ActionType;
   targetId: string;
   operationDigest: string;
@@ -59,12 +66,16 @@ export type L3AuthorizationGrantFailureCode =
   | "GRANT_SUBJECT_MISMATCH"
   | "GRANT_PROJECT_MISMATCH"
   | "GRANT_ROOT_MISMATCH"
+  | "GRANT_PROFILE_MISMATCH"
+  | "GRANT_MODE_EPOCH_MISMATCH"
+  | "GRANT_PROFILE_DIGEST_MISMATCH"
   | "GRANT_ACTION_MISMATCH"
   | "GRANT_TARGET_MISMATCH"
   | "GRANT_OPERATION_MISMATCH"
   | "GRANT_HOST_MISMATCH"
   | "GRANT_CLIENT_MISMATCH"
-  | "GRANT_SESSION_MISMATCH";
+  | "GRANT_SESSION_MISMATCH"
+  | "GRANT_SCOPE_INVALID";
 
 export interface L3AuthorizationGrantConsumption {
   ok: true;
@@ -89,6 +100,9 @@ export interface L3AuthorizationReceiptBinding {
   subjectId: string;
   projectId: string;
   routeledgerRootDigest: string;
+  profileId?: string;
+  modeEpoch?: number;
+  profileDigest?: string;
   actionType: L3ActionType;
   targetId: string;
   operationDigest: string;
@@ -108,7 +122,36 @@ export interface L3AuthorizationReceiptBinding {
 
 export interface L3AuthorizationConsumptionReceipt extends L3AuthorizationReceiptBinding {
   consumedUse: number;
+  /** Missing only on persisted v1 receipts. V2 profile receipts always carry this lifecycle. */
+  status?: L3AuthorizationReceiptStatus;
+  commitClaimId?: string | null;
+  commitClaimedAt?: string | null;
+  committedAt?: string | null;
+  revokedAt?: string | null;
 }
+
+export type L3AuthorizationReceiptStatus =
+  | "authorized"
+  | "commit_claimed"
+  | "committed"
+  | "revoked";
+
+export type L3AuthorizationCommitFailureCode =
+  | "RECEIPT_NOT_FOUND"
+  | "RECEIPT_BINDING_MISMATCH"
+  | "RECEIPT_REVOKED"
+  | "RECEIPT_CLAIMED_BY_OTHER";
+
+export type L3AuthorizationCommitResult =
+  | {
+      ok: true;
+      receipt: L3AuthorizationConsumptionReceipt;
+      replayed: boolean;
+    }
+  | {
+      ok: false;
+      code: L3AuthorizationCommitFailureCode;
+    };
 
 export interface L3AuthorizationGrantConsumptionWithReceipt
   extends L3AuthorizationGrantConsumption {
@@ -146,6 +189,20 @@ export interface L3AuthorizationGrantStore {
   ): Promise<L3ConsumedAuthorizationReplay | null>;
   recordConsumptionReceipt(receipt: L3AuthorizationConsumptionReceipt): Promise<void>;
   verifyConsumptionReceipt(binding: L3AuthorizationReceiptBinding): Promise<boolean>;
+  claimCommit(
+    binding: L3AuthorizationReceiptBinding,
+    claim: { claimId: string; claimedAt: string }
+  ): Promise<L3AuthorizationCommitResult>;
+  finalizeCommit(
+    binding: L3AuthorizationReceiptBinding,
+    claimId: string,
+    committedAt: string
+  ): Promise<L3AuthorizationCommitResult>;
+  revokeProfileReceipts(
+    profileId: string,
+    beforeModeEpoch: number,
+    revokedAt: string
+  ): Promise<number>;
   revoke(grantId: string, revokedAt: string): Promise<L3AuthorizationGrant | null>;
 }
 
@@ -167,6 +224,9 @@ const receiptMatchesAuthorizationContext = (
   receipt.subjectId === context.subjectId &&
   receipt.projectId === context.projectId &&
   receipt.routeledgerRootDigest === context.routeledgerRootDigest &&
+  receipt.profileId === context.profileId &&
+  receipt.modeEpoch === context.modeEpoch &&
+  receipt.profileDigest === context.profileDigest &&
   receipt.actionType === context.actionType &&
   receipt.targetId === context.targetId &&
   receipt.operationDigest === context.operationDigest &&
@@ -207,6 +267,9 @@ export const validateL3AuthorizationGrant = (
   if (grant.subjectId !== context.subjectId) return "GRANT_SUBJECT_MISMATCH";
   if (grant.projectId !== context.projectId) return "GRANT_PROJECT_MISMATCH";
   if (grant.routeledgerRootDigest !== context.routeledgerRootDigest) return "GRANT_ROOT_MISMATCH";
+  if (grant.profileId !== context.profileId) return "GRANT_PROFILE_MISMATCH";
+  if (grant.modeEpoch !== context.modeEpoch) return "GRANT_MODE_EPOCH_MISMATCH";
+  if (grant.profileDigest !== context.profileDigest) return "GRANT_PROFILE_DIGEST_MISMATCH";
   if (!grant.allowedActions.includes(context.actionType)) return "GRANT_ACTION_MISMATCH";
   if (!grant.allowedTargetIds.includes(context.targetId)) return "GRANT_TARGET_MISMATCH";
   if (grant.operationDigest !== null && grant.operationDigest !== context.operationDigest) {
@@ -222,6 +285,47 @@ export const validateL3AuthorizationGrant = (
   if (grant.sessionId !== null && grant.sessionId !== context.sessionId) {
     return "GRANT_SESSION_MISMATCH";
   }
+  const hasCompleteProfileProvenance =
+    typeof grant.profileId === "string" &&
+    grant.profileId.trim().length > 0 &&
+    Number.isInteger(grant.modeEpoch) &&
+    grant.modeEpoch! > 0 &&
+    typeof grant.profileDigest === "string" &&
+    grant.profileDigest.trim().length > 0;
+  const hasNoProfileProvenance =
+    grant.profileId === undefined &&
+    grant.modeEpoch === undefined &&
+    grant.profileDigest === undefined;
+  if (!hasCompleteProfileProvenance && !hasNoProfileProvenance) return "GRANT_SCOPE_INVALID";
+  if (
+    grant.allowedActions.length === 0 ||
+    grant.allowedTargetIds.length === 0 ||
+    grant.maxUses <= 0
+  ) {
+    return "GRANT_SCOPE_INVALID";
+  }
+  if (
+    grant.scope === "operation" &&
+    (grant.operationDigest === null ||
+      grant.allowedActions.length !== 1 ||
+      grant.allowedTargetIds.length !== 1 ||
+      grant.maxUses !== 1)
+  ) {
+    return "GRANT_SCOPE_INVALID";
+  }
+  if (
+    grant.scope === "session" &&
+    (grant.operationDigest !== null || grant.sessionId === null || grant.sessionId.trim().length === 0)
+  ) {
+    return "GRANT_SCOPE_INVALID";
+  }
+  if (
+    grant.scope === "time_window" &&
+    (grant.operationDigest !== null || grant.sessionId !== null)
+  ) {
+    return "GRANT_SCOPE_INVALID";
+  }
+  if (grant.scope === "turn") return "GRANT_SCOPE_INVALID";
   return null;
 };
 
@@ -361,6 +465,93 @@ export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStor
     );
   }
 
+  async claimCommit(
+    binding: L3AuthorizationReceiptBinding,
+    claim: { claimId: string; claimedAt: string }
+  ): Promise<L3AuthorizationCommitResult> {
+    const receipt = this.receipts.get(binding.approvalArtifactId);
+    if (receipt === undefined) return { ok: false, code: "RECEIPT_NOT_FOUND" };
+    if (!this.receiptMatchesBinding(receipt, binding)) {
+      return { ok: false, code: "RECEIPT_BINDING_MISMATCH" };
+    }
+    if (receipt.status === "revoked") return { ok: false, code: "RECEIPT_REVOKED" };
+    if (receipt.status === "commit_claimed" || receipt.status === "committed") {
+      if (receipt.commitClaimId !== claim.claimId) {
+        return { ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" };
+      }
+      return { ok: true, receipt: structuredClone(receipt), replayed: true };
+    }
+    const claimed: L3AuthorizationConsumptionReceipt = {
+      ...receipt,
+      status: "commit_claimed",
+      commitClaimId: claim.claimId,
+      commitClaimedAt: claim.claimedAt,
+      committedAt: null,
+      revokedAt: null
+    };
+    this.receipts.set(receipt.approvalArtifactId, claimed);
+    return { ok: true, receipt: structuredClone(claimed), replayed: false };
+  }
+
+  async finalizeCommit(
+    binding: L3AuthorizationReceiptBinding,
+    claimId: string,
+    committedAt: string
+  ): Promise<L3AuthorizationCommitResult> {
+    const receipt = this.receipts.get(binding.approvalArtifactId);
+    if (receipt === undefined) return { ok: false, code: "RECEIPT_NOT_FOUND" };
+    if (!this.receiptMatchesBinding(receipt, binding)) {
+      return { ok: false, code: "RECEIPT_BINDING_MISMATCH" };
+    }
+    if (receipt.status === "revoked") return { ok: false, code: "RECEIPT_REVOKED" };
+    if (receipt.commitClaimId !== claimId || receipt.status === "authorized") {
+      return { ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" };
+    }
+    if (receipt.status === "committed") {
+      return { ok: true, receipt: structuredClone(receipt), replayed: true };
+    }
+    const committed: L3AuthorizationConsumptionReceipt = {
+      ...receipt,
+      status: "committed",
+      committedAt
+    };
+    this.receipts.set(receipt.approvalArtifactId, committed);
+    return { ok: true, receipt: structuredClone(committed), replayed: false };
+  }
+
+  async revokeProfileReceipts(
+    profileId: string,
+    beforeModeEpoch: number,
+    revokedAt: string
+  ): Promise<number> {
+    let revoked = 0;
+    for (const [approvalArtifactId, receipt] of this.receipts) {
+      if (
+        receipt.profileId === profileId &&
+        receipt.modeEpoch !== undefined &&
+        receipt.modeEpoch < beforeModeEpoch &&
+        (receipt.status === undefined || receipt.status === "authorized")
+      ) {
+        this.receipts.set(approvalArtifactId, {
+          ...receipt,
+          status: "revoked",
+          revokedAt
+        });
+        revoked += 1;
+      }
+    }
+    return revoked;
+  }
+
+  private receiptMatchesBinding(
+    receipt: L3AuthorizationConsumptionReceipt,
+    binding: L3AuthorizationReceiptBinding
+  ): boolean {
+    return Object.entries(binding).every(
+      ([key, value]) => receipt[key as keyof L3AuthorizationConsumptionReceipt] === value
+    );
+  }
+
   async revoke(grantId: string, revokedAt: string): Promise<L3AuthorizationGrant | null> {
     const grant = this.grants.get(grantId);
     if (grant === undefined) return null;
@@ -370,6 +561,18 @@ export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStor
       revokedAt
     };
     this.grants.set(grantId, updated);
+    for (const [approvalArtifactId, receipt] of this.receipts) {
+      if (
+        receipt.grantId === grantId &&
+        (receipt.status === undefined || receipt.status === "authorized")
+      ) {
+        this.receipts.set(approvalArtifactId, {
+          ...receipt,
+          status: "revoked",
+          revokedAt
+        });
+      }
+    }
     return cloneGrant(updated);
   }
 }

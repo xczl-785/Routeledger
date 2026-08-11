@@ -79,6 +79,10 @@ export interface L3AuthorizationPolicy {
 export interface L3AuthorizationEvaluationContext {
   projectId: string;
   routeledgerRootDigest: string;
+  /** V2 broker provenance; all three fields are supplied together. */
+  profileId?: string;
+  modeEpoch?: number;
+  profileDigest?: string;
   actionType: L3ActionType;
   targetId: string;
   currentVersionId: string | null;

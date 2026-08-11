@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { buildCodexPluginAttestation } from "../create-codex-plugin-attestation.mjs";
 
-const version = "0.5.1";
+const version = "0.6.0";
 const releaseTag = `routeledger-plugin-v${version}`;
 const sourceCommit = "a".repeat(40);
 const manifest = { name: "routeledger", version };

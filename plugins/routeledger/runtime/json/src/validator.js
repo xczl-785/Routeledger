@@ -1000,6 +1000,18 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
         if (provenancePresent && !provenanceComplete) {
             issues.push(createIssue("error", "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE", "Trusted approval authorization provenance must be complete and internally consistent", { path: getApprovalArtifactPath(artifact.id), details: { approvalArtifactId: artifact.id } }));
         }
+        const profileProvenancePresent = artifact.profileId !== undefined ||
+            artifact.modeEpoch !== undefined ||
+            artifact.profileDigest !== undefined;
+        const profileProvenanceComplete = typeof artifact.profileId === "string" &&
+            artifact.profileId.length > 0 &&
+            Number.isInteger(artifact.modeEpoch) &&
+            artifact.modeEpoch > 0 &&
+            typeof artifact.profileDigest === "string" &&
+            artifact.profileDigest.length > 0;
+        if (profileProvenancePresent && !profileProvenanceComplete) {
+            issues.push(createIssue("error", "APPROVAL_PROFILE_PROVENANCE_INCOMPLETE", "V2 approval profile provenance must include profileId, modeEpoch, and profileDigest", { path: getApprovalArtifactPath(artifact.id), details: { approvalArtifactId: artifact.id } }));
+        }
         if (operation === undefined) {
             issues.push(createIssue("error", "APPROVAL_ARTIFACT_PENDING_OPERATION_NOT_FOUND", "ApprovalArtifact.pending_operation_id 必须指向现有 pending operation", {
                 path: getApprovalArtifactPath(artifact.id),

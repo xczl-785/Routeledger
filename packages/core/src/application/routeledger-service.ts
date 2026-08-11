@@ -140,6 +140,9 @@ export interface RouteLedgerServiceOptions {
     audience: string;
     subjectId: string;
     routeledgerRootDigest: string;
+    profileId?: string;
+    modeEpoch?: number;
+    profileDigest?: string;
     hostKind: string;
     clientId?: string;
     sessionId?: string;
@@ -157,6 +160,9 @@ const buildAuthorizationReceiptBinding = (
   subjectId: authorization.subjectId,
   projectId: artifact.projectId,
   routeledgerRootDigest: authorization.routeledgerRootDigest,
+  profileId: artifact.profileId,
+  modeEpoch: artifact.modeEpoch,
+  profileDigest: artifact.profileDigest,
   actionType: artifact.actionType,
   targetId: artifact.targetId,
   operationDigest: artifact.digest.value,
@@ -173,6 +179,20 @@ const buildAuthorizationReceiptBinding = (
   createdAt: artifact.createdAt,
   expiresAt: artifact.expiresAt
 });
+
+const buildAuthorizationCommitClaimId = (
+  artifact: ApprovalArtifact,
+  pendingOperation: PendingOperation
+): string =>
+  `commit_${crypto
+    .createHash("sha256")
+    .update(`${artifact.id}\0${pendingOperation.id}\0${pendingOperation.digest.value}`, "utf8")
+    .digest("hex")}`;
+
+const hasV2AuthorizationProfile = (artifact: ApprovalArtifact): boolean =>
+  artifact.profileId !== undefined &&
+  artifact.modeEpoch !== undefined &&
+  artifact.profileDigest !== undefined;
 
 export interface InitProjectInput {
   name: string;
@@ -4201,6 +4221,9 @@ export class RouteLedgerService {
     projectId: string;
     pendingOperationId: string;
     routeledgerRootDigest: string;
+    profileId?: string;
+    modeEpoch?: number;
+    profileDigest?: string;
     subjectId?: string;
     hostKind?: string;
     clientId?: string;
@@ -4220,6 +4243,9 @@ export class RouteLedgerService {
     return {
       projectId: input.projectId,
       routeledgerRootDigest: input.routeledgerRootDigest,
+      ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
+      ...(input.modeEpoch === undefined ? {} : { modeEpoch: input.modeEpoch }),
+      ...(input.profileDigest === undefined ? {} : { profileDigest: input.profileDigest }),
       actionType: proposal.actionType,
       targetId: proposal.targetId,
       currentVersionId: snapshot.project.currentVersionId,
@@ -4368,6 +4394,11 @@ export class RouteLedgerService {
       subjectId: authorization.subjectId,
       projectId: input.projectId,
       routeledgerRootDigest: authorization.routeledgerRootDigest,
+      ...(authorization.profileId === undefined ? {} : { profileId: authorization.profileId }),
+      ...(authorization.modeEpoch === undefined ? {} : { modeEpoch: authorization.modeEpoch }),
+      ...(authorization.profileDigest === undefined
+        ? {}
+        : { profileDigest: authorization.profileDigest }),
       actionType: pendingOperation.actionType,
       targetId: pendingOperation.targetId,
       operationDigest: pendingOperation.digest.value,
@@ -4411,13 +4442,25 @@ export class RouteLedgerService {
           approvalSource: grant.source,
           policyId: grant.policyId,
           policyDigest: grant.policyDigest,
+          profileId: grant.profileId,
+          modeEpoch: grant.modeEpoch,
+          profileDigest: grant.profileDigest,
           hostKind: grant.hostKind,
           clientId: grant.clientId,
           sessionId: grant.sessionId
         };
         return {
           ...buildAuthorizationReceiptBinding(artifact, authorization),
-          consumedUse: consumption.consumedUse
+          consumedUse: consumption.consumedUse,
+          ...(grant.profileId === undefined
+            ? {}
+            : {
+                status: "authorized" as const,
+                commitClaimId: null,
+                commitClaimedAt: null,
+                committedAt: null,
+                revokedAt: null
+              })
         };
       }
     );
@@ -4460,6 +4503,9 @@ export class RouteLedgerService {
       approvalSource: receipt.approvalSource,
       policyId: receipt.policyId,
       policyDigest: receipt.policyDigest,
+      profileId: receipt.profileId,
+      modeEpoch: receipt.modeEpoch,
+      profileDigest: receipt.profileDigest,
       hostKind: receipt.hostKind,
       clientId: receipt.clientId,
       sessionId: receipt.sessionId
@@ -4485,6 +4531,9 @@ export class RouteLedgerService {
             decisionRef: grant.decisionId,
             policyId: grant.policyId,
             policyDigest: grant.policyDigest,
+            profileId: grant.profileId,
+            modeEpoch: grant.modeEpoch,
+            profileDigest: grant.profileDigest,
             hostKind: grant.hostKind,
             clientId: grant.clientId,
             sessionId: grant.sessionId,
@@ -4606,6 +4655,25 @@ export class RouteLedgerService {
             artifactConsumedAt: artifact.consumedAt
           }
         );
+      }
+
+      if (this.l3Authorization !== undefined && hasV2AuthorizationProfile(artifact)) {
+        const finalized = await this.l3Authorization.grantStore.finalizeCommit(
+          buildAuthorizationReceiptBinding(artifact, this.l3Authorization),
+          buildAuthorizationCommitClaimId(artifact, pendingOperation),
+          pendingOperation.committedAt!
+        );
+        if (!finalized.ok) {
+          throw new ApplicationError(
+            "AUTHORIZATION_GRANT_REJECTED",
+            "The trusted authorization commit receipt could not be recovered",
+            {
+              approvalArtifactId: artifact.id,
+              pendingOperationId: pendingOperation.id,
+              reason: finalized.code
+            }
+          );
+        }
       }
 
       return {
@@ -4754,6 +4822,28 @@ export class RouteLedgerService {
 
     if (
       this.l3Authorization !== undefined &&
+      hasV2AuthorizationProfile(artifact) &&
+      (artifact.profileId !== this.l3Authorization.profileId ||
+        artifact.modeEpoch !== this.l3Authorization.modeEpoch ||
+        artifact.profileDigest !== this.l3Authorization.profileDigest)
+    ) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "The approval artifact belongs to an inactive authorization profile epoch",
+        {
+          approvalArtifactId: artifact.id,
+          pendingOperationId: pendingOperation.id,
+          reason: "AUTHORIZATION_PROFILE_EPOCH_INACTIVE",
+          artifactProfileId: artifact.profileId,
+          artifactModeEpoch: artifact.modeEpoch,
+          activeProfileId: this.l3Authorization.profileId,
+          activeModeEpoch: this.l3Authorization.modeEpoch
+        }
+      );
+    }
+
+    if (
+      this.l3Authorization !== undefined &&
       !(await this.l3Authorization.grantStore.verifyConsumptionReceipt(
         buildAuthorizationReceiptBinding(artifact, this.l3Authorization)
       ))
@@ -4862,6 +4952,28 @@ export class RouteLedgerService {
       );
     }
 
+    const authorizationCommitClaim =
+      this.l3Authorization !== undefined && hasV2AuthorizationProfile(artifact)
+        ? await this.l3Authorization.grantStore.claimCommit(
+            buildAuthorizationReceiptBinding(artifact, this.l3Authorization),
+            {
+              claimId: buildAuthorizationCommitClaimId(artifact, pendingOperation),
+              claimedAt: now
+            }
+          )
+        : null;
+    if (authorizationCommitClaim !== null && !authorizationCommitClaim.ok) {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "The trusted authorization receipt could not be claimed for commit",
+        {
+          approvalArtifactId: artifact.id,
+          pendingOperationId: pendingOperation.id,
+          reason: authorizationCommitClaim.code
+        }
+      );
+    }
+
     const context = createDomainContext(this.deps, input.actor);
     const applied = this.applyCommittedOperation(snapshot, pendingOperation, liveDescription, {
       actor: input.actor,
@@ -4928,6 +5040,26 @@ export class RouteLedgerService {
       .concat(applied.events)
       .concat(auditEvents);
     await this.saveProjectAggregate(applied.snapshot);
+
+    if (authorizationCommitClaim !== null && this.l3Authorization !== undefined) {
+      const finalized = await this.l3Authorization.grantStore.finalizeCommit(
+        buildAuthorizationReceiptBinding(artifact, this.l3Authorization),
+        buildAuthorizationCommitClaimId(artifact, pendingOperation),
+        now
+      );
+      if (!finalized.ok) {
+        throw new ApplicationError(
+          "AUTHORIZATION_GRANT_REJECTED",
+          "The canonical commit succeeded but its trusted authorization receipt needs recovery",
+          {
+            approvalArtifactId: artifact.id,
+            pendingOperationId: pendingOperation.id,
+            reason: finalized.code,
+            canonicalCommitSucceeded: true
+          }
+        );
+      }
+    }
 
     return {
       pendingOperation: committedOperation,

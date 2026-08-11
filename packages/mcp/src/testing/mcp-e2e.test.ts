@@ -193,7 +193,7 @@ describe("routeledger mcp registry", () => {
       const tools = (response as ToolListResult).result.tools;
       const toolNames = tools.map((tool) => tool.name);
 
-      expect(tools).toHaveLength(43);
+      expect(tools).toHaveLength(45);
       expect(toolNames).not.toContain("open_mission_control");
       expect(toolNames).not.toContain("get_mission_control_status");
       expect(toolNames).toContain("get_runtime_context");

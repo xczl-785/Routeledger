@@ -28,8 +28,8 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(45);
-      expect(readOnly).toHaveLength(20);
+      expect(tools).toHaveLength(47);
+      expect(readOnly).toHaveLength(22);
       expect(writes).toHaveLength(21);
       expect(highRisk).toHaveLength(4);
       expect(writes.concat(highRisk)).toHaveLength(25);

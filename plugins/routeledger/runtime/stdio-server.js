@@ -391,7 +391,27 @@ const collectInitializeRoots = (params) => {
     return [...roots];
 };
 export const createRouteLedgerStdioServer = (options) => {
-    const { l3Authorization: configuredL3Authorization, ...baseRegistryOptions } = options;
+    const { l3Authorization: configuredL3Authorization, l3AuthorityBroker, ...baseRegistryOptions } = options;
+    if (l3AuthorityBroker !== undefined &&
+        baseRegistryOptions.approver?.id !== undefined &&
+        baseRegistryOptions.approver.id !== l3AuthorityBroker.identity.subjectId) {
+        throw new Error("Configured approver identity must match the host authority broker subject.");
+    }
+    const registryBaseOptions = {
+        ...baseRegistryOptions,
+        ...(l3AuthorityBroker === undefined
+            ? {}
+            : {
+                approver: {
+                    ...(baseRegistryOptions.approver ?? {}),
+                    id: l3AuthorityBroker.identity.subjectId
+                },
+                l3AuthorityCandidateIdentity: {
+                    subjectId: l3AuthorityBroker.identity.subjectId,
+                    trustedClientId: l3AuthorityBroker.identity.trustedClientId
+                }
+            })
+    };
     let nextOutboundRequestId = 1;
     const pendingRequests = new Map();
     const sendMessage = (message) => {
@@ -448,40 +468,53 @@ export const createRouteLedgerStdioServer = (options) => {
         });
     };
     const buildRegistry = (registryOptions) => options.registryFactory?.(registryOptions) ?? createRouteLedgerMcpRegistry(registryOptions);
-    const withAuthorization = (registryOptions) => ({
-        ...registryOptions,
-        l3Authorization: {
-            grantStore,
-            interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
-            sessionId: configuredL3Authorization?.sessionId ?? authorizationSessionId,
-            ...(configuredL3Authorization?.trustedClientId === undefined
-                ? {}
-                : { trustedClientId: configuredL3Authorization.trustedClientId }),
-            ...(configuredL3Authorization?.delegatedAuthority === undefined
-                ? {}
-                : { delegatedAuthority: configuredL3Authorization.delegatedAuthority })
+    const withAuthorization = (registryOptions, brokerBinding) => {
+        if (l3AuthorityBroker !== undefined && brokerBinding === null) {
+            return registryOptions;
         }
-    });
+        const selected = brokerBinding ?? configuredL3Authorization;
+        return {
+            ...registryOptions,
+            l3Authorization: {
+                grantStore: selected?.grantStore ?? grantStore,
+                interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
+                sessionId: configuredL3Authorization?.sessionId ?? authorizationSessionId,
+                ...(selected !== undefined && "profile" in selected && selected.profile !== undefined
+                    ? { profile: selected.profile }
+                    : {}),
+                ...(selected?.trustedClientId === undefined
+                    ? {}
+                    : { trustedClientId: selected.trustedClientId }),
+                ...(selected?.delegatedAuthority === undefined
+                    ? {}
+                    : { delegatedAuthority: selected.delegatedAuthority })
+            }
+        };
+    };
     const initializeRegistry = buildRegistry(withAuthorization({
-        ...baseRegistryOptions,
+        ...registryBaseOptions,
         deferSessionRebind: true
-    }));
+    }, l3AuthorityBroker === undefined ? undefined : null));
     let activeRegistry = initializeRegistry;
+    let activeBrokerBindingKey = null;
+    let activeBrokerProfileDigest = null;
     const rebuildRegistry = () => {
         const effectiveRoots = state.initializeRoots.length > 0 ? state.initializeRoots : state.listedRoots;
         let nextRegistry;
         try {
             nextRegistry = buildRegistry(withAuthorization({
-                ...baseRegistryOptions,
+                ...registryBaseOptions,
                 mcpRoots: effectiveRoots,
                 deferSessionRebind: true
-            }));
+            }, l3AuthorityBroker === undefined ? undefined : null));
         }
         catch (error) {
             return error instanceof Error ? error : new Error(String(error));
         }
         const previousRegistry = activeRegistry;
         activeRegistry = nextRegistry;
+        activeBrokerBindingKey = null;
+        activeBrokerProfileDigest = null;
         if (previousRegistry !== initializeRegistry) {
             try {
                 previousRegistry.close();
@@ -503,13 +536,13 @@ export const createRouteLedgerStdioServer = (options) => {
         let nextRegistry;
         try {
             nextRegistry = buildRegistry(withAuthorization({
-                ...baseRegistryOptions,
+                ...registryBaseOptions,
                 workspaceRoot: nextBinding.workspaceRoot,
                 workspaceRootSource: "explicit_arg",
                 routeledgerRoot: nextBinding.routeledgerRoot,
                 mcpRoots: undefined,
                 deferSessionRebind: true
-            }));
+            }, l3AuthorityBroker === undefined ? undefined : null));
         }
         catch (error) {
             return {
@@ -534,6 +567,8 @@ export const createRouteLedgerStdioServer = (options) => {
             };
         }
         activeRegistry = nextRegistry;
+        activeBrokerBindingKey = null;
+        activeBrokerProfileDigest = null;
         registry.clearPendingSessionRebind();
         if (registry !== initializeRegistry) {
             try {
@@ -544,6 +579,59 @@ export const createRouteLedgerStdioServer = (options) => {
             }
         }
         return activationResponse;
+    };
+    const ensureBrokerBinding = async () => {
+        if (l3AuthorityBroker === undefined)
+            return null;
+        try {
+            const meta = await activeRegistry.getRuntimeContextMeta();
+            const runtimeContext = isObject(meta.runtimeContext) ? meta.runtimeContext : null;
+            const binding = runtimeContext !== null && isObject(runtimeContext.binding)
+                ? runtimeContext.binding
+                : null;
+            const activeProject = runtimeContext !== null && isObject(runtimeContext.activeProject)
+                ? runtimeContext.activeProject
+                : null;
+            const workspaceRoot = binding?.workspaceRoot;
+            const routeledgerRoot = binding?.routeledgerRoot;
+            const projectId = activeProject?.id ?? runtimeContext?.projectId;
+            if (typeof workspaceRoot !== "string" ||
+                typeof routeledgerRoot !== "string" ||
+                typeof projectId !== "string" ||
+                projectId.trim().length === 0) {
+                return null;
+            }
+            const selected = await l3AuthorityBroker.bind({ projectId, workspaceRoot, routeledgerRoot });
+            if (selected !== null &&
+                selected.bindingKey === activeBrokerBindingKey &&
+                selected.profile.profileDigest === activeBrokerProfileDigest) {
+                return null;
+            }
+            const nextRegistry = buildRegistry(withAuthorization({
+                ...registryBaseOptions,
+                workspaceRoot,
+                workspaceRootSource: "explicit_arg",
+                routeledgerRoot,
+                mcpRoots: undefined,
+                deferSessionRebind: true
+            }, selected));
+            const previousRegistry = activeRegistry;
+            activeRegistry = nextRegistry;
+            activeBrokerBindingKey = selected?.bindingKey ?? null;
+            activeBrokerProfileDigest = selected?.profile.profileDigest ?? null;
+            if (previousRegistry !== initializeRegistry) {
+                try {
+                    previousRegistry.close();
+                }
+                catch {
+                    // The fully constructed replacement is already active.
+                }
+            }
+            return null;
+        }
+        catch (error) {
+            return error instanceof Error ? error : new Error(String(error));
+        }
     };
     const requestRootsList = () => {
         if (!state.clientSupportsRoots) {
@@ -726,6 +814,10 @@ export const createRouteLedgerStdioServer = (options) => {
                         if (isJsonRpcErrorResponse(params)) {
                             return params;
                         }
+                        const brokerError = await ensureBrokerBinding();
+                        if (brokerError !== null) {
+                            return errorResponse(request.id, INTERNAL_ERROR, `RouteLedger could not bind the host-owned L3 authority: ${brokerError.message}`);
+                        }
                         const toolCall = normalizeToolArguments(params, request.id);
                         if (isJsonRpcErrorResponse(toolCall)) {
                             return toolCall;
@@ -781,6 +873,9 @@ export const runRouteLedgerStdioServer = async (options) => {
         ...(options.l3Authorization === undefined
             ? {}
             : { l3Authorization: options.l3Authorization }),
+        ...(options.l3AuthorityBroker === undefined
+            ? {}
+            : { l3AuthorityBroker: options.l3AuthorityBroker }),
         sendMessage: (message) => {
             writeJsonRpcMessage(options.output, message);
         }
