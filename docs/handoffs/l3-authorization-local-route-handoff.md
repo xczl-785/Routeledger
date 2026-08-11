@@ -2,6 +2,13 @@
 
 Status: continuation handoff after the published RouteLedger plugin `0.6.0`.
 
+> Direction update: the product/trust interpretation in this historical handoff is superseded by
+> [`L3 route-transition decision protocol`](../guides/l3-route-transition-decision-protocol.md).
+> In particular, L3 is now defined as a route-transition decision protocol whose full internal
+> flow runs in every mode; permission modes control decision automation, and physical-click proof
+> is no longer a universal prerequisite. The implementation facts and deferred-work inventory in
+> this handoff remain useful historical evidence.
+
 Baseline: `main` at `1b2308e62c296febc7b3902684d6b949184a71c8`, tag
 `routeledger-plugin-v0.6.0`.
 
