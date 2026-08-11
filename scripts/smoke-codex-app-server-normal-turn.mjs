@@ -79,7 +79,7 @@ try {
   client.notify("initialized", {});
   const started = await client.request("thread/start", {
     cwd,
-    approvalPolicy: "onRequest",
+    approvalPolicy: "on-request",
     sandbox: "workspaceWrite",
     serviceName: "routeledger-normal-turn-smoke"
   });
