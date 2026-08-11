@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 
 import {
   digestL3AuthorizationProfile,
@@ -17,6 +18,8 @@ const main = async (): Promise<void> => {
   }
   const workspaceRoot = path.resolve(workspaceArgument);
   const registryRoot = path.resolve(registryArgument);
+  await fs.mkdir(path.dirname(registryRoot), { recursive: true, mode: 0o700 });
+  await fs.chmod(path.dirname(registryRoot), 0o700);
   const registry = createRouteLedgerMcpRegistry({
     workspaceRoot,
     routeledgerRoot: workspaceRoot,
