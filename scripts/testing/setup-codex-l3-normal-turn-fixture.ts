@@ -10,20 +10,21 @@ import {
 } from "../../packages/mcp/src/local-l3-authority-registry.js";
 import { createRouteLedgerMcpRegistry } from "../../packages/mcp/src/index.js";
 
-const [workspaceArgument, registryArgument] = process.argv.slice(2);
-if (!workspaceArgument || !registryArgument) {
-  throw new Error("Usage: tsx setup-codex-l3-normal-turn-fixture.ts <workspace> <registry>");
-}
-const workspaceRoot = path.resolve(workspaceArgument);
-const registryRoot = path.resolve(registryArgument);
-const registry = createRouteLedgerMcpRegistry({
-  workspaceRoot,
-  routeledgerRoot: workspaceRoot,
-  sqliteReadModel: "disabled",
-  hostProfile: "codex"
-});
+const main = async (): Promise<void> => {
+  const [workspaceArgument, registryArgument] = process.argv.slice(2);
+  if (!workspaceArgument || !registryArgument) {
+    throw new Error("Usage: tsx setup-codex-l3-normal-turn-fixture.ts <workspace> <registry>");
+  }
+  const workspaceRoot = path.resolve(workspaceArgument);
+  const registryRoot = path.resolve(registryArgument);
+  const registry = createRouteLedgerMcpRegistry({
+    workspaceRoot,
+    routeledgerRoot: workspaceRoot,
+    sqliteReadModel: "disabled",
+    hostProfile: "codex"
+  });
 
-try {
+  try {
   const initialized = await registry.invoke("init_project", {
     name: "Codex L3 normal-turn fixture",
     contentLocale: "en",
@@ -78,6 +79,9 @@ try {
     profile
   });
   process.stdout.write(`${JSON.stringify({ projectId, pendingOperationId, profileDigest: profile.profileDigest })}\n`);
-} finally {
-  registry.close();
-}
+  } finally {
+    registry.close();
+  }
+};
+
+void main();
