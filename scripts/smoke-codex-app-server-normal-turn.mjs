@@ -80,7 +80,7 @@ try {
   const started = await client.request("thread/start", {
     cwd,
     approvalPolicy: "on-request",
-    sandbox: "workspaceWrite",
+    sandbox: "workspace-write",
     serviceName: "routeledger-normal-turn-smoke"
   });
   const threadId = started?.thread?.id;
