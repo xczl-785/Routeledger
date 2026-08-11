@@ -9,6 +9,7 @@ import type { SqliteReadModelMode } from "./json-first-storage.js";
 import type { RouteLedgerMcpRuntimeProfile } from "./index.js";
 import { loadLocalL3AuthorityRuntime } from "./local-l3-authorization.js";
 import { createLocalL3AuthorityBroker } from "./local-l3-authority-broker.js";
+import { resolveCodexL3PermissionMode } from "@routeledger/codex";
 
 const getFlagValue = (argv: string[], name: string): string | undefined => {
   const index = argv.findIndex((argument) => argument === name);
@@ -133,6 +134,8 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     hostProfile === "cursor"
       ? hostProfile
       : "generic";
+  const hostPermissionContext =
+    resolvedHostProfile === "codex" ? resolveCodexL3PermissionMode(process.env) : undefined;
   const l3AuthorityRegistry =
     configuredL3AuthorityRegistry ??
     (resolvedHostProfile === "codex"
@@ -179,6 +182,7 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
     runtimeProfile,
     defaultResponseLocale,
     hostProfile: resolvedHostProfile,
+    ...(hostPermissionContext === undefined ? {} : { hostPermissionContext }),
     actor:
       actorId === undefined && actorName === undefined
         ? undefined

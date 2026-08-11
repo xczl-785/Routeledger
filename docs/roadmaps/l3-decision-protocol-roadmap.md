@@ -84,7 +84,7 @@ state.
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `complete` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
-| L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `wait` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
+| L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `in_progress` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `wait` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
 | L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `wait` | D4 and D5 accepted | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | No merge, tag, publish, or release without separate authorization |
 
@@ -206,7 +206,26 @@ the existing propose, approve, reject, and commit tools remain available.
 Registry restart and crash-persistent idempotency remain explicitly deferred to D5; this D3 gate
 does not claim persistence beyond the live registry process.
 
-## 10. Deferred and decision log
+## 10. L3-D4 capability probe and contract
+
+Codex 0.147.0 exposes the active Desktop permission profile to its child runtime through
+`CODEX_PERMISSION_PROFILE`. A live app-server `permissionProfile/list` probe returned the three
+built-in profiles `:read-only`, `:workspace`, and `:danger-full-access`; the current Desktop task
+injected `:danger-full-access` into the process environment.
+
+The Codex adapter maps those profiles to `interactive`, `delegated`, and `preauthorized`
+respectively. If the field is absent or unknown, only an explicit `ROUTELEDGER_CODEX_L3_MODE`
+plugin configuration may select a mode; without it the adapter reports unavailable and fails
+closed. Codex-specific profile identifiers remain outside core.
+
+| Checkpoint | Status | Evidence | Impact |
+| --- | --- | --- | --- |
+| D4 live capability probe | `passed` | Codex CLI/app-server 0.147.0 schema and live `permissionProfile/list`; current Desktop child environment exposed `CODEX_PERMISSION_PROFILE=:danger-full-access` | Dynamic mode discovery is available; fallback is exceptional rather than the default |
+| D4 provider gate | `passed` | Five provider tests cover all built-ins, explicit fallback, missing context, unknown profile, and invalid fallback; MCP regression proves unavailable context stops before proposal creation | No mode guessing or orphan proposal on unavailable host context |
+| D4 integration regression | `passed` | 55 test files / 597 tests; 6 JSONL client tests; full typecheck, lint, and `git diff --check` | Candidate is ready for packaging and fresh-host behavior validation |
+| D4 Desktop three-mode acceptance | `pending` | Requires installing the exact candidate and starting fresh Desktop tasks in each mode | D4 remains `in_progress`; D5 stays `wait` |
+
+## 11. Deferred and decision log
 
 | ID | Item | Reason | Review trigger | Candidate disposition |
 | --- | --- | --- | --- | --- |
@@ -214,7 +233,7 @@ does not claim persistence beyond the live registry process.
 | L3-DEF-002 | Decide whether intermediate logical phases should be persisted | D1 intentionally uses compatibility projection | Projection is stable and D3 recovery requirements are measured | Activate a later migration only with schema/rollback proof, otherwise retain projection |
 | L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Current support remains unknown | D4 fresh-host capability probe | Dynamic mapping if supported; explicit plugin fallback otherwise |
 
-## 11. Update discipline
+## 12. Update discipline
 
 At every stable checkpoint, update this file with:
 

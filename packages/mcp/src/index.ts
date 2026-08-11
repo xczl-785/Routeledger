@@ -126,6 +126,18 @@ export interface RouteLedgerMcpRegistryOptions {
     enabled?: boolean;
   };
   defaultResponseLocale?: string;
+  hostPermissionContext?:
+    | {
+        status: "resolved";
+        mode: "interactive" | "delegated" | "preauthorized";
+        source: "codex_permission_profile" | "plugin_config";
+        fallbackUsed: boolean;
+      }
+    | {
+        status: "unavailable";
+        code: string;
+        reason: string;
+      };
   /** Stdio owns the swap so a bootstrap response can be emitted before old resources close. */
   deferSessionRebind?: boolean;
   /** Trusted startup identity used to build candidates before a bound profile exists. */
@@ -1423,6 +1435,13 @@ export const createRouteLedgerMcpRegistry = (
     { fingerprint: string; proposalId: Promise<string>; inFlight?: Promise<ToolResponse> }
   >();
   const createExistingL3DecisionAdapter = (proposal: Readonly<PendingOperation>) => {
+    if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
+      throw new ApplicationError(
+        "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+        options.hostPermissionContext.reason,
+        { reason: options.hostPermissionContext.code, pendingOperationId: proposal.id }
+      );
+    }
     if (options.l3Authorization === undefined) {
       throw new ApplicationError(
         "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
@@ -1433,6 +1452,23 @@ export const createRouteLedgerMcpRegistry = (
 
     const l3Authorization = options.l3Authorization;
     const activeProfile = l3Authorization.profile;
+    if (
+      hostProfile === "codex" &&
+      options.hostPermissionContext?.status === "resolved" &&
+      activeProfile !== undefined &&
+      activeProfile.mode !== options.hostPermissionContext.mode
+    ) {
+      throw new ApplicationError(
+        "AUTHORIZATION_PROFILE_DISABLED",
+        "The bound RouteLedger authorization profile does not match the effective Codex permission mode",
+        {
+          reason: "CODEX_ROUTELEDGER_MODE_MISMATCH",
+          effectiveMode: options.hostPermissionContext.mode,
+          configuredMode: activeProfile.mode,
+          profileId: activeProfile.profileId
+        }
+      );
+    }
     if (activeProfile?.status === "disabled") {
       throw new ApplicationError(
         "AUTHORIZATION_PROFILE_DISABLED",
@@ -1813,6 +1849,16 @@ export const createRouteLedgerMcpRegistry = (
       },
       async () => {
         const profile = options.l3Authorization?.profile;
+        const effectiveMode =
+          options.hostPermissionContext?.status === "resolved"
+            ? {
+                mode: options.hostPermissionContext.mode,
+                source: options.hostPermissionContext.source,
+                fallbackUsed: options.hostPermissionContext.fallbackUsed,
+                profileCompatible:
+                  profile === undefined ? null : profile.mode === options.hostPermissionContext.mode
+              }
+            : options.hostPermissionContext ?? null;
         return {
           ok: true,
           data:
@@ -1825,10 +1871,12 @@ export const createRouteLedgerMcpRegistry = (
                         ? "unavailable"
                         : "v1_compatibility",
                   profile: null,
+                  effectiveMode,
                   management: "host_only"
                 }
               : {
                   controlPlane: "host_authority_broker_v2",
+                  effectiveMode,
                   profile: {
                     profileId: profile.profileId,
                     status: profile.status,
@@ -3688,6 +3736,29 @@ export const createRouteLedgerMcpRegistry = (
             {
               profileId: options.l3Authorization.profile.profileId,
               modeEpoch: options.l3Authorization.profile.modeEpoch
+            }
+          );
+        }
+        if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
+          throw new ApplicationError(
+            "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+            options.hostPermissionContext.reason,
+            { reason: options.hostPermissionContext.code }
+          );
+        }
+        if (
+          hostProfile === "codex" &&
+          options.hostPermissionContext?.status === "resolved" &&
+          options.l3Authorization.profile !== undefined &&
+          options.l3Authorization.profile.mode !== options.hostPermissionContext.mode
+        ) {
+          throw new ApplicationError(
+            "AUTHORIZATION_PROFILE_DISABLED",
+            "The bound RouteLedger authorization profile does not match the effective Codex permission mode",
+            {
+              reason: "CODEX_ROUTELEDGER_MODE_MISMATCH",
+              effectiveMode: options.hostPermissionContext.mode,
+              configuredMode: options.l3Authorization.profile.mode
             }
           );
         }

@@ -173,4 +173,43 @@ describe("execute_l3_operation", () => {
       cleanupProjectRoot(projectRoot);
     }
   });
+
+  it("fails before proposal creation when Codex permission context is unavailable", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRegistry(projectRoot, {
+      hostProfile: "codex",
+      hostPermissionContext: {
+        status: "unavailable",
+        code: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE",
+        reason: "No effective Codex permission context"
+      }
+    });
+    try {
+      const initialized = await registry.invoke("init_project", { name: "D4 unavailable" });
+      const projectId = (initialized.data as { project: { id: string } }).project.id;
+      const versionId = (initialized.data as { firstVersion: { id: string } }).firstVersion.id;
+      await registry.invoke("prepare_version", { projectId, versionId });
+
+      const response = await registry.invoke("execute_l3_operation", {
+        projectId,
+        actionType: "start_version",
+        targetId: versionId,
+        reason: "Must not guess",
+        idempotencyKey: "unavailable"
+      });
+
+      expect(response).toMatchObject({
+        ok: false,
+        error: {
+          code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+          details: { reason: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE" }
+        }
+      });
+      const proposals = await registry.invoke("list_l3_proposals", { projectId });
+      expect(proposals.data).toHaveLength(0);
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
 });

@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+export * from "./l3-permission-mode.js";
+
 export interface CodexActorConfig {
   id: string;
   displayName: string;
