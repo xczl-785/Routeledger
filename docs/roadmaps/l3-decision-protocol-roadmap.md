@@ -82,7 +82,7 @@ state.
 | Version | Outcome | State | Entry gate | Result gate | Deferred / constraints |
 | --- | --- | --- | --- | --- | --- |
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
-| L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `ready_for_checkpoint` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
+| L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `wait` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
 | L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `wait` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `wait` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
@@ -165,7 +165,7 @@ existing service consumes the grant and creates the approval artifact.
 | --- | --- | --- | --- |
 | D2 Contract Gate | `passed` | `ExistingL3DecisionAdapter` implements the D1 interface; handler owns the final service call | Shared adapter seam is frozen |
 | Existing path regression | `passed` | Five direct seam tests plus unchanged MCP elicitation, local authorization, broker, profile, write-guard, and replay suites | Four source paths and negative behavior remain equivalent |
-| D2 Result Gate | `passed` | 52 repository test files / 583 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check` | D2 is ready for a Git checkpoint; D3 remains `wait` |
+| D2 Result Gate | `passed` | Implementation commit `8bd1a35`; 52 repository test files / 583 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check` | D2 closed in this roadmap; D3 remains `wait` |
 | D2 Integrity Gate | `passed` | Side-by-side old/new path audit plus pre-existing authorization and elicitation tests whose oracles were not rewritten for this refactor | No blocking finding; D3 remains separately gated |
 
 ## 9. Deferred and decision log
