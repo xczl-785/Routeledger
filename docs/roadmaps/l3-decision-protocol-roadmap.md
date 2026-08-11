@@ -83,7 +83,7 @@ state.
 | --- | --- | --- | --- | --- | --- |
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
-| L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `wait` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
+| L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `in_progress` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
 | L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `wait` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `wait` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
 | L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `wait` | D4 and D5 accepted | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | No merge, tag, publish, or release without separate authorization |
@@ -168,7 +168,35 @@ existing service consumes the grant and creates the approval artifact.
 | D2 Result Gate | `passed` | Implementation commit `8bd1a35`; 52 repository test files / 583 tests; 6 JSONL client tests; full typecheck and lint; `git diff --check` | D2 closed in this roadmap; D3 remains `wait` |
 | D2 Integrity Gate | `passed` | Side-by-side old/new path audit plus pre-existing authorization and elicitation tests whose oracles were not rewritten for this refactor | No blocking finding; D3 remains separately gated |
 
-## 9. Deferred and decision log
+## 9. L3-D3 contract gate
+
+### Observable result
+
+A caller can submit one exact L3 operation request. The host-neutral orchestrator either commits
+the exact proposal, returns an exact recoverable input-required state, or records a denied
+proposal. A new MCP high-level tool owns proposal creation and registry-lifetime idempotent retry;
+the existing propose, approve, reject, and commit tools remain available.
+
+### Frozen boundary
+
+- the core orchestrator starts from a persisted exact proposal and cannot create one implicitly;
+- decision, approval artifact, and commit remain separate internal phases and exact bindings are
+  validated at the seam;
+- an input-required result contains enough exact proposal identity to resume without widening;
+- the MCP tool requires an idempotency key and rejects reuse with a different normalized request;
+- duplicate delivery in one registry lifetime reuses the proposal and relies on existing exact
+  authorization/commit replay instead of consuming or committing twice;
+- registry restart and crash-persistent idempotency remain D5; Codex mode discovery remains D4;
+- no canonical JSON schema or persisted phase migration is introduced in D3.
+
+### Planned evidence
+
+- focused core tests for resolved, input-required, denied, and mismatched resolutions;
+- MCP tests for one-call automatic completion, exact retry replay, idempotency-key conflict, and
+  continued availability of the low-level tools;
+- full tests, typecheck, lint, package-facing contract checks, and `git diff --check`.
+
+## 10. Deferred and decision log
 
 | ID | Item | Reason | Review trigger | Candidate disposition |
 | --- | --- | --- | --- | --- |
@@ -176,7 +204,7 @@ existing service consumes the grant and creates the approval artifact.
 | L3-DEF-002 | Decide whether intermediate logical phases should be persisted | D1 intentionally uses compatibility projection | Projection is stable and D3 recovery requirements are measured | Activate a later migration only with schema/rollback proof, otherwise retain projection |
 | L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Current support remains unknown | D4 fresh-host capability probe | Dynamic mapping if supported; explicit plugin fallback otherwise |
 
-## 10. Update discipline
+## 11. Update discipline
 
 At every stable checkpoint, update this file with:
 

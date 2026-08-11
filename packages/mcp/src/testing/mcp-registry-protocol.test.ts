@@ -111,7 +111,7 @@ describe("routeledger mcp registry", () => {
       const highRiskTools = tools.filter(
         (tool) => tool._meta.routeledger.riskLevel === "high-risk"
       );
-      expect(tools).toHaveLength(47);
+      expect(tools).toHaveLength(48);
       const runtimeContextTool = tools.find((tool) => tool.name === "get_runtime_context");
       const openMissionControlTool = tools.find((tool) => tool.name === "open_mission_control");
       const writeHostBindingConfigTool = tools.find(
@@ -174,7 +174,7 @@ describe("routeledger mcp registry", () => {
         expectedRouteLedgerRoot: expect.objectContaining({ type: "string" })
       });
       expect(writeTools).toHaveLength(21);
-      expect(highRiskTools).toHaveLength(4);
+      expect(highRiskTools).toHaveLength(5);
       for (const tool of [...writeTools, ...highRiskTools]) {
         expect(tool.inputSchema.properties).toHaveProperty("expectedRouteLedgerRoot");
         expect(tool.inputSchema.required ?? []).not.toContain("expectedRouteLedgerRoot");
