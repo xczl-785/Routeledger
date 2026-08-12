@@ -973,6 +973,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
     }
     for (const artifact of snapshot.approvalArtifacts) {
         const operation = pendingOperationsById.get(artifact.pendingOperationId);
+        const legacyAudit = options.legacyAuditArtifactIds?.has(artifact.id) === true;
         const provenancePresent = [
             artifact.authorizationId,
             artifact.approvalSource,
@@ -999,7 +1000,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
                     artifact.policyId.length > 0 &&
                     typeof artifact.policyDigest === "string" &&
                     artifact.policyDigest.length > 0));
-        if (provenancePresent && !provenanceComplete) {
+        if (!legacyAudit && provenancePresent && !provenanceComplete) {
             issues.push(createIssue("error", "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE", "Trusted approval authorization provenance must be complete and internally consistent", { path: getApprovalArtifactPath(artifact.id), details: { approvalArtifactId: artifact.id } }));
         }
         const profileProvenancePresent = artifact.profileId !== undefined ||
@@ -1011,7 +1012,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
             artifact.modeEpoch > 0 &&
             typeof artifact.profileDigest === "string" &&
             artifact.profileDigest.length > 0;
-        if (profileProvenancePresent && !profileProvenanceComplete) {
+        if (!legacyAudit && profileProvenancePresent && !profileProvenanceComplete) {
             issues.push(createIssue("error", "APPROVAL_PROFILE_PROVENANCE_INCOMPLETE", "V2 approval profile provenance must include profileId, modeEpoch, and profileDigest", { path: getApprovalArtifactPath(artifact.id), details: { approvalArtifactId: artifact.id } }));
         }
         if (operation === undefined) {
@@ -1199,8 +1200,42 @@ export const validateRouteLedgerJsonDocuments = (documents) => {
         }
     }
     if (snapshot !== undefined) {
+        const operationsById = new Map(snapshot.pendingOperations.map((operation) => [operation.id, operation]));
+        const legacyAuditArtifactIds = new Set();
+        for (const artifact of snapshot.approvalArtifacts) {
+            const rawArtifact = parsedDocuments.get(getApprovalArtifactPath(artifact.id));
+            const authorizationRecord = isRecord(rawArtifact?.authorization_record)
+                ? rawArtifact.authorization_record
+                : undefined;
+            const isExplicitLegacyAudit = authorizationRecord?.kind === "legacy_audit";
+            const isMigratedTopLevelProvenance = authorizationRecord === undefined &&
+                typeof rawArtifact?.authorization_grant_id === "string" &&
+                rawArtifact.authorization_grant_id.length > 0;
+            if (!isExplicitLegacyAudit && !isMigratedTopLevelProvenance)
+                continue;
+            const operation = operationsById.get(artifact.pendingOperationId);
+            const isImmutableCommittedAudit = artifact.status === "consumed" &&
+                artifact.consumedAt !== null &&
+                operation?.status === "committed" &&
+                operation.committedAt !== null &&
+                operation.approvalArtifactId === artifact.id &&
+                operation.projectId === artifact.projectId &&
+                operation.actionType === artifact.actionType &&
+                operation.targetId === artifact.targetId &&
+                digestsMatch(operation.digest, artifact.digest);
+            if (isImmutableCommittedAudit) {
+                legacyAuditArtifactIds.add(artifact.id);
+            }
+            else {
+                issues.push(createIssue("error", "APPROVAL_LEGACY_AUDIT_NOT_FINALIZED", "Legacy authorization provenance is audit-only and valid only for an immutable committed operation", {
+                    path: getApprovalArtifactPath(artifact.id),
+                    details: { approvalArtifactId: artifact.id }
+                }));
+            }
+        }
         const validation = validateProjectAggregateSnapshot(snapshot, {
-            currentRef
+            currentRef,
+            legacyAuditArtifactIds
         });
         issues.push(...validation.issues);
     }

@@ -3,8 +3,8 @@ import type { L3ActionType } from "./types.js";
 /**
  * Frozen target contract for the exact-only authorization migration.
  *
- * This module is intentionally not wired into the 0.7.2 runtime. EA0 owns the
- * contract and migration oracle; EA1 and later Versions own runtime adoption.
+ * This module is the active 0.8 exact-only authorization contract. Legacy
+ * decoders may classify older records for audit, but cannot mint authority.
  */
 export const EXACT_AUTHORIZATION_SCHEMA_VERSION = 2 as const;
 
