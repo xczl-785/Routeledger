@@ -6,9 +6,10 @@ and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.6.0 is the latest published Git
-marketplace release, fixed by `routeledger-plugin-v0.6.0`. Version 0.7.0 is a
-release candidate until its verified `main` commit receives
-`routeledger-plugin-v0.7.0`.
+marketplace release, fixed by `routeledger-plugin-v0.6.0`. Version 0.7.1 is the
+current Desktop-test candidate and supersedes the traceability-ambiguous 0.7.0
+candidate. It remains a candidate until its verified `main` commit receives
+`routeledger-plugin-v0.7.1`.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
@@ -18,11 +19,12 @@ RouteLedger source and plugin distribution are licensed under
 [Apache License 2.0](../../LICENSE). This policy does not change the licenses of
 third-party dependencies.
 
-After an immutable `routeledger-plugin-v<version>` tag exists, changed plugin
-distribution bytes require a plugin SemVer increase. Before that tag exists,
-Desktop acceptance may reopen and repair the same release candidate version;
-the previous-ref guard records that exception and still rejects version
-regression. A normal release is merged to `main`; tag
+Changed plugin distribution bytes require a plugin SemVer increase whenever
+the previous candidate may have reached a Desktop installation or live MCP
+process, even if no immutable tag exists yet. The previous-ref guard therefore
+rejects changed same-version bytes unconditionally. This keeps cache paths,
+runtime identity, diagnostics, and test reports unambiguous. A normal release
+is merged to `main`; tag
 `routeledger-plugin-v<version>` must point at that released `main` commit.
 Use `pnpm check:codex-plugin-release --previous-ref <ref>` before release and
 `--require-tag-ref` after the tag is present. The canonical repository is

@@ -209,7 +209,30 @@ describe("execute_l3_operation", () => {
         ok: false,
         error: {
           code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-          details: { reason: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE" }
+          details: {
+            reason: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE",
+            recommendedNextActions: [
+              { action: "update_plugin" },
+              { action: "restart_codex_desktop" },
+              {
+                action: "verify_permission_context",
+                tool: "get_l3_authorization_status",
+                toolInput: { detail: "summary" }
+              }
+            ]
+          }
+        }
+      });
+      const status = await registry.invoke("get_l3_authorization_status", { detail: "internal" });
+      expect(status).toMatchObject({
+        ok: true,
+        data: {
+          profileCompatible: null,
+          recommendedNextActions: [
+            { action: "update_plugin" },
+            { action: "restart_codex_desktop" },
+            { action: "verify_permission_context" }
+          ]
         }
       });
       const proposals = await registry.invoke("list_l3_proposals", { projectId });
@@ -248,7 +271,8 @@ describe("execute_l3_operation", () => {
             codexPermissionProfile: ":danger-full-access",
             fallbackUsed: false,
             profileCompatible: null
-          }
+          },
+          recommendedNextActions: []
         }
       });
     } finally {

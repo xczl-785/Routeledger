@@ -2,7 +2,7 @@
 
 Status: active execution record
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 Source branch: `docs/v3-codex-authorization-handoff`
 
@@ -84,9 +84,9 @@ state.
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `complete` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
-| L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `in_progress` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | Do not infer conversation mode or place Codex fields in core |
+| L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `in_progress` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | 0.7.1 supersedes indistinguishable 0.7.0 candidate; do not infer conversation mode or place Codex fields in core |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `complete` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
-| L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `in_progress` | D4 implementation boundary and D5 accepted; Desktop acceptance intentionally runs from main | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | Merge/main testing/tag order is separately authorized; tag only after main acceptance |
+| L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `in_progress` | D4 implementation boundary and D5 accepted; Desktop acceptance intentionally runs from main | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | 0.7.1 is the traceable candidate; tag only after main acceptance |
 
 ## 6. L3-D1 contract gate
 
@@ -221,9 +221,15 @@ respectively. If the field is absent or unknown, only an explicit `ROUTELEDGER_C
 plugin configuration may select a mode; without it the adapter reports unavailable and fails
 closed. Codex-specific profile identifiers remain outside core.
 
+The first repair incorrectly retained version 0.7.0 after distribution bytes changed. Windows
+Desktop then demonstrated that an installed/running older 0.7.0 MCP could survive the marketplace
+update while presenting the same version identity. Candidate 0.7.1 makes the update distinguishable,
+adds explicit recovery actions, and changes the release guard so changed same-version bytes are
+rejected even before a tag exists.
+
 | Checkpoint | Status | Evidence | Impact |
 | --- | --- | --- | --- |
-| D4 live capability probe | `rework_pending_desktop_retest` | App-server exposes the profiles, but the first 0.7.0 Desktop run proved the plugin STDIO child did not receive the variable until `.mcp.json` declared `env_vars` | Rebuild/reinstall and verify the actual plugin process before closing D4 |
+| D4 live capability probe | `rework_pending_desktop_retest` | Source and fresh native host prove forwarding, while Windows reported old 0.7.0 digest `412a…` after a same-version update | Install 0.7.1, restart Desktop, and verify its exact identity before closing D4 |
 | D4 provider gate | `passed` | Five provider tests cover all built-ins, explicit fallback, missing context, unknown profile, and invalid fallback; MCP regression proves unavailable context stops before proposal creation | No mode guessing or orphan proposal on unavailable host context |
 | D4 integration regression | `passed` | 55 test files / 597 tests; 6 JSONL client tests; full typecheck, lint, and `git diff --check` | Candidate is ready for packaging and fresh-host behavior validation |
 | D4 Desktop three-mode acceptance | `pending_on_main` | User selected merged `main` as the only final test surface; no local candidate install | D4 remains `in_progress`; its frozen host/core boundary allowed independent D5 work to close |
@@ -254,7 +260,7 @@ organizations, cross-device state, and multi-user policy remain outside this rou
 ## 12. L3-D6 release-candidate gate
 
 Cleanup and compatibility work is resolved in
-`docs/release/0.7.0-release-candidate-audit.md`. The generated plugin is 0.7.0 and the complete
+`docs/release/0.7.1-release-candidate-audit.md`. The generated plugin is 0.7.1 and the complete
 source/distribution gate is green. Default status output hides profile bookkeeping; the new
 high-level API returns `decisionArtifact`; legacy persistence, readers, low-level tools, V1/V2
 authority, grants, receipts, and replay remain intact.

@@ -350,11 +350,11 @@ const main = async () => {
       }
       const previousDistributionSha256 = hashPreviousDistribution(options.previousRef);
       if (comparison === 0 && previousDistributionSha256 !== pluginDistributionSha256) {
-        if (releaseTagExists(expectedTag)) {
-          fail(`Plugin distribution bytes changed since ${options.previousRef}, but immutable tag ${expectedTag} already exists for version ${manifest.version}.`);
-        }
-        console.log(
-          `Codex plugin release check: allowing repaired ${manifest.version} candidate bytes because immutable tag ${expectedTag} does not exist.`
+        const tagState = releaseTagExists(expectedTag)
+          ? `immutable tag ${expectedTag} already exists`
+          : `the same version may already be installed or running even though ${expectedTag} is not tagged`;
+        fail(
+          `Plugin distribution bytes changed since ${options.previousRef} without a SemVer increase; ${tagState}.`
         );
       }
     }

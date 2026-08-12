@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Low-friction L3 route decisions with Codex permission mapping and MCP 2025/2026 compatibility.",
   "author": {
     "name": "RouteLedger"

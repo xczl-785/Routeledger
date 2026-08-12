@@ -134,18 +134,18 @@ try {
     await fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8")
   ).version;
   const currentReleaseTag = `routeledger-plugin-v${currentVersion}`;
-  const candidateCheck = runOrThrow(
+  assertFailure(
     process.execPath,
     [checkerPath, "--previous-ref", previousCandidateRef],
-    fixtureRoot
+    fixtureRoot,
+    /without a SemVer increase; the same version may already be installed or running/
   );
-  assert.match(candidateCheck, /allowing repaired .* candidate bytes because immutable tag .* does not exist/);
   runOrThrow("git", ["tag", currentReleaseTag, previousCandidateRef], fixtureRoot);
   assertFailure(
     process.execPath,
     [checkerPath, "--previous-ref", previousCandidateRef],
     fixtureRoot,
-    /immutable tag .* already exists/
+    /without a SemVer increase; immutable tag .* already exists/
   );
   runOrThrow("git", ["tag", "--delete", currentReleaseTag], fixtureRoot);
   const linkBlob = runOrThrow("git", ["hash-object", "-w", "--stdin"], fixtureRoot, { input: "runtime/package.json\n" }).trim();
