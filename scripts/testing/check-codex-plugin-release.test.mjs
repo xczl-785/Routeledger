@@ -78,21 +78,6 @@ const assertFailure = (command, args, cwd, expected) => {
   assert.notEqual(result.status, 0, `${command} ${args.join(" ")} unexpectedly passed.`);
   assert.match(`${result.stderr}${result.stdout}`, expected);
 };
-const resolvePreviousCandidateCommit = () => {
-  for (const args of [
-    ["merge-base", "HEAD", "origin/main"],
-    ["rev-parse", "HEAD^1"]
-  ]) {
-    const result = run("git", args, repositoryRoot);
-    if (result.status === 0 && result.stdout.trim().length > 0) {
-      return result.stdout.trim();
-    }
-  }
-  throw new Error("Unable to resolve the previous main candidate commit for release-guard tests.");
-};
-
-const previousCandidateCommit = resolvePreviousCandidateCommit();
-
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release-check-symlink-"));
 try {
   runOrThrow("git", ["clone", "--shared", repositoryRoot, fixtureRoot], repositoryRoot);
@@ -135,8 +120,15 @@ try {
     runOrThrow("git", ["commit", "--quiet", "-m", "valid plugin fixture"], fixtureRoot);
   }
   const baseline = runOrThrow("git", ["rev-parse", "HEAD"], fixtureRoot).trim();
-  runOrThrow("git", ["fetch", "--quiet", repositoryRoot, previousCandidateCommit], fixtureRoot);
-  runOrThrow("git", ["branch", "previous-candidate", "FETCH_HEAD"], fixtureRoot);
+  await fs.writeFile(
+    path.join(pluginRoot, "candidate-repair-marker.txt"),
+    "synthetic previous candidate bytes\n",
+    "utf8"
+  );
+  runOrThrow("git", ["add", "plugins/routeledger/candidate-repair-marker.txt"], fixtureRoot);
+  runOrThrow("git", ["commit", "--quiet", "-m", "synthetic previous candidate"], fixtureRoot);
+  runOrThrow("git", ["branch", "previous-candidate"], fixtureRoot);
+  runOrThrow("git", ["checkout", "--quiet", "--detach", baseline], fixtureRoot);
   const previousCandidateRef = "previous-candidate";
   const currentVersion = JSON.parse(
     await fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8")
