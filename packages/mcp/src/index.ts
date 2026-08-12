@@ -188,6 +188,8 @@ export type RouteLedgerMcpDelegatedAuthorizationResult =
 export interface RouteLedgerMcpDelegatedAuthorizationAuthority {
   /** Opaque host-owned handle. Policy evaluation and budget consumption must be atomic. */
   authorityHandle: string;
+  /** Trusted issuer identity injected with the host authority. */
+  issuerId: string;
   requestExactDecision(
     request: RouteLedgerMcpDelegatedAuthorizationRequest
   ): Promise<RouteLedgerMcpDelegatedAuthorizationResult>;

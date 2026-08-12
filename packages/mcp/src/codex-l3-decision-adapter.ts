@@ -9,6 +9,7 @@ import {
   type L3AuthorizationGrantContext,
   type L3DecisionAdapter
 } from "@routeledger/core";
+import { validateExactAuthorizationCandidate } from "./exact-authorization-candidate-validator.js";
 
 export interface CodexL3DecisionAdapterOptions {
   readonly authorizationContext: Readonly<L3AuthorizationGrantContext>;
@@ -67,6 +68,17 @@ export class CodexL3DecisionAdapter implements L3DecisionAdapter {
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
     };
+    const validationFailure = validateExactAuthorizationCandidate({
+      candidate,
+      request,
+      context: this.options.authorizationContext,
+      expectedSource: "host_admission",
+      expectedIssuer: "codex-native-tool-admission",
+      now
+    });
+    if (validationFailure !== null) {
+      throw new Error(`Codex exact host admission is invalid: ${validationFailure}`);
+    }
     await this.options.exactStore.issue(candidate);
     const resolution: CodexL3DecisionResolution = {
       status: "resolved",

@@ -33,6 +33,23 @@ const context: L3AuthorizationGrantContext = {
 };
 
 describe("CodexL3DecisionAdapter", () => {
+  it.each([
+    ["project", { projectId: "project-other" }],
+    ["action", { actionType: "close_version" as const }],
+    ["target", { targetId: "version-other" }],
+    ["digest", { operationDigest: "digest-other" }]
+  ])("rejects a %s request/context mismatch without minting", async (_label, mismatch) => {
+    const exactStore = new MemoryExactAuthorizationStore();
+    const adapter = new CodexL3DecisionAdapter({
+      authorizationContext: { ...context, ...mismatch },
+      exactStore,
+      nextId: () => "must-not-persist",
+      now: () => new Date("2026-08-12T00:00:00.000Z")
+    });
+    await expect(adapter.resolve(request)).rejects.toThrow("REQUEST_CONTEXT_MISMATCH");
+    await expect(exactStore.get("must-not-persist")).resolves.toBeNull();
+  });
+
   it("issues an exact single-use capability after Codex admits the high-risk tool call", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     const exactStore = new MemoryExactAuthorizationStore();
