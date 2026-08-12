@@ -215,6 +215,8 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
 };
 
 describe("sqlite storage adapter", () => {
+  it.todo("[EA2 target red] round-trips profileId, modeEpoch, and profileDigest in authorization provenance");
+
   it("init 创建 DB 文件并启用 foreign_keys/WAL", () => {
     const projectRoot = createTempProjectRoot();
 

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "profileId": "profile-v1",
+  "mode": "preauthorized",
+  "sessionId": "session-legacy",
+  "expiresAt": "2026-08-12T01:00:00.000Z",
+  "maxUses": 8,
+  "activePolicies": ["policy-v1"],
+  "grantIds": ["grant-operation-active", "grant-session-active", "grant-window-active"],
+  "reservedGrants": ["grant-window-active"],
+  "receipts": [
+    {
+      "grantId": "grant-operation-active",
+      "pendingOperationId": "proposal-1",
+      "status": "committed"
+    }
+  ],
+  "revokedGrantIds": ["grant-revoked"],
+  "exhaustedGrantIds": ["grant-exhausted"]
+}

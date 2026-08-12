@@ -1,0 +1,13 @@
+{
+  "id": "artifact-v1",
+  "pendingOperationId": "proposal-1",
+  "projectId": "project-1",
+  "actionType": "start_version",
+  "targetId": "version-1",
+  "operationDigest": "digest-operation",
+  "authorizationGrantId": "grant-operation-active",
+  "approvalSource": "preauthorized",
+  "decisionRef": "decision-v1",
+  "sessionId": "session-legacy",
+  "status": "approved"
+}
