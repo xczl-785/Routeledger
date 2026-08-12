@@ -9,6 +9,7 @@ import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
+  MemoryExactAuthorizationStore,
   MemoryL3AuthorizationGrantStore,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
@@ -25,6 +26,7 @@ import {
   isRouteOperationWorkflowMode,
   type L3ActionType,
   type L3AuthorizationGrantStore,
+  type ExactAuthorizationStore,
   type PendingOperation,
   type ResidualAuditInput
 } from "@routeledger/core";
@@ -54,6 +56,7 @@ export interface RunCliOptions {
       decisionId: string;
     }>;
     grantStore?: L3AuthorizationGrantStore;
+    exactStore?: ExactAuthorizationStore;
     subjectId?: string;
     hostKind?: string;
     clientId?: string;
@@ -64,6 +67,7 @@ export interface RunCliOptions {
 interface CliL3AuthorizationRuntime {
   requestAuthorization: NonNullable<RunCliOptions["l3Authorization"]>["requestAuthorization"];
   grantStore: L3AuthorizationGrantStore;
+  exactStore: ExactAuthorizationStore;
   subjectId: string;
   routeledgerRootDigest: string;
   hostKind: string;
@@ -392,6 +396,7 @@ const createService = (
       : {
           l3Authorization: {
             grantStore: l3Authorization.grantStore,
+            exactStore: l3Authorization.exactStore,
             audience: "routeledger-core",
             subjectId: l3Authorization.subjectId,
             routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
@@ -1308,31 +1313,32 @@ const handleCommand = async ({
         }
         const now = new Date();
         const grantId = randomUUID();
-        await l3Authorization.grantStore.issue({
-          id: grantId,
+        await l3Authorization.exactStore.issue({
+          schemaVersion: 2,
+          authorizationId: grantId,
+          binding: {
+            proposalId: proposal.id,
+            projectId,
+            routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
+            actionType: proposal.actionType,
+            targetId: proposal.targetId,
+            operationDigest: proposal.digest.value
+          },
           issuer: `cli-host:${l3Authorization.clientId}`,
           subjectId: l3Authorization.subjectId,
           audience: "routeledger-core",
-          projectId,
-          routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
-          allowedActions: [proposal.actionType],
-          allowedTargetIds: [proposal.targetId],
-          operationDigest: proposal.digest.value,
-          scope: "operation",
           source: "user_interaction",
           policyId: null,
           policyDigest: null,
-          decisionId: decision.decisionId,
+          decisionRef: decision.decisionId,
+          profileId: null,
+          modeEpoch: null,
+          profileDigest: null,
           hostKind: l3Authorization.hostKind,
           clientId: l3Authorization.clientId,
-          sessionId: l3Authorization.sessionId,
-          nonce: randomUUID(),
+          sessionId: null,
           createdAt: now.toISOString(),
-          expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
-          maxUses: 1,
-          uses: 0,
-          status: "active",
-          revokedAt: null
+          expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
         });
         return {
           ok: true,
@@ -1694,6 +1700,8 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
           requestAuthorization: options.l3Authorization.requestAuthorization,
           grantStore:
             options.l3Authorization.grantStore ?? new MemoryL3AuthorizationGrantStore(),
+          exactStore:
+            options.l3Authorization.exactStore ?? new MemoryExactAuthorizationStore(),
           subjectId: options.l3Authorization.subjectId ?? DEFAULT_APPROVER.id,
           routeledgerRootDigest: `sha256:${createHash("sha256")
             .update(options.projectRoot)

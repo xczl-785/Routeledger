@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -252,38 +251,10 @@ export const createLocalL3AuthorityBroker = (
           sessionId: input.sessionId ?? null
         }
       });
-      const createdAt = decision.decidedAt;
-      const grant: L3AuthorizationGrant = {
-        id: `grant-${randomUUID()}`,
-        issuer: selected.profile.profileId,
-        subjectId: selected.profile.binding.subjectId,
-        audience: "routeledger-core",
-        projectId: selected.profile.binding.projectId,
-        routeledgerRootDigest: selected.profile.binding.routeledgerRootDigest,
-        profileId: selected.profile.profileId,
-        modeEpoch: selected.profile.modeEpoch,
-        profileDigest: selected.profile.profileDigest,
-        allowedActions: actions,
-        allowedTargetIds: targets,
-        operationDigest: null,
-        scope: input.scope,
-        source: "preauthorized",
-        policyId: null,
-        policyDigest: null,
-        decisionId: decision.decisionId,
-        hostKind: selected.profile.binding.hostKind,
-        clientId: selected.profile.binding.trustedClientId,
-        sessionId: input.scope === "session" ? input.sessionId! : null,
-        nonce: randomUUID(),
-        createdAt,
-        expiresAt: new Date(Date.parse(createdAt) + input.ttlSeconds * 1000).toISOString(),
-        maxUses: input.maxUses,
-        uses: 0,
-        status: "active",
-        revokedAt: null
-      };
-      await selected.grantStore.issue(grant);
-      return grant;
+      void decision;
+      throw new Error(
+        "Standing preauthorization is evaluated per proposal and cannot issue a reusable grant."
+      );
     },
     revokeAccess: async (input) => {
       const selected = await bind(input.binding);

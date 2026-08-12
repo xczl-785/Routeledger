@@ -8,8 +8,7 @@ import {
   type L3AuthorizationConsumptionReceipt,
   type L3AuthorizationEvaluationContext,
   type L3AuthorizationGrant,
-  type L3AuthorizationProfileV2,
-  type L3AuthorizationReceiptBinding
+  type L3AuthorizationProfileV2
 } from "@routeledger/core";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -126,36 +125,6 @@ const receiptFor = (
   revokedAt: null
 });
 
-const bindingFor = (
-  receipt: L3AuthorizationConsumptionReceipt
-): L3AuthorizationReceiptBinding => ({
-  approvalArtifactId: receipt.approvalArtifactId,
-  pendingOperationId: receipt.pendingOperationId,
-  grantId: receipt.grantId,
-  audience: receipt.audience,
-  subjectId: receipt.subjectId,
-  projectId: receipt.projectId,
-  routeledgerRootDigest: receipt.routeledgerRootDigest,
-  profileId: receipt.profileId,
-  modeEpoch: receipt.modeEpoch,
-  profileDigest: receipt.profileDigest,
-  actionType: receipt.actionType,
-  targetId: receipt.targetId,
-  operationDigest: receipt.operationDigest,
-  approvalSource: receipt.approvalSource,
-  decisionRef: receipt.decisionRef,
-  approverId: receipt.approverId,
-  approverType: receipt.approverType,
-  approverDisplayName: receipt.approverDisplayName,
-  policyId: receipt.policyId,
-  policyDigest: receipt.policyDigest,
-  hostKind: receipt.hostKind,
-  clientId: receipt.clientId,
-  sessionId: receipt.sessionId,
-  createdAt: receipt.createdAt,
-  expiresAt: receipt.expiresAt
-});
-
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
@@ -194,17 +163,17 @@ describe("local L3 authorization profile runtime", () => {
       }
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await runtime.grantStore.issue(decision.grant);
+    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
 
     const restarted = await loadLocalL3AuthorityProfileRuntime({
       ...fixture,
       hostKind: "codex",
       subjectId: "local-user"
     });
-    await expect(restarted.grantStore.get(decision.grant.id)).resolves.toMatchObject({
+    await expect(restarted.exactStore.get(decision.grant.id)).resolves.toMatchObject({
       profileId: fixture.profile.profileId,
       modeEpoch: 1,
-      status: "active"
+      binding: { operationDigest: "operation-1" }
     });
   });
 
@@ -222,7 +191,7 @@ describe("local L3 authorization profile runtime", () => {
       context: contextFor(fixture.profile)
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await runtime.grantStore.issue(decision.grant);
+    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
 
     const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
       schemaVersion: fixture.profile.schemaVersion,
@@ -248,8 +217,9 @@ describe("local L3 authorization profile runtime", () => {
       subjectId: "local-user"
     });
     expect(next.delegatedAuthority).toBeUndefined();
-    await expect(next.grantStore.get(decision.grant.id)).resolves.toMatchObject({
-      status: "revoked"
+    await expect(next.exactStore.get(decision.grant.id)).resolves.toMatchObject({
+      profileId: fixture.profile.profileId,
+      modeEpoch: 1
     });
   });
 
@@ -268,75 +238,48 @@ describe("local L3 authorization profile runtime", () => {
     });
     if (first.effect !== "allow") throw new Error("expected delegated grant");
     const revokedReceipt = receiptFor(fixture.profile, first.grant, "revoked");
-    await runtime.grantStore.recordConsumptionReceipt(revokedReceipt);
+    await expect(runtime.grantStore.recordConsumptionReceipt(revokedReceipt))
+      .rejects.toThrow("audit-only");
+    const candidate = await runtime.exactStore.get(first.grant.id);
+    if (candidate === null) throw new Error("expected exact authorization");
+    const consumed = await runtime.exactStore.consumeAndRecordReceipt({
+      authorizationId: candidate.authorizationId,
+      artifactId: "artifact-revoked",
+      binding: candidate.binding,
+      now: candidate.createdAt
+    });
+    expect(consumed.ok).toBe(true);
 
     await expect(
-      runtime.grantStore.revokeProfileReceipts(
+      runtime.exactStore.revokeProfileReceipts(
         fixture.profile.profileId,
         fixture.profile.modeEpoch + 1,
         "2026-08-11T02:00:00.000Z"
       )
     ).resolves.toBe(1);
     await expect(
-      runtime.grantStore.claimCommit(bindingFor(revokedReceipt), {
+      runtime.exactStore.claimCommit({
+        authorizationId: candidate.authorizationId,
+        artifactId: "artifact-revoked",
+        binding: candidate.binding,
+        issuer: candidate.issuer,
+        audience: candidate.audience,
+        subjectId: candidate.subjectId,
+        source: candidate.source,
+        decisionRef: candidate.decisionRef,
+        policyId: candidate.policyId,
+        policyDigest: candidate.policyDigest,
+        profileId: candidate.profileId,
+        modeEpoch: candidate.modeEpoch,
+        profileDigest: candidate.profileDigest,
+        hostKind: candidate.hostKind,
+        clientId: candidate.clientId,
+        createdAt: candidate.createdAt,
+        expiresAt: candidate.expiresAt
+      }, {
         claimId: "claim-too-late",
         claimedAt: "2026-08-11T02:00:01.000Z"
       })
     ).resolves.toEqual({ ok: false, code: "RECEIPT_REVOKED" });
-    await expect(
-      runtime.grantStore.findConsumedAuthorization(
-        {
-          audience: revokedReceipt.audience,
-          subjectId: revokedReceipt.subjectId,
-          projectId: revokedReceipt.projectId,
-          routeledgerRootDigest: revokedReceipt.routeledgerRootDigest,
-          profileId: revokedReceipt.profileId,
-          modeEpoch: revokedReceipt.modeEpoch,
-          profileDigest: revokedReceipt.profileDigest,
-          actionType: revokedReceipt.actionType,
-          targetId: revokedReceipt.targetId,
-          operationDigest: revokedReceipt.operationDigest,
-          now: "2026-08-11T02:00:01.000Z",
-          hostKind: revokedReceipt.hostKind!,
-          clientId: revokedReceipt.clientId ?? undefined
-        },
-        revokedReceipt.pendingOperationId
-      )
-    ).resolves.toBeNull();
-
-    const second = await authority.requestGrant({
-      authorityHandle: authority.authorityHandle,
-      proposal: {} as never,
-      context: { ...contextFor(fixture.profile), operationDigest: "operation-2" }
-    });
-    if (second.effect !== "allow") throw new Error("expected delegated grant");
-    const claimedReceipt = receiptFor(fixture.profile, second.grant, "claimed");
-    await runtime.grantStore.recordConsumptionReceipt(claimedReceipt);
-    await expect(
-      runtime.grantStore.claimCommit(bindingFor(claimedReceipt), {
-        claimId: "claim-wins",
-        claimedAt: "2026-08-11T02:00:02.000Z"
-      })
-    ).resolves.toMatchObject({ ok: true, replayed: false });
-    await expect(
-      runtime.grantStore.revokeProfileReceipts(
-        fixture.profile.profileId,
-        fixture.profile.modeEpoch + 1,
-        "2026-08-11T02:00:03.000Z"
-      )
-    ).resolves.toBe(0);
-
-    const restarted = await loadLocalL3AuthorityProfileRuntime({
-      ...fixture,
-      hostKind: "codex",
-      subjectId: "local-user"
-    });
-    await expect(
-      restarted.grantStore.finalizeCommit(
-        bindingFor(claimedReceipt),
-        "claim-wins",
-        "2026-08-11T02:00:04.000Z"
-      )
-    ).resolves.toMatchObject({ ok: true, receipt: { status: "committed" } });
   });
 });

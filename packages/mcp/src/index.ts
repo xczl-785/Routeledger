@@ -7,6 +7,7 @@ import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
+  MemoryExactAuthorizationStore,
   type L3AuthorizationGrantStore,
   type ExactAuthorizationStore,
   type L3AuthorizationGrant,
@@ -952,6 +953,23 @@ const digestExecutionInput = (value: unknown): string =>
     .update(JSON.stringify(canonicalizeExecutionInput(value)))
     .digest("hex")}`;
 
+const compatibilityExactStores = new WeakMap<
+  L3AuthorizationGrantStore,
+  ExactAuthorizationStore
+>();
+
+const resolveExactStore = (authorization: {
+  grantStore: L3AuthorizationGrantStore;
+  exactStore?: ExactAuthorizationStore;
+}): ExactAuthorizationStore => {
+  if (authorization.exactStore !== undefined) return authorization.exactStore;
+  const existing = compatibilityExactStores.get(authorization.grantStore);
+  if (existing !== undefined) return existing;
+  const created = new MemoryExactAuthorizationStore();
+  compatibilityExactStores.set(authorization.grantStore, created);
+  return created;
+};
+
 const createService = (
   workspaceRoot: string,
   routeledgerRoot: string,
@@ -981,9 +999,7 @@ const createService = (
       : {
           l3Authorization: {
             grantStore: authorization.grantStore,
-            ...(authorization.exactStore === undefined
-              ? {}
-              : { exactStore: authorization.exactStore }),
+            exactStore: resolveExactStore(authorization),
             audience: "routeledger-core",
             subjectId: authorization.subjectId,
             routeledgerRootDigest: digestRouteLedgerRoot(routeledgerRoot),
@@ -1519,6 +1535,7 @@ export const createRouteLedgerMcpRegistry = (
       return new CodexL3DecisionAdapter({
         authorizationContext,
         grantStore: l3Authorization.grantStore,
+        exactStore: resolveExactStore(l3Authorization),
         sessionId: l3Authorization.sessionId
       });
     }
@@ -1527,6 +1544,7 @@ export const createRouteLedgerMcpRegistry = (
       proposal,
       authorizationContext,
       grantStore: l3Authorization.grantStore,
+      exactStore: resolveExactStore(l3Authorization),
       interaction: l3Authorization.interaction,
       sessionId: l3Authorization.sessionId,
       hostProfile,

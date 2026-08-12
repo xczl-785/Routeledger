@@ -5,6 +5,7 @@ import {
   validateL3AuthorizationGrant,
   type DecisionResolution,
   type ExactProposalDecisionRequest,
+  type ExactAuthorizationStore,
   type L3AuthorizationGrant,
   type L3AuthorizationGrantContext,
   type L3AuthorizationGrantStore,
@@ -14,6 +15,7 @@ import {
 export interface CodexL3DecisionAdapterOptions {
   readonly authorizationContext: Readonly<L3AuthorizationGrantContext>;
   readonly grantStore: L3AuthorizationGrantStore;
+  readonly exactStore: ExactAuthorizationStore;
   readonly sessionId: string;
   readonly nextId?: () => string;
   readonly now?: () => Date;
@@ -70,7 +72,33 @@ export class CodexL3DecisionAdapter implements L3DecisionAdapter {
     if (failure !== null) {
       throw new Error(`Codex host-admission grant is invalid: ${failure}`);
     }
-    await this.options.grantStore.issue(grant);
+    await this.options.exactStore.issue({
+      schemaVersion: 2,
+      authorizationId: grant.id,
+      binding: {
+        proposalId: request.proposalId,
+        projectId: request.projectId,
+        routeledgerRootDigest: grant.routeledgerRootDigest,
+        actionType: request.actionType,
+        targetId: request.targetId,
+        operationDigest: request.operationDigest
+      },
+      source: grant.source,
+      decisionRef: grant.decisionId,
+      issuer: grant.issuer,
+      audience: grant.audience,
+      subjectId: grant.subjectId,
+      policyId: grant.policyId,
+      policyDigest: grant.policyDigest,
+      profileId: null,
+      modeEpoch: null,
+      profileDigest: null,
+      hostKind: grant.hostKind,
+      clientId: grant.clientId,
+      sessionId: null,
+      createdAt: grant.createdAt,
+      expiresAt: grant.expiresAt
+    });
     const resolution: CodexL3DecisionResolution = {
       status: "resolved",
       decision: {

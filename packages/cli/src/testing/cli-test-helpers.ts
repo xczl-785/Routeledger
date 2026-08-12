@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { expect } from "vitest";
 
 import {
+  MemoryExactAuthorizationStore,
   MemoryL3AuthorizationGrantStore,
   type ProjectAggregateSnapshot
 } from "@routeledger/core";
@@ -21,11 +22,13 @@ import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 import { runCli } from "../index.js";
 
 const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
+const trustedExactStores = new Map<string, MemoryExactAuthorizationStore>();
 
 export const createTempProjectRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-cli-"));
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
   trustedGrantStores.delete(projectRoot);
+  trustedExactStores.delete(projectRoot);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       fs.rmSync(projectRoot, { recursive: true, force: true });
@@ -110,6 +113,13 @@ export const runCliJson = async (projectRoot: string, argv: string[]) => {
         (() => {
           const store = new MemoryL3AuthorizationGrantStore();
           trustedGrantStores.set(projectRoot, store);
+          return store;
+        })(),
+      exactStore:
+        trustedExactStores.get(projectRoot) ??
+        (() => {
+          const store = new MemoryExactAuthorizationStore();
+          trustedExactStores.set(projectRoot, store);
           return store;
         })(),
       hostKind: "cli-test",

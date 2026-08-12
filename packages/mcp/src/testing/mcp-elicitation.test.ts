@@ -419,7 +419,7 @@ describe("MCP L3 authorization elicitation", () => {
     }
   });
 
-  it("consumes a host-injected preauthorization without treating policy rules as delegated", async () => {
+  it("does not promote a host-injected legacy preauthorization into exact authority", async () => {
     const projectRoot = createTempProjectRoot();
     const grantStore = new MemoryL3AuthorizationGrantStore();
     const server = createRouteLedgerStdioServer({
@@ -507,10 +507,8 @@ describe("MCP L3 authorization elicitation", () => {
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
       });
-      expect(structured(response).data).toMatchObject({
-        approvalSource: "preauthorized",
-        authorizationGrantId: "preauthorized-grant",
-        clientId: "trusted-preauthorized-client"
+      expect(structured(response).error).toMatchObject({
+        code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE"
       });
     } finally {
       server.close();
