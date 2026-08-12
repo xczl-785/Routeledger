@@ -9,8 +9,9 @@ import {
   DomainError,
   MemoryExactAuthorizationStore,
   type L3AuthorizationGrantStore,
+  type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
-  type L3AuthorizationGrant,
+  type ExactAuthorizationBinding,
   type L3AuthorizationEvaluationContext,
   type L3AuthorizationProfileV2,
   createExactProposalDecisionRequest,
@@ -175,7 +176,7 @@ export interface RouteLedgerMcpDelegatedAuthorizationRequest {
 }
 
 export type RouteLedgerMcpDelegatedAuthorizationResult =
-  | { effect: "allow"; grant: L3AuthorizationGrant }
+  | { effect: "allow"; authorization: ExactAuthorizationCandidate }
   | {
       effect: "prompt" | "deny";
       code: string;
@@ -187,7 +188,7 @@ export type RouteLedgerMcpDelegatedAuthorizationResult =
 export interface RouteLedgerMcpDelegatedAuthorizationAuthority {
   /** Opaque host-owned handle. Policy evaluation and budget consumption must be atomic. */
   authorityHandle: string;
-  requestGrant(
+  requestExactDecision(
     request: RouteLedgerMcpDelegatedAuthorizationRequest
   ): Promise<RouteLedgerMcpDelegatedAuthorizationResult>;
 }
@@ -932,7 +933,7 @@ const digestAuthorizationPath = (candidate: string): string => {
   return `sha256:${createHash("sha256").update(physicalRoot).digest("hex")}`;
 };
 
-const digestRouteLedgerRoot = (routeledgerRoot: string): string =>
+export const digestRouteLedgerRoot = (routeledgerRoot: string): string =>
   digestAuthorizationPath(routeledgerRoot);
 
 const canonicalizeExecutionInput = (value: unknown): unknown => {
@@ -1534,19 +1535,15 @@ export const createRouteLedgerMcpRegistry = (
     if (usesCodexNativeToolAdmission) {
       return new CodexL3DecisionAdapter({
         authorizationContext,
-        grantStore: l3Authorization.grantStore,
-        exactStore: resolveExactStore(l3Authorization),
-        sessionId: l3Authorization.sessionId
+        exactStore: resolveExactStore(l3Authorization)
       });
     }
 
     return new ExistingL3DecisionAdapter({
       proposal,
       authorizationContext,
-      grantStore: l3Authorization.grantStore,
       exactStore: resolveExactStore(l3Authorization),
       interaction: l3Authorization.interaction,
-      sessionId: l3Authorization.sessionId,
       hostProfile,
       ...(l3Authorization.trustedClientId === undefined
         ? {}
@@ -3929,6 +3926,28 @@ export const createRouteLedgerMcpRegistry = (
 
         const pendingOperationId = await entry.proposalId;
         const proposal = await service.getL3Proposal(input.projectId, pendingOperationId);
+        const resumeBinding = (input as Record<string, unknown>)[
+          "__routeledgerMcpResumeBinding"
+        ] as Partial<ExactAuthorizationBinding> | undefined;
+        if (
+          resumeBinding !== undefined &&
+          (resumeBinding.proposalId !== proposal.id ||
+            resumeBinding.projectId !== proposal.projectId ||
+            resumeBinding.routeledgerRootDigest !== digestRouteLedgerRoot(initialBinding.routeledgerRoot!) ||
+            resumeBinding.actionType !== proposal.actionType ||
+            resumeBinding.targetId !== proposal.targetId ||
+            resumeBinding.operationDigest !== proposal.digest.value)
+        ) {
+          throw new InvalidToolInputError(
+            "requestState no longer matches the live exact proposal",
+            {
+              toolName: "execute_l3_operation",
+              path: "$._meta.requestState",
+              reason: "REQUEST_STATE_LIVE_BINDING_MISMATCH",
+              pendingOperationId
+            }
+          );
+        }
         if (entry.inFlight === undefined) {
           entry.inFlight = executeExistingL3Proposal(proposal, input.idempotencyKey);
         }
@@ -3964,9 +3983,20 @@ export const createRouteLedgerMcpRegistry = (
       async (input) => {
         const proposal = await service.getL3Proposal(input.projectId, input.pendingOperationId);
         const adapter = createL3DecisionAdapter(proposal);
-        const decision = requireResolvedExistingL3Decision(
-          await adapter.resolve(createExactProposalDecisionRequest(proposal))
-        );
+        const resolution = await adapter.resolve(createExactProposalDecisionRequest(proposal));
+        if (
+          resolution.status === "denied" &&
+          "details" in resolution &&
+          resolution.details.reason === "HOST_DECLINED"
+        ) {
+          await service.rejectL3Operation({
+            projectId: proposal.projectId,
+            pendingOperationId: proposal.id,
+            reason: `${resolution.code}: ${resolution.reason}`,
+            actor
+          });
+        }
+        const decision = requireResolvedExistingL3Decision(resolution);
         if (decision.authorizationGrantId === undefined) {
           throw new ApplicationError(
             "AUTHORIZATION_GRANT_REJECTED",

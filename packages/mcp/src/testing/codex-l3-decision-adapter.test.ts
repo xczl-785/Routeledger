@@ -36,12 +36,10 @@ describe("CodexL3DecisionAdapter", () => {
   it("issues an exact single-use capability after Codex admits the high-risk tool call", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     const exactStore = new MemoryExactAuthorizationStore();
-    const ids = ["grant-1", "decision-1", "nonce-1"];
+    const ids = ["grant-1", "decision-1"];
     const adapter = new CodexL3DecisionAdapter({
       authorizationContext: context,
-      grantStore: store,
       exactStore,
-      sessionId: "codex-session",
       nextId: () => ids.shift()!,
       now: () => new Date("2026-08-12T00:00:00.000Z")
     });

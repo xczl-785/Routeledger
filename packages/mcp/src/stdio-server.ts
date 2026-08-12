@@ -3,13 +3,17 @@ import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
-import { MemoryL3AuthorizationGrantStore } from "@routeledger/core";
+import {
+  MemoryL3AuthorizationGrantStore,
+  type ExactAuthorizationBinding
+} from "@routeledger/core";
 
 import {
   MCP_PROTOCOL_VERSION,
   MCP_MRTR_PROTOCOL_VERSION,
   createSessionRebindFailureResponse,
   createRouteLedgerMcpRegistry,
+  digestRouteLedgerRoot,
   type RouteLedgerMcpRegistry,
   type RouteLedgerMcpRegistryOptions,
   type RouteLedgerMcpAuthorizationDecision,
@@ -19,6 +23,7 @@ import {
 } from "./index.js";
 import {
   McpDecisionInputRequiredError,
+  parseMcpAuthorizationDecisionResponse,
   readMcpAuthorizationDecision
 } from "./mcp-decision-input.js";
 import {
@@ -764,19 +769,11 @@ export const createRouteLedgerStdioServer = (
             return;
           }
           const result = response.result;
-          if (
-            !isObject(result) ||
-            (result.action !== "accept" &&
-              result.action !== "decline" &&
-              result.action !== "cancel")
-          ) {
-            reject(new Error("MCP elicitation response has an invalid action."));
-            return;
+          try {
+            resolve(parseMcpAuthorizationDecisionResponse(result));
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)));
           }
-          resolve({
-            action: result.action,
-            content: isObject(result.content) ? result.content : null
-          });
         },
         reject
       });
@@ -1333,7 +1330,8 @@ export const createRouteLedgerStdioServer = (
                 }
                 invocationArguments = {
                   ...toolCall.arguments,
-                  __routeledgerMcpResumeProposalId: resumed.pendingOperationId
+                  __routeledgerMcpResumeProposalId: resumed.binding.proposalId,
+                  __routeledgerMcpResumeBinding: resumed.binding
                 };
               } else if (params.inputResponses !== undefined) {
                 return errorResponse(
@@ -1395,8 +1393,25 @@ export const createRouteLedgerStdioServer = (
                 );
               }
               const requestState = effectiveToolResponse.data.requestState;
-              if (!isObject(requestState) || typeof requestState.proposalId !== "string") {
+              if (
+                !isObject(requestState) ||
+                typeof requestState.proposalId !== "string" ||
+                typeof requestState.projectId !== "string" ||
+                typeof requestState.actionType !== "string" ||
+                typeof requestState.targetId !== "string" ||
+                typeof requestState.operationDigest !== "string"
+              ) {
                 return errorResponse(request.id, INTERNAL_ERROR, "Invalid L3 input-required state.");
+              }
+              const runtimeMeta = await activeRegistry.getRuntimeContextMeta();
+              const runtimeContext = runtimeMeta.runtimeContext;
+              const runtimeBinding = isObject(runtimeContext) ? runtimeContext.binding : null;
+              const routeledgerRoot =
+                isObject(runtimeBinding) && typeof runtimeBinding.routeledgerRoot === "string"
+                  ? runtimeBinding.routeledgerRoot
+                  : undefined;
+              if (routeledgerRoot === undefined) {
+                return errorResponse(request.id, INTERNAL_ERROR, "RouteLedger root is unavailable.");
               }
               const authorizationRequest =
                 pendingMcpAuthorizationRequest as unknown as RouteLedgerMcpAuthorizationRequest;
@@ -1415,10 +1430,17 @@ export const createRouteLedgerStdioServer = (
                 },
                 requestState: sealMcpRequestState(
                   {
-                    schemaVersion: 1,
+                    schemaVersion: 2,
                     toolName: "execute_l3_operation",
                     argumentsDigest: digestMcpToolArguments(toolCall.arguments),
-                    pendingOperationId: requestState.proposalId,
+                    binding: {
+                      proposalId: requestState.proposalId,
+                      projectId: requestState.projectId,
+                      routeledgerRootDigest: digestRouteLedgerRoot(routeledgerRoot),
+                      actionType: requestState.actionType,
+                      targetId: requestState.targetId,
+                      operationDigest: requestState.operationDigest
+                    } as ExactAuthorizationBinding,
                     issuedAt: now.toISOString(),
                     expiresAt: new Date(now.getTime() + 10 * 60_000).toISOString()
                   },
