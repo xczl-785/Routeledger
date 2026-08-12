@@ -178,6 +178,7 @@ describe("stdio host authority broker binding", () => {
       ok: true,
       data: {
         controlPlane: "host_authority_broker_v2",
+        authorizationBackend: "host_authority_broker_v2",
         profile: { mode: "preauthorized" }
       }
     });

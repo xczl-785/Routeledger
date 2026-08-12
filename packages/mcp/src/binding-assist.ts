@@ -30,6 +30,7 @@ import {
   resolveWorkspaceConfigSync
 } from "./workspace-config.js";
 import {
+  arePhysicalPathsEqualSync,
   isPhysicalPathContainedWithinSync
 } from "./physical-path.js";
 
@@ -553,14 +554,22 @@ const createPersistentHostBinding = (requiredForFutureSessions: boolean) => ({
 const createSessionActivation = (options: {
   hostProfile?: "generic" | "codex" | "claude-code" | "cursor";
   binding: RouteLedgerBindingSummary;
+  targetWorkspaceRoot: string;
+  targetRouteledgerRoot: string;
   targetStatus: "ready" | "needs_init" | "blocked";
 }) => {
+  const targetDiffersFromEstablishedBinding =
+    options.binding.workspaceRoot === null ||
+    options.binding.routeledgerRoot === null ||
+    !arePhysicalPathsEqualSync(options.binding.workspaceRoot, options.targetWorkspaceRoot) ||
+    !arePhysicalPathsEqualSync(options.binding.routeledgerRoot, options.targetRouteledgerRoot);
   const requiresActivation =
     options.hostProfile === "codex" &&
-    (options.binding.status === "unbound" ||
+    ((options.binding.status === "unbound" ||
       options.binding.status === "invalid" ||
       options.binding.workspaceRootConfidence === "low" ||
-      options.binding.workspaceRootConfidence === "none") &&
+      options.binding.workspaceRootConfidence === "none") ||
+      targetDiffersFromEstablishedBinding) &&
     (options.targetStatus === "ready" || options.targetStatus === "needs_init");
 
   return requiresActivation
@@ -838,6 +847,8 @@ export const planRouteLedgerBinding = async (options: {
     const sessionActivation = createSessionActivation({
       hostProfile: options.hostProfile,
       binding: options.binding,
+      targetWorkspaceRoot: workspaceRoot,
+      targetRouteledgerRoot: selectedRouteLedgerRoot,
       targetStatus: "needs_init"
     });
     checks.push({
@@ -903,7 +914,13 @@ export const planRouteLedgerBinding = async (options: {
               "Activate this MCP session at the planned RouteLedger root.",
               {
                 tool: "activate_routeledger_binding",
-                routeledgerRoot: selectedRouteLedgerRoot
+                routeledgerRoot: selectedRouteLedgerRoot,
+                requiresUserDecision: requiresHostConfigUpdate,
+                toolInput: {
+                  workspaceRoot,
+                  routeledgerRoot: selectedRouteLedgerRoot,
+                  ...(requiresHostConfigUpdate ? { confirmProjectSwitch: true } : {})
+                }
               }
             ),
             buildPlanAction(
@@ -1042,6 +1059,8 @@ export const planRouteLedgerBinding = async (options: {
   const sessionActivation = createSessionActivation({
     hostProfile: options.hostProfile,
     binding: options.binding,
+    targetWorkspaceRoot: workspaceRoot,
+    targetRouteledgerRoot: selectedRouteLedgerRoot,
     targetStatus: "ready"
   });
 
@@ -1075,7 +1094,13 @@ export const planRouteLedgerBinding = async (options: {
             "Activate this MCP session at the planned RouteLedger root.",
             {
               tool: "activate_routeledger_binding",
-              routeledgerRoot: selectedRouteLedgerRoot
+              routeledgerRoot: selectedRouteLedgerRoot,
+              requiresUserDecision: requiresHostConfigUpdate,
+              toolInput: {
+                workspaceRoot,
+                routeledgerRoot: selectedRouteLedgerRoot,
+                ...(requiresHostConfigUpdate ? { confirmProjectSwitch: true } : {})
+              }
             }
           ),
           buildPlanAction(

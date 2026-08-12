@@ -208,10 +208,13 @@ does not claim persistence beyond the live registry process.
 
 ## 10. L3-D4 capability probe and contract
 
-Codex 0.147.0 exposes the active Desktop permission profile to its child runtime through
-`CODEX_PERMISSION_PROFILE`. A live app-server `permissionProfile/list` probe returned the three
-built-in profiles `:read-only`, `:workspace`, and `:danger-full-access`; the current Desktop task
-injected `:danger-full-access` into the process environment.
+Codex 0.147.0 exposes the active Desktop permission profile to child runtimes through
+`CODEX_PERMISSION_PROFILE` only when the STDIO server configuration explicitly forwards that
+variable. A live app-server `permissionProfile/list` probe returned the three built-in profiles
+`:read-only`, `:workspace`, and `:danger-full-access`; a post-merge Desktop acceptance run found
+that the plugin manifest had omitted the forwarding declaration. The 0.7.0 repair adds
+`env_vars = ["CODEX_PERMISSION_PROFILE"]` to the bundled MCP manifest and treats the live plugin
+process, rather than an Agent shell child, as the acceptance surface.
 
 The Codex adapter maps those profiles to `interactive`, `delegated`, and `preauthorized`
 respectively. If the field is absent or unknown, only an explicit `ROUTELEDGER_CODEX_L3_MODE`
@@ -220,7 +223,7 @@ closed. Codex-specific profile identifiers remain outside core.
 
 | Checkpoint | Status | Evidence | Impact |
 | --- | --- | --- | --- |
-| D4 live capability probe | `passed` | Codex CLI/app-server 0.147.0 schema and live `permissionProfile/list`; current Desktop child environment exposed `CODEX_PERMISSION_PROFILE=:danger-full-access` | Dynamic mode discovery is available; fallback is exceptional rather than the default |
+| D4 live capability probe | `rework_pending_desktop_retest` | App-server exposes the profiles, but the first 0.7.0 Desktop run proved the plugin STDIO child did not receive the variable until `.mcp.json` declared `env_vars` | Rebuild/reinstall and verify the actual plugin process before closing D4 |
 | D4 provider gate | `passed` | Five provider tests cover all built-ins, explicit fallback, missing context, unknown profile, and invalid fallback; MCP regression proves unavailable context stops before proposal creation | No mode guessing or orphan proposal on unavailable host context |
 | D4 integration regression | `passed` | 55 test files / 597 tests; 6 JSONL client tests; full typecheck, lint, and `git diff --check` | Candidate is ready for packaging and fresh-host behavior validation |
 | D4 Desktop three-mode acceptance | `pending_on_main` | User selected merged `main` as the only final test surface; no local candidate install | D4 remains `in_progress`; its frozen host/core boundary allowed independent D5 work to close |

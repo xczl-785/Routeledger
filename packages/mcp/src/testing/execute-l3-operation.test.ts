@@ -187,6 +187,7 @@ describe("execute_l3_operation", () => {
       hostPermissionContext: {
         status: "unavailable",
         code: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE",
+        codexPermissionProfile: null,
         reason: "No effective Codex permission context"
       }
     });
@@ -213,6 +214,43 @@ describe("execute_l3_operation", () => {
       });
       const proposals = await registry.invoke("list_l3_proposals", { projectId });
       expect(proposals.data).toHaveLength(0);
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("reports the Codex permission adapter separately from its compatibility backend", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRegistry(projectRoot, {
+      hostProfile: "codex",
+      hostPermissionContext: {
+        status: "resolved",
+        mode: "preauthorized",
+        source: "codex_permission_profile",
+        codexPermissionProfile: ":danger-full-access",
+        fallbackUsed: false
+      }
+    });
+    try {
+      await registry.invoke("init_project", { name: "Codex status projection" });
+      const response = await registry.invoke("get_l3_authorization_status", {});
+      expect(response).toMatchObject({
+        ok: true,
+        data: {
+          controlPlane: "codex_permission_adapter_v2",
+          authorizationBackend: "v1_compatibility",
+          profile: null,
+          profileCompatible: null,
+          effectiveMode: {
+            mode: "preauthorized",
+            source: "codex_permission_profile",
+            codexPermissionProfile: ":danger-full-access",
+            fallbackUsed: false,
+            profileCompatible: null
+          }
+        }
+      });
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);

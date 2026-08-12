@@ -20,6 +20,10 @@ The plugin starts its bundled runtime relative to the plugin root:
 node ./runtime/bin.js --profile codex --sqlite-read-model disabled
 ```
 
+The plugin manifest explicitly forwards `CODEX_PERMISSION_PROFILE` into that
+STDIO runtime. Codex otherwise filters the child-process environment, which
+would leave the L3 permission adapter unable to resolve the active mode.
+
 It receives the managed workspace through MCP Roots. Installing the plugin
 does not bind it to the repository that supplied it. Some Codex clients do not
 send Roots/rootUri; in that case `process cwd` may be the plugin cache and is
@@ -39,6 +43,14 @@ native elicitation transport.
 Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.
+
+Codex can keep one installed-plugin MCP process alive while the user opens a
+different project task. In that case RouteLedger keeps the established binding
+by default. `plan_routeledger_binding` returns an explicit session-activation
+action for the new roots; after the user confirms the old-to-new switch, call
+`activate_routeledger_binding` again with the exact roots and
+`confirmProjectSwitch: true`. This avoids a source checkout, project config,
+or Desktop restart while preserving a non-silent switch boundary.
 
 ## Git marketplace installation
 
@@ -105,8 +117,10 @@ calling `get_runtime_context` and checking the returned binding. If that
 binding is low confidence, provide an explicit host workspace to
 `activate_routeledger_binding`; do not initialize at a plugin-cache cwd.
 
-`render_host_binding_config` and `write_host_binding_config` require an
+`render_host_binding_config` and `write_host_binding_config` still require an
 explicit stable, user-owned source launcher. The installed plugin cache has no
 stable launcher alias, so those tools return the machine-readable
 `STABLE_RUNTIME_LAUNCHER_REQUIRED` state instead of emitting a versioned cache
-path into project configuration.
+path into project configuration. These persistence tools are optional for an
+installed-plugin user: same-session activation is the supported plugin-only
+onboarding path.

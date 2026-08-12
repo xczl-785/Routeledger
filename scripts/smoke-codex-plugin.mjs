@@ -72,6 +72,7 @@ const assertPluginFiles = async () => {
   if (
     server?.cwd !== "." ||
     server?.command !== "node" ||
+    JSON.stringify(server?.env_vars) !== JSON.stringify(["CODEX_PERMISSION_PROFILE"]) ||
     JSON.stringify(server?.args) !==
       JSON.stringify(["./runtime/bin.js", "--profile", "codex", "--sqlite-read-model", "disabled"])
   ) {
@@ -145,6 +146,7 @@ const runPluginStdioSmoke = async () => {
 
   const child = spawn(process.execPath, ["./runtime/bin.js", "--profile", "codex", "--sqlite-read-model", "disabled"], {
     cwd: cachedPluginRoot,
+    env: { ...process.env, CODEX_PERMISSION_PROFILE: ":danger-full-access" },
     stdio: ["pipe", "pipe", "pipe"]
   });
   const stdoutChunks = [];
@@ -224,6 +226,12 @@ const runPluginStdioSmoke = async () => {
     method: "tools/call",
     params: { name: "get_runtime_context", arguments: {} }
   });
+  write({
+    jsonrpc: "2.0",
+    id: "authorization-status",
+    method: "tools/call",
+    params: { name: "get_l3_authorization_status", arguments: {} }
+  });
   child.stdin.end();
 
   const exitCode = await new Promise((resolve, reject) => {
@@ -239,7 +247,7 @@ const runPluginStdioSmoke = async () => {
     .map((line) => JSON.parse(line));
 
   try {
-    if (exitCode !== 0 || stderr !== "" || responses.length !== 9) {
+    if (exitCode !== 0 || stderr !== "" || responses.length !== 10) {
       throw new Error(`Bundled plugin stdio smoke failed (exit=${exitCode}, responses=${responses.length}): ${stderr}`);
     }
     if (responses[0]?.result?.protocolVersion !== "2025-11-25") {
@@ -354,6 +362,18 @@ const runPluginStdioSmoke = async () => {
     }
     if (JSON.stringify(initializedRuntimeContext?.runtimeIdentity) !== JSON.stringify(initializeIdentity)) {
       throw new Error("Bundled runtime initialize and get_runtime_context reported different identities.");
+    }
+    const authorizationStatus = responses[9]?.result?.structuredContent?.data;
+    if (
+      authorizationStatus?.controlPlane !== "codex_permission_adapter_v2" ||
+      authorizationStatus?.authorizationBackend !== "v1_compatibility" ||
+      authorizationStatus?.profileCompatible !== null ||
+      authorizationStatus?.effectiveMode?.mode !== "preauthorized" ||
+      authorizationStatus?.effectiveMode?.codexPermissionProfile !== ":danger-full-access"
+    ) {
+      throw new Error(
+        `Bundled runtime did not resolve the forwarded Codex permission profile: ${JSON.stringify(authorizationStatus)}`
+      );
     }
     if (!(await fs.stat(path.join(testRouteledgerRoot, ".routeledger", "project.json")).catch(() => null))) {
       throw new Error("Bundled runtime did not write canonical project JSON.");

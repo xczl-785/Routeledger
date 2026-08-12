@@ -1153,30 +1153,44 @@ export const createRouteLedgerMcpRegistry = (options) => {
             riskLevel: "read-only"
         }, async (input) => {
             const profile = options.l3Authorization?.profile;
+            const profileCompatible = options.hostPermissionContext?.status === "resolved" && profile !== undefined
+                ? profile.mode === options.hostPermissionContext.mode
+                : null;
             const effectiveMode = options.hostPermissionContext?.status === "resolved"
                 ? {
                     mode: options.hostPermissionContext.mode,
                     source: options.hostPermissionContext.source,
+                    codexPermissionProfile: options.hostPermissionContext.codexPermissionProfile,
                     fallbackUsed: options.hostPermissionContext.fallbackUsed,
-                    profileCompatible: profile === undefined ? null : profile.mode === options.hostPermissionContext.mode
+                    profileCompatible
                 }
                 : options.hostPermissionContext ?? null;
+            const compatibilityBackend = options.l3AuthorityCandidateIdentity !== undefined || profile !== undefined
+                ? "host_authority_broker_v2"
+                : options.l3Authorization === undefined
+                    ? "unavailable"
+                    : "v1_compatibility";
+            const controlPlane = options.l3AuthorityCandidateIdentity !== undefined || profile !== undefined
+                ? "host_authority_broker_v2"
+                : hostProfile === "codex" && options.hostPermissionContext?.status === "resolved"
+                    ? "codex_permission_adapter_v2"
+                    : compatibilityBackend;
             return {
                 ok: true,
                 data: profile === undefined
                     ? {
-                        controlPlane: options.l3AuthorityCandidateIdentity !== undefined
-                            ? "host_authority_broker_v2"
-                            : options.l3Authorization === undefined
-                                ? "unavailable"
-                                : "v1_compatibility",
+                        controlPlane,
+                        authorizationBackend: compatibilityBackend,
                         profile: null,
+                        profileCompatible,
                         effectiveMode,
                         management: "host_only"
                     }
                     : {
                         controlPlane: "host_authority_broker_v2",
+                        authorizationBackend: "host_authority_broker_v2",
                         effectiveMode,
+                        profileCompatible,
                         profile: {
                             status: profile.status,
                             mode: profile.mode,
@@ -1330,10 +1344,11 @@ export const createRouteLedgerMcpRegistry = (options) => {
         defineTool("activate_routeledger_binding", {
             what: "Activate an explicit MCP binding.",
             parameter: "workspaceRoot",
-            warning: "writes config only; cannot switch an established binding"
+            warning: "switching an established Codex session requires confirmProjectSwitch=true"
         }, objectSchema({
             workspaceRoot: stringSchema("Required absolute host workspaceRoot."),
-            routeledgerRoot: stringSchema("Optional absolute RouteLedger root inside workspaceRoot. Defaults to workspaceRoot.")
+            routeledgerRoot: stringSchema("Optional absolute RouteLedger root inside workspaceRoot. Defaults to workspaceRoot."),
+            confirmProjectSwitch: booleanSchema("Set true only after the user explicitly confirms replacing an established Codex session binding.")
         }, ["workspaceRoot"]), {
             title: "Activate RouteLedger Binding",
             riskLevel: "write",
@@ -1345,7 +1360,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 previousBinding.status === "invalid" ||
                 previousBinding.workspaceRootConfidence === "low" ||
                 previousBinding.workspaceRootConfidence === "none";
-            if (!canBootstrap) {
+            const canConfirmCodexSwitch = hostProfile === "codex" && input.confirmProjectSwitch === true;
+            if (!canBootstrap && !canConfirmCodexSwitch) {
                 return {
                     ok: true,
                     data: {
@@ -1354,8 +1370,26 @@ export const createRouteLedgerMcpRegistry = (options) => {
                             previousBinding.workspaceRootConfidence === "high"
                             ? "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED"
                             : "BINDING_BOOTSTRAP_NOT_ALLOWED",
-                        message: "Binding activation only starts from an unbound, invalid, or low-confidence session; do not switch an established project.",
-                        previousBinding
+                        message: "An established project binding requires an explicit Codex session switch confirmation.",
+                        previousBinding,
+                        recommendedNextActions: [
+                            {
+                                type: "confirm_session_binding_switch",
+                                tool: "activate_routeledger_binding",
+                                description: "After explicit user confirmation, retry with the exact target roots and confirmProjectSwitch=true.",
+                                requiredFields: [
+                                    "workspaceRoot",
+                                    "routeledgerRoot",
+                                    "confirmProjectSwitch"
+                                ],
+                                requiresUserDecision: true,
+                                toolInput: {
+                                    workspaceRoot: input.workspaceRoot,
+                                    routeledgerRoot: input.routeledgerRoot ?? input.workspaceRoot,
+                                    confirmProjectSwitch: true
+                                }
+                            }
+                        ]
                     },
                     meta: withCurrentRuntimeContextMeta({ data: null })
                 };

@@ -4,7 +4,7 @@ import { planCodexProjectConfigWrite, renderCodexProjectConfig, writeCodexProjec
 import { JsonFirstStorageAdapter } from "./json-first-storage.js";
 import { resolveRouteLedgerBinding } from "./binding.js";
 import { WORKSPACE_CONFIG_FILENAME, getWorkspaceConfigPath, resolveDefaultRouteLedgerDataDir, resolveWorkspaceConfigSync } from "./workspace-config.js";
-import { isPhysicalPathContainedWithinSync } from "./physical-path.js";
+import { arePhysicalPathsEqualSync, isPhysicalPathContainedWithinSync } from "./physical-path.js";
 const DISCOVERY_IGNORED_DIR_NAMES = new Set([
     ".git",
     "node_modules",
@@ -309,11 +309,16 @@ const createPersistentHostBinding = (requiredForFutureSessions) => ({
     requiresServerRestart: requiredForFutureSessions
 });
 const createSessionActivation = (options) => {
+    const targetDiffersFromEstablishedBinding = options.binding.workspaceRoot === null ||
+        options.binding.routeledgerRoot === null ||
+        !arePhysicalPathsEqualSync(options.binding.workspaceRoot, options.targetWorkspaceRoot) ||
+        !arePhysicalPathsEqualSync(options.binding.routeledgerRoot, options.targetRouteledgerRoot);
     const requiresActivation = options.hostProfile === "codex" &&
-        (options.binding.status === "unbound" ||
+        ((options.binding.status === "unbound" ||
             options.binding.status === "invalid" ||
             options.binding.workspaceRootConfidence === "low" ||
-            options.binding.workspaceRootConfidence === "none") &&
+            options.binding.workspaceRootConfidence === "none") ||
+            targetDiffersFromEstablishedBinding) &&
         (options.targetStatus === "ready" || options.targetStatus === "needs_init");
     return requiresActivation
         ? {
@@ -550,6 +555,8 @@ export const planRouteLedgerBinding = async (options) => {
         const sessionActivation = createSessionActivation({
             hostProfile: options.hostProfile,
             binding: options.binding,
+            targetWorkspaceRoot: workspaceRoot,
+            targetRouteledgerRoot: selectedRouteLedgerRoot,
             targetStatus: "needs_init"
         });
         checks.push({
@@ -602,7 +609,13 @@ export const planRouteLedgerBinding = async (options) => {
                 ? [
                     buildPlanAction("activate_session_binding", "Activate this MCP session at the planned RouteLedger root.", {
                         tool: "activate_routeledger_binding",
-                        routeledgerRoot: selectedRouteLedgerRoot
+                        routeledgerRoot: selectedRouteLedgerRoot,
+                        requiresUserDecision: requiresHostConfigUpdate,
+                        toolInput: {
+                            workspaceRoot,
+                            routeledgerRoot: selectedRouteLedgerRoot,
+                            ...(requiresHostConfigUpdate ? { confirmProjectSwitch: true } : {})
+                        }
                     }),
                     buildPlanAction("initialize_routeledger", "After activation, initialize RouteLedger at the planned root.", {
                         tool: "init_project",
@@ -707,6 +720,8 @@ export const planRouteLedgerBinding = async (options) => {
     const sessionActivation = createSessionActivation({
         hostProfile: options.hostProfile,
         binding: options.binding,
+        targetWorkspaceRoot: workspaceRoot,
+        targetRouteledgerRoot: selectedRouteLedgerRoot,
         targetStatus: "ready"
     });
     return {
@@ -736,7 +751,13 @@ export const planRouteLedgerBinding = async (options) => {
             ? [
                 buildPlanAction("activate_session_binding", "Activate this MCP session at the planned RouteLedger root.", {
                     tool: "activate_routeledger_binding",
-                    routeledgerRoot: selectedRouteLedgerRoot
+                    routeledgerRoot: selectedRouteLedgerRoot,
+                    requiresUserDecision: requiresHostConfigUpdate,
+                    toolInput: {
+                        workspaceRoot,
+                        routeledgerRoot: selectedRouteLedgerRoot,
+                        ...(requiresHostConfigUpdate ? { confirmProjectSwitch: true } : {})
+                    }
                 }),
                 buildPlanAction("render_codex_config", "Optionally persist this binding for future Codex sessions.", {
                     tool: "render_host_binding_config",
