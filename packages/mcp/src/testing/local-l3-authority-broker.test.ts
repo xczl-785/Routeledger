@@ -24,7 +24,7 @@ const profileFor = async (
 ): Promise<L3AuthorizationProfileV2> => {
   const identity = await buildLocalL3AuthorityBindingIdentity(binding);
   const base: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profileId,
     status: "active",
     binding: identity,
@@ -32,7 +32,7 @@ const profileFor = async (
     modeEpoch: 1,
     profileRevision: 1,
     delegatedPolicy: null,
-    limits: { maxGrantTtlSeconds: 300, maxGrantUses: 5 },
+    limits: { maxAuthorizationTtlSeconds: 300 },
     createdAt: "2026-08-11T00:00:00.000Z",
     updatedAt: "2026-08-11T00:00:00.000Z"
   };

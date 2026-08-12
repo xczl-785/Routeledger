@@ -8,6 +8,7 @@ import {
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
   type L3AuthorizationGrantStore,
+  type ExactAuthorizationStore,
   type L3AuthorizationGrant,
   type L3AuthorizationEvaluationContext,
   type L3AuthorizationProfileV2,
@@ -155,6 +156,7 @@ export interface RouteLedgerMcpRegistryOptions {
   };
   l3Authorization?: {
     grantStore: L3AuthorizationGrantStore;
+    exactStore?: ExactAuthorizationStore;
     interaction: RouteLedgerMcpAuthorizationInteraction;
     sessionId: string;
     /** Host-owned V2 profile selected from the verified project/root binding. */
@@ -957,6 +959,7 @@ const createService = (
   storageTestHooks?: JsonFirstStorageTestHooks,
   authorization?: {
     grantStore: L3AuthorizationGrantStore;
+    exactStore?: ExactAuthorizationStore;
     sessionId: string;
     clientId?: string;
     subjectId: string;
@@ -978,6 +981,9 @@ const createService = (
       : {
           l3Authorization: {
             grantStore: authorization.grantStore,
+            ...(authorization.exactStore === undefined
+              ? {}
+              : { exactStore: authorization.exactStore }),
             audience: "routeledger-core",
             subjectId: authorization.subjectId,
             routeledgerRootDigest: digestRouteLedgerRoot(routeledgerRoot),
@@ -1383,6 +1389,9 @@ export const createRouteLedgerMcpRegistry = (
             ? undefined
             : {
                 grantStore: options.l3Authorization.grantStore,
+                ...(options.l3Authorization.exactStore === undefined
+                  ? {}
+                  : { exactStore: options.l3Authorization.exactStore }),
                 sessionId: options.l3Authorization.sessionId,
                 ...(options.l3Authorization.profile === undefined
                   ? {}
@@ -1993,7 +2002,7 @@ export const createRouteLedgerMcpRegistry = (
             minimum: 1,
             maximum: 100
           }),
-          maxGrantTtlSeconds: integerSchema("Maximum grant TTL. Defaults to 3600 seconds.", {
+          maxAuthorizationTtlSeconds: integerSchema("Maximum grant TTL. Defaults to 3600 seconds.", {
             minimum: 30,
             maximum: 86400
           })
@@ -2037,7 +2046,7 @@ export const createRouteLedgerMcpRegistry = (
               })
             : null;
         const profileBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-          schemaVersion: 2,
+          schemaVersion: 3,
           profileId: `profile-${input.projectId}-${randomUUID()}`,
           status: "active",
           binding,
@@ -2046,8 +2055,7 @@ export const createRouteLedgerMcpRegistry = (
           profileRevision: 1,
           delegatedPolicy,
           limits: {
-            maxGrantTtlSeconds: input.maxGrantTtlSeconds ?? 3600,
-            maxGrantUses: maxUses
+            maxAuthorizationTtlSeconds: input.maxAuthorizationTtlSeconds ?? 3600
           },
           createdAt: now.toISOString(),
           updatedAt: now.toISOString()

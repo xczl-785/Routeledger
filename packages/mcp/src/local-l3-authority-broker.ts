@@ -8,7 +8,8 @@ import {
   type L3ActionType,
   type L3AuthorizationGrant,
   type L3AuthorizationGrantStore,
-  type L3AuthorizationProfileV2
+  type L3AuthorizationProfileV2,
+  type ExactAuthorizationStore
 } from "@routeledger/core";
 
 import {
@@ -64,6 +65,7 @@ export interface BoundLocalL3Authority {
   bindingKey: string;
   profile: L3AuthorizationProfileV2;
   grantStore: L3AuthorizationGrantStore;
+  exactStore: ExactAuthorizationStore;
   trustedClientId?: string;
   delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
 }
@@ -152,6 +154,7 @@ export const createLocalL3AuthorityBroker = (
       bindingKey: selected.bindingKey,
       profile: runtime.profile,
       grantStore: runtime.grantStore,
+      exactStore: runtime.exactStore,
       ...(runtime.trustedClientId === undefined
         ? {}
         : { trustedClientId: runtime.trustedClientId }),
@@ -219,16 +222,15 @@ export const createLocalL3AuthorityBroker = (
       if (
         !Number.isInteger(input.ttlSeconds) ||
         input.ttlSeconds < 30 ||
-        input.ttlSeconds > selected.profile.limits.maxGrantTtlSeconds
+        input.ttlSeconds > selected.profile.limits.maxAuthorizationTtlSeconds
       ) {
         throw new Error("The preauthorization TTL exceeds the active profile limit.");
       }
       if (
         !Number.isInteger(input.maxUses) ||
-        input.maxUses <= 0 ||
-        input.maxUses > selected.profile.limits.maxGrantUses
+        input.maxUses !== 1
       ) {
-        throw new Error("The preauthorization use budget exceeds the active profile limit.");
+        throw new Error("Preauthorization can only mint one exact authorization per proposal.");
       }
       if (
         (input.scope === "session" && (input.sessionId === undefined || input.sessionId.trim().length === 0)) ||

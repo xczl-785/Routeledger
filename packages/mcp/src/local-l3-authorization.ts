@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   digestL3AuthorizationPolicy,
   evaluateL3AuthorizationPolicy,
+  MemoryExactAuthorizationStore,
   validateL3AuthorizationProfile,
   validateL3AuthorizationGrant,
   validateL3AuthorizationPolicy,
@@ -20,7 +21,9 @@ import {
   type L3AuthorizationGrantStore,
   type L3AuthorizationPolicy,
   type L3AuthorizationProfileV2,
-  type L3AuthorizationReceiptBinding
+  type L3AuthorizationReceiptBinding,
+  type ExactAuthorizationStore,
+  type ExactAuthorizationStoreState
 } from "@routeledger/core";
 
 import type {
@@ -29,7 +32,7 @@ import type {
 } from "./index.js";
 
 export const LOCAL_L3_AUTHORITY_SCHEMA_VERSION = 1 as const;
-export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 1 as const;
+export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 2 as const;
 
 export interface LocalL3AuthorityConfig {
   schemaVersion: typeof LOCAL_L3_AUTHORITY_SCHEMA_VERSION;
@@ -43,6 +46,7 @@ export interface LocalL3AuthorityConfig {
 export interface LocalL3AuthorityRuntime {
   authority: RouteLedgerMcpDelegatedAuthorizationAuthority;
   grantStore: L3AuthorizationGrantStore;
+  exactStore: ExactAuthorizationStore;
   trustedClientId?: string;
   configPath: string;
   statePath: string;
@@ -52,6 +56,7 @@ export interface LocalL3AuthorityRuntime {
 export interface LocalL3AuthorityProfileRuntime {
   profile: L3AuthorizationProfileV2;
   grantStore: L3AuthorizationGrantStore;
+  exactStore: ExactAuthorizationStore;
   trustedClientId?: string;
   statePath: string;
   delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
@@ -108,6 +113,12 @@ interface LocalL3AuthorityState {
   reservedGrants: Record<string, L3AuthorizationGrant>;
   grants: Record<string, L3AuthorizationGrant>;
   receipts: Record<string, L3AuthorizationConsumptionReceipt>;
+  legacyTombstones: Record<string, {
+    recordKind: "grant" | "reserved_grant";
+    reason: "legacy_reauthorization_required";
+    migratedAt: string;
+  }>;
+  exactStore: ExactAuthorizationStoreState;
 }
 
 interface LockMetadata {
@@ -134,7 +145,9 @@ const emptyState = (): LocalL3AuthorityState => ({
   policyUsages: {},
   reservedGrants: {},
   grants: {},
-  receipts: {}
+  receipts: {},
+  legacyTombstones: {},
+  exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
 });
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -264,6 +277,56 @@ const validateConfig = (
   return value as unknown as LocalL3AuthorityConfig;
 };
 
+const migrateLegacyState = (value: Record<string, unknown>): LocalL3AuthorityState => {
+  if (
+    value.schemaVersion !== 1 ||
+    !Number.isInteger(value.revision) ||
+    !isObject(value.activePolicies) ||
+    !isObject(value.policyUsages) ||
+    !isObject(value.reservedGrants) ||
+    !isObject(value.grants) ||
+    !isObject(value.receipts)
+  ) {
+    throw new Error("Local L3 authority state is invalid and cannot be trusted.");
+  }
+  const legacy = parseState({
+    ...value,
+    schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
+    legacyTombstones: {},
+    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+  });
+  const migratedAt = new Date().toISOString();
+  const tombstones: LocalL3AuthorityState["legacyTombstones"] = {};
+  const revokedGrants = Object.fromEntries(
+    Object.entries(legacy.grants).map(([id, grant]) => {
+      tombstones[`grant:${id}`] = {
+        recordKind: "grant",
+        reason: "legacy_reauthorization_required",
+        migratedAt
+      };
+      return [id, { ...grant, status: "revoked", revokedAt: migratedAt }];
+    })
+  );
+  for (const id of Object.keys(legacy.reservedGrants)) {
+    tombstones[`reserved_grant:${id}`] = {
+      recordKind: "reserved_grant",
+      reason: "legacy_reauthorization_required",
+      migratedAt
+    };
+  }
+  return {
+    schemaVersion: 2,
+    revision: legacy.revision + 1,
+    activePolicies: legacy.activePolicies,
+    policyUsages: legacy.policyUsages,
+    reservedGrants: {},
+    grants: revokedGrants as Record<string, L3AuthorizationGrant>,
+    receipts: legacy.receipts,
+    legacyTombstones: tombstones,
+    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+  };
+};
+
 const parseState = (value: unknown): LocalL3AuthorityState => {
   if (
     !isObject(value) ||
@@ -274,6 +337,7 @@ const parseState = (value: unknown): LocalL3AuthorityState => {
     !isObject(value.reservedGrants) ||
     !isObject(value.grants) ||
     !isObject(value.receipts)
+    || !isObject(value.legacyTombstones) || !isObject(value.exactStore)
   ) {
     throw new Error("Local L3 authority state is invalid and cannot be trusted.");
   }
@@ -361,6 +425,23 @@ const parseState = (value: unknown): LocalL3AuthorityState => {
       throw new Error("Local L3 authority receipt state is invalid and cannot be trusted.");
     }
   }
+  for (const [recordId, tombstone] of Object.entries(value.legacyTombstones)) {
+    if (
+      !isNonEmptyString(recordId) ||
+      !isObject(tombstone) ||
+      (tombstone.recordKind !== "grant" && tombstone.recordKind !== "reserved_grant") ||
+      tombstone.reason !== "legacy_reauthorization_required" ||
+      !isNonEmptyString(tombstone.migratedAt) ||
+      Number.isNaN(Date.parse(tombstone.migratedAt))
+    ) {
+      throw new Error("Local L3 authority legacy tombstone is invalid and cannot be trusted.");
+    }
+  }
+  try {
+    new MemoryExactAuthorizationStore(value.exactStore as unknown as ExactAuthorizationStoreState);
+  } catch {
+    throw new Error("Local exact authorization state is invalid and cannot be trusted.");
+  }
   return value as unknown as LocalL3AuthorityState;
 };
 
@@ -388,12 +469,25 @@ class LocalL3AuthorityStateFile {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await this.writeAtomic(emptyState());
     }
-    await this.read();
+    const lock = await this.acquireLock();
+    try {
+      await assertPrivateExistingFile(this.statePath, "Local L3 authority state");
+      const raw = JSON.parse(await fs.readFile(this.statePath, "utf8")) as unknown;
+      if (isObject(raw) && raw.schemaVersion === 1) {
+        const migrated = migrateLegacyState(raw);
+        await lock.assertOwned();
+        await this.writeAtomic(migrated);
+      } else {
+        parseState(raw);
+      }
+    } finally {
+      await lock.release();
+    }
   }
 
   async read(): Promise<LocalL3AuthorityState> {
     await assertPrivateExistingFile(this.statePath, "Local L3 authority state");
-    return parseState(JSON.parse(await fs.readFile(this.statePath, "utf8")));
+    return parseState(JSON.parse(await fs.readFile(this.statePath, "utf8")) as unknown);
   }
 
   async activatePolicy(
@@ -437,6 +531,7 @@ class LocalL3AuthorityStateFile {
     try {
       const state = await this.read();
       const expectedRevision = state.revision;
+      const before = structuredClone(state);
       await this.testHooks?.afterStateRead?.();
       const result = await mutate(state);
       await lock.assertOwned();
@@ -444,6 +539,7 @@ class LocalL3AuthorityStateFile {
       if (current.revision !== expectedRevision) {
         throw new Error("Local L3 authority state revision changed during a locked transaction.");
       }
+      if (isDeepStrictEqual(state, before)) return result;
       state.revision = expectedRevision + 1;
       await lock.assertOwned();
       await this.writeAtomic(state);
@@ -643,6 +739,62 @@ class LocalL3AuthorityStateFile {
         await directory.close();
       }
     }
+  }
+}
+
+class PersistentLocalExactAuthorizationStore implements ExactAuthorizationStore {
+  constructor(private readonly stateFile: LocalL3AuthorityStateFile) {}
+
+  private async run<T>(operation: (store: MemoryExactAuthorizationStore) => Promise<T>): Promise<T> {
+    return this.stateFile.transact(async (state) => {
+      const store = new MemoryExactAuthorizationStore(state.exactStore);
+      const result = await operation(store);
+      state.exactStore = store.exportState();
+      return result;
+    });
+  }
+
+  issue(candidate: Parameters<ExactAuthorizationStore["issue"]>[0]) {
+    return this.run((store) => store.issue(candidate));
+  }
+  get(authorizationId: string) {
+    return this.run((store) => store.get(authorizationId));
+  }
+  getReceipt(authorizationId: string) {
+    return this.run((store) => store.getReceipt(authorizationId));
+  }
+  acquireCommitOwnership(authorizationId: string, ownerId: string) {
+    return this.run((store) => store.acquireCommitOwnership(authorizationId, ownerId));
+  }
+  releaseCommitOwnership(authorizationId: string, ownerId: string) {
+    return this.run((store) => store.releaseCommitOwnership(authorizationId, ownerId));
+  }
+  consumeAndRecordReceipt(input: Parameters<ExactAuthorizationStore["consumeAndRecordReceipt"]>[0]) {
+    return this.run((store) => store.consumeAndRecordReceipt(input));
+  }
+  verifyReceipt(binding: Parameters<ExactAuthorizationStore["verifyReceipt"]>[0]) {
+    return this.run((store) => store.verifyReceipt(binding));
+  }
+  claimCommit(
+    binding: Parameters<ExactAuthorizationStore["claimCommit"]>[0],
+    claim: Parameters<ExactAuthorizationStore["claimCommit"]>[1]
+  ) {
+    return this.run((store) => store.claimCommit(binding, claim));
+  }
+  finalizeCommit(
+    binding: Parameters<ExactAuthorizationStore["finalizeCommit"]>[0],
+    claimId: string,
+    committedAt: string
+  ) {
+    return this.run((store) => store.finalizeCommit(binding, claimId, committedAt));
+  }
+  revoke(authorizationId: string, revokedAt: string) {
+    return this.run((store) => store.revoke(authorizationId, revokedAt));
+  }
+  revokeProfileReceipts(profileId: string, beforeModeEpoch: number, revokedAt: string) {
+    return this.run((store) =>
+      store.revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt)
+    );
   }
 }
 
@@ -1027,6 +1179,7 @@ export const loadLocalL3AuthorityRuntime = async (
   const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
   await stateFile.initialize();
   const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
+  const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
   const policyDigest = digestL3AuthorizationPolicy(config.policy);
   await stateFile.activatePolicy(config.authorityId, policyDigest, new Date().toISOString());
   const authorityHandle = `local:${config.authorityId}:${policyDigest}`;
@@ -1136,6 +1289,7 @@ export const loadLocalL3AuthorityRuntime = async (
   return {
     authority,
     grantStore,
+    exactStore,
     ...(config.trustedClientId === undefined
       ? {}
       : { trustedClientId: config.trustedClientId }),
@@ -1169,9 +1323,11 @@ export const loadLocalL3AuthorityProfileRuntime = async (
   const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
   await stateFile.initialize();
   const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
+  const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
   const baseRuntime = {
     profile: structuredClone(input.profile),
     grantStore,
+    exactStore,
     ...(input.profile.binding.trustedClientId === null
       ? {}
       : { trustedClientId: input.profile.binding.trustedClientId }),
@@ -1250,7 +1406,7 @@ export const loadLocalL3AuthorityProfileRuntime = async (
         expiresAt: minimumIsoTimestamp(
           rule.conditions.expiresAt,
           new Date(
-            Date.parse(now) + input.profile.limits.maxGrantTtlSeconds * 1000
+            Date.parse(now) + input.profile.limits.maxAuthorizationTtlSeconds * 1000
           ).toISOString()
         ),
         maxUses: 1,

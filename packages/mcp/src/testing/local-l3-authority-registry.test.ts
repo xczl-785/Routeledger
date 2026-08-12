@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +19,16 @@ import {
 } from "../local-l3-authority-registry.js";
 
 const roots: string[] = [];
+
+const canonicalize = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalize(item)]));
+  }
+  return value;
+};
 
 const createFixture = async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-l3-registry-"));
@@ -45,7 +56,7 @@ const createProfile = (
   overrides: Partial<Omit<L3AuthorizationProfileV2, "profileDigest" | "binding">> = {}
 ): L3AuthorizationProfileV2 => {
   const base: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profileId: "profile-1",
     status: "active",
     binding,
@@ -53,7 +64,7 @@ const createProfile = (
     modeEpoch: 1,
     profileRevision: 1,
     delegatedPolicy: null,
-    limits: { maxGrantTtlSeconds: 300, maxGrantUses: 5 },
+    limits: { maxAuthorizationTtlSeconds: 300 },
     createdAt: "2026-08-11T00:00:00.000Z",
     updatedAt: "2026-08-11T00:00:00.000Z",
     ...overrides
@@ -88,6 +99,71 @@ describe("local L3 authority profile registry", () => {
     await expect(
       registry.bind({ ...fixture.binding, projectId: "project-without-profile" })
     ).resolves.toBeNull();
+  });
+
+  it("migrates a trusted v2 profile to v3 with epoch rotation and exact-only limits", async () => {
+    const fixture = await createFixture();
+    const identity = await buildLocalL3AuthorityBindingIdentity(fixture.binding);
+    const installed = await installLocalL3AuthorizationProfile({
+      registryRoot: fixture.registryRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.routeledgerRoot,
+      binding: fixture.binding,
+      profile: createProfile(identity)
+    });
+    const legacyBase = {
+      schemaVersion: 2,
+      profileId: "profile-legacy",
+      status: "active",
+      binding: identity,
+      mode: "interactive",
+      modeEpoch: 4,
+      profileRevision: 7,
+      delegatedPolicy: null,
+      limits: { maxGrantTtlSeconds: 600, maxGrantUses: 16 },
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z"
+    };
+    const effective = {
+      schemaVersion: legacyBase.schemaVersion,
+      profileId: legacyBase.profileId,
+      status: legacyBase.status,
+      binding: legacyBase.binding,
+      mode: legacyBase.mode,
+      modeEpoch: legacyBase.modeEpoch,
+      delegatedPolicy: legacyBase.delegatedPolicy,
+      limits: legacyBase.limits
+    };
+    const legacy = {
+      ...legacyBase,
+      profileDigest: crypto.createHash("sha256")
+        .update(JSON.stringify(canonicalize(effective)))
+        .digest("hex")
+    };
+    const profilePath = path.join(
+      fixture.registryRoot,
+      "bindings",
+      installed.bindingKey,
+      "profile.json"
+    );
+    await fs.writeFile(profilePath, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
+
+    const registry = await loadLocalL3AuthorityProfileRegistry({
+      registryRoot: fixture.registryRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.routeledgerRoot
+    });
+    const migrated = await registry.bind(fixture.binding);
+    expect(migrated?.profile).toMatchObject({
+      schemaVersion: 3,
+      modeEpoch: 5,
+      profileRevision: 8,
+      limits: { maxAuthorizationTtlSeconds: 600 }
+    });
+    const persisted = JSON.parse(await fs.readFile(profilePath, "utf8")) as Record<string, unknown>;
+    expect(persisted.schemaVersion).toBe(3);
+    expect(JSON.stringify(persisted)).not.toContain("maxGrantUses");
+    expect(JSON.stringify(persisted)).not.toContain("maxGrantTtlSeconds");
   });
 
   it("derives the same root digests from equivalent physical path spellings", async () => {

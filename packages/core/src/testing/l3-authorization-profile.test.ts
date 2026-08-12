@@ -31,7 +31,7 @@ const profile = (
     clientId: binding.trustedClientId
   });
   const base = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     profileId: "profile-1",
     status: "active" as const,
     binding,
@@ -39,7 +39,7 @@ const profile = (
     modeEpoch: 1,
     profileRevision: 1,
     delegatedPolicy: policy,
-    limits: { maxGrantTtlSeconds: 86_400, maxGrantUses: 100 },
+    limits: { maxAuthorizationTtlSeconds: 86_400 },
     createdAt: "2026-08-11T04:00:00.000Z",
     updatedAt: "2026-08-11T04:00:00.000Z"
   };
@@ -78,7 +78,7 @@ describe("L3 authorization profile v2", () => {
           alwaysPrompt: [...original.delegatedPolicy!.alwaysPrompt, "close_version"]
         }
       }),
-      profile({ limits: { ...original.limits, maxGrantUses: 99 } }),
+      profile({ limits: { maxAuthorizationTtlSeconds: 3600 } }),
       profile({ status: "disabled" })
     ];
     for (const variant of variants) expect(variant.profileDigest).not.toBe(original.profileDigest);

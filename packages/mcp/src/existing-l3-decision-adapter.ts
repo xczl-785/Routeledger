@@ -345,7 +345,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
         now.getTime() +
           Math.min(
             scope === "session" ? 8 * 60 * 60 * 1000 : 60 * 60 * 1000,
-            (this.options.profile?.limits.maxGrantTtlSeconds ?? 8 * 60 * 60) * 1000
+            (this.options.profile?.limits.maxAuthorizationTtlSeconds ?? 8 * 60 * 60) * 1000
           )
       ).toISOString(),
       maxUses: scope === "session" ? 16 : 1,

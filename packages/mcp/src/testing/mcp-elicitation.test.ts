@@ -41,7 +41,7 @@ const profileFor = (input: {
     .update(fs.realpathSync.native(input.projectRoot))
     .digest("hex")}`;
   const base: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profileId: `profile-${input.mode}`,
     status: "active",
     binding: {
@@ -56,7 +56,7 @@ const profileFor = (input: {
     modeEpoch: 1,
     profileRevision: 1,
     delegatedPolicy: null,
-    limits: { maxGrantTtlSeconds: 300, maxGrantUses: 4 },
+    limits: { maxAuthorizationTtlSeconds: 300 },
     createdAt: "2026-08-11T00:00:00.000Z",
     updatedAt: "2026-08-11T00:00:00.000Z"
   };
@@ -623,7 +623,7 @@ describe("MCP L3 authorization elicitation", () => {
       expect(structured(recommendation).data).toMatchObject({
         candidateOnly: true,
         profile: {
-          schemaVersion: 2,
+          schemaVersion: 3,
           mode: "interactive",
           modeEpoch: 1,
           profileRevision: 1,

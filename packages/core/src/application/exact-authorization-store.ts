@@ -68,12 +68,18 @@ export interface ExactAuthorizationStore {
   ): Promise<number>;
 }
 
-type StoredAuthorization = {
+export type StoredExactAuthorization = {
   candidate: ExactAuthorizationCandidate;
   status: ExactAuthorizationStatus;
   artifactId: string | null;
   revokedAt: string | null;
 };
+
+export interface ExactAuthorizationStoreState {
+  authorizations: Record<string, StoredExactAuthorization>;
+  receipts: Record<string, ExactAuthorizationReceipt>;
+  commitOwners: Record<string, string>;
+}
 
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -157,9 +163,41 @@ const buildReceiptBinding = (
 });
 
 export class MemoryExactAuthorizationStore implements ExactAuthorizationStore {
-  private readonly authorizations = new Map<string, StoredAuthorization>();
+  private readonly authorizations = new Map<string, StoredExactAuthorization>();
   private readonly receipts = new Map<string, ExactAuthorizationReceipt>();
   private readonly commitOwners = new Map<string, string>();
+
+  constructor(state?: ExactAuthorizationStoreState) {
+    if (state === undefined) return;
+    for (const [id, stored] of Object.entries(state.authorizations)) {
+      validateCandidate(stored.candidate);
+      if (id !== stored.candidate.authorizationId) {
+        throw new Error("Exact authorization state key mismatch.");
+      }
+      this.authorizations.set(id, clone(stored));
+    }
+    for (const [artifactId, receipt] of Object.entries(state.receipts)) {
+      if (artifactId !== receipt.artifactId) throw new Error("Exact receipt state key mismatch.");
+      this.receipts.set(artifactId, clone(receipt));
+    }
+    for (const [authorizationId, ownerId] of Object.entries(state.commitOwners)) {
+      requireNonEmpty(authorizationId, "authorizationId");
+      requireNonEmpty(ownerId, "commit ownerId");
+      this.commitOwners.set(authorizationId, ownerId);
+    }
+  }
+
+  exportState(): ExactAuthorizationStoreState {
+    return {
+      authorizations: Object.fromEntries(
+        [...this.authorizations.entries()].map(([id, value]) => [id, clone(value)])
+      ),
+      receipts: Object.fromEntries(
+        [...this.receipts.entries()].map(([id, value]) => [id, clone(value)])
+      ),
+      commitOwners: Object.fromEntries(this.commitOwners.entries())
+    };
+  }
 
   async issue(candidate: ExactAuthorizationCandidate): Promise<void> {
     validateCandidate(candidate);

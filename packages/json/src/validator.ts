@@ -29,6 +29,7 @@ import {
   PROJECT_DOCUMENT_PATH,
   ROUTELEDGER_JSON_ROOT,
   ROUTELEDGER_SCHEMA_VERSION,
+  ROUTELEDGER_READABLE_SCHEMA_VERSIONS,
   SCHEMA_DOCUMENT_PATH
 } from "./constants.js";
 
@@ -777,12 +778,17 @@ const validateDocumentContract = (
     );
   }
 
-  if (contract.requireSchemaVersion && record.schema_version !== ROUTELEDGER_SCHEMA_VERSION) {
+  if (
+    contract.requireSchemaVersion &&
+    !ROUTELEDGER_READABLE_SCHEMA_VERSIONS.includes(
+      record.schema_version as (typeof ROUTELEDGER_READABLE_SCHEMA_VERSIONS)[number]
+    )
+  ) {
     issues.push(
       createIssue(
         "error",
         "JSON_DOCUMENT_SCHEMA_VERSION_INVALID",
-        `JSON 文档 schema_version 必须等于 ${ROUTELEDGER_SCHEMA_VERSION}`,
+        `JSON 文档 schema_version 必须是可读取版本 ${ROUTELEDGER_READABLE_SCHEMA_VERSIONS.join(", ")}`,
         {
           path: documentPath,
           details: {
@@ -1705,7 +1711,10 @@ export const validateProjectAggregateSnapshot = (
       artifact.policyId !== undefined &&
       artifact.policyDigest !== undefined &&
       artifact.clientId !== undefined &&
-      artifact.sessionId !== undefined &&
+      (artifact.routeledgerRootDigest !== undefined || artifact.sessionId !== undefined) &&
+      (artifact.routeledgerRootDigest === undefined ||
+        (typeof artifact.routeledgerRootDigest === "string" &&
+          artifact.routeledgerRootDigest.length > 0)) &&
       (artifact.approvalSource !== "delegated_policy" ||
         (typeof artifact.policyId === "string" &&
           artifact.policyId.length > 0 &&

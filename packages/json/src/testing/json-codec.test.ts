@@ -51,6 +51,14 @@ const readFixtureDocuments = (): RouteLedgerJsonDocument[] => {
   return documents.sort((left, right) => left.path.localeCompare(right.path, "en"));
 };
 
+const asCurrentSchemaDocuments = (
+  documents: RouteLedgerJsonDocument[]
+): RouteLedgerJsonDocument[] => documents.map((document) => {
+  const value = JSON.parse(document.content) as Record<string, unknown>;
+  if (typeof value.schema_version === "number") value.schema_version = 2;
+  return { ...document, content: `${JSON.stringify(value, null, 2)}\n` };
+});
+
 const collectObjectKeysDeep = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.flatMap((entry) => collectObjectKeysDeep(entry));
@@ -124,7 +132,7 @@ describe("@routeledger/json canonical codec", () => {
     );
     const joinedContent = documents.map((document) => document.content).join("\n");
 
-    expect(documents).toEqual(readFixtureDocuments());
+    expect(documents).toEqual(asCurrentSchemaDocuments(readFixtureDocuments()));
     expect(documents.map((document) => document.path)).toEqual(
       [...documents.map((document) => document.path)].sort((left, right) =>
         left.localeCompare(right, "en")
@@ -431,7 +439,7 @@ describe("@routeledger/json canonical codec", () => {
     });
 
     const reencoded = encodeProjectAggregateToJsonDocuments(decoded);
-    expect(reencoded).toEqual(fixtureDocuments);
+    expect(reencoded).toEqual(asCurrentSchemaDocuments(fixtureDocuments));
   });
 
   it("round-trips trusted authorization provenance while preserving legacy artifacts", () => {

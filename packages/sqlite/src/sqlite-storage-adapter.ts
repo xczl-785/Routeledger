@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type {
   Actor,
   ApprovalArtifact,
@@ -717,34 +719,107 @@ interface ApprovalArtifactRow {
   created_at: string;
   expires_at: string;
   consumed_at: string | null;
-  authorization_provenance_json: string | null;
+  authorization_record_json: string | null;
 }
 
 type ApprovalArtifactAuthorizationProvenance = Pick<
   ApprovalArtifact,
   | "authorizationGrantId"
+  | "routeledgerRootDigest"
   | "approvalSource"
   | "policyId"
   | "policyDigest"
+  | "profileId"
+  | "modeEpoch"
+  | "profileDigest"
   | "hostKind"
   | "clientId"
   | "sessionId"
 >;
 
+type ApprovalArtifactAuthorizationRecord =
+  | { kind: "legacy_audit"; provenance: ApprovalArtifactAuthorizationProvenance }
+  | {
+      kind: "exact_v2";
+      provenance: ApprovalArtifactAuthorizationProvenance;
+      binding: {
+        proposalId: string;
+        projectId: string;
+        routeledgerRootDigest: string;
+        actionType: ApprovalArtifact["actionType"];
+        targetId: string;
+        operationDigest: ApprovalArtifact["digest"];
+      };
+    };
+
 const getApprovalArtifactAuthorizationProvenance = (
   artifact: ApprovalArtifact
-): ApprovalArtifactAuthorizationProvenance | null =>
-  artifact.authorizationGrantId === undefined
-    ? null
-    : {
+): ApprovalArtifactAuthorizationRecord | null => {
+  const profileCount = [artifact.profileId, artifact.modeEpoch, artifact.profileDigest]
+    .filter((value) => value !== undefined).length;
+  if (profileCount !== 0 && profileCount !== 3) {
+    throw new Error("Approval authorization profile provenance must be all present or all absent.");
+  }
+  if (artifact.authorizationGrantId === undefined) return null;
+  const provenance: ApprovalArtifactAuthorizationProvenance = {
         authorizationGrantId: artifact.authorizationGrantId,
+        routeledgerRootDigest: artifact.routeledgerRootDigest,
         approvalSource: artifact.approvalSource,
         policyId: artifact.policyId,
         policyDigest: artifact.policyDigest,
+        profileId: artifact.profileId,
+        modeEpoch: artifact.modeEpoch,
+        profileDigest: artifact.profileDigest,
         hostKind: artifact.hostKind,
         clientId: artifact.clientId,
         sessionId: artifact.sessionId
       };
+  return artifact.routeledgerRootDigest === undefined
+    ? { kind: "legacy_audit", provenance }
+    : {
+        kind: "exact_v2",
+        provenance,
+        binding: {
+          proposalId: artifact.pendingOperationId,
+          projectId: artifact.projectId,
+          routeledgerRootDigest: artifact.routeledgerRootDigest,
+          actionType: artifact.actionType,
+          targetId: artifact.targetId,
+          operationDigest: artifact.digest
+        }
+      };
+};
+
+const parseApprovalArtifactAuthorizationRecord = (
+  value: string,
+  row: ApprovalArtifactRow
+): ApprovalArtifactAuthorizationProvenance => {
+  const parsed = parseJson<ApprovalArtifactAuthorizationRecord | ApprovalArtifactAuthorizationProvenance>(value);
+  const wrapped = "kind" in parsed
+    ? parsed
+    : { kind: "legacy_audit" as const, provenance: parsed };
+  if (wrapped.kind === "exact_v2" && (
+    wrapped.binding.proposalId !== row.pending_operation_id ||
+    wrapped.binding.projectId !== row.project_id ||
+    wrapped.binding.actionType !== row.action_type ||
+    wrapped.binding.targetId !== row.target_id ||
+    !isDeepStrictEqual(wrapped.binding.operationDigest, parseJson(row.digest_json))
+  )) {
+    throw new Error("Exact SQLite approval authorization record binding mismatch.");
+  }
+  const record = {
+    ...wrapped.provenance,
+    ...(wrapped.kind === "exact_v2"
+      ? { routeledgerRootDigest: wrapped.binding.routeledgerRootDigest }
+      : {})
+  };
+  const profileCount = [record.profileId, record.modeEpoch, record.profileDigest]
+    .filter((item) => item !== undefined).length;
+  if (profileCount !== 0 && profileCount !== 3) {
+    throw new Error("Approval authorization profile provenance must be all present or all absent.");
+  }
+  return record;
+};
 
 export class SQLiteStorageAdapter implements StoragePort {
   readonly db: BetterSqlite3.Database;
@@ -1242,7 +1317,7 @@ export class SQLiteStorageAdapter implements StoragePort {
           created_at,
           expires_at,
           consumed_at,
-          authorization_provenance_json
+          authorization_record_json
         FROM approval_artifacts
         WHERE project_id = ?
         ORDER BY created_at ASC, id ASC`
@@ -1266,11 +1341,9 @@ export class SQLiteStorageAdapter implements StoragePort {
           createdAt: row.created_at,
           expiresAt: row.expires_at,
           consumedAt: row.consumed_at,
-          ...(row.authorization_provenance_json === null
+          ...(row.authorization_record_json === null
             ? {}
-            : parseJson<ApprovalArtifactAuthorizationProvenance>(
-                row.authorization_provenance_json
-              ))
+            : parseApprovalArtifactAuthorizationRecord(row.authorization_record_json, row))
         })
       );
 
@@ -1758,7 +1831,7 @@ export class SQLiteStorageAdapter implements StoragePort {
         created_at,
         expires_at,
         consumed_at,
-        authorization_provenance_json
+        authorization_record_json
       ) VALUES (
         @id,
         @schema_version,
@@ -1775,7 +1848,7 @@ export class SQLiteStorageAdapter implements StoragePort {
         @created_at,
         @expires_at,
         @consumed_at,
-        @authorization_provenance_json
+        @authorization_record_json
       )
     `);
 
@@ -2037,7 +2110,7 @@ export class SQLiteStorageAdapter implements StoragePort {
           created_at: approvalArtifact.createdAt,
           expires_at: approvalArtifact.expiresAt,
           consumed_at: approvalArtifact.consumedAt,
-          authorization_provenance_json:
+          authorization_record_json:
             getApprovalArtifactAuthorizationProvenance(approvalArtifact) === null
               ? null
               : serializeJson(getApprovalArtifactAuthorizationProvenance(approvalArtifact))
