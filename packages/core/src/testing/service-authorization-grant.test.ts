@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MemoryExactAuthorizationStore,
   MemoryL3AuthorizationGrantStore,
   RouteLedgerService,
   type L3AuthorizationGrant
@@ -43,12 +44,12 @@ const createGrant = (
   ...overrides
 });
 
-class FailOnceFinalizeGrantStore extends MemoryL3AuthorizationGrantStore {
+class FailOnceFinalizeExactStore extends MemoryExactAuthorizationStore {
   private failNextFinalize = true;
 
   override finalizeCommit(
-    ...args: Parameters<MemoryL3AuthorizationGrantStore["finalizeCommit"]>
-  ): ReturnType<MemoryL3AuthorizationGrantStore["finalizeCommit"]> {
+    ...args: Parameters<MemoryExactAuthorizationStore["finalizeCommit"]>
+  ): ReturnType<MemoryExactAuthorizationStore["finalizeCommit"]> {
     if (this.failNextFinalize) {
       this.failNextFinalize = false;
       return Promise.reject(new Error("injected finalize failure"));
@@ -60,13 +61,15 @@ class FailOnceFinalizeGrantStore extends MemoryL3AuthorizationGrantStore {
 const setup = async (
   storage: MemoryStorageAdapter = new MemoryStorageAdapter(),
   profile?: { profileId: string; modeEpoch: number; profileDigest: string },
-  grantStore: MemoryL3AuthorizationGrantStore = new MemoryL3AuthorizationGrantStore()
+  grantStore: MemoryL3AuthorizationGrantStore = new MemoryL3AuthorizationGrantStore(),
+  exactStore: MemoryExactAuthorizationStore = new MemoryExactAuthorizationStore()
 ) => {
   const service = new RouteLedgerService({
     storage,
     deps: createTestDependencies(),
     l3Authorization: {
       grantStore,
+      exactStore,
       audience: "routeledger-core",
       subjectId: "local-user",
       routeledgerRootDigest: "sha256:root-1",
@@ -84,10 +87,45 @@ const setup = async (
     reason: "start version",
     actor: TEST_ACTOR
   });
-  return { storage, grantStore, service, prepared, proposal };
+  return { storage, grantStore, exactStore, service, prepared, proposal };
 };
 
 describe("RouteLedgerService trusted L3 authorization", () => {
+  it("runs profile-less host admission through the same durable claim/finalize lifecycle", async () => {
+    const fixture = await setup();
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId],
+        source: "host_admission",
+        issuer: "codex-native-tool-admission",
+        decisionId: "codex-tool-call-1"
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      grantId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    await expect(
+      fixture.service.commitL3Operation({
+        projectId: fixture.prepared.projectId,
+        pendingOperationId: fixture.proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).resolves.toMatchObject({ replayed: false });
+    await expect(fixture.exactStore.getReceipt("grant-1")).resolves.toMatchObject({
+      authorizationId: "grant-1",
+      artifactId: artifact.id,
+      source: "host_admission",
+      status: "committed",
+      commitClaimId: expect.any(String),
+      committedAt: expect.any(String)
+    });
+  });
+
   it("rejects a V2 artifact from an old profile epoch before claiming commit", async () => {
     const profileV1 = {
       profileId: "profile-1",
@@ -113,6 +151,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         grantStore: fixture.grantStore,
+        exactStore: fixture.exactStore,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -143,8 +182,9 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       modeEpoch: 1,
       profileDigest: "profile-digest-1"
     };
-    const grantStore = new FailOnceFinalizeGrantStore();
-    const fixture = await setup(new MemoryStorageAdapter(), profile, grantStore);
+    const grantStore = new MemoryL3AuthorizationGrantStore();
+    const exactStore = new FailOnceFinalizeExactStore();
+    const fixture = await setup(new MemoryStorageAdapter(), profile, grantStore, exactStore);
     await grantStore.issue(
       createGrant(fixture.proposal.digest.value, {
         projectId: fixture.prepared.projectId,
@@ -344,6 +384,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         grantStore: valid.grantStore,
+        exactStore: valid.exactStore,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -468,7 +509,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     expect((await storage.loadProjectAggregate(prepared.projectId))?.approvalArtifacts).toEqual([
       recovered
     ]);
-    await expect(grantStore.get("grant-1")).resolves.toMatchObject({ uses: 1 });
+    await expect(grantStore.get("grant-1")).resolves.toMatchObject({ uses: 1, status: "exhausted" });
   });
 
   it("rejects a grant that does not bind the exact operation digest", async () => {
@@ -489,7 +530,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       })
     ).rejects.toMatchObject({
       code: "AUTHORIZATION_GRANT_REJECTED",
-      details: { reason: "GRANT_OPERATION_MISMATCH" }
+      details: { reason: "EXACT_SHAPE_REQUIRED" }
     });
   });
 
