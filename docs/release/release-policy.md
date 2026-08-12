@@ -18,9 +18,12 @@ RouteLedger source and plugin distribution are licensed under
 [Apache License 2.0](../../LICENSE). This policy does not change the licenses of
 third-party dependencies.
 
-Plugin distribution bytes require a plugin SemVer increase. A normal release
-is merged to `main`; tag `routeledger-plugin-v<version>` must point at that
-released `main` commit.
+After an immutable `routeledger-plugin-v<version>` tag exists, changed plugin
+distribution bytes require a plugin SemVer increase. Before that tag exists,
+Desktop acceptance may reopen and repair the same release candidate version;
+the previous-ref guard records that exception and still rejects version
+regression. A normal release is merged to `main`; tag
+`routeledger-plugin-v<version>` must point at that released `main` commit.
 Use `pnpm check:codex-plugin-release --previous-ref <ref>` before release and
 `--require-tag-ref` after the tag is present. The canonical repository is
 `xczl-785/Routeledger`. Future release work must not represent a local build
