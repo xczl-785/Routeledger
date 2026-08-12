@@ -3306,6 +3306,8 @@ export class RouteLedgerService {
 
   private readonly exactAuthorizationStore: ExactAuthorizationStore | null;
 
+  private readonly commitOperationsInFlight = new Set<string>();
+
   constructor(options: RouteLedgerServiceOptions) {
     this.storage = options.storage;
     this.deps = options.deps;
@@ -4813,6 +4815,27 @@ export class RouteLedgerService {
   }
 
   async commitL3Operation(input: CommitL3OperationInput) {
+    const ownershipKey = `${input.projectId}\0${input.pendingOperationId}`;
+    if (this.commitOperationsInFlight.has(ownershipKey)) {
+      throw new ApplicationError(
+        "WRITE_IN_PROGRESS",
+        "The exact L3 commit is already owned by another in-flight call",
+        {
+          projectId: input.projectId,
+          pendingOperationId: input.pendingOperationId,
+          reason: "EXACT_COMMIT_ALREADY_IN_PROGRESS"
+        }
+      );
+    }
+    this.commitOperationsInFlight.add(ownershipKey);
+    try {
+      return await this.commitL3OperationOwned(input);
+    } finally {
+      this.commitOperationsInFlight.delete(ownershipKey);
+    }
+  }
+
+  private async commitL3OperationOwned(input: CommitL3OperationInput) {
     const snapshot = await requireProject(this.storage, input.projectId);
     const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
 
@@ -4867,6 +4890,17 @@ export class RouteLedgerService {
         artifact,
         pendingOperation
       );
+      if (this.l3Authorization !== undefined && replayReceiptBinding === null) {
+        throw new ApplicationError(
+          "AUTHORIZATION_GRANT_REJECTED",
+          "A committed trusted operation cannot replay without its exact authorization receipt",
+          {
+            approvalArtifactId: artifact.id,
+            pendingOperationId: pendingOperation.id,
+            reason: "AUTHORIZATION_RECEIPT_INVALID"
+          }
+        );
+      }
       if (replayReceiptBinding !== null && this.exactAuthorizationStore !== null) {
         const finalized = await this.exactAuthorizationStore.finalizeCommit(
           replayReceiptBinding,

@@ -90,7 +90,67 @@ const setup = async (
   return { storage, grantStore, exactStore, service, prepared, proposal };
 };
 
+class DelayCommitStorageAdapter extends MemoryStorageAdapter {
+  private armed = false;
+  private releaseGate: (() => void) | null = null;
+  private startedGate: (() => void) | null = null;
+  readonly started = new Promise<void>((resolve) => { this.startedGate = resolve; });
+  readonly released = new Promise<void>((resolve) => { this.releaseGate = resolve; });
+  delayedSaves = 0;
+
+  arm(): void { this.armed = true; }
+  release(): void { this.releaseGate?.(); }
+
+  override async saveProjectAggregate(snapshot: Parameters<MemoryStorageAdapter["saveProjectAggregate"]>[0]): Promise<void> {
+    if (this.armed) {
+      this.armed = false;
+      this.delayedSaves += 1;
+      this.startedGate?.();
+      await this.released;
+    }
+    await super.saveProjectAggregate(snapshot);
+  }
+}
+
 describe("RouteLedgerService trusted L3 authorization", () => {
+  it("lets only one concurrent service call own and apply an exact commit", async () => {
+    const storage = new DelayCommitStorageAdapter();
+    const fixture = await setup(storage);
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId]
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      grantId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    const command = {
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    };
+    storage.arm();
+    const owner = fixture.service.commitL3Operation(command);
+    await storage.started;
+    await expect(fixture.service.commitL3Operation(command)).rejects.toMatchObject({
+      code: "WRITE_IN_PROGRESS",
+      details: { reason: "EXACT_COMMIT_ALREADY_IN_PROGRESS" }
+    });
+    storage.release();
+    await expect(owner).resolves.toMatchObject({ replayed: false });
+    expect(storage.delayedSaves).toBe(1);
+    const aggregate = await storage.loadProjectAggregate(fixture.prepared.projectId);
+    expect(aggregate?.pendingOperations.filter((item) => item.status === "committed"))
+      .toHaveLength(1);
+    expect(aggregate?.events.filter((event) => event.eventType === "pending_operation.committed"))
+      .toHaveLength(1);
+  });
+
   it("runs profile-less host admission through the same durable claim/finalize lifecycle", async () => {
     const fixture = await setup();
     await fixture.grantStore.issue(
@@ -125,6 +185,53 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       committedAt: expect.any(String)
     });
   });
+
+  it("fails closed when a restarted service has no exact receipt for committed replay", async () => {
+    const fixture = await setup();
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId]
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      grantId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    await fixture.service.commitL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    });
+    const emptyRestart = new RouteLedgerService({
+      storage: fixture.storage,
+      deps: createTestDependencies(),
+      l3Authorization: {
+        grantStore: new MemoryL3AuthorizationGrantStore(),
+        exactStore: new MemoryExactAuthorizationStore(),
+        audience: "routeledger-core",
+        subjectId: "local-user",
+        routeledgerRootDigest: "sha256:root-1",
+        hostKind: "codex",
+        clientId: "codex-client"
+      }
+    });
+    await expect(
+      emptyRestart.commitL3Operation({
+        projectId: fixture.prepared.projectId,
+        pendingOperationId: fixture.proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({
+      code: "AUTHORIZATION_GRANT_REJECTED",
+      details: { reason: "AUTHORIZATION_RECEIPT_INVALID" }
+    });
+  });
+
 
   it("rejects a V2 artifact from an old profile epoch before claiming commit", async () => {
     const profileV1 = {
@@ -235,7 +342,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     });
   });
 
-  it("rejects a persisted legacy approved artifact after upgrade but preserves consumed replay", async () => {
+  it("rejects persisted legacy artifacts after upgrade, including committed replay without receipt", async () => {
     const createLegacyFixture = async (commitBeforeUpgrade: boolean) => {
       const storage = new MemoryStorageAdapter();
       const legacyService = new RouteLedgerService({
@@ -299,7 +406,10 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         approvalArtifactId: consumed.artifact.id,
         actor: TEST_ACTOR
       })
-    ).resolves.toMatchObject({ replayed: true, approvalArtifact: { status: "consumed" } });
+    ).rejects.toMatchObject({
+      code: "AUTHORIZATION_GRANT_REJECTED",
+      details: { reason: "AUTHORIZATION_RECEIPT_INVALID" }
+    });
   });
 
   it("rejects a forged project artifact even when every provenance field is populated", async () => {
