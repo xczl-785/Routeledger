@@ -281,9 +281,9 @@ export const validateL3AuthorizationPolicy = (
       ) {
         addIssue(
           issues,
-          "ALLOW_MAX_USES_REQUIRED",
+          "ALLOW_DECISION_BUDGET_REQUIRED",
           `${base}.conditions.decisionBudget`,
-          "allow rules must have a positive maximum-use budget"
+          "allow rules must have a positive per-proposal decision budget"
         );
       }
       if (rule.conditions?.allowedTargetRelations !== undefined) {
@@ -317,7 +317,7 @@ export const validateL3AuthorizationPolicy = (
       ) {
         addIssue(
           issues,
-          "MAX_USES_INVALID",
+          "DECISION_BUDGET_INVALID",
           `${base}.conditions.decisionBudget`,
           "decisionBudget must be a positive integer"
         );

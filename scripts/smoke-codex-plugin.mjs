@@ -100,10 +100,22 @@ const assertPluginFiles = async () => {
     "`WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`",
     "`get_runtime_context` again to confirm the session rebound",
     "Use `discover_routeledger_roots` and `plan_routeledger_binding` only when the target root is ambiguous",
-    "never infer it from the plugin cache or MCP process `cwd`"
+    "never infer it from the plugin cache or MCP process `cwd`",
+    "standing policy or delegated authority mint an independent exact decision for the current proposal",
+    "approve-only structured elicitation",
+    "There is no consumable or reusable preauthorization"
   ]) {
     if (!operatorSkill.includes(requiredGuidance)) {
       throw new Error(`RouteLedger operator Skill is missing required unbound-binding guidance: ${requiredGuidance}`);
+    }
+  }
+  for (const forbiddenGuidance of [
+    "consume a preauthorization",
+    "preauthorization grant",
+    "use budget"
+  ]) {
+    if (operatorSkill.includes(forbiddenGuidance)) {
+      throw new Error(`RouteLedger operator Skill contains reusable-authority guidance: ${forbiddenGuidance}`);
     }
   }
 };
