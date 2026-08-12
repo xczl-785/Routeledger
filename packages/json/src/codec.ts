@@ -1789,7 +1789,7 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
         };
   const profileCount = [provenance.profileId, provenance.modeEpoch, provenance.profileDigest]
     .filter((value) => value !== undefined).length;
-  if (profileCount !== 0 && profileCount !== 3) {
+  if (record?.kind === "exact_v2" && profileCount !== 0 && profileCount !== 3) {
     throw new Error("Approval authorization profile provenance must be all present or all absent.");
   }
   return ({

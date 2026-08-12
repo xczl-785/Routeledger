@@ -481,6 +481,37 @@ describe("@routeledger/json canonical codec", () => {
     });
   });
 
+  it("normalizes migrated flat authorization provenance into a legacy audit record", () => {
+    const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
+    const approvalDocument = documents.find((document) =>
+      document.path.includes("/approval_artifacts/")
+    );
+    if (approvalDocument === undefined) throw new Error("missing approval artifact fixture");
+    const artifact = JSON.parse(approvalDocument.content) as Record<string, unknown>;
+    Object.assign(artifact, {
+      authorization_grant_id: "legacy-authorization-1",
+      approval_source: "host_admission",
+      host_kind: "codex",
+      client_id: null,
+      session_id: "legacy-session-1"
+    });
+    approvalDocument.content = `${JSON.stringify(artifact, null, 2)}\n`;
+
+    const decoded = decodeProjectAggregateFromJsonDocuments(documents);
+    const normalizedDocument = encodeProjectAggregateToJsonDocuments(decoded).find((document) =>
+      document.path.includes("/approval_artifacts/")
+    );
+    const normalized = JSON.parse(normalizedDocument!.content) as Record<string, unknown>;
+
+    expect(normalized).not.toHaveProperty("authorization_grant_id");
+    expect(normalized.authorization_record).toMatchObject({
+      kind: "legacy_audit",
+      authorization_grant_id: "legacy-authorization-1",
+      approval_source: "host_admission",
+      host_kind: "codex"
+    });
+  });
+
   it("batch pending operation payload JSON roundtrip does not drop batch fields", () => {
     const snapshot = createJsonCodecSnapshot();
     const batchPendingOperation: PendingOperation = {

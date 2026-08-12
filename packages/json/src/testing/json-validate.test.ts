@@ -175,6 +175,84 @@ describe("@routeledger/json validate", () => {
       ])
     );
   });
+  it("accepts flat v1 authorization provenance as immutable legacy audit", () => {
+    const snapshot = createJsonCodecSnapshot();
+    snapshot.pendingOperations[0] = {
+      ...snapshot.pendingOperations[0]!,
+      status: "committed",
+      committedAt: "2026-06-27T01:15:00.000Z"
+    };
+    snapshot.approvalArtifacts[0] = {
+      ...snapshot.approvalArtifacts[0]!,
+      status: "consumed",
+      consumedAt: "2026-06-27T01:15:00.000Z"
+    };
+    const documents = encodeProjectAggregateToJsonDocuments(snapshot);
+    const approvalDocument = documents.find((document) =>
+      document.path.includes("/approval_artifacts/")
+    );
+    if (approvalDocument === undefined) throw new Error("missing approval artifact fixture");
+    const artifact = JSON.parse(approvalDocument.content) as Record<string, unknown>;
+    delete artifact.authorization_record;
+    Object.assign(artifact, {
+      authorization_grant_id: "legacy-authorization-1",
+      approval_source: "host_admission",
+      policy_id: null,
+      policy_digest: null,
+      host_kind: "codex",
+      client_id: null,
+      session_id: "legacy-session-1"
+    });
+    approvalDocument.content = `${JSON.stringify(artifact, null, 2)}\n`;
+
+    expect(validateRouteLedgerJsonDocuments(documents)).toEqual({ valid: true, issues: [] });
+  });
+  it("rejects flat v1 authorization provenance on an unconsumed approval", () => {
+    const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
+    const approvalDocument = documents.find((document) =>
+      document.path.includes("/approval_artifacts/")
+    );
+    if (approvalDocument === undefined) throw new Error("missing approval artifact fixture");
+    const artifact = JSON.parse(approvalDocument.content) as Record<string, unknown>;
+    Object.assign(artifact, {
+      authorization_grant_id: "legacy-authorization-1",
+      approval_source: "host_admission",
+      host_kind: "codex",
+      client_id: null
+    });
+    approvalDocument.content = `${JSON.stringify(artifact, null, 2)}\n`;
+
+    expect(getIssueCodes(documents)).toEqual(
+      expect.arrayContaining([
+        "APPROVAL_LEGACY_AUDIT_NOT_FINALIZED",
+        "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE"
+      ])
+    );
+  });
+  it("rejects an exact authorization record whose root binding is missing", () => {
+    const snapshot = createJsonCodecSnapshot();
+    snapshot.approvalArtifacts[0] = {
+      ...snapshot.approvalArtifacts[0]!,
+      authorizationId: "authorization-exact-1",
+      routeledgerRootDigest: "sha256:root-1",
+      approvalSource: "host_admission",
+      policyId: null,
+      policyDigest: null,
+      hostKind: "codex",
+      clientId: null
+    };
+    const documents = encodeProjectAggregateToJsonDocuments(snapshot);
+    const approvalDocument = documents.find((document) =>
+      document.path.includes("/approval_artifacts/")
+    );
+    if (approvalDocument === undefined) throw new Error("missing approval artifact fixture");
+    const artifact = JSON.parse(approvalDocument.content) as Record<string, unknown>;
+    const record = artifact.authorization_record as Record<string, unknown>;
+    delete (record.binding as Record<string, unknown>).routeledger_root_digest;
+    approvalDocument.content = `${JSON.stringify(artifact, null, 2)}\n`;
+
+    expect(getIssueCodes(documents)).toContain("APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE");
+  });
   it("accepts canonical DeferredItem and Constraint documents", () => {
     const result = validateRouteLedgerJsonDocuments(
       encodeProjectAggregateToJsonDocuments(createDeferredConstraintJsonSnapshot())
