@@ -157,7 +157,7 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
         interaction: {
           requestAuthorization: async () => ({
             action: "accept" as const,
-            content: { approve: true, scope: "operation" }
+            content: { approve: true }
           })
         },
         sessionId: "vitest-session",
@@ -221,7 +221,7 @@ export const createRegistry = (
       interaction: {
         requestAuthorization: async () => ({
           action: "accept" as const,
-          content: { approve: true, scope: "operation" as const }
+          content: { approve: true }
         })
       },
       sessionId: "vitest-session",
@@ -269,7 +269,7 @@ export const createServer = (
         interaction: {
           requestAuthorization: async () => ({
             action: "accept" as const,
-            content: { approve: true, scope: "operation" }
+            content: { approve: true }
           })
         },
         sessionId: "vitest-session",

@@ -113,7 +113,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         inputResponses: {
           routeledger_l3_decision: {
             action: "accept",
-            content: { approve: true, scope: "operation" }
+            content: { approve: true }
           }
         }
       });
@@ -131,7 +131,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         inputResponses: {
           routeledger_l3_decision: {
             action: "accept",
-            content: { approve: true, scope: "operation" }
+            content: { approve: true }
           }
         }
       });
@@ -187,7 +187,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       const decision = {
         routeledger_l3_decision: {
           action: "accept",
-          content: { approve: true, scope: "operation" }
+          content: { approve: true }
         }
       };
       const tampered = await call(server, "execute-2", "execute_l3_operation", args, {

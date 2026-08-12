@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   digestL3AuthorizationProfile,
+  GENERIC_EXACT_DECISION_INPUT_SCHEMA,
   MemoryL3AuthorizationGrantStore,
   type L3AuthorizationMode,
   type L3AuthorizationProfileV2
@@ -64,7 +65,15 @@ const profileFor = (input: {
 };
 
 describe("MCP L3 authorization elicitation", () => {
-  it.todo("[EA3 target red] generic exact elicitation omits scope and rejects legacy scope content");
+  it("freezes generic elicitation to the current proposal without scope", () => {
+    expect(GENERIC_EXACT_DECISION_INPUT_SCHEMA).toEqual({
+      type: "object",
+      properties: { approve: { type: "boolean" } },
+      required: ["approve"],
+      additionalProperties: false
+    });
+    expect(JSON.stringify(GENERIC_EXACT_DECISION_INPUT_SCHEMA)).not.toContain("scope");
+  });
 
   it("suspends approval, accepts a client decision, and mints trusted provenance", async () => {
     const projectRoot = createTempProjectRoot();
@@ -136,10 +145,12 @@ describe("MCP L3 authorization elicitation", () => {
         params: {
           mode: "form",
           requestedSchema: {
-            required: ["approve", "scope"]
+            required: ["approve"],
+            additionalProperties: false
           }
         }
       });
+      expect(JSON.stringify(elicitation)).not.toContain("scope");
       expect(JSON.stringify((elicitation as { params: unknown }).params)).toContain(
         pendingOperationId.length > 0 ? "Operation digest" : "never"
       );
@@ -149,7 +160,7 @@ describe("MCP L3 authorization elicitation", () => {
         id: (elicitation as { id: string | number }).id,
         result: {
           action: "accept",
-          content: { approve: true, scope: "operation" }
+          content: { approve: true }
         }
       });
       const approvalResponse = await approvalPromise;
@@ -562,7 +573,7 @@ describe("MCP L3 authorization elicitation", () => {
           interaction: {
             requestAuthorization: async () => {
               interactionCalls += 1;
-              return { action: "accept", content: { approve: true, scope: "operation" } };
+              return { action: "accept", content: { approve: true } };
             }
           },
           sessionId: "v3-session",
@@ -657,7 +668,7 @@ describe("MCP L3 authorization elicitation", () => {
           interaction: {
             requestAuthorization: async () => ({
               action: "accept",
-              content: { approve: true, scope: "operation" }
+              content: { approve: true }
             })
           },
           sessionId: "v3-session",
@@ -696,7 +707,7 @@ describe("MCP L3 authorization elicitation", () => {
           interaction: {
             requestAuthorization: async () => ({
               action: "accept",
-              content: { approve: true, scope: "operation" },
+              content: { approve: true },
               trustedDecision: {
                 kind: "trusted_host_user",
                 hostKind: "generic",

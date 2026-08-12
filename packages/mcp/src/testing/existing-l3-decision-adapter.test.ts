@@ -142,6 +142,23 @@ const receiptFor = (
 });
 
 describe("ExistingL3DecisionAdapter", () => {
+  it("rejects legacy scope content without minting exact authority", async () => {
+    const exactStore = new MemoryExactAuthorizationStore();
+    const resolver = adapter(new MemoryL3AuthorizationGrantStore(), {
+      exactStore,
+      interaction: {
+        requestAuthorization: async () => ({
+          action: "accept",
+          content: { approve: true, scope: "operation" }
+        })
+      }
+    });
+
+    await expect(resolver.resolve(createExactProposalDecisionRequest(proposal)))
+      .resolves.toMatchObject({ status: "denied", code: "AUTHORIZATION_GRANT_REJECTED" });
+    await expect(exactStore.get("grant-user_interaction")).resolves.toBeNull();
+  });
+
   it("does not promote a consumed legacy authorization into active exact authority", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     const replayGrant = grant();

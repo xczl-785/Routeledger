@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   ApplicationError,
+  GENERIC_EXACT_DECISION_INPUT_SCHEMA,
   assertDecisionResolutionMatchesRequest,
   type DecisionResolution,
   type ExactDecision,
@@ -12,7 +13,6 @@ import {
   type L3AuthorizationGrantContext,
   type L3AuthorizationGrantStore,
   type L3AuthorizationProfileV2,
-  type L3AuthorizationScope,
   type L3DecisionAdapter,
   type PendingOperation,
   validateL3AuthorizationGrant
@@ -191,10 +191,12 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
   private async resolveExistingPath(
     request: ExactProposalDecisionRequest
   ): Promise<ExistingL3DecisionResolution> {
+    const delegated = await this.resolveDelegated(request);
+    if (delegated !== null) return delegated;
     if (this.options.profile?.mode === "preauthorized") {
       throw new ApplicationError(
         "PREAUTHORIZATION_GRANT_REQUIRED",
-        "The active preauthorized profile has no matching finite grant",
+        "The active standing policy did not authorize this exact proposal",
         {
           profileId: this.options.profile.profileId,
           modeEpoch: this.options.profile.modeEpoch,
@@ -202,9 +204,6 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
         }
       );
     }
-
-    const delegated = await this.resolveDelegated(request);
-    if (delegated !== null) return delegated;
     return this.resolveInteraction(request);
   }
 
@@ -212,7 +211,9 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     request: ExactProposalDecisionRequest
   ): Promise<ExistingL3DecisionResolution | null> {
     const delegatedAuthority =
-      this.options.profile === undefined || this.options.profile.mode === "delegated"
+      this.options.profile === undefined ||
+        this.options.profile.mode === "delegated" ||
+        this.options.profile.mode === "preauthorized"
         ? this.options.delegatedAuthority
         : undefined;
     if (delegatedAuthority === undefined) return null;
@@ -264,7 +265,10 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     const grantFailure = validateL3AuthorizationGrant(grant, this.options.authorizationContext);
     if (
       grantFailure !== null ||
-      grant.source !== "delegated_policy" ||
+      grant.source !==
+        (this.options.profile?.mode === "preauthorized"
+          ? "preauthorized"
+          : "delegated_policy") ||
       grant.scope !== "operation" ||
       grant.maxUses !== 1 ||
       grant.operationDigest !== this.options.proposal.digest.value ||
@@ -296,21 +300,10 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
           `Target: ${this.options.proposal.targetId}.`,
           `Operation digest: ${this.options.proposal.digest.value}.`,
           this.options.profile === undefined
-            ? "Choose operation for one exact proposal or session for the same action and target in this MCP session."
+            ? "Approve only this exact proposal."
             : "This V3 interaction authorizes only this exact operation."
         ].join(" "),
-        requestedSchema: {
-          type: "object",
-          properties: {
-            approve: { type: "boolean", title: "Approve this RouteLedger operation" },
-            scope: {
-              type: "string",
-              title: "Authorization scope",
-              enum: this.options.profile === undefined ? ["operation", "session"] : ["operation"]
-            }
-          },
-          required: ["approve", "scope"]
-        }
+        requestedSchema: GENERIC_EXACT_DECISION_INPUT_SCHEMA
       });
     } catch (error) {
       if (isMcpDecisionInputRequiredError(error)) {
@@ -329,7 +322,13 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       );
     }
 
-    if (decision.action !== "accept" || decision.content?.approve !== true) {
+    const contentKeys = decision.content === null ? [] : Object.keys(decision.content);
+    if (
+      decision.action !== "accept" ||
+      decision.content?.approve !== true ||
+      contentKeys.length !== 1 ||
+      contentKeys[0] !== "approve"
+    ) {
       const cancelled = decision.action === "cancel";
       return {
         status: "denied",
@@ -360,7 +359,6 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       );
     }
 
-    const scope: L3AuthorizationScope = "operation";
     const now = this.now();
     const grant: L3AuthorizationGrant = {
       id: this.nextId(),
@@ -379,7 +377,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       allowedActions: [this.options.proposal.actionType],
       allowedTargetIds: [this.options.proposal.targetId],
       operationDigest: this.options.proposal.digest.value,
-      scope,
+      scope: "operation",
       source: "user_interaction",
       policyId: null,
       policyDigest: null,
