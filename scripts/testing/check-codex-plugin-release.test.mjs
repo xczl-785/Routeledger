@@ -80,7 +80,11 @@ const assertFailure = (command, args, cwd, expected) => {
 };
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release-check-symlink-"));
 try {
-  runOrThrow("git", ["clone", "--shared", repositoryRoot, fixtureRoot], repositoryRoot);
+  runOrThrow(
+    "git",
+    ["clone", "--shared", "--no-tags", repositoryRoot, fixtureRoot],
+    repositoryRoot
+  );
   const patch = execFileSync("git", ["diff", "--binary"], { cwd: repositoryRoot, encoding: "buffer" });
   if (patch.length > 0) {
     runOrThrow("git", ["apply", "--whitespace=nowarn"], fixtureRoot, { input: patch });
