@@ -42,6 +42,8 @@ export interface ExactAuthorizationStore {
   issue(candidate: ExactAuthorizationCandidate): Promise<void>;
   get(authorizationId: string): Promise<ExactAuthorizationCandidate | null>;
   getReceipt(authorizationId: string): Promise<ExactAuthorizationReceipt | null>;
+  acquireCommitOwnership(authorizationId: string, ownerId: string): Promise<boolean>;
+  releaseCommitOwnership(authorizationId: string, ownerId: string): Promise<void>;
   consumeAndRecordReceipt(input: {
     readonly authorizationId: string;
     readonly artifactId: string;
@@ -157,6 +159,7 @@ const buildReceiptBinding = (
 export class MemoryExactAuthorizationStore implements ExactAuthorizationStore {
   private readonly authorizations = new Map<string, StoredAuthorization>();
   private readonly receipts = new Map<string, ExactAuthorizationReceipt>();
+  private readonly commitOwners = new Map<string, string>();
 
   async issue(candidate: ExactAuthorizationCandidate): Promise<void> {
     validateCandidate(candidate);
@@ -183,6 +186,23 @@ export class MemoryExactAuthorizationStore implements ExactAuthorizationStore {
       (candidate) => candidate.authorizationId === authorizationId
     );
     return receipt === undefined ? null : clone(receipt);
+  }
+
+  async acquireCommitOwnership(authorizationId: string, ownerId: string): Promise<boolean> {
+    requireNonEmpty(authorizationId, "authorizationId");
+    requireNonEmpty(ownerId, "commit ownerId");
+    const current = this.commitOwners.get(authorizationId);
+    if (current === undefined) {
+      this.commitOwners.set(authorizationId, ownerId);
+      return true;
+    }
+    return current === ownerId;
+  }
+
+  async releaseCommitOwnership(authorizationId: string, ownerId: string): Promise<void> {
+    if (this.commitOwners.get(authorizationId) === ownerId) {
+      this.commitOwners.delete(authorizationId);
+    }
   }
 
   async consumeAndRecordReceipt(input: {

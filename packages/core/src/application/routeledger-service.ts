@@ -3306,8 +3306,6 @@ export class RouteLedgerService {
 
   private readonly exactAuthorizationStore: ExactAuthorizationStore | null;
 
-  private readonly commitOperationsInFlight = new Set<string>();
-
   constructor(options: RouteLedgerServiceOptions) {
     this.storage = options.storage;
     this.deps = options.deps;
@@ -4815,8 +4813,12 @@ export class RouteLedgerService {
   }
 
   async commitL3Operation(input: CommitL3OperationInput) {
-    const ownershipKey = `${input.projectId}\0${input.pendingOperationId}`;
-    if (this.commitOperationsInFlight.has(ownershipKey)) {
+    const ownerId = crypto.randomUUID();
+    const ownershipKey = input.pendingOperationId;
+    if (
+      this.exactAuthorizationStore !== null &&
+      !(await this.exactAuthorizationStore.acquireCommitOwnership(ownershipKey, ownerId))
+    ) {
       throw new ApplicationError(
         "WRITE_IN_PROGRESS",
         "The exact L3 commit is already owned by another in-flight call",
@@ -4827,11 +4829,10 @@ export class RouteLedgerService {
         }
       );
     }
-    this.commitOperationsInFlight.add(ownershipKey);
     try {
       return await this.commitL3OperationOwned(input);
     } finally {
-      this.commitOperationsInFlight.delete(ownershipKey);
+      await this.exactAuthorizationStore?.releaseCommitOwnership(ownershipKey, ownerId);
     }
   }
 

@@ -113,7 +113,7 @@ class DelayCommitStorageAdapter extends MemoryStorageAdapter {
 }
 
 describe("RouteLedgerService trusted L3 authorization", () => {
-  it("lets only one concurrent service call own and apply an exact commit", async () => {
+  it("lets only one of two service instances own and apply an exact commit", async () => {
     const storage = new DelayCommitStorageAdapter();
     const fixture = await setup(storage);
     await fixture.grantStore.issue(
@@ -134,10 +134,24 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       approvalArtifactId: artifact.id,
       actor: TEST_ACTOR
     };
+    const competingService = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies(),
+      l3Authorization: {
+        grantStore: fixture.grantStore,
+        exactStore: fixture.exactStore,
+        audience: "routeledger-core",
+        subjectId: "local-user",
+        routeledgerRootDigest: "sha256:root-1",
+        hostKind: "codex",
+        clientId: "codex-client",
+        sessionId: "session-1"
+      }
+    });
     storage.arm();
     const owner = fixture.service.commitL3Operation(command);
     await storage.started;
-    await expect(fixture.service.commitL3Operation(command)).rejects.toMatchObject({
+    await expect(competingService.commitL3Operation(command)).rejects.toMatchObject({
       code: "WRITE_IN_PROGRESS",
       details: { reason: "EXACT_COMMIT_ALREADY_IN_PROGRESS" }
     });
