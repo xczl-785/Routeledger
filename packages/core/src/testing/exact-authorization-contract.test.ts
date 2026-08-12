@@ -105,6 +105,7 @@ describe("EA0 exact-only authorization contract", () => {
       authorizationId: "authorization-1",
       proposalId: "proposal-1",
       projectId: "project-1",
+      routeledgerRootDigest: "root-digest-1",
       actionType: "start_version",
       targetId: "version-1",
       operationDigest: "digest-1",
@@ -115,6 +116,21 @@ describe("EA0 exact-only authorization contract", () => {
     expect(response).not.toHaveProperty("scope");
     expect(response).not.toHaveProperty("sessionId");
     expect(response).not.toHaveProperty("grantId");
+    expect({
+      proposalId: response.proposalId,
+      projectId: response.projectId,
+      routeledgerRootDigest: response.routeledgerRootDigest,
+      actionType: response.actionType,
+      targetId: response.targetId,
+      operationDigest: response.operationDigest
+    }).toEqual({
+      proposalId: "proposal-1",
+      projectId: "project-1",
+      routeledgerRootDigest: "root-digest-1",
+      actionType: "start_version",
+      targetId: "version-1",
+      operationDigest: "digest-1"
+    });
   });
 
   it("defines generic elicitation without active scope semantics", () => {
