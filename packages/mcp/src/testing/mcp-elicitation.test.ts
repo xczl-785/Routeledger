@@ -292,6 +292,74 @@ describe("MCP L3 authorization elicitation", () => {
         code: "AUTHORIZATION_GRANT_REJECTED",
         details: { reason: "HOST_DECLINED" }
       });
+      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      expect(structured(proposals).data).toMatchObject([
+        { id: pendingOperationId, status: "rejected", approvalArtifactId: null }
+      ]);
+    } finally {
+      server.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it.each([
+    ["cancel", { action: "cancel" as const, content: null }, "HOST_CANCELLED"],
+    [
+      "legacy scope content",
+      { action: "accept" as const, content: { approve: true, scope: "operation" } },
+      "INVALID_DECISION_RESPONSE"
+    ]
+  ])("keeps the proposal pending for %s", async (_label, decision, reason) => {
+    const projectRoot = createTempProjectRoot();
+    const server = createRouteLedgerStdioServer({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      hostProfile: "generic",
+      l3Authorization: {
+        grantStore: new MemoryL3AuthorizationGrantStore(),
+        sessionId: "test-session",
+        interaction: { requestAuthorization: async () => decision }
+      }
+    });
+    try {
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "test-host", version: "1.0.0" }
+        }
+      });
+      await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+      const initialized = await call(server, "init", "init_project", {
+        name: "Pending decision probe",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
+      const created = await call(server, "create", "create_version", {
+        projectId,
+        title: "Version 1",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const pendingOperationId = (
+        structured(created).error as { details: { pendingOperationId: string } }
+      ).details.pendingOperationId;
+      const approval = await call(server, "approve", "approve_l3_operation", {
+        projectId,
+        pendingOperationId,
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(structured(approval).error).toMatchObject({
+        code: "AUTHORIZATION_GRANT_REJECTED",
+        details: { reason }
+      });
+      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      expect(structured(proposals).data).toMatchObject([
+        { id: pendingOperationId, status: "pending", approvalArtifactId: null }
+      ]);
     } finally {
       server.close();
       cleanupProjectRoot(projectRoot);
@@ -319,7 +387,7 @@ describe("MCP L3 authorization elicitation", () => {
         trustedClientId: "trusted-host-client",
         delegatedAuthority: {
           authorityHandle: "host-vault://policy-test",
-          requestGrant: async ({ context }) => {
+          requestExactDecision: async ({ proposal, context }) => {
             if (remainingUses === 0) {
               return {
                 effect: "deny" as const,
@@ -333,31 +401,32 @@ describe("MCP L3 authorization elicitation", () => {
             const now = new Date();
             return {
               effect: "allow" as const,
-              grant: {
-                id: randomUUID(),
+              authorization: {
+                schemaVersion: 2,
+                authorizationId: randomUUID(),
+                binding: {
+                  proposalId: proposal.id,
+                  projectId: context.projectId,
+                  routeledgerRootDigest: context.routeledgerRootDigest,
+                  actionType: context.actionType,
+                  targetId: context.targetId,
+                  operationDigest: context.operationDigest
+                },
                 issuer: "trusted-host-authority",
                 subjectId: context.subjectId!,
                 audience: "routeledger-core",
-                projectId: context.projectId,
-                routeledgerRootDigest: context.routeledgerRootDigest,
-                allowedActions: [context.actionType],
-                allowedTargetIds: [context.targetId],
-                operationDigest: context.operationDigest,
-                scope: "operation" as const,
                 source: "delegated_policy" as const,
                 policyId: "policy-test",
                 policyDigest: "policy-digest-test",
-                decisionId: randomUUID(),
+                decisionRef: randomUUID(),
+                profileId: null,
+                modeEpoch: null,
+                profileDigest: null,
                 hostKind: "generic",
                 clientId: "trusted-host-client",
-                sessionId: "trusted-session",
-                nonce: randomUUID(),
+                sessionId: null,
                 createdAt: now.toISOString(),
-                expiresAt: new Date(now.getTime() + 60_000).toISOString(),
-                maxUses: 1,
-                uses: 0,
-                status: "active" as const,
-                revokedAt: null
+                expiresAt: new Date(now.getTime() + 60_000).toISOString()
               }
             };
           }

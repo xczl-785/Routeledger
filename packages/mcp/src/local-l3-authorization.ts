@@ -17,10 +17,12 @@ import {
   type L3AuthorizationGrantConsumeResult,
   type L3AuthorizationCommitResult,
   type L3AuthorizationGrantContext,
+  type L3AuthorizationEvaluationContext,
   type L3AuthorizationGrantStore,
   type L3AuthorizationPolicy,
   type L3AuthorizationProfileV2,
   type L3AuthorizationReceiptBinding,
+  type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
   type ExactAuthorizationStoreState
 } from "@routeledger/core";
@@ -911,6 +913,21 @@ const minimumIsoTimestamp = (...timestamps: string[]): string =>
     Date.parse(candidate) < Date.parse(minimum) ? candidate : minimum
   );
 
+const assertExactProposalContext = (
+  proposal: { id: string; projectId: string; actionType: string; targetId: string; digest: { value: string } },
+  context: L3AuthorizationEvaluationContext
+): void => {
+  if (
+    proposal.id.trim().length === 0 ||
+    proposal.projectId !== context.projectId ||
+    proposal.actionType !== context.actionType ||
+    proposal.targetId !== context.targetId ||
+    proposal.digest.value !== context.operationDigest
+  ) {
+    throw new Error("The delegated authority request does not match the exact proposal.");
+  }
+};
+
 export const installLocalL3AuthorityConfig = async (
   input: InstallLocalL3AuthorityConfigInput
 ): Promise<void> => {
@@ -981,10 +998,11 @@ export const loadLocalL3AuthorityRuntime = async (
   const authorityHandle = `local:${config.authorityId}:${policyDigest}`;
   const authority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
     authorityHandle,
-    requestGrant: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
+    requestExactDecision: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
       if (request.authorityHandle !== authorityHandle) {
         throw new Error("Local L3 authority handle mismatch.");
       }
+      assertExactProposalContext(request.proposal, request.context);
       const decision = evaluateL3AuthorizationPolicy(config.policy, request.context);
       if (decision.effect !== "allow" || decision.matchedRuleId === null) {
         const effect: "prompt" | "deny" =
@@ -1002,41 +1020,42 @@ export const loadLocalL3AuthorityRuntime = async (
         throw new Error("Matched delegated rule has no finite budget or expiry.");
       }
       const now = request.context.now;
-      const proposalId = request.proposal.id ?? `legacy-test-${request.context.operationDigest}`;
-      const grant: L3AuthorizationGrant = {
-        id: `authorization-${proposalId}`,
+      const proposalId = request.proposal.id;
+      const authorization: ExactAuthorizationCandidate = {
+        schemaVersion: 2,
+        authorizationId: `authorization-${proposalId}`,
+        binding: {
+          proposalId,
+          projectId: request.context.projectId,
+          routeledgerRootDigest: request.context.routeledgerRootDigest,
+          actionType: request.context.actionType,
+          targetId: request.context.targetId,
+          operationDigest: request.context.operationDigest
+        },
         issuer: config.authorityId,
         subjectId: request.context.subjectId ?? config.policy.binding.subjectId!,
         audience: "routeledger-core",
-        projectId: request.context.projectId,
-        routeledgerRootDigest: request.context.routeledgerRootDigest,
-        allowedActions: [request.context.actionType],
-        allowedTargetIds: [request.context.targetId],
-        operationDigest: request.context.operationDigest,
-        scope: "operation",
         source: "delegated_policy",
         policyId: config.policy.policyId,
         policyDigest,
-        decisionId: `decision-${proposalId}`,
+        decisionRef: `decision-${proposalId}`,
+        profileId: null,
+        modeEpoch: null,
+        profileDigest: null,
         hostKind: request.context.hostKind ?? input.hostKind,
         clientId: request.context.clientId ?? null,
         sessionId: null,
-        nonce: `nonce-${proposalId}`,
         createdAt: now,
         expiresAt: minimumIsoTimestamp(
           rule.conditions.expiresAt,
           new Date(Date.parse(now) + config.grantTtlSeconds * 1000).toISOString()
-        ),
-        maxUses: 1,
-        uses: 0,
-        status: "active",
-        revokedAt: null
+        )
       };
       const usageKey = `${policyDigest}:${rule.id}`;
       const grantDecision = await stateFile.transact(async (state) => {
         const exactStore = new MemoryExactAuthorizationStore(state.exactStore);
-        const existing = await exactStore.get(grant.id);
-        if (existing !== null) return { effect: "allow" as const, grant };
+        const existing = await exactStore.get(authorization.authorizationId);
+        if (existing !== null) return { effect: "allow" as const, authorization: existing };
         const usage = state.policyUsages[usageKey] ?? {
           policyDigest,
           ruleId: rule.id,
@@ -1048,35 +1067,9 @@ export const loadLocalL3AuthorityRuntime = async (
           return { effect: "deny" as const };
         }
         state.policyUsages[usageKey] = { ...usage, uses: usage.uses + 1, updatedAt: now };
-        await exactStore.issue({
-          schemaVersion: 2,
-          authorizationId: grant.id,
-          binding: {
-            proposalId,
-            projectId: grant.projectId,
-            routeledgerRootDigest: grant.routeledgerRootDigest,
-            actionType: request.context.actionType,
-            targetId: request.context.targetId,
-            operationDigest: request.context.operationDigest
-          },
-          source: grant.source,
-          decisionRef: grant.decisionId,
-          issuer: grant.issuer,
-          audience: grant.audience,
-          subjectId: grant.subjectId,
-          policyId: grant.policyId,
-          policyDigest: grant.policyDigest,
-          profileId: null,
-          modeEpoch: null,
-          profileDigest: null,
-          hostKind: grant.hostKind,
-          clientId: grant.clientId,
-          sessionId: null,
-          createdAt: grant.createdAt,
-          expiresAt: grant.expiresAt
-        });
+        await exactStore.issue(authorization);
         state.exactStore = exactStore.exportState();
-        return { effect: "allow" as const, grant };
+        return { effect: "allow" as const, authorization };
       });
       return grantDecision.effect === "allow"
         ? grantDecision
@@ -1146,21 +1139,26 @@ export const loadLocalL3AuthorityProfileRuntime = async (
     input.profile.modeEpoch,
     new Date().toISOString()
   );
-  if (input.profile.status !== "active" || input.profile.mode !== "delegated") {
+  if (
+    input.profile.status !== "active" ||
+    (input.profile.mode !== "delegated" && input.profile.mode !== "preauthorized")
+  ) {
     return baseRuntime;
   }
   const policy = input.profile.delegatedPolicy;
   if (policy === null) {
-    throw new Error("An active delegated profile requires a deterministic policy.");
+    if (input.profile.mode === "preauthorized") return baseRuntime;
+    throw new Error("An active policy-backed profile requires a deterministic standing policy.");
   }
   const policyDigest = digestL3AuthorizationPolicy(policy);
   const authorityHandle = `local-profile:${input.profile.profileId}:${input.profile.profileDigest}`;
   const delegatedAuthority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
     authorityHandle,
-    requestGrant: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
+    requestExactDecision: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
       if (request.authorityHandle !== authorityHandle) {
         throw new Error("Local L3 profile authority handle mismatch.");
       }
+      assertExactProposalContext(request.proposal, request.context);
       if (
         request.context.profileId !== input.profile.profileId ||
         request.context.modeEpoch !== input.profile.modeEpoch ||
@@ -1183,46 +1181,44 @@ export const loadLocalL3AuthorityProfileRuntime = async (
         throw new Error("Matched delegated rule has no finite budget or expiry.");
       }
       const now = request.context.now;
-      const proposalId = request.proposal.id ?? `legacy-test-${request.context.operationDigest}`;
-      const grant: L3AuthorizationGrant = {
-        id: `authorization-${proposalId}`,
+      const proposalId = request.proposal.id;
+      const authorization: ExactAuthorizationCandidate = {
+        schemaVersion: 2,
+        authorizationId: `authorization-${proposalId}`,
+        binding: {
+          proposalId,
+          projectId: request.context.projectId,
+          routeledgerRootDigest: request.context.routeledgerRootDigest,
+          actionType: request.context.actionType,
+          targetId: request.context.targetId,
+          operationDigest: request.context.operationDigest
+        },
         issuer: input.profile.profileId,
         subjectId: input.profile.binding.subjectId,
         audience: "routeledger-core",
-        projectId: request.context.projectId,
-        routeledgerRootDigest: request.context.routeledgerRootDigest,
         profileId: input.profile.profileId,
         modeEpoch: input.profile.modeEpoch,
         profileDigest: input.profile.profileDigest,
-        allowedActions: [request.context.actionType],
-        allowedTargetIds: [request.context.targetId],
-        operationDigest: request.context.operationDigest,
-        scope: "operation",
-        source: "delegated_policy",
+        source: input.profile.mode === "preauthorized" ? "preauthorized" : "delegated_policy",
         policyId: policy.policyId,
         policyDigest,
-        decisionId: `decision-${proposalId}`,
+        decisionRef: `decision-${proposalId}`,
         hostKind: input.profile.binding.hostKind,
         clientId: input.profile.binding.trustedClientId,
         sessionId: null,
-        nonce: `nonce-${proposalId}`,
         createdAt: now,
         expiresAt: minimumIsoTimestamp(
           rule.conditions.expiresAt,
           new Date(
             Date.parse(now) + input.profile.limits.maxAuthorizationTtlSeconds * 1000
           ).toISOString()
-        ),
-        maxUses: 1,
-        uses: 0,
-        status: "active",
-        revokedAt: null
+        )
       };
       const usageKey = `${input.profile.profileDigest}:${rule.id}`;
       const grantDecision = await stateFile.transact(async (state) => {
         const exactStore = new MemoryExactAuthorizationStore(state.exactStore);
-        const existing = await exactStore.get(grant.id);
-        if (existing !== null) return { effect: "allow" as const, grant };
+        const existing = await exactStore.get(authorization.authorizationId);
+        if (existing !== null) return { effect: "allow" as const, authorization: existing };
         const usage = state.policyUsages[usageKey] ?? {
           policyDigest: input.profile.profileDigest,
           ruleId: rule.id,
@@ -1234,35 +1230,9 @@ export const loadLocalL3AuthorityProfileRuntime = async (
           return { effect: "deny" as const };
         }
         state.policyUsages[usageKey] = { ...usage, uses: usage.uses + 1, updatedAt: now };
-        await exactStore.issue({
-          schemaVersion: 2,
-          authorizationId: grant.id,
-          binding: {
-            proposalId,
-            projectId: grant.projectId,
-            routeledgerRootDigest: grant.routeledgerRootDigest,
-            actionType: request.context.actionType,
-            targetId: request.context.targetId,
-            operationDigest: request.context.operationDigest
-          },
-          source: grant.source,
-          decisionRef: grant.decisionId,
-          issuer: grant.issuer,
-          audience: grant.audience,
-          subjectId: grant.subjectId,
-          policyId: grant.policyId,
-          policyDigest: grant.policyDigest,
-          profileId: input.profile.profileId,
-          modeEpoch: input.profile.modeEpoch,
-          profileDigest: input.profile.profileDigest,
-          hostKind: grant.hostKind,
-          clientId: grant.clientId,
-          sessionId: null,
-          createdAt: grant.createdAt,
-          expiresAt: grant.expiresAt
-        });
+        await exactStore.issue(authorization);
         state.exactStore = exactStore.exportState();
-        return { effect: "allow" as const, grant };
+        return { effect: "allow" as const, authorization };
       });
       return grantDecision.effect === "allow"
         ? grantDecision

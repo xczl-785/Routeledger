@@ -4,9 +4,8 @@ import path from "node:path";
 import {
   digestL3AuthorizationProfile,
   validateL3AuthorizationProfile,
-  type L3ActionType,
-  type L3AuthorizationGrant,
   type L3AuthorizationGrantStore,
+  type L3AuthorizationPolicy,
   type L3AuthorizationProfileV2,
   type ExactAuthorizationStore
 } from "@routeledger/core";
@@ -42,7 +41,7 @@ export interface LocalL3AuthorityHostDecision {
 
 export interface LocalL3AuthorityHostInteraction {
   requestDecision(request: {
-    kind: "install_profile" | "issue_preauthorization";
+    kind: "install_profile" | "configure_standing_policy";
     bindingKey: string;
     profileId: string;
     profileDigest: string;
@@ -50,14 +49,10 @@ export interface LocalL3AuthorityHostInteraction {
   }): Promise<LocalL3AuthorityHostDecision>;
 }
 
-export interface IssueLocalL3PreauthorizationInput {
+export interface ConfigureLocalL3StandingPolicyInput {
   binding: Omit<LocalL3AuthorityBindingInput, "hostKind" | "subjectId" | "trustedClientId">;
-  scope: "session" | "time_window";
-  allowedActions: L3ActionType[];
-  allowedTargetIds: string[];
-  ttlSeconds: number;
-  maxUses: number;
-  sessionId?: string;
+  policy: L3AuthorizationPolicy;
+  expectedProfileRevision: number;
 }
 
 export interface BoundLocalL3Authority {
@@ -83,7 +78,9 @@ export interface LocalL3AuthorityBroker {
     profile: L3AuthorizationProfileV2;
     expectedProfileRevision?: number;
   }): Promise<BoundLocalL3Authority>;
-  issuePreauthorization(input: IssueLocalL3PreauthorizationInput): Promise<L3AuthorizationGrant>;
+  configureStandingPolicy(
+    input: ConfigureLocalL3StandingPolicyInput
+  ): Promise<BoundLocalL3Authority>;
   revokeAccess(input: {
     binding: Omit<LocalL3AuthorityBindingInput, "hostKind" | "subjectId" | "trustedClientId">;
     expectedProfileRevision: number;
@@ -106,13 +103,6 @@ const requireTrustedDecision = async (
     throw new Error("The trusted host returned an invalid user decision.");
   }
   return decision;
-};
-
-const uniqueNonEmpty = (values: string[], label: string): string[] => {
-  if (values.length === 0 || values.some((value) => value.trim().length === 0 || value === "*")) {
-    throw new Error(`${label} must contain explicit non-wildcard values.`);
-  }
-  return [...new Set(values)];
 };
 
 export const createLocalL3AuthorityBroker = (
@@ -207,7 +197,7 @@ export const createLocalL3AuthorityBroker = (
       if (selected === null) throw new Error("The installed L3 authorization profile was not found.");
       return selected;
     },
-    issuePreauthorization: async (input) => {
+    configureStandingPolicy: async (input) => {
       const selected = await bind(input.binding);
       if (
         selected === null ||
@@ -216,45 +206,47 @@ export const createLocalL3AuthorityBroker = (
       ) {
         throw new Error("An active preauthorized profile is required.");
       }
-      const actions = uniqueNonEmpty(input.allowedActions, "allowedActions") as L3ActionType[];
-      const targets = uniqueNonEmpty(input.allowedTargetIds, "allowedTargetIds");
-      if (
-        !Number.isInteger(input.ttlSeconds) ||
-        input.ttlSeconds < 30 ||
-        input.ttlSeconds > selected.profile.limits.maxAuthorizationTtlSeconds
-      ) {
-        throw new Error("The preauthorization TTL exceeds the active profile limit.");
-      }
-      if (
-        !Number.isInteger(input.maxUses) ||
-        input.maxUses !== 1
-      ) {
-        throw new Error("Preauthorization can only mint one exact authorization per proposal.");
-      }
-      if (
-        (input.scope === "session" && (input.sessionId === undefined || input.sessionId.trim().length === 0)) ||
-        (input.scope === "time_window" && input.sessionId !== undefined)
-      ) {
-        throw new Error("The preauthorization session binding does not match its scope.");
+      if (selected.profile.profileRevision !== input.expectedProfileRevision) {
+        throw new Error("Local L3 authorization profile revision conflict.");
       }
       const decision = await requireTrustedDecision(options.trustedHostInteraction, {
-        kind: "issue_preauthorization",
+        kind: "configure_standing_policy",
         bindingKey: selected.bindingKey,
         profileId: selected.profile.profileId,
         profileDigest: selected.profile.profileDigest,
         canonicalSummary: {
-          scope: input.scope,
-          allowedActions: actions,
-          allowedTargetIds: targets,
-          ttlSeconds: input.ttlSeconds,
-          maxUses: input.maxUses,
-          sessionId: input.sessionId ?? null
+          policyId: input.policy.policyId,
+          policyMode: input.policy.mode,
+          policyBinding: input.policy.binding,
+          ruleIds: input.policy.rules.map((rule) => rule.id)
         }
       });
-      void decision;
-      throw new Error(
-        "Standing preauthorization is evaluated per proposal and cannot issue a reusable grant."
-      );
+      const base: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+        ...selected.profile,
+        modeEpoch: selected.profile.modeEpoch + 1,
+        profileRevision: selected.profile.profileRevision + 1,
+        delegatedPolicy: input.policy,
+        updatedAt: decision.decidedAt
+      };
+      const profile = { ...base, profileDigest: digestL3AuthorizationProfile(base) };
+      await installLocalL3AuthorizationProfile({
+        registryRoot: options.registryRoot,
+        workspaceRoot: input.binding.workspaceRoot,
+        routeledgerRoot: input.binding.routeledgerRoot,
+        binding: {
+          projectId: input.binding.projectId,
+          workspaceRoot: input.binding.workspaceRoot,
+          routeledgerRoot: input.binding.routeledgerRoot,
+          hostKind: options.hostKind,
+          subjectId: options.subjectId,
+          trustedClientId: options.trustedClientId
+        },
+        profile,
+        expectedProfileRevision: input.expectedProfileRevision
+      });
+      const configured = await bind(input.binding);
+      if (configured === null) throw new Error("The standing policy profile was not found.");
+      return configured;
     },
     revokeAccess: async (input) => {
       const selected = await bind(input.binding);

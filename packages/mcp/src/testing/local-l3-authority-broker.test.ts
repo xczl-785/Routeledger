@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  buildBalancedL3AuthorizationPolicy,
   digestL3AuthorizationProfile,
   type L3AuthorizationGrant,
   type L3AuthorizationProfileV2
@@ -178,6 +179,18 @@ describe("local L3 authority broker", () => {
       profile
     });
     const bindingRequest = { projectId: binding.projectId, workspaceRoot, routeledgerRoot };
+    const standingPolicy = buildBalancedL3AuthorizationPolicy({
+      policyId: "standing-policy-1",
+      projectId: profile.binding.projectId,
+      routeledgerRootDigest: profile.binding.routeledgerRootDigest,
+      currentVersionId: "version-1",
+      routeVersionIds: ["version-1", "version-2"],
+      expiresAt: "2026-08-12T00:00:00.000Z",
+      maxUses: 2,
+      subjectId: profile.binding.subjectId,
+      hostKind: profile.binding.hostKind,
+      clientId: profile.binding.trustedClientId ?? undefined
+    });
     const untrusted = createLocalL3AuthorityBroker({
       registryRoot,
       hostKind: "codex",
@@ -185,14 +198,10 @@ describe("local L3 authority broker", () => {
       trustedClientId: "codex-desktop"
     });
     await expect(
-      untrusted.issuePreauthorization({
+      untrusted.configureStandingPolicy({
         binding: bindingRequest,
-        scope: "session",
-        allowedActions: ["start_version"],
-        allowedTargetIds: ["version-2"],
-        ttlSeconds: 60,
-        maxUses: 1,
-        sessionId: "session-1"
+        policy: standingPolicy,
+        expectedProfileRevision: 1
       })
     ).rejects.toThrow("trusted host user-interaction adapter");
 
@@ -213,36 +222,27 @@ describe("local L3 authority broker", () => {
         }
       }
     });
-    await expect(
-      broker.issuePreauthorization({
-        binding: bindingRequest,
-        scope: "time_window",
-        allowedActions: ["start_version"],
-        allowedTargetIds: ["*"],
-        ttlSeconds: 60,
-        maxUses: 1
-      })
-    ).rejects.toThrow("explicit non-wildcard");
-    expect(decisions).toHaveLength(0);
-
-    await expect(broker.issuePreauthorization({
-        binding: bindingRequest,
-        scope: "session",
-        allowedActions: ["start_version"],
-        allowedTargetIds: ["version-2"],
-        ttlSeconds: 60,
-        maxUses: 1,
-        sessionId: "session-1"
-      })).rejects.toThrow("evaluated per proposal");
+    const configured = await broker.configureStandingPolicy({
+      binding: bindingRequest,
+      policy: standingPolicy,
+      expectedProfileRevision: 1
+    });
     expect(decisions).toHaveLength(1);
+    expect(configured.profile).toMatchObject({
+      mode: "preauthorized",
+      modeEpoch: 2,
+      profileRevision: 2,
+      delegatedPolicy: { policyId: "standing-policy-1" }
+    });
+    expect(configured.delegatedAuthority).toBeDefined();
 
     const revoked = await broker.revokeAccess({
       binding: bindingRequest,
-      expectedProfileRevision: 1
+      expectedProfileRevision: 2
     });
-    expect(revoked.profile).toMatchObject({ status: "disabled", modeEpoch: 2, profileRevision: 2 });
+    expect(revoked.profile).toMatchObject({ status: "disabled", modeEpoch: 3, profileRevision: 3 });
     await expect(
-      broker.revokeAccess({ binding: bindingRequest, expectedProfileRevision: 1 })
+      broker.revokeAccess({ binding: bindingRequest, expectedProfileRevision: 2 })
     ).rejects.toThrow("revision conflict");
   });
 });

@@ -172,14 +172,16 @@ export const validateL3AuthorizationProfile = (
       "maxAuthorizationTtlSeconds must be from 30 through 86400"
     );
   }
-  if (profile.mode === "delegated") {
+  if (profile.mode === "delegated" || profile.mode === "preauthorized") {
     if (profile.delegatedPolicy === null) {
-      addIssue(
-        issues,
-        "DELEGATED_POLICY_REQUIRED",
-        "$.delegatedPolicy",
-        "delegated mode requires a policy"
-      );
+      if (profile.mode === "delegated") {
+        addIssue(
+          issues,
+          "DELEGATED_POLICY_REQUIRED",
+          "$.delegatedPolicy",
+          "delegated mode requires a policy"
+        );
+      }
     } else {
       const policyValidation = validateL3AuthorizationPolicy(profile.delegatedPolicy);
       if (!policyValidation.valid) {
@@ -195,7 +197,7 @@ export const validateL3AuthorizationProfile = (
           issues,
           "DELEGATED_POLICY_MODE_INVALID",
           "$.delegatedPolicy.mode",
-          "the delegated policy must use delegated mode"
+          "the standing policy must use delegated evaluation semantics"
         );
       }
       const policyBinding = profile.delegatedPolicy.binding;
@@ -219,7 +221,7 @@ export const validateL3AuthorizationProfile = (
       issues,
       "DELEGATED_POLICY_FORBIDDEN",
       "$.delegatedPolicy",
-      "only delegated mode may carry a delegated policy"
+      "only delegated or preauthorized mode may carry a standing policy"
     );
   }
   if (!isIsoDate(profile.createdAt)) {

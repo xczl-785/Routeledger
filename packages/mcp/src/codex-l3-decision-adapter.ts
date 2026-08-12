@@ -2,21 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import {
   assertDecisionResolutionMatchesRequest,
-  validateL3AuthorizationGrant,
   type DecisionResolution,
+  type ExactAuthorizationCandidate,
   type ExactProposalDecisionRequest,
   type ExactAuthorizationStore,
-  type L3AuthorizationGrant,
   type L3AuthorizationGrantContext,
-  type L3AuthorizationGrantStore,
   type L3DecisionAdapter
 } from "@routeledger/core";
 
 export interface CodexL3DecisionAdapterOptions {
   readonly authorizationContext: Readonly<L3AuthorizationGrantContext>;
-  readonly grantStore: L3AuthorizationGrantStore;
   readonly exactStore: ExactAuthorizationStore;
-  readonly sessionId: string;
   readonly nextId?: () => string;
   readonly now?: () => Date;
 }
@@ -42,63 +38,36 @@ export class CodexL3DecisionAdapter implements L3DecisionAdapter {
 
   async resolve(request: ExactProposalDecisionRequest): Promise<CodexL3DecisionResolution> {
     const now = this.now();
-    const grant: L3AuthorizationGrant = {
-      id: this.nextId(),
-      issuer: "codex-native-tool-admission",
-      subjectId: this.options.authorizationContext.subjectId,
-      audience: this.options.authorizationContext.audience,
-      projectId: request.projectId,
-      routeledgerRootDigest: this.options.authorizationContext.routeledgerRootDigest,
-      allowedActions: [request.actionType],
-      allowedTargetIds: [request.targetId],
-      operationDigest: request.operationDigest,
-      scope: "operation",
-      source: "host_admission",
-      policyId: null,
-      policyDigest: null,
-      decisionId: `codex-tool-call-${this.nextId()}`,
-      hostKind: "codex",
-      clientId: this.options.authorizationContext.clientId ?? null,
-      sessionId: this.options.sessionId,
-      nonce: this.nextId(),
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
-      maxUses: 1,
-      uses: 0,
-      status: "active",
-      revokedAt: null
-    };
-    const failure = validateL3AuthorizationGrant(grant, this.options.authorizationContext);
-    if (failure !== null) {
-      throw new Error(`Codex host-admission grant is invalid: ${failure}`);
-    }
-    await this.options.exactStore.issue({
-      schemaVersion: 2,
-      authorizationId: grant.id,
+    const authorizationId = this.nextId();
+    const decisionRef = `codex-tool-call-${this.nextId()}`;
+    const candidate: ExactAuthorizationCandidate = {
+      schemaVersion: 2 as const,
+      authorizationId,
       binding: {
         proposalId: request.proposalId,
         projectId: request.projectId,
-        routeledgerRootDigest: grant.routeledgerRootDigest,
+        routeledgerRootDigest: this.options.authorizationContext.routeledgerRootDigest,
         actionType: request.actionType,
         targetId: request.targetId,
         operationDigest: request.operationDigest
       },
-      source: grant.source,
-      decisionRef: grant.decisionId,
-      issuer: grant.issuer,
-      audience: grant.audience,
-      subjectId: grant.subjectId,
-      policyId: grant.policyId,
-      policyDigest: grant.policyDigest,
+      issuer: "codex-native-tool-admission",
+      subjectId: this.options.authorizationContext.subjectId,
+      audience: this.options.authorizationContext.audience,
+      source: "host_admission",
+      policyId: null,
+      policyDigest: null,
+      decisionRef,
       profileId: null,
       modeEpoch: null,
       profileDigest: null,
-      hostKind: grant.hostKind,
-      clientId: grant.clientId,
+      hostKind: "codex",
+      clientId: this.options.authorizationContext.clientId ?? null,
       sessionId: null,
-      createdAt: grant.createdAt,
-      expiresAt: grant.expiresAt
-    });
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
+    };
+    await this.options.exactStore.issue(candidate);
     const resolution: CodexL3DecisionResolution = {
       status: "resolved",
       decision: {
@@ -107,9 +76,9 @@ export class CodexL3DecisionAdapter implements L3DecisionAdapter {
         actionType: request.actionType,
         targetId: request.targetId,
         operationDigest: request.operationDigest,
-        source: grant.source,
-        decisionRef: grant.decisionId,
-        authorizationGrantId: grant.id
+        source: candidate.source,
+        decisionRef,
+        authorizationGrantId: authorizationId
       }
     };
     assertDecisionResolutionMatchesRequest(request, resolution);

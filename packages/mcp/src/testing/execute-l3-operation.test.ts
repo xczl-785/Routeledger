@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  MemoryL3AuthorizationGrantStore,
-  type L3AuthorizationEvaluationContext
+  MemoryL3AuthorizationGrantStore
 } from "@routeledger/core";
+import type { RouteLedgerMcpDelegatedAuthorizationRequest } from "../index.js";
 
 import {
   cleanupProjectRoot,
@@ -29,36 +29,37 @@ describe("execute_l3_operation", () => {
         trustedClientId: "automatic-client",
         delegatedAuthority: {
           authorityHandle: "host-vault://d3-test",
-          requestGrant: async ({ context }: { context: L3AuthorizationEvaluationContext }) => {
+          requestExactDecision: async ({ proposal, context }: RouteLedgerMcpDelegatedAuthorizationRequest) => {
             delegatedCalls += 1;
             const now = new Date();
             return {
               effect: "allow" as const,
-              grant: {
-                id: randomUUID(),
+              authorization: {
+                schemaVersion: 2,
+                authorizationId: randomUUID(),
+                binding: {
+                  proposalId: proposal.id,
+                  projectId: context.projectId,
+                  routeledgerRootDigest: context.routeledgerRootDigest,
+                  actionType: context.actionType,
+                  targetId: context.targetId,
+                  operationDigest: context.operationDigest
+                },
                 issuer: "test-authority",
                 subjectId: context.subjectId,
                 audience: "routeledger-core",
-                projectId: context.projectId,
-                routeledgerRootDigest: context.routeledgerRootDigest,
-                allowedActions: [context.actionType],
-                allowedTargetIds: [context.targetId],
-                operationDigest: context.operationDigest,
-                scope: "operation" as const,
                 source: "delegated_policy" as const,
                 policyId: "policy-d3",
                 policyDigest: "policy-digest-d3",
-                decisionId: randomUUID(),
+                decisionRef: randomUUID(),
+                profileId: null,
+                modeEpoch: null,
+                profileDigest: null,
                 hostKind: "generic",
                 clientId: "automatic-client",
-                sessionId: "automatic-session",
-                nonce: randomUUID(),
+                sessionId: null,
                 createdAt: now.toISOString(),
-                expiresAt: new Date(now.getTime() + 60_000).toISOString(),
-                maxUses: 1,
-                uses: 0,
-                status: "active" as const,
-                revokedAt: null
+                expiresAt: new Date(now.getTime() + 60_000).toISOString()
               }
             };
           }

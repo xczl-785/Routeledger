@@ -6,16 +6,14 @@ import {
   assertDecisionResolutionMatchesRequest,
   type DecisionResolution,
   type ExactDecision,
+  type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
   type ExactProposalDecisionRequest,
   type L3AuthorizationEvaluationContext,
-  type L3AuthorizationGrant,
   type L3AuthorizationGrantContext,
-  type L3AuthorizationGrantStore,
   type L3AuthorizationProfileV2,
   type L3DecisionAdapter,
   type PendingOperation,
-  validateL3AuthorizationGrant
 } from "@routeledger/core";
 
 import type {
@@ -39,10 +37,8 @@ export type ExistingL3DecisionResolution =
 export interface ExistingL3DecisionAdapterOptions {
   readonly proposal: Readonly<PendingOperation>;
   readonly authorizationContext: Readonly<L3AuthorizationGrantContext>;
-  readonly grantStore: L3AuthorizationGrantStore;
   readonly exactStore: ExactAuthorizationStore;
   readonly interaction: RouteLedgerMcpAuthorizationInteraction;
-  readonly sessionId: string;
   readonly hostProfile: string;
   readonly trustedClientId?: string;
   readonly profile?: L3AuthorizationProfileV2;
@@ -54,7 +50,7 @@ export interface ExistingL3DecisionAdapterOptions {
 
 const resolvedDecision = (
   request: ExactProposalDecisionRequest,
-  grant: Readonly<L3AuthorizationGrant>
+  authorization: Readonly<ExactAuthorizationCandidate>
 ): ExistingL3DecisionResolution => ({
   status: "resolved",
   decision: {
@@ -63,9 +59,9 @@ const resolvedDecision = (
     actionType: request.actionType,
     targetId: request.targetId,
     operationDigest: request.operationDigest,
-    source: grant.source,
-    decisionRef: grant.decisionId,
-    authorizationGrantId: grant.id
+    source: authorization.source,
+    decisionRef: authorization.decisionRef,
+    authorizationGrantId: authorization.authorizationId
   }
 });
 
@@ -89,77 +85,6 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
   constructor(private readonly options: ExistingL3DecisionAdapterOptions) {
     this.now = options.now ?? (() => new Date());
     this.nextId = options.nextId ?? randomUUID;
-  }
-
-  private async issueExact(
-    request: ExactProposalDecisionRequest,
-    grant: L3AuthorizationGrant
-  ): Promise<void> {
-    if (
-      grant.scope !== "operation" ||
-      grant.maxUses !== 1 ||
-      grant.uses !== 0 ||
-      grant.operationDigest !== request.operationDigest
-    ) {
-      throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
-        "Only one exact proposal authorization can enter the active authority store",
-        { pendingOperationId: request.proposalId, reason: "EXACT_SHAPE_REQUIRED" }
-      );
-    }
-    const candidate = {
-      schemaVersion: 2,
-      authorizationId: grant.id,
-      binding: {
-        proposalId: request.proposalId,
-        projectId: request.projectId,
-        routeledgerRootDigest: grant.routeledgerRootDigest,
-        actionType: request.actionType,
-        targetId: request.targetId,
-        operationDigest: request.operationDigest
-      },
-      source: grant.source,
-      decisionRef: grant.decisionId,
-      issuer: grant.issuer,
-      audience: grant.audience,
-      subjectId: grant.subjectId,
-      policyId: grant.policyId,
-      policyDigest: grant.policyDigest,
-      profileId: grant.profileId ?? null,
-      modeEpoch: grant.modeEpoch ?? null,
-      profileDigest: grant.profileDigest ?? null,
-      hostKind: grant.hostKind,
-      clientId: grant.clientId,
-      sessionId: null,
-      createdAt: grant.createdAt,
-      expiresAt: grant.expiresAt
-    } as const;
-    const existing = await this.options.exactStore.get(grant.id);
-    if (existing !== null) {
-      const sameTrustedDecision =
-        JSON.stringify(existing.binding) === JSON.stringify(candidate.binding) &&
-        existing.source === candidate.source &&
-        existing.decisionRef === candidate.decisionRef &&
-        existing.issuer === candidate.issuer &&
-        existing.audience === candidate.audience &&
-        existing.subjectId === candidate.subjectId &&
-        existing.policyId === candidate.policyId &&
-        existing.policyDigest === candidate.policyDigest &&
-        existing.profileId === candidate.profileId &&
-        existing.modeEpoch === candidate.modeEpoch &&
-        existing.profileDigest === candidate.profileDigest &&
-        existing.hostKind === candidate.hostKind &&
-        existing.clientId === candidate.clientId;
-      if (!sameTrustedDecision) {
-        throw new ApplicationError(
-          "AUTHORIZATION_GRANT_REJECTED",
-          "The exact authorization retry does not match the trusted decision",
-          { pendingOperationId: request.proposalId, reason: "EXACT_RETRY_MISMATCH" }
-        );
-      }
-      return;
-    }
-    await this.options.exactStore.issue(candidate);
   }
 
   async resolve(
@@ -228,7 +153,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
 
     let authorityResult;
     try {
-      authorityResult = await delegatedAuthority.requestGrant({
+      authorityResult = await delegatedAuthority.requestExactDecision({
         authorityHandle: delegatedAuthority.authorityHandle,
         proposal: this.options.proposal,
         context: await this.options.getEvaluationContext()
@@ -261,31 +186,35 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     }
     if (authorityResult.effect !== "allow") return null;
 
-    const grant = authorityResult.grant;
-    const grantFailure = validateL3AuthorizationGrant(grant, this.options.authorizationContext);
+    const authorization = authorityResult.authorization;
+    const expectedSource =
+      this.options.profile?.mode === "preauthorized"
+        ? "preauthorized"
+        : "delegated_policy";
     if (
-      grantFailure !== null ||
-      grant.source !==
-        (this.options.profile?.mode === "preauthorized"
-          ? "preauthorized"
-          : "delegated_policy") ||
-      grant.scope !== "operation" ||
-      grant.maxUses !== 1 ||
-      grant.operationDigest !== this.options.proposal.digest.value ||
-      !grant.policyId ||
-      !grant.policyDigest
+      authorization.schemaVersion !== 2 ||
+      authorization.binding.proposalId !== request.proposalId ||
+      authorization.binding.projectId !== request.projectId ||
+      authorization.binding.routeledgerRootDigest !==
+        this.options.authorizationContext.routeledgerRootDigest ||
+      authorization.binding.actionType !== request.actionType ||
+      authorization.binding.targetId !== request.targetId ||
+      authorization.binding.operationDigest !== request.operationDigest ||
+      authorization.source !== expectedSource ||
+      !authorization.policyId ||
+      !authorization.policyDigest
     ) {
       throw new ApplicationError(
         "AUTHORIZATION_GRANT_REJECTED",
         "The host-managed delegated authority returned an invalid one-shot grant",
         {
           authorityHandle: delegatedAuthority.authorityHandle,
-          reason: grantFailure ?? "DELEGATED_GRANT_SHAPE_INVALID"
+          reason: "DELEGATED_EXACT_DECISION_INVALID"
         }
       );
     }
-    await this.issueExact(request, grant);
-    return resolvedDecision(request, grant);
+    await this.options.exactStore.issue(authorization);
+    return resolvedDecision(request, authorization);
   }
 
   private async resolveInteraction(
@@ -322,6 +251,17 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       );
     }
 
+    if (decision.action === "decline") {
+      return {
+        status: "denied",
+        code: "AUTHORIZATION_GRANT_REJECTED",
+        reason: "L3 authorization was declined by the host user",
+        details: {
+          pendingOperationId: this.options.proposal.id,
+          reason: "HOST_DECLINED"
+        }
+      };
+    }
     const contentKeys = decision.content === null ? [] : Object.keys(decision.content);
     if (
       decision.action !== "accept" ||
@@ -329,18 +269,16 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       contentKeys.length !== 1 ||
       contentKeys[0] !== "approve"
     ) {
-      const cancelled = decision.action === "cancel";
-      return {
-        status: "denied",
-        code: "AUTHORIZATION_GRANT_REJECTED",
-        reason: cancelled
-          ? "L3 authorization was cancelled by the host user"
-          : "L3 authorization was declined by the host user",
-        details: {
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        decision.action === "cancel"
+          ? "L3 authorization was cancelled without deciding the proposal"
+          : "The host returned an invalid exact authorization response",
+        {
           pendingOperationId: this.options.proposal.id,
-          reason: cancelled ? "HOST_CANCELLED" : "HOST_DECLINED"
+          reason: decision.action === "cancel" ? "HOST_CANCELLED" : "INVALID_DECISION_RESPONSE"
         }
-      };
+      );
     }
     if (
       this.options.profile !== undefined &&
@@ -360,35 +298,33 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     }
 
     const now = this.now();
-    const grant: L3AuthorizationGrant = {
-      id: this.nextId(),
+    const authorization: ExactAuthorizationCandidate = {
+      schemaVersion: 2,
+      authorizationId: this.nextId(),
+      binding: {
+        proposalId: request.proposalId,
+        projectId: request.projectId,
+        routeledgerRootDigest: this.options.authorizationContext.routeledgerRootDigest,
+        actionType: request.actionType,
+        targetId: request.targetId,
+        operationDigest: request.operationDigest
+      },
       issuer: `mcp-interaction:${this.options.hostProfile}`,
       subjectId: this.options.authorizationContext.subjectId,
       audience: "routeledger-core",
-      projectId: this.options.proposal.projectId,
-      routeledgerRootDigest: this.options.authorizationContext.routeledgerRootDigest,
-      ...(this.options.profile === undefined
-        ? {}
-        : {
-            profileId: this.options.profile.profileId,
-            modeEpoch: this.options.profile.modeEpoch,
-            profileDigest: this.options.profile.profileDigest
-          }),
-      allowedActions: [this.options.proposal.actionType],
-      allowedTargetIds: [this.options.proposal.targetId],
-      operationDigest: this.options.proposal.digest.value,
-      scope: "operation",
       source: "user_interaction",
       policyId: null,
       policyDigest: null,
-      decisionId:
+      decisionRef:
         this.options.profile === undefined
           ? `decision-${this.nextId()}`
           : decision.trustedDecision!.decisionId,
+      profileId: this.options.profile?.profileId ?? null,
+      modeEpoch: this.options.profile?.modeEpoch ?? null,
+      profileDigest: this.options.profile?.profileDigest ?? null,
       hostKind: this.options.hostProfile,
       clientId: this.options.trustedClientId ?? null,
-      sessionId: this.options.sessionId,
-      nonce: this.nextId(),
+      sessionId: null,
       createdAt: now.toISOString(),
       expiresAt: new Date(
         now.getTime() +
@@ -396,14 +332,10 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
             60 * 60 * 1000,
             (this.options.profile?.limits.maxAuthorizationTtlSeconds ?? 8 * 60 * 60) * 1000
           )
-      ).toISOString(),
-      maxUses: 1,
-      uses: 0,
-      status: "active",
-      revokedAt: null
+      ).toISOString()
     };
-    await this.issueExact(request, grant);
-    return resolvedDecision(request, grant);
+    await this.options.exactStore.issue(authorization);
+    return resolvedDecision(request, authorization);
   }
 }
 

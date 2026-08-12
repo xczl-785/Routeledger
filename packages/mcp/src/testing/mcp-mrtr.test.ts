@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { MCP_MRTR_PROTOCOL_VERSION } from "../index.js";
+import {
+  digestMcpToolArguments,
+  sealMcpRequestState,
+  verifyMcpRequestState
+} from "../mcp-request-state.js";
 import { createRouteLedgerStdioServer } from "../stdio-server.js";
 import { cleanupProjectRoot, createTempProjectRoot } from "./mcp-test-helpers.js";
 
@@ -203,6 +208,29 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         { requestState: state, inputResponses: decision }
       );
       expect(mismatched).toMatchObject({ error: { code: -32602 } });
+      const decoded = verifyMcpRequestState(state, SECRET, {
+        toolName: "execute_l3_operation",
+        argumentsDigest: digestMcpToolArguments(args)
+      });
+      const staleLiveBinding = sealMcpRequestState(
+        {
+          ...decoded,
+          binding: { ...decoded.binding, operationDigest: "stale-live-digest" }
+        },
+        SECRET
+      );
+      const stale = await call(server, "execute-stale", "execute_l3_operation", args, {
+        requestState: staleLiveBinding,
+        inputResponses: decision
+      });
+      expect(stale).toMatchObject({
+        result: {
+          structuredContent: {
+            ok: false,
+            error: { code: "INVALID_TOOL_INPUT" }
+          }
+        }
+      });
       const responseOnly = await server.handleMessage({
         jsonrpc: "2.0",
         id: "execute-4",

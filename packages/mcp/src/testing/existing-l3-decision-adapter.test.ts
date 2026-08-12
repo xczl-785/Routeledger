@@ -91,14 +91,12 @@ const adapter = (
   new ExistingL3DecisionAdapter({
     proposal,
     authorizationContext: context,
-    grantStore: store,
     exactStore: new MemoryExactAuthorizationStore(),
     interaction: {
       requestAuthorization: async () => {
         throw new Error("interaction must not be used");
       }
     },
-    sessionId: "session-1",
     hostProfile: "generic",
     trustedClientId: "client-1",
     getEvaluationContext: async () => {
@@ -155,7 +153,10 @@ describe("ExistingL3DecisionAdapter", () => {
     });
 
     await expect(resolver.resolve(createExactProposalDecisionRequest(proposal)))
-      .resolves.toMatchObject({ status: "denied", code: "AUTHORIZATION_GRANT_REJECTED" });
+      .rejects.toMatchObject({
+        code: "AUTHORIZATION_GRANT_REJECTED",
+        details: { reason: "INVALID_DECISION_RESPONSE" }
+      });
     await expect(exactStore.get("grant-user_interaction")).resolves.toBeNull();
   });
 
@@ -189,7 +190,7 @@ describe("ExistingL3DecisionAdapter", () => {
     const resolver = adapter(store, {
       delegatedAuthority: {
         authorityHandle: "host-vault://policy-1",
-        requestGrant: async () => ({
+        requestExactDecision: async () => ({
           effect: "deny",
           code: "POLICY_DENIED",
           policyId: "policy-1",

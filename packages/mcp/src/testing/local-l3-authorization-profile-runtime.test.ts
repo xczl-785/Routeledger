@@ -5,10 +5,11 @@ import path from "node:path";
 import {
   buildBalancedL3AuthorizationPolicy,
   digestL3AuthorizationProfile,
+  type ExactAuthorizationCandidate,
   type L3AuthorizationConsumptionReceipt,
   type L3AuthorizationEvaluationContext,
-  type L3AuthorizationGrant,
-  type L3AuthorizationProfileV2
+  type L3AuthorizationProfileV2,
+  type PendingOperation
 } from "@routeledger/core";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -87,36 +88,55 @@ const contextFor = (profile: L3AuthorizationProfileV2): L3AuthorizationEvaluatio
   clientId: profile.binding.trustedClientId ?? undefined
 });
 
+const proposalFor = (context: L3AuthorizationEvaluationContext): PendingOperation => ({
+  id: `proposal-${context.operationDigest}`,
+  projectId: context.projectId,
+  actionType: context.actionType,
+  targetId: context.targetId,
+  status: "pending",
+  reason: "profile exact decision",
+  gateSnapshot: { kind: "none", evaluatedAt: context.now, allowed: true, blockers: [] },
+  digest: { algorithm: "sha256", value: context.operationDigest, payload: {} },
+  payload: {},
+  createdBy: { id: "test", type: "agent" },
+  createdAt: context.now,
+  updatedAt: context.now,
+  committedAt: null,
+  rejectedAt: null,
+  rejectionReason: null,
+  approvalArtifactId: null
+});
+
 const receiptFor = (
   profile: L3AuthorizationProfileV2,
-  grant: L3AuthorizationGrant,
+  authorization: ExactAuthorizationCandidate,
   suffix: string
 ): L3AuthorizationConsumptionReceipt => ({
   approvalArtifactId: `artifact-${suffix}`,
   pendingOperationId: `pending-${suffix}`,
-  grantId: grant.id,
-  audience: grant.audience,
-  subjectId: grant.subjectId,
-  projectId: grant.projectId,
-  routeledgerRootDigest: grant.routeledgerRootDigest,
+  grantId: authorization.authorizationId,
+  audience: authorization.audience,
+  subjectId: authorization.subjectId,
+  projectId: authorization.binding.projectId,
+  routeledgerRootDigest: authorization.binding.routeledgerRootDigest,
   profileId: profile.profileId,
   modeEpoch: profile.modeEpoch,
   profileDigest: profile.profileDigest,
   actionType: "start_version",
   targetId: "version-2",
-  operationDigest: grant.operationDigest!,
+  operationDigest: authorization.binding.operationDigest,
   approvalSource: "delegated_policy",
-  decisionRef: grant.decisionId,
+  decisionRef: authorization.decisionRef,
   approverId: profile.binding.subjectId,
   approverType: "user",
   approverDisplayName: "Local user",
-  policyId: grant.policyId,
-  policyDigest: grant.policyDigest,
+  policyId: authorization.policyId,
+  policyDigest: authorization.policyDigest,
   hostKind: profile.binding.hostKind,
   clientId: profile.binding.trustedClientId,
   sessionId: null,
-  createdAt: grant.createdAt,
-  expiresAt: grant.expiresAt,
+  createdAt: authorization.createdAt,
+  expiresAt: authorization.expiresAt,
   consumedUse: 1,
   status: "authorized",
   commitClaimId: null,
@@ -130,6 +150,55 @@ afterEach(async () => {
 });
 
 describe("local L3 authorization profile runtime", () => {
+  it("uses a preauthorized standing policy to mint a distinct exact decision per proposal", async () => {
+    const fixture = await createFixture();
+    const standingBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+      ...fixture.profile,
+      mode: "preauthorized",
+      profileRevision: 2,
+      updatedAt: "2026-08-11T00:01:00.000Z"
+    };
+    const profile = {
+      ...standingBase,
+      profileDigest: digestL3AuthorizationProfile(standingBase)
+    };
+    const runtime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      profile,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const authority = runtime.delegatedAuthority!;
+    const firstContext = contextFor(profile);
+    const secondContext = { ...firstContext, operationDigest: "operation-2" };
+    const first = await authority.requestExactDecision({
+      authorityHandle: authority.authorityHandle,
+      proposal: proposalFor(firstContext),
+      context: firstContext
+    });
+    const second = await authority.requestExactDecision({
+      authorityHandle: authority.authorityHandle,
+      proposal: proposalFor(secondContext),
+      context: secondContext
+    });
+    expect(first).toMatchObject({
+      effect: "allow",
+      authorization: {
+        source: "preauthorized",
+        binding: { proposalId: "proposal-operation-1", operationDigest: "operation-1" }
+      }
+    });
+    expect(second).toMatchObject({
+      effect: "allow",
+      authorization: {
+        source: "preauthorized",
+        binding: { proposalId: "proposal-operation-2", operationDigest: "operation-2" }
+      }
+    });
+    if (first.effect !== "allow" || second.effect !== "allow") throw new Error("expected allow");
+    expect(first.authorization.authorizationId).not.toBe(second.authorization.authorizationId);
+  });
+
   it("issues and recovers an exact delegated grant with profile provenance", async () => {
     const fixture = await createFixture();
     const runtime = await loadLocalL3AuthorityProfileRuntime({
@@ -140,37 +209,35 @@ describe("local L3 authorization profile runtime", () => {
     expect(runtime.delegatedAuthority).toBeDefined();
     const authority = runtime.delegatedAuthority!;
     await expect(
-      authority.requestGrant({
+      authority.requestExactDecision({
         authorityHandle: authority.authorityHandle,
-        proposal: {} as never,
+        proposal: proposalFor(contextFor(fixture.profile)),
         context: { ...contextFor(fixture.profile), modeEpoch: 2 }
       })
     ).resolves.toMatchObject({ effect: "deny", code: "PROFILE_PROVENANCE_MISMATCH" });
 
-    const decision = await authority.requestGrant({
+    const decision = await authority.requestExactDecision({
       authorityHandle: authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(contextFor(fixture.profile)),
       context: contextFor(fixture.profile)
     });
     expect(decision).toMatchObject({
       effect: "allow",
-      grant: {
+      authorization: {
         profileId: fixture.profile.profileId,
         modeEpoch: fixture.profile.modeEpoch,
         profileDigest: fixture.profile.profileDigest,
-        scope: "operation",
-        maxUses: 1
+        binding: { proposalId: "proposal-operation-1", operationDigest: "operation-1" }
       }
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
 
     const restarted = await loadLocalL3AuthorityProfileRuntime({
       ...fixture,
       hostKind: "codex",
       subjectId: "local-user"
     });
-    await expect(restarted.exactStore.get(decision.grant.id)).resolves.toMatchObject({
+    await expect(restarted.exactStore.get(decision.authorization.authorizationId)).resolves.toMatchObject({
       profileId: fixture.profile.profileId,
       modeEpoch: 1,
       binding: { operationDigest: "operation-1" }
@@ -185,13 +252,12 @@ describe("local L3 authorization profile runtime", () => {
       subjectId: "local-user"
     });
     const authority = runtime.delegatedAuthority!;
-    const decision = await authority.requestGrant({
+    const decision = await authority.requestExactDecision({
       authorityHandle: authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(contextFor(fixture.profile)),
       context: contextFor(fixture.profile)
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
 
     const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
       schemaVersion: fixture.profile.schemaVersion,
@@ -217,7 +283,7 @@ describe("local L3 authorization profile runtime", () => {
       subjectId: "local-user"
     });
     expect(next.delegatedAuthority).toBeUndefined();
-    await expect(next.exactStore.get(decision.grant.id)).resolves.toMatchObject({
+    await expect(next.exactStore.get(decision.authorization.authorizationId)).resolves.toMatchObject({
       profileId: fixture.profile.profileId,
       modeEpoch: 1
     });
@@ -231,16 +297,16 @@ describe("local L3 authorization profile runtime", () => {
       subjectId: "local-user"
     });
     const authority = runtime.delegatedAuthority!;
-    const first = await authority.requestGrant({
+    const first = await authority.requestExactDecision({
       authorityHandle: authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(contextFor(fixture.profile)),
       context: contextFor(fixture.profile)
     });
     if (first.effect !== "allow") throw new Error("expected delegated grant");
-    const revokedReceipt = receiptFor(fixture.profile, first.grant, "revoked");
+    const revokedReceipt = receiptFor(fixture.profile, first.authorization, "revoked");
     await expect(runtime.grantStore.recordConsumptionReceipt(revokedReceipt))
       .rejects.toThrow("audit-only");
-    const candidate = await runtime.exactStore.get(first.grant.id);
+    const candidate = await runtime.exactStore.get(first.authorization.authorizationId);
     if (candidate === null) throw new Error("expected exact authorization");
     const consumed = await runtime.exactStore.consumeAndRecordReceipt({
       authorizationId: candidate.authorizationId,

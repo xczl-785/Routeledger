@@ -5,10 +5,10 @@ import { Readable, Writable } from "node:stream";
 
 import {
   buildBalancedL3AuthorizationPolicy,
-  MemoryL3AuthorizationGrantStore,
   type L3AuthorizationEvaluationContext,
-  type L3AuthorizationGrantStore,
-  type L3AuthorizationConsumptionReceipt
+  type ExactAuthorizationCandidate,
+  type L3AuthorizationGrant,
+  type PendingOperation
 } from "@routeledger/core";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -86,6 +86,52 @@ const evaluationContext = (
   clientId: "trusted-client"
 });
 
+const proposalFor = (context: L3AuthorizationEvaluationContext): PendingOperation => ({
+  id: `proposal-${context.operationDigest}`,
+  projectId: context.projectId,
+  actionType: context.actionType,
+  targetId: context.targetId,
+  status: "pending",
+  reason: "test exact authority",
+  gateSnapshot: { kind: "none", evaluatedAt: context.now, allowed: true, blockers: [] },
+  digest: { algorithm: "sha256", value: context.operationDigest, payload: {} },
+  payload: {},
+  createdBy: { id: "test", type: "agent" },
+  createdAt: context.now,
+  updatedAt: context.now,
+  committedAt: null,
+  rejectedAt: null,
+  rejectionReason: null,
+  approvalArtifactId: null
+});
+
+const legacyGrantFor = (authorization: ExactAuthorizationCandidate): L3AuthorizationGrant => ({
+  id: authorization.authorizationId,
+  issuer: authorization.issuer,
+  subjectId: authorization.subjectId,
+  audience: authorization.audience,
+  projectId: authorization.binding.projectId,
+  routeledgerRootDigest: authorization.binding.routeledgerRootDigest,
+  allowedActions: [authorization.binding.actionType],
+  allowedTargetIds: [authorization.binding.targetId],
+  operationDigest: authorization.binding.operationDigest,
+  scope: "operation",
+  source: authorization.source,
+  policyId: authorization.policyId,
+  policyDigest: authorization.policyDigest,
+  decisionId: authorization.decisionRef,
+  hostKind: authorization.hostKind,
+  clientId: authorization.clientId,
+  sessionId: null,
+  nonce: `legacy-${authorization.authorizationId}`,
+  createdAt: authorization.createdAt,
+  expiresAt: authorization.expiresAt,
+  maxUses: 1,
+  uses: 0,
+  status: "active",
+  revokedAt: null
+});
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
@@ -132,16 +178,16 @@ describe("local L3 authorization runtime", () => {
       subjectId: "mcp-user"
     });
     const context = evaluationContext("digest-1");
-    const decision = await runtime.authority.requestGrant({
+    const decision = await runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(context),
       context
     });
     expect(decision.effect).toBe("allow");
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
-    await expect(runtime.grantStore.get(decision.grant.id)).resolves.toBeNull();
-    await expect(runtime.exactStore.get(decision.grant.id)).resolves.toMatchObject({
+    await expect(runtime.grantStore.issue(legacyGrantFor(decision.authorization))).rejects.toThrow("audit-only");
+    await expect(runtime.grantStore.get(decision.authorization.authorizationId)).resolves.toBeNull();
+    await expect(runtime.exactStore.get(decision.authorization.authorizationId)).resolves.toMatchObject({
       binding: { operationDigest: "digest-1" },
       source: "delegated_policy"
     });
@@ -153,7 +199,7 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    await expect(restarted.exactStore.get(decision.grant.id)).resolves.toMatchObject({
+    await expect(restarted.exactStore.get(decision.authorization.authorizationId)).resolves.toMatchObject({
       binding: { operationDigest: "digest-1" }
     });
   });
@@ -167,59 +213,17 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    const decision = await runtime.authority.requestGrant({
+    const decision = await runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("store-contract")),
       context: evaluationContext("store-contract")
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    const receipt: L3AuthorizationConsumptionReceipt = {
-      approvalArtifactId: "contract-artifact",
-      pendingOperationId: "contract-pending",
-      grantId: decision.grant.id,
-      audience: decision.grant.audience,
-      subjectId: decision.grant.subjectId,
-      projectId: decision.grant.projectId,
-      routeledgerRootDigest: decision.grant.routeledgerRootDigest,
-      actionType: "start_version",
-      targetId: "version-2",
-      operationDigest: "store-contract",
-      approvalSource: "delegated_policy",
-      decisionRef: decision.grant.decisionId,
-      approverId: "mcp-user",
-      approverType: "user",
-      approverDisplayName: "MCP user",
-      policyId: decision.grant.policyId,
-      policyDigest: decision.grant.policyDigest,
-      hostKind: "generic",
-      clientId: "trusted-client",
-      sessionId: null,
-      createdAt: decision.grant.createdAt,
-      expiresAt: decision.grant.expiresAt,
-      consumedUse: 1
-    };
-    const stores: Array<[string, L3AuthorizationGrantStore]> = [
-      ["memory", new MemoryL3AuthorizationGrantStore()]
-    ];
-    for (const [name, store] of stores) {
-      await store.issue(decision.grant);
-      await expect(store.issue(structuredClone(decision.grant)), name).resolves.toBeUndefined();
-      await expect(
-        store.issue({ ...decision.grant, issuer: "conflicting-issuer" }),
-        name
-      ).rejects.toThrow("already exists");
-      await store.recordConsumptionReceipt(receipt);
-      await expect(
-        store.recordConsumptionReceipt(structuredClone(receipt)),
-        name
-      ).resolves.toBeUndefined();
-      await expect(
-        store.recordConsumptionReceipt({ ...receipt, decisionRef: "conflicting-decision" }),
-        name
-      ).rejects.toThrow("already exists");
-    }
-    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
-    await expect(runtime.grantStore.recordConsumptionReceipt(receipt)).rejects.toThrow("audit-only");
+    await expect(runtime.exactStore.issue(structuredClone(decision.authorization))).resolves.toBeUndefined();
+    await expect(
+      runtime.exactStore.issue({ ...decision.authorization, issuer: "conflicting-issuer" })
+    ).rejects.toThrow("already exists");
+    await expect(runtime.grantStore.issue(legacyGrantFor(decision.authorization))).rejects.toThrow("audit-only");
   });
 
   it("atomically enforces the delegated rule budget across concurrent requests", async () => {
@@ -233,9 +237,9 @@ describe("local L3 authorization runtime", () => {
     });
     const results = await Promise.all(
       ["digest-a", "digest-b"].map((digest) =>
-        runtime.authority.requestGrant({
+        runtime.authority.requestExactDecision({
           authorityHandle: runtime.authority.authorityHandle,
-          proposal: {} as never,
+          proposal: proposalFor(evaluationContext(digest)),
           context: evaluationContext(digest)
         })
       )
@@ -270,9 +274,9 @@ describe("local L3 authorization runtime", () => {
       }
     });
     blockTransaction = true;
-    const firstRequest = runtime.authority.requestGrant({
+    const firstRequest = runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("long-transaction")),
       context: evaluationContext("long-transaction")
     });
     await entered.promise;
@@ -288,9 +292,9 @@ describe("local L3 authorization runtime", () => {
     await fs.utimes(lockPath, old, old);
 
     await expect(
-      runtime.authority.requestGrant({
+      runtime.authority.requestExactDecision({
         authorityHandle: runtime.authority.authorityHandle,
-        proposal: {} as never,
+        proposal: proposalFor(evaluationContext("competing-transaction")),
         context: evaluationContext("competing-transaction")
       })
     ).rejects.toThrow("Timed out waiting");
@@ -298,9 +302,9 @@ describe("local L3 authorization runtime", () => {
     await expect(firstRequest).resolves.toMatchObject({ effect: "allow" });
     blockTransaction = false;
     await expect(
-      runtime.authority.requestGrant({
+      runtime.authority.requestExactDecision({
         authorityHandle: runtime.authority.authorityHandle,
-        proposal: {} as never,
+        proposal: proposalFor(evaluationContext("competing-transaction")),
         context: evaluationContext("competing-transaction")
       })
     ).resolves.toMatchObject({ effect: "deny", code: "POLICY_BUDGET_EXHAUSTED" });
@@ -427,9 +431,9 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    const first = await runtime.authority.requestGrant({
+    const first = await runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("reserved-restart")),
       context: evaluationContext("reserved-restart")
     });
     if (first.effect !== "allow") throw new Error("expected delegated grant");
@@ -441,16 +445,19 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    const recovered = await restarted.authority.requestGrant({
+    const recovered = await restarted.authority.requestExactDecision({
       authorityHandle: restarted.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("reserved-restart")),
       context: evaluationContext("reserved-restart")
     });
-    expect(recovered).toMatchObject({ effect: "allow", grant: { id: first.grant.id } });
+    expect(recovered).toMatchObject({
+      effect: "allow",
+      authorization: { authorizationId: first.authorization.authorizationId }
+    });
     await expect(
-      restarted.authority.requestGrant({
+      restarted.authority.requestExactDecision({
         authorityHandle: restarted.authority.authorityHandle,
-        proposal: {} as never,
+        proposal: proposalFor(evaluationContext("different-operation")),
         context: evaluationContext("different-operation")
       })
     ).resolves.toMatchObject({ effect: "deny", code: "POLICY_BUDGET_EXHAUSTED" });
@@ -465,13 +472,13 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    const decision = await runtime.authority.requestGrant({
+    const decision = await runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("rotation-digest")),
       context: evaluationContext("rotation-digest")
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await expect(runtime.grantStore.issue(decision.grant)).rejects.toThrow("audit-only");
+    await expect(runtime.grantStore.issue(legacyGrantFor(decision.authorization))).rejects.toThrow("audit-only");
 
     const rotatedConfig: LocalL3AuthorityConfig = {
       ...fixture.config,
@@ -490,7 +497,7 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    await expect(rotated.grantStore.get(decision.grant.id)).resolves.toBeNull();
+    await expect(rotated.grantStore.get(decision.authorization.authorizationId)).resolves.toBeNull();
   });
 
   it("fails closed when persisted authority state is corrupted", async () => {
@@ -519,26 +526,30 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    const reserved = await runtime.authority.requestGrant({
+    const reserved = await runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("legacy-reserved")),
       context: evaluationContext("legacy-reserved")
     });
-    const issued = await runtime.authority.requestGrant({
+    const issued = await runtime.authority.requestExactDecision({
       authorityHandle: runtime.authority.authorityHandle,
-      proposal: {} as never,
+      proposal: proposalFor(evaluationContext("legacy-issued")),
       context: evaluationContext("legacy-issued")
     });
     if (reserved.effect !== "allow" || issued.effect !== "allow") {
       throw new Error("expected legacy grants");
     }
-    await expect(runtime.grantStore.issue(issued.grant)).rejects.toThrow("audit-only");
+    await expect(runtime.grantStore.issue(legacyGrantFor(issued.authorization))).rejects.toThrow("audit-only");
     const current = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as Record<string, unknown>;
     const legacy: Record<string, unknown> = { ...current, schemaVersion: 1 };
     delete legacy.legacyTombstones;
     delete legacy.exactStore;
-    legacy.reservedGrants = { [reserved.grant.id]: reserved.grant };
-    legacy.grants = { [issued.grant.id]: issued.grant };
+    legacy.reservedGrants = {
+      [reserved.authorization.authorizationId]: legacyGrantFor(reserved.authorization)
+    };
+    legacy.grants = {
+      [issued.authorization.authorizationId]: legacyGrantFor(issued.authorization)
+    };
     await fs.writeFile(fixture.statePath, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
 
     await loadLocalL3AuthorityRuntime({
@@ -557,13 +568,13 @@ describe("local L3 authorization runtime", () => {
     };
     expect(migrated.schemaVersion).toBe(2);
     expect(migrated.reservedGrants).toEqual({});
-    expect(migrated.grants[issued.grant.id]).toMatchObject({
+    expect(migrated.grants[issued.authorization.authorizationId]).toMatchObject({
       status: "revoked",
       revokedAt: expect.any(String)
     });
     expect(migrated.legacyTombstones).toMatchObject({
-      [`reserved_grant:${reserved.grant.id}`]: { reason: "legacy_reauthorization_required" },
-      [`grant:${issued.grant.id}`]: { reason: "legacy_reauthorization_required" }
+      [`reserved_grant:${reserved.authorization.authorizationId}`]: { reason: "legacy_reauthorization_required" },
+      [`grant:${issued.authorization.authorizationId}`]: { reason: "legacy_reauthorization_required" }
     });
 
     await loadLocalL3AuthorityRuntime({
