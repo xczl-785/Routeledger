@@ -86,6 +86,7 @@ export interface LoadLocalL3AuthorityRuntimeInput {
 
 export interface LocalL3AuthorityStateTestHooks {
   afterStateRead?: () => void | Promise<void>;
+  beforeStateWrite?: () => void | Promise<void>;
   heartbeatIntervalMs?: number;
   lockWaitTimeoutMs?: number;
   lockRetryMs?: number;
@@ -120,6 +121,15 @@ interface LocalL3AuthorityState {
     migratedAt: string;
   }>;
   exactStore: ExactAuthorizationStoreState;
+}
+
+interface ActiveExactPolicyIdentity {
+  issuerId: string;
+  policyId: string;
+  policyDigest: string;
+  profileId: string | null;
+  modeEpoch: number | null;
+  profileDigest: string | null;
 }
 
 interface LockMetadata {
@@ -493,17 +503,56 @@ class LocalL3AuthorityStateFile {
 
   async activatePolicy(
     authorityId: string,
-    policyDigest: string,
+    activationDigest: string,
+    exactPolicy: ActiveExactPolicyIdentity,
     activatedAt: string
   ): Promise<void> {
     await this.transact((state) => {
-      const previous = state.activePolicies[authorityId];
-      if (previous?.policyDigest === policyDigest) return;
+      const exactStore = new MemoryExactAuthorizationStore(state.exactStore);
+      const exactState = exactStore.exportState();
+      const isStaleProvenance = (value: {
+        issuer: string;
+        policyId: string | null;
+        policyDigest: string | null;
+        profileId: string | null;
+        modeEpoch: number | null;
+        profileDigest: string | null;
+      }) =>
+        value.issuer === exactPolicy.issuerId &&
+        (value.policyId !== exactPolicy.policyId ||
+          value.policyDigest !== exactPolicy.policyDigest ||
+          value.profileId !== exactPolicy.profileId ||
+          value.modeEpoch !== exactPolicy.modeEpoch ||
+          value.profileDigest !== exactPolicy.profileDigest);
+
+      for (const receipt of Object.values(exactState.receipts)) {
+        if (isStaleProvenance(receipt) && receipt.status === "commit_claimed") {
+          throw new Error(
+            "Cannot rotate the active exact policy while its prior authorization commit is claimed."
+          );
+        }
+      }
+      for (const stored of Object.values(exactState.authorizations)) {
+        if (stored.status === "active" && isStaleProvenance(stored.candidate)) {
+          stored.status = "revoked";
+          stored.revokedAt = activatedAt;
+        }
+      }
+      for (const [artifactId, receipt] of Object.entries(exactState.receipts)) {
+        if (receipt.status === "authorized" && isStaleProvenance(receipt)) {
+          exactState.receipts[artifactId] = {
+            ...receipt,
+            status: "revoked",
+            revokedAt: activatedAt
+          };
+        }
+      }
+      state.exactStore = exactState;
       for (const [grantId, grant] of Object.entries(state.reservedGrants)) {
         const grantAuthorizationDigest = grant.profileId === undefined
           ? grant.policyDigest
           : grant.profileDigest;
-        if (grant.issuer === authorityId && grantAuthorizationDigest !== policyDigest) {
+        if (grant.issuer === authorityId && grantAuthorizationDigest !== activationDigest) {
           delete state.reservedGrants[grantId];
         }
       }
@@ -511,7 +560,7 @@ class LocalL3AuthorityStateFile {
         if (
           grant.issuer === authorityId &&
           (grant.profileId !== undefined || grant.source === "delegated_policy") &&
-          (grant.profileId === undefined ? grant.policyDigest : grant.profileDigest) !== policyDigest &&
+          (grant.profileId === undefined ? grant.policyDigest : grant.profileDigest) !== activationDigest &&
           grant.status === "active"
         ) {
           state.grants[grantId] = {
@@ -521,7 +570,12 @@ class LocalL3AuthorityStateFile {
           };
         }
       }
-      state.activePolicies[authorityId] = { policyDigest, updatedAt: activatedAt };
+      if (state.activePolicies[authorityId]?.policyDigest !== activationDigest) {
+        state.activePolicies[authorityId] = {
+          policyDigest: activationDigest,
+          updatedAt: activatedAt
+        };
+      }
     });
   }
 
@@ -542,6 +596,7 @@ class LocalL3AuthorityStateFile {
       }
       if (isDeepStrictEqual(state, before)) return result;
       state.revision = expectedRevision + 1;
+      await this.testHooks?.beforeStateWrite?.();
       await lock.assertOwned();
       await this.writeAtomic(state);
       return result;
@@ -797,21 +852,6 @@ class PersistentLocalExactAuthorizationStore implements ExactAuthorizationStore 
       store.revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt)
     );
   }
-  revokeProfileAuthorizations(
-    profileId: string,
-    beforeModeEpoch: number,
-    currentProfileDigest: string,
-    revokedAt: string
-  ) {
-    return this.run((store) =>
-      store.revokeProfileAuthorizations(
-        profileId,
-        beforeModeEpoch,
-        currentProfileDigest,
-        revokedAt
-      )
-    );
-  }
 }
 
 class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantStore {
@@ -1009,11 +1049,25 @@ export const loadLocalL3AuthorityRuntime = async (
   const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
   const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
   const policyDigest = digestL3AuthorizationPolicy(config.policy);
-  await stateFile.activatePolicy(config.authorityId, policyDigest, new Date().toISOString());
+  await stateFile.activatePolicy(
+    config.authorityId,
+    policyDigest,
+    {
+      issuerId: config.authorityId,
+      policyId: config.policy.policyId,
+      policyDigest,
+      profileId: null,
+      modeEpoch: null,
+      profileDigest: null
+    },
+    new Date().toISOString()
+  );
   const authorityHandle = `local:${config.authorityId}:${policyDigest}`;
   const authority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
     authorityHandle,
     issuerId: config.authorityId,
+    policyId: config.policy.policyId,
+    policyDigest,
     requestExactDecision: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
       if (request.authorityHandle !== authorityHandle) {
         throw new Error("Local L3 authority handle mismatch.");
@@ -1145,15 +1199,20 @@ export const loadLocalL3AuthorityProfileRuntime = async (
       : { trustedClientId: input.profile.binding.trustedClientId }),
     statePath
   };
+  const profilePolicy = input.profile.delegatedPolicy;
+  const profilePolicyDigest =
+    profilePolicy === null ? "disabled-standing-policy" : digestL3AuthorizationPolicy(profilePolicy);
   await stateFile.activatePolicy(
     input.profile.profileId,
     input.profile.profileDigest,
-    new Date().toISOString()
-  );
-  await exactStore.revokeProfileAuthorizations(
-    input.profile.profileId,
-    input.profile.modeEpoch,
-    input.profile.profileDigest,
+    {
+      issuerId: input.profile.profileId,
+      policyId: profilePolicy?.policyId ?? "disabled-standing-policy",
+      policyDigest: profilePolicyDigest,
+      profileId: input.profile.profileId,
+      modeEpoch: input.profile.modeEpoch,
+      profileDigest: input.profile.profileDigest
+    },
     new Date().toISOString()
   );
   if (
@@ -1172,6 +1231,8 @@ export const loadLocalL3AuthorityProfileRuntime = async (
   const delegatedAuthority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
     authorityHandle,
     issuerId: input.profile.profileId,
+    policyId: policy.policyId,
+    policyDigest,
     requestExactDecision: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
       if (request.authorityHandle !== authorityHandle) {
         throw new Error("Local L3 profile authority handle mismatch.");

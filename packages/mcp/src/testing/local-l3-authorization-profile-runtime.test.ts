@@ -316,6 +316,139 @@ describe("local L3 authorization profile runtime", () => {
     expect(second.authorization.authorizationId).not.toBe(first.authorization.authorizationId);
   });
 
+  it("serializes rotation with a concurrent old-candidate consume", async () => {
+    const fixture = await createFixture();
+    const firstRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const context = contextFor(fixture.profile);
+    const first = await firstRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: firstRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(context),
+      context
+    });
+    if (first.effect !== "allow") throw new Error("expected first exact decision");
+    const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+      ...fixture.profile,
+      modeEpoch: 2,
+      profileRevision: 2,
+      updatedAt: "2026-08-11T00:02:00.000Z"
+    };
+    const rotated = { ...rotatedBase, profileDigest: digestL3AuthorizationProfile(rotatedBase) };
+    let releaseRotation!: () => void;
+    const rotationBlocked = new Promise<void>((resolve) => { releaseRotation = resolve; });
+    let rotationHasLock!: () => void;
+    const rotationStarted = new Promise<void>((resolve) => { rotationHasLock = resolve; });
+    const rotating = loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      profile: rotated,
+      hostKind: "codex",
+      subjectId: "local-user",
+      testHooks: {
+        afterStateRead: async () => {
+          rotationHasLock();
+          await rotationBlocked;
+        }
+      }
+    });
+    await rotationStarted;
+    const consuming = firstRuntime.exactStore.consumeAndRecordReceipt({
+      authorizationId: first.authorization.authorizationId,
+      artifactId: "artifact-concurrent",
+      binding: first.authorization.binding,
+      now: context.now
+    });
+    releaseRotation();
+    await rotating;
+    await expect(consuming).resolves.toEqual({ ok: false, code: "AUTHORIZATION_INACTIVE" });
+  });
+
+  it("rolls back the policy switch and stale revocation together on interrupted persistence", async () => {
+    const fixture = await createFixture();
+    const firstRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const context = contextFor(fixture.profile);
+    const first = await firstRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: firstRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(context),
+      context
+    });
+    if (first.effect !== "allow") throw new Error("expected first exact decision");
+    const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+      ...fixture.profile,
+      modeEpoch: 2,
+      profileRevision: 2,
+      updatedAt: "2026-08-11T00:02:00.000Z"
+    };
+    const rotated = { ...rotatedBase, profileDigest: digestL3AuthorizationProfile(rotatedBase) };
+    await expect(loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      profile: rotated,
+      hostKind: "codex",
+      subjectId: "local-user",
+      testHooks: { beforeStateWrite: () => { throw new Error("simulated rotation crash"); } }
+    })).rejects.toThrow("simulated rotation crash");
+    await expect(firstRuntime.exactStore.consumeAndRecordReceipt({
+      authorizationId: first.authorization.authorizationId,
+      artifactId: "artifact-after-crash",
+      binding: first.authorization.binding,
+      now: context.now
+    })).resolves.toMatchObject({ ok: true, replayed: false });
+    const state = JSON.parse(await fs.readFile(fixture.statePath, "utf8"));
+    expect(state.activePolicies[fixture.profile.profileId].policyDigest)
+      .toBe(fixture.profile.profileDigest);
+  });
+
+  it("blocks rotation while an old receipt is commit-claimed, then allows it after recovery", async () => {
+    const fixture = await createFixture();
+    const firstRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const context = contextFor(fixture.profile);
+    const first = await firstRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: firstRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(context),
+      context
+    });
+    if (first.effect !== "allow") throw new Error("expected first exact decision");
+    const consumed = await firstRuntime.exactStore.consumeAndRecordReceipt({
+      authorizationId: first.authorization.authorizationId,
+      artifactId: "artifact-claimed",
+      binding: first.authorization.binding,
+      now: context.now
+    });
+    if (!consumed.ok) throw new Error("expected exact receipt");
+    const binding = consumed.receipt;
+    await expect(firstRuntime.exactStore.claimCommit(binding, {
+      claimId: "claim-1",
+      claimedAt: context.now
+    })).resolves.toMatchObject({ ok: true, receipt: { status: "commit_claimed" } });
+    const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+      ...fixture.profile,
+      modeEpoch: 2,
+      profileRevision: 2,
+      updatedAt: "2026-08-11T00:02:00.000Z"
+    };
+    const rotated = { ...rotatedBase, profileDigest: digestL3AuthorizationProfile(rotatedBase) };
+    const rotate = () => loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      profile: rotated,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    await expect(rotate()).rejects.toThrow("prior authorization commit is claimed");
+    await expect(firstRuntime.exactStore.finalizeCommit(binding, "claim-1", context.now))
+      .resolves.toMatchObject({ ok: true, receipt: { status: "committed" } });
+    await expect(rotate()).resolves.toMatchObject({ profile: { profileDigest: rotated.profileDigest } });
+  });
+
   it("issues and recovers an exact delegated grant with profile provenance", async () => {
     const fixture = await createFixture();
     const runtime = await loadLocalL3AuthorityProfileRuntime({

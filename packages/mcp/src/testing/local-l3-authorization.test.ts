@@ -498,6 +498,12 @@ describe("local L3 authorization runtime", () => {
       subjectId: "mcp-user"
     });
     await expect(rotated.grantStore.get(decision.authorization.authorizationId)).resolves.toBeNull();
+    await expect(rotated.exactStore.consumeAndRecordReceipt({
+      authorizationId: decision.authorization.authorizationId,
+      artifactId: "must-not-exist-after-policy-rotation",
+      binding: decision.authorization.binding,
+      now: evaluationContext("rotation-digest").now
+    })).resolves.toEqual({ ok: false, code: "AUTHORIZATION_INACTIVE" });
   });
 
   it("fails closed when persisted authority state is corrupted", async () => {

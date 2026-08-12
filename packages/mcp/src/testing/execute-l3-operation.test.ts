@@ -30,6 +30,8 @@ describe("execute_l3_operation", () => {
         delegatedAuthority: {
           authorityHandle: "host-vault://d3-test",
           issuerId: "test-authority",
+          policyId: "policy-d3",
+          policyDigest: "policy-digest-d3",
           requestExactDecision: async ({ proposal, context }: RouteLedgerMcpDelegatedAuthorizationRequest) => {
             delegatedCalls += 1;
             const now = new Date();

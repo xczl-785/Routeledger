@@ -190,6 +190,9 @@ export interface RouteLedgerMcpDelegatedAuthorizationAuthority {
   authorityHandle: string;
   /** Trusted issuer identity injected with the host authority. */
   issuerId: string;
+  /** Trusted standing-policy identity; candidate provenance must match it exactly. */
+  policyId: string;
+  policyDigest: string;
   requestExactDecision(
     request: RouteLedgerMcpDelegatedAuthorizationRequest
   ): Promise<RouteLedgerMcpDelegatedAuthorizationResult>;

@@ -199,6 +199,8 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       profile: this.options.profile,
       expectedSource,
       expectedIssuer: delegatedAuthority.issuerId,
+      expectedPolicyId: delegatedAuthority.policyId,
+      expectedPolicyDigest: delegatedAuthority.policyDigest,
       now: this.now()
     });
     if (
