@@ -78,6 +78,20 @@ const assertFailure = (command, args, cwd, expected) => {
   assert.notEqual(result.status, 0, `${command} ${args.join(" ")} unexpectedly passed.`);
   assert.match(`${result.stderr}${result.stdout}`, expected);
 };
+const resolvePreviousCandidateCommit = () => {
+  for (const args of [
+    ["merge-base", "HEAD", "origin/main"],
+    ["rev-parse", "HEAD^1"]
+  ]) {
+    const result = run("git", args, repositoryRoot);
+    if (result.status === 0 && result.stdout.trim().length > 0) {
+      return result.stdout.trim();
+    }
+  }
+  throw new Error("Unable to resolve the previous main candidate commit for release-guard tests.");
+};
+
+const previousCandidateCommit = resolvePreviousCandidateCommit();
 
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release-check-symlink-"));
 try {
@@ -121,7 +135,9 @@ try {
     runOrThrow("git", ["commit", "--quiet", "-m", "valid plugin fixture"], fixtureRoot);
   }
   const baseline = runOrThrow("git", ["rev-parse", "HEAD"], fixtureRoot).trim();
-  const previousCandidateRef = "origin/main";
+  runOrThrow("git", ["fetch", "--quiet", repositoryRoot, previousCandidateCommit], fixtureRoot);
+  runOrThrow("git", ["branch", "previous-candidate", "FETCH_HEAD"], fixtureRoot);
+  const previousCandidateRef = "previous-candidate";
   const currentVersion = JSON.parse(
     await fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8")
   ).version;
