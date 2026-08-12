@@ -5,7 +5,7 @@ export const resolveRuntimeIdentity = (runtimeProfile) => ({
   artifactKind: "plugin",
   pluginVersion: "0.8.0",
   releaseTag: "routeledger-plugin-v0.8.0",
-  sourceTreeState: "dirty",
+  sourceTreeState: "clean",
   provenanceStatus: "external_attestation_required",
   attestation: {
     "strategy": "git-tag-external",
