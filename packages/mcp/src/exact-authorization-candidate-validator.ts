@@ -12,9 +12,21 @@ export const validateExactAuthorizationCandidate = (input: {
   profile?: Readonly<L3AuthorizationProfileV2>;
   expectedSource: ExactAuthorizationCandidate["source"];
   expectedIssuer: string;
+  expectedPolicyId?: string | null;
+  expectedPolicyDigest?: string | null;
   now: Date;
 }): string | null => {
-  const { candidate, request, context, profile, expectedSource, expectedIssuer, now } = input;
+  const {
+    candidate,
+    request,
+    context,
+    profile,
+    expectedSource,
+    expectedIssuer,
+    expectedPolicyId = null,
+    expectedPolicyDigest = null,
+    now
+  } = input;
   const binding = candidate.binding;
   if (
     request.projectId !== context.projectId ||
@@ -38,6 +50,10 @@ export const validateExactAuthorizationCandidate = (input: {
     candidate.hostKind !== context.hostKind ||
     candidate.clientId !== (context.clientId ?? null)
   ) return "TRUSTED_PROVENANCE_MISMATCH";
+  if (
+    candidate.policyId !== expectedPolicyId ||
+    candidate.policyDigest !== expectedPolicyDigest
+  ) return "POLICY_PROVENANCE_MISMATCH";
   if (profile === undefined) {
     if (
       candidate.profileId !== null ||

@@ -171,6 +171,11 @@ describe("ExistingL3DecisionAdapter", () => {
 
   it.each([
     ["issuer", (value: ExactAuthorizationCandidate) => ({ ...value, issuer: "forged" })],
+    ["policy id", (value: ExactAuthorizationCandidate) => ({ ...value, policyId: "forged" })],
+    ["policy digest", (value: ExactAuthorizationCandidate) => ({
+      ...value,
+      policyDigest: "forged"
+    })],
     ["audience", (value: ExactAuthorizationCandidate) => ({ ...value, audience: "forged" })],
     ["subject", (value: ExactAuthorizationCandidate) => ({ ...value, subjectId: "forged" })],
     ["host", (value: ExactAuthorizationCandidate) => ({ ...value, hostKind: "forged" })],
@@ -193,6 +198,8 @@ describe("ExistingL3DecisionAdapter", () => {
       delegatedAuthority: {
         authorityHandle: "host-vault://policy-1",
         issuerId: "trusted-host",
+        policyId: "policy-1",
+        policyDigest: "policy-digest-1",
         requestExactDecision: async () => ({ effect: "allow", authorization: candidate })
       },
       getEvaluationContext: async () => ({
@@ -266,6 +273,8 @@ describe("ExistingL3DecisionAdapter", () => {
       delegatedAuthority: {
         authorityHandle: "host-vault://policy-1",
         issuerId: "trusted-host",
+        policyId: "policy-1",
+        policyDigest: "policy-digest-1",
         requestExactDecision: async () => ({
           effect: "deny",
           code: "POLICY_DENIED",

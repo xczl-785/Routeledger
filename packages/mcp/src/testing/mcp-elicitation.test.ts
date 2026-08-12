@@ -388,6 +388,8 @@ describe("MCP L3 authorization elicitation", () => {
         delegatedAuthority: {
           authorityHandle: "host-vault://policy-test",
           issuerId: "trusted-host-authority",
+          policyId: "policy-test",
+          policyDigest: "policy-digest-test",
           requestExactDecision: async ({ proposal, context }) => {
             if (remainingUses === 0) {
               return {
