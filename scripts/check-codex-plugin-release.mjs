@@ -313,6 +313,18 @@ const assertTagRef = (tag) => {
   }
 };
 
+const releaseTagExists = (tag) => {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", `refs/tags/${tag}^{}`], {
+      cwd: repositoryRoot,
+      stdio: ["ignore", "ignore", "ignore"]
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const main = async () => {
   const options = parseArguments(process.argv.slice(2));
   const { manifest, pluginDistributionSha256 } = await assertMetadata();
@@ -338,7 +350,12 @@ const main = async () => {
       }
       const previousDistributionSha256 = hashPreviousDistribution(options.previousRef);
       if (comparison === 0 && previousDistributionSha256 !== pluginDistributionSha256) {
-        fail(`Plugin distribution bytes changed since ${options.previousRef}, but version remained ${manifest.version}.`);
+        if (releaseTagExists(expectedTag)) {
+          fail(`Plugin distribution bytes changed since ${options.previousRef}, but immutable tag ${expectedTag} already exists for version ${manifest.version}.`);
+        }
+        console.log(
+          `Codex plugin release check: allowing repaired ${manifest.version} candidate bytes because immutable tag ${expectedTag} does not exist.`
+        );
       }
     }
   }

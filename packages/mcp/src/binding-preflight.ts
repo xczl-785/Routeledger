@@ -22,6 +22,7 @@ export interface RouteLedgerRecommendedNextAction {
   proposedValue?: string | null;
   routeledgerRoot?: string;
   requiresUserDecision?: boolean;
+  toolInput?: Record<string, unknown>;
 }
 
 export interface RouteLedgerBindingBlockedReason {

@@ -3,6 +3,9 @@
     "routeledger": {
       "cwd": ".",
       "command": "node",
+      "env_vars": [
+        "CODEX_PERMISSION_PROFILE"
+      ],
       "args": [
         "./runtime/bin.js",
         "--profile",

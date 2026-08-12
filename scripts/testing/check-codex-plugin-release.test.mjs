@@ -78,7 +78,6 @@ const assertFailure = (command, args, cwd, expected) => {
   assert.notEqual(result.status, 0, `${command} ${args.join(" ")} unexpectedly passed.`);
   assert.match(`${result.stderr}${result.stdout}`, expected);
 };
-
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-release-check-symlink-"));
 try {
   runOrThrow("git", ["clone", "--shared", repositoryRoot, fixtureRoot], repositoryRoot);
@@ -121,6 +120,34 @@ try {
     runOrThrow("git", ["commit", "--quiet", "-m", "valid plugin fixture"], fixtureRoot);
   }
   const baseline = runOrThrow("git", ["rev-parse", "HEAD"], fixtureRoot).trim();
+  await fs.writeFile(
+    path.join(pluginRoot, "candidate-repair-marker.txt"),
+    "synthetic previous candidate bytes\n",
+    "utf8"
+  );
+  runOrThrow("git", ["add", "plugins/routeledger/candidate-repair-marker.txt"], fixtureRoot);
+  runOrThrow("git", ["commit", "--quiet", "-m", "synthetic previous candidate"], fixtureRoot);
+  runOrThrow("git", ["branch", "previous-candidate"], fixtureRoot);
+  runOrThrow("git", ["checkout", "--quiet", "--detach", baseline], fixtureRoot);
+  const previousCandidateRef = "previous-candidate";
+  const currentVersion = JSON.parse(
+    await fs.readFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8")
+  ).version;
+  const currentReleaseTag = `routeledger-plugin-v${currentVersion}`;
+  const candidateCheck = runOrThrow(
+    process.execPath,
+    [checkerPath, "--previous-ref", previousCandidateRef],
+    fixtureRoot
+  );
+  assert.match(candidateCheck, /allowing repaired .* candidate bytes because immutable tag .* does not exist/);
+  runOrThrow("git", ["tag", currentReleaseTag, previousCandidateRef], fixtureRoot);
+  assertFailure(
+    process.execPath,
+    [checkerPath, "--previous-ref", previousCandidateRef],
+    fixtureRoot,
+    /immutable tag .* already exists/
+  );
+  runOrThrow("git", ["tag", "--delete", currentReleaseTag], fixtureRoot);
   const linkBlob = runOrThrow("git", ["hash-object", "-w", "--stdin"], fixtureRoot, { input: "runtime/package.json\n" }).trim();
   runOrThrow("git", ["update-index", "--add", "--cacheinfo", `120000,${linkBlob},plugins/routeledger/previous-check-link`], fixtureRoot);
   runOrThrow("git", ["commit", "--quiet", "-m", "previous plugin symlink"], fixtureRoot);

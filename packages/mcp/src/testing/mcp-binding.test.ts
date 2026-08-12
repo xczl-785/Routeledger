@@ -382,7 +382,37 @@ describe("routeledger mcp registry", () => {
       );
       expect(switchAttempt).toMatchObject({
         status: "blocked",
-        code: "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED"
+        code: "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED",
+        recommendedNextActions: [
+          expect.objectContaining({
+            tool: "activate_routeledger_binding",
+            requiresUserDecision: true,
+            toolInput: {
+              workspaceRoot: outsideRoot,
+              routeledgerRoot: outsideRoot,
+              confirmProjectSwitch: true
+            }
+          })
+        ]
+      });
+
+      const confirmedSwitch = getStructuredData<{
+        status: string;
+        activeBinding: { workspaceRoot: string; routeledgerRoot: string; status: string };
+      }>(
+        await callTool(server, "confirm-bound-switch", "activate_routeledger_binding", {
+          workspaceRoot: outsideRoot,
+          routeledgerRoot: outsideRoot,
+          confirmProjectSwitch: true
+        })
+      );
+      expect(confirmedSwitch).toMatchObject({
+        status: "activated",
+        activeBinding: {
+          workspaceRoot: outsideRoot,
+          routeledgerRoot: outsideRoot,
+          status: "uninitialized"
+        }
       });
     } finally {
       server.close();
@@ -428,6 +458,44 @@ describe("routeledger mcp registry", () => {
       registry.restore();
       cleanupProjectRoot(cacheCwd);
       cleanupProjectRoot(workspaceRoot);
+    }
+  });
+
+  it("switches an established Codex session only with explicit confirmation", async () => {
+    const establishedRoot = createTempProjectRoot();
+    const targetRoot = createTempProjectRoot();
+    await initializeCanonicalProjectAtRoot(establishedRoot, "Established project");
+    await initializeCanonicalProjectAtRoot(targetRoot, "Confirmed target");
+    const registry = createRegistry(establishedRoot, { hostProfile: "codex" });
+
+    try {
+      const refused = await registry.invoke("activate_routeledger_binding", {
+        workspaceRoot: targetRoot,
+        routeledgerRoot: targetRoot
+      });
+      expect(refused).toMatchObject({
+        ok: true,
+        data: { status: "blocked", code: "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED" }
+      });
+
+      const activated = await registry.invoke("activate_routeledger_binding", {
+        workspaceRoot: targetRoot,
+        routeledgerRoot: targetRoot,
+        confirmProjectSwitch: true
+      });
+      expect(activated).toMatchObject({
+        ok: true,
+        data: {
+          status: "activated",
+          rebound: true,
+          previousBinding: { workspaceRoot: establishedRoot },
+          activeBinding: { workspaceRoot: targetRoot, routeledgerRoot: targetRoot, status: "bound" }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(establishedRoot);
+      cleanupProjectRoot(targetRoot);
     }
   });
 
@@ -1076,6 +1144,35 @@ describe("routeledger mcp registry", () => {
           }
         ).recommendedNextActions.some((action) => action.tool === "activate_routeledger_binding")
       ).toBe(false);
+
+      const alternatePlan = await boundRegistry.invoke("plan_routeledger_binding", {
+        workspaceRoot: targetRoot,
+        routeledgerRoot: targetRoot
+      });
+      expect(alternatePlan).toMatchObject({
+        ok: true,
+        data: {
+          status: "ready",
+          currentBinding: { status: "bound" },
+          sessionActivation: {
+            available: true,
+            required: true,
+            action: "activate_routeledger_binding"
+          },
+          recommendedNextActions: [
+            expect.objectContaining({
+              tool: "activate_routeledger_binding",
+              requiresUserDecision: true,
+              toolInput: {
+                workspaceRoot: targetRoot,
+                routeledgerRoot: targetRoot,
+                confirmProjectSwitch: true
+              }
+            }),
+            expect.objectContaining({ tool: "render_host_binding_config" })
+          ]
+        }
+      });
     } finally {
       unboundRegistry.close();
       unboundRegistry.restore();
