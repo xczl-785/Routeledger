@@ -1,0 +1,35 @@
+[
+  {
+    "id": "grant-operation-active",
+    "status": "active",
+    "scope": "operation",
+    "allowedActions": ["start_version"],
+    "allowedTargetIds": ["version-1"],
+    "operationDigest": "digest-operation",
+    "maxUses": 1,
+    "uses": 0,
+    "sessionId": "session-legacy"
+  },
+  {
+    "id": "grant-session-active",
+    "status": "active",
+    "scope": "session",
+    "allowedActions": ["start_version", "close_version"],
+    "allowedTargetIds": ["version-1", "version-2"],
+    "operationDigest": null,
+    "maxUses": 4,
+    "uses": 1,
+    "sessionId": "session-legacy"
+  },
+  {
+    "id": "grant-window-active",
+    "status": "active",
+    "scope": "time_window",
+    "allowedActions": ["advance_to_version"],
+    "allowedTargetIds": ["version-2"],
+    "operationDigest": null,
+    "maxUses": 8,
+    "uses": 2,
+    "sessionId": null
+  }
+]

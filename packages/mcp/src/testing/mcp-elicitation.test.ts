@@ -64,6 +64,8 @@ const profileFor = (input: {
 };
 
 describe("MCP L3 authorization elicitation", () => {
+  it.todo("[EA3 target red] generic exact elicitation omits scope and rejects legacy scope content");
+
   it("suspends approval, accepts a client decision, and mints trusted provenance", async () => {
     const projectRoot = createTempProjectRoot();
     const outbound: JsonRpcMessage[] = [];

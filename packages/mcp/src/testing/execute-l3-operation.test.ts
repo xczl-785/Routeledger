@@ -180,7 +180,7 @@ describe("execute_l3_operation", () => {
     }
   });
 
-  it("uses Codex native tool admission when the permission-profile environment is unavailable", async () => {
+  it("[0.7.2 golden] completes one-call Codex native admission without a permission profile", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot, {
       hostProfile: "codex",
@@ -239,7 +239,7 @@ describe("execute_l3_operation", () => {
     }
   });
 
-  it("completes propose, approve, and commit through native Codex admission without a profile", async () => {
+  it("[0.7.2 golden] completes explicit propose, approve, and commit through native Codex admission", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot, {
       hostProfile: "codex",

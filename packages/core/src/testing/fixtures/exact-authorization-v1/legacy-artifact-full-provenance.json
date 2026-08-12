@@ -1,0 +1,20 @@
+{
+  "id": "artifact-v1-full",
+  "pendingOperationId": "proposal-1",
+  "projectId": "project-1",
+  "actionType": "start_version",
+  "targetId": "version-1",
+  "operationDigest": "digest-operation",
+  "authorizationGrantId": "grant-operation-active",
+  "approvalSource": "preauthorized",
+  "decisionRef": "decision-v1",
+  "policyId": "policy-v1",
+  "policyDigest": "policy-digest-v1",
+  "profileId": "profile-v2",
+  "modeEpoch": 2,
+  "profileDigest": "profile-digest-v2",
+  "hostKind": "generic",
+  "clientId": "client-v1",
+  "sessionId": "session-legacy",
+  "status": "approved"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "artifact-v1-partial",
+  "pendingOperationId": "proposal-1",
+  "projectId": "project-1",
+  "actionType": "start_version",
+  "targetId": "version-1",
+  "operationDigest": "digest-operation",
+  "authorizationGrantId": "grant-operation-active",
+  "approvalSource": "preauthorized",
+  "decisionRef": "decision-v1",
+  "profileId": "profile-v2",
+  "profileDigest": "profile-digest-v2",
+  "status": "approved"
+}
