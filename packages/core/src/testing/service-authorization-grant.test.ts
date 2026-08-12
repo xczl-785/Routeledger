@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   MemoryExactAuthorizationStore,
-  MemoryL3AuthorizationGrantStore,
   RouteLedgerService,
-  type L3AuthorizationGrant
+  type ExactAuthorizationSource,
+  type L3ActionType
 } from "../index.js";
 import { createTestDependencies, TEST_ACTOR } from "./builders.js";
 import {
@@ -13,10 +13,52 @@ import {
   createPreparedProject
 } from "./routeledger-service-test-helpers.js";
 
+interface TestAuthorizationInput {
+  id: string;
+  issuer: string;
+  subjectId: string;
+  audience: string;
+  projectId: string;
+  routeledgerRootDigest: string;
+  profileId?: string;
+  modeEpoch?: number;
+  profileDigest?: string;
+  allowedActions: L3ActionType[];
+  allowedTargetIds: string[];
+  operationDigest: string | null;
+  scope: "operation";
+  source: ExactAuthorizationSource;
+  policyId: string | null;
+  policyDigest: string | null;
+  decisionId: string;
+  hostKind: string;
+  clientId: string | null;
+  sessionId: string | null;
+  nonce: string;
+  createdAt: string;
+  expiresAt: string;
+  maxUses: number;
+  uses: number;
+  status: "active";
+  revokedAt: null;
+}
+
+class TestAuthorizationIssuer {
+  private readonly records = new Map<string, TestAuthorizationInput>();
+
+  async issue(input: TestAuthorizationInput): Promise<void> {
+    this.records.set(input.id, structuredClone(input));
+  }
+
+  async get(id: string): Promise<TestAuthorizationInput | null> {
+    return structuredClone(this.records.get(id) ?? null);
+  }
+}
+
 const createGrant = (
   operationDigest: string,
-  overrides: Partial<L3AuthorizationGrant> = {}
-): L3AuthorizationGrant => ({
+  overrides: Partial<TestAuthorizationInput> = {}
+): TestAuthorizationInput => ({
   id: "grant-1",
   issuer: "codex-app-server",
   subjectId: "local-user",
@@ -61,14 +103,13 @@ class FailOnceFinalizeExactStore extends MemoryExactAuthorizationStore {
 const setup = async (
   storage: MemoryStorageAdapter = new MemoryStorageAdapter(),
   profile?: { profileId: string; modeEpoch: number; profileDigest: string },
-  grantStore: MemoryL3AuthorizationGrantStore = new MemoryL3AuthorizationGrantStore(),
+  grantStore: TestAuthorizationIssuer = new TestAuthorizationIssuer(),
   exactStore: MemoryExactAuthorizationStore = new MemoryExactAuthorizationStore()
 ) => {
   const service = new RouteLedgerService({
     storage,
     deps: createTestDependencies(),
     l3Authorization: {
-      grantStore,
       exactStore,
       audience: "routeledger-core",
       subjectId: "local-user",
@@ -76,7 +117,6 @@ const setup = async (
       ...profile,
       hostKind: "codex",
       clientId: "codex-client",
-      sessionId: "session-1"
     }
   });
   const prepared = await createPreparedProject(service, storage);
@@ -118,7 +158,6 @@ const setup = async (
       profileDigest: grant.profileDigest ?? null,
       hostKind: grant.hostKind,
       clientId: grant.clientId,
-      sessionId: null,
       createdAt: grant.createdAt,
       expiresAt: grant.expiresAt
     });
@@ -161,7 +200,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await fixture.service.authorizeL3Operation({
       projectId: fixture.prepared.projectId,
       pendingOperationId: fixture.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     const command = {
@@ -174,14 +213,12 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       storage,
       deps: createTestDependencies(),
       l3Authorization: {
-        grantStore: fixture.grantStore,
         exactStore: fixture.exactStore,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
         hostKind: "codex",
         clientId: "codex-client",
-        sessionId: "session-1"
       }
     });
     storage.arm();
@@ -215,7 +252,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await fixture.service.authorizeL3Operation({
       projectId: fixture.prepared.projectId,
       pendingOperationId: fixture.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     await expect(
@@ -247,7 +284,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await fixture.service.authorizeL3Operation({
       projectId: fixture.prepared.projectId,
       pendingOperationId: fixture.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     await fixture.service.commitL3Operation({
@@ -260,7 +297,6 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       storage: fixture.storage,
       deps: createTestDependencies(),
       l3Authorization: {
-        grantStore: new MemoryL3AuthorizationGrantStore(),
         exactStore: new MemoryExactAuthorizationStore(),
         audience: "routeledger-core",
         subjectId: "local-user",
@@ -277,7 +313,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "AUTHORIZATION_RECEIPT_INVALID" }
     });
   });
@@ -300,14 +336,13 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await fixture.service.authorizeL3Operation({
       projectId: fixture.prepared.projectId,
       pendingOperationId: fixture.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     const rotated = new RouteLedgerService({
       storage: fixture.storage,
       deps: createTestDependencies(),
       l3Authorization: {
-        grantStore: fixture.grantStore,
         exactStore: fixture.exactStore,
         audience: "routeledger-core",
         subjectId: "local-user",
@@ -317,7 +352,6 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         profileDigest: "profile-digest-2",
         hostKind: "codex",
         clientId: "codex-client",
-        sessionId: "session-1"
       }
     });
     await expect(
@@ -328,7 +362,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "AUTHORIZATION_PROFILE_EPOCH_INACTIVE" }
     });
   });
@@ -339,7 +373,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       modeEpoch: 1,
       profileDigest: "profile-digest-1"
     };
-    const grantStore = new MemoryL3AuthorizationGrantStore();
+    const grantStore = new TestAuthorizationIssuer();
     const exactStore = new FailOnceFinalizeExactStore();
     const fixture = await setup(new MemoryStorageAdapter(), profile, grantStore, exactStore);
     await grantStore.issue(
@@ -352,7 +386,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await fixture.service.authorizeL3Operation({
       projectId: fixture.prepared.projectId,
       pendingOperationId: fixture.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     await expect(
@@ -387,7 +421,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "LEGACY_APPROVAL_DISABLED" }
     });
   });
@@ -425,7 +459,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         storage,
         deps: createTestDependencies(),
         l3Authorization: {
-          grantStore: new MemoryL3AuthorizationGrantStore(),
+          exactStore: new MemoryExactAuthorizationStore(),
           audience: "routeledger-core",
           subjectId: "local-user",
           routeledgerRootDigest: "sha256:root-1",
@@ -444,7 +478,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "LEGACY_ARTIFACT_REAUTHORIZATION_REQUIRED" }
     });
 
@@ -457,7 +491,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "AUTHORIZATION_RECEIPT_INVALID" }
     });
   });
@@ -488,7 +522,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       candidate.id === artifact.id
         ? {
             ...candidate,
-            authorizationGrantId: "forged-grant",
+            authorizationId: "forged-grant",
             approvalSource: "delegated_policy",
             policyId: "forged-policy",
             policyDigest: "sha256:forged-policy",
@@ -505,7 +539,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       storage,
       deps: createTestDependencies(),
       l3Authorization: {
-        grantStore: new MemoryL3AuthorizationGrantStore(),
+        exactStore: new MemoryExactAuthorizationStore(),
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -520,7 +554,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "AUTHORIZATION_RECEIPT_INVALID" }
     });
   });
@@ -536,21 +570,19 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await valid.service.authorizeL3Operation({
       projectId: valid.prepared.projectId,
       pendingOperationId: valid.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     const restartedService = new RouteLedgerService({
       storage: valid.storage,
       deps: createTestDependencies(),
       l3Authorization: {
-        grantStore: valid.grantStore,
         exactStore: valid.exactStore,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
         hostKind: "codex",
         clientId: "codex-client",
-        sessionId: "session-1"
       }
     });
     await expect(
@@ -572,7 +604,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const tamperedArtifact = await tampered.service.authorizeL3Operation({
       projectId: tampered.prepared.projectId,
       pendingOperationId: tampered.proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     const aggregate = await tampered.storage.loadProjectAggregate(tampered.prepared.projectId);
@@ -591,7 +623,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "AUTHORIZATION_RECEIPT_INVALID" }
     });
   });
@@ -608,18 +640,17 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const artifact = await service.authorizeL3Operation({
       projectId: prepared.projectId,
       pendingOperationId: proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
 
     expect(artifact).toMatchObject({
       status: "approved",
-      authorizationGrantId: "grant-1",
+      authorizationId: "grant-1",
       approvalSource: "user_interaction",
       decisionRef: "decision-1",
       hostKind: "codex",
       clientId: "codex-client",
-      sessionId: null,
       approver: { id: "local-user", type: "user" }
     });
     await expect(grantStore.get("grant-1")).resolves.toMatchObject({
@@ -645,7 +676,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       service.authorizeL3Operation({
         projectId: prepared.projectId,
         pendingOperationId: proposal.id,
-        grantId: "grant-1",
+        authorizationId: "grant-1",
         actor: TEST_ACTOR
       })
     ).rejects.toThrow("injected save failure");
@@ -658,11 +689,11 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     const recovered = await service.authorizeL3Operation({
       projectId: prepared.projectId,
       pendingOperationId: proposal.id,
-      grantId: "grant-1",
+      authorizationId: "grant-1",
       actor: TEST_ACTOR
     });
     expect(recovered).toMatchObject({
-      authorizationGrantId: "grant-1",
+      authorizationId: "grant-1",
       decisionRef: "decision-1",
       status: "approved"
     });
@@ -685,11 +716,11 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       service.authorizeL3Operation({
         projectId: prepared.projectId,
         pendingOperationId: proposal.id,
-        grantId: "grant-1",
+        authorizationId: "grant-1",
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "AUTHORIZATION_BINDING_MISMATCH" }
     });
   });
@@ -710,7 +741,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       service.authorizeL3Operation({
         projectId: prepared.projectId,
         pendingOperationId: proposal.id,
-        grantId: "grant-1",
+        authorizationId: "grant-1",
         actor: TEST_ACTOR
       })
     ).rejects.toMatchObject({ code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE" });

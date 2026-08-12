@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  MemoryL3AuthorizationGrantStore,
   MemoryExactAuthorizationStore,
+  type ExactAuthorizationContext,
   type ExactProposalDecisionRequest,
-  type L3AuthorizationGrantContext
 } from "@routeledger/core";
 
 import { CodexL3DecisionAdapter } from "../codex-l3-decision-adapter.js";
@@ -18,7 +17,7 @@ const request: ExactProposalDecisionRequest = {
   proposalCreatedAt: "2026-08-12T00:00:00.000Z"
 };
 
-const context: L3AuthorizationGrantContext = {
+const context: ExactAuthorizationContext = {
   audience: "routeledger-core",
   subjectId: "codex-approver",
   projectId: request.projectId,
@@ -28,8 +27,7 @@ const context: L3AuthorizationGrantContext = {
   operationDigest: request.operationDigest,
   now: "2026-08-12T00:00:00.000Z",
   hostKind: "codex",
-  clientId: "codex-client",
-  sessionId: "codex-session"
+  clientId: "codex-client"
 };
 
 describe("CodexL3DecisionAdapter", () => {
@@ -51,7 +49,7 @@ describe("CodexL3DecisionAdapter", () => {
   });
 
   it("issues an exact single-use capability after Codex admits the high-risk tool call", async () => {
-    const store = new MemoryL3AuthorizationGrantStore();
+
     const exactStore = new MemoryExactAuthorizationStore();
     const ids = ["grant-1", "decision-1"];
     const adapter = new CodexL3DecisionAdapter({
@@ -72,11 +70,11 @@ describe("CodexL3DecisionAdapter", () => {
         operationDigest: request.operationDigest,
         source: "host_admission",
         decisionRef: "codex-tool-call-decision-1",
-        authorizationGrantId: "grant-1"
+        authorizationId: "grant-1"
       }
     });
 
-    await expect(store.get("grant-1")).resolves.toBeNull();
+
     await expect(exactStore.get("grant-1")).resolves.toMatchObject({
       issuer: "codex-native-tool-admission",
       binding: {
@@ -87,8 +85,8 @@ describe("CodexL3DecisionAdapter", () => {
         operationDigest: request.operationDigest
       },
       source: "host_admission",
-      hostKind: "codex",
-      sessionId: null
+      hostKind: "codex"
     });
+    expect(await exactStore.get("grant-1")).not.toHaveProperty("sessionId");
   });
 });

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type {
   ApprovalArtifact,
+  ExactAuthorizationReceipt,
   ExactProposalDecisionRequest,
-  L3AuthorizationConsumptionReceipt,
   L3DecisionAdapter,
   PendingOperation
 } from "../index.js";
@@ -69,41 +69,42 @@ const artifact = (
   createdAt: "2026-08-11T00:00:30.000Z",
   expiresAt: "2026-08-11T01:00:00.000Z",
   consumedAt: status === "consumed" ? "2026-08-11T00:01:00.000Z" : null,
-  authorizationGrantId: "grant-1",
+  authorizationId: "authorization-1",
+  routeledgerRootDigest: "root-digest-1",
   approvalSource: source,
   policyId: "policy-1",
   policyDigest: "policy-digest-1",
   hostKind: "codex",
   clientId: "client-1",
-  sessionId: "session-1"
 });
 
 const receipt = (
-  status: L3AuthorizationConsumptionReceipt["status"] = "authorized"
-): L3AuthorizationConsumptionReceipt => ({
-  approvalArtifactId: "artifact-1",
-  pendingOperationId: "proposal-1",
-  grantId: "grant-1",
+  status: ExactAuthorizationReceipt["status"] = "authorized"
+): ExactAuthorizationReceipt => ({
+  artifactId: "artifact-1",
+  authorizationId: "authorization-1",
+  binding: {
+    proposalId: "proposal-1",
+    projectId: "project-1",
+    routeledgerRootDigest: "root-digest-1",
+    actionType: "start_version",
+    targetId: "version-1",
+    operationDigest: "digest-1"
+  },
+  issuer: "trusted-host",
   audience: "routeledger-core",
   subjectId: "agent-1",
-  projectId: "project-1",
-  routeledgerRootDigest: "root-digest",
-  actionType: "start_version",
-  targetId: "version-1",
-  operationDigest: "digest-1",
-  approvalSource: "delegated_policy",
+  source: "delegated_policy",
   decisionRef: "decision-1",
-  approverId: "agent-1",
-  approverType: "agent",
-  approverDisplayName: "Agent",
   policyId: "policy-1",
   policyDigest: "policy-digest-1",
+  profileId: null,
+  modeEpoch: null,
+  profileDigest: null,
   hostKind: "codex",
   clientId: "client-1",
-  sessionId: "session-1",
   createdAt: "2026-08-11T00:00:30.000Z",
   expiresAt: "2026-08-11T01:00:00.000Z",
-  consumedUse: 1,
   status,
   commitClaimId: status === "commit_claimed" ? "claim-1" : null,
   commitClaimedAt:
@@ -115,9 +116,11 @@ const receipt = (
 describe("L3 decision contract", () => {
   it("projects the persisted approval record into product decision semantics", () => {
     expect(projectDecisionArtifact(artifact("consumed"))).toEqual({
-      id: "artifact-1",
+      artifactId: "artifact-1",
+      authorizationId: "authorization-1",
       proposalId: "proposal-1",
       projectId: "project-1",
+      routeledgerRootDigest: "root-digest-1",
       actionType: "start_version",
       targetId: "version-1",
       operationDigest: "digest-1",
@@ -147,7 +150,7 @@ describe("L3 decision contract", () => {
             operationDigest: request.operationDigest,
             source: "delegated_policy",
             decisionRef: "decision-1",
-            authorizationGrantId: "grant-1"
+            authorizationId: "grant-1"
           }
         };
       }
@@ -270,7 +273,7 @@ describe("projectL3DecisionPhase", () => {
           approvalArtifact: artifact("approved", source),
           authorizationReceipt: {
             ...receipt("authorized"),
-            approvalSource: source
+            source
           }
         })
       ).toEqual({ phase: "decision_resolved", reason: "exact_decision_artifact" });
@@ -279,7 +282,7 @@ describe("projectL3DecisionPhase", () => {
 
   it("keeps legacy artifacts compatible and projects expiry and revocation honestly", () => {
     const legacyArtifact = { ...artifact() };
-    delete legacyArtifact.authorizationGrantId;
+    delete legacyArtifact.authorizationId;
     delete legacyArtifact.approvalSource;
 
     expect(
@@ -345,7 +348,10 @@ describe("projectL3DecisionPhase", () => {
       projectL3DecisionPhase({
         proposal: proposal(),
         approvalArtifact: artifact(),
-        authorizationReceipt: { ...receipt("commit_claimed"), operationDigest: "digest-other" }
+        authorizationReceipt: {
+          ...receipt("commit_claimed"),
+          binding: { ...receipt("commit_claimed").binding, operationDigest: "digest-other" }
+        }
       })
     ).toThrowError(/does not match the exact proposal/);
 

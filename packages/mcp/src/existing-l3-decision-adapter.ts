@@ -10,7 +10,7 @@ import {
   type ExactAuthorizationStore,
   type ExactProposalDecisionRequest,
   type L3AuthorizationEvaluationContext,
-  type L3AuthorizationGrantContext,
+  type ExactAuthorizationContext,
   type L3AuthorizationProfileV2,
   type L3DecisionAdapter,
   type PendingOperation,
@@ -30,14 +30,14 @@ export type ExistingL3DecisionResolution =
   | Exclude<DecisionResolution, { status: "denied" }>
   | {
       readonly status: "denied";
-      readonly code: "AUTHORIZATION_POLICY_DENIED" | "AUTHORIZATION_GRANT_REJECTED";
+      readonly code: "AUTHORIZATION_POLICY_DENIED" | "EXACT_AUTHORIZATION_REJECTED";
       readonly reason: string;
       readonly details: Record<string, unknown>;
     };
 
 export interface ExistingL3DecisionAdapterOptions {
   readonly proposal: Readonly<PendingOperation>;
-  readonly authorizationContext: Readonly<L3AuthorizationGrantContext>;
+  readonly authorizationContext: Readonly<ExactAuthorizationContext>;
   readonly exactStore: ExactAuthorizationStore;
   readonly interaction: RouteLedgerMcpAuthorizationInteraction;
   readonly hostProfile: string;
@@ -62,7 +62,7 @@ const resolvedDecision = (
     operationDigest: request.operationDigest,
     source: authorization.source,
     decisionRef: authorization.decisionRef,
-    authorizationGrantId: authorization.authorizationId
+    authorizationId: authorization.authorizationId
   }
 });
 
@@ -103,7 +103,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     }
     if (!exactRequestMatchesProposal(request, this.options.proposal)) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "The decision adapter request does not match the exact L3 proposal",
         { pendingOperationId: this.options.proposal.id, reason: "PROPOSAL_REQUEST_MISMATCH" }
       );
@@ -121,7 +121,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     if (delegated !== null) return delegated;
     if (this.options.profile?.mode === "preauthorized") {
       throw new ApplicationError(
-        "PREAUTHORIZATION_GRANT_REQUIRED",
+        "STANDING_POLICY_DECISION_REQUIRED",
         "The active standing policy did not authorize this exact proposal",
         {
           profileId: this.options.profile.profileId,
@@ -217,7 +217,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       !authorization.policyDigest
     ) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "The host-managed delegated authority returned an invalid one-shot grant",
         {
           authorityHandle: delegatedAuthority.authorityHandle,
@@ -266,7 +266,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
     if (decision.action === "decline") {
       return {
         status: "denied",
-        code: "AUTHORIZATION_GRANT_REJECTED",
+        code: "EXACT_AUTHORIZATION_REJECTED",
         reason: "L3 authorization was declined by the host user",
         details: {
           pendingOperationId: this.options.proposal.id,
@@ -282,7 +282,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       contentKeys[0] !== "approve"
     ) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         decision.action === "cancel"
           ? "L3 authorization was cancelled without deciding the proposal"
           : "The host returned an invalid exact authorization response",
@@ -336,7 +336,6 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       profileDigest: this.options.profile?.profileDigest ?? null,
       hostKind: this.options.hostProfile,
       clientId: this.options.trustedClientId ?? null,
-      sessionId: null,
       createdAt: now.toISOString(),
       expiresAt: new Date(
         now.getTime() +

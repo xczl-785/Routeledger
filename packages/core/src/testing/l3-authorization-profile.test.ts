@@ -25,7 +25,7 @@ const profile = (
     currentVersionId: "version-1",
     routeVersionIds: ["version-1", "version-2"],
     expiresAt: "2026-08-12T04:00:00.000Z",
-    maxUses: 16,
+    decisionBudget: 16,
     subjectId: binding.subjectId,
     hostKind: binding.hostKind,
     clientId: binding.trustedClientId

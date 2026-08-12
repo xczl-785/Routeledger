@@ -4,7 +4,6 @@ import path from "node:path";
 import {
   digestL3AuthorizationProfile,
   validateL3AuthorizationProfile,
-  type L3AuthorizationGrantStore,
   type L3AuthorizationPolicy,
   type L3AuthorizationProfileV2,
   type ExactAuthorizationStore
@@ -58,7 +57,6 @@ export interface ConfigureLocalL3StandingPolicyInput {
 export interface BoundLocalL3Authority {
   bindingKey: string;
   profile: L3AuthorizationProfileV2;
-  grantStore: L3AuthorizationGrantStore;
   exactStore: ExactAuthorizationStore;
   trustedClientId?: string;
   delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
@@ -142,7 +140,6 @@ export const createLocalL3AuthorityBroker = (
     return {
       bindingKey: selected.bindingKey,
       profile: runtime.profile,
-      grantStore: runtime.grantStore,
       exactStore: runtime.exactStore,
       ...(runtime.trustedClientId === undefined
         ? {}

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { digestL3AuthorizationProfile, validateL3AuthorizationProfile } from "../../core/src/index.js";
@@ -15,12 +14,6 @@ const requireTrustedDecision = async (interaction, request) => {
         throw new Error("The trusted host returned an invalid user decision.");
     }
     return decision;
-};
-const uniqueNonEmpty = (values, label) => {
-    if (values.length === 0 || values.some((value) => value.trim().length === 0 || value === "*")) {
-        throw new Error(`${label} must contain explicit non-wildcard values.`);
-    }
-    return [...new Set(values)];
 };
 export const createLocalL3AuthorityBroker = (options) => {
     const trustedBinding = (input) => ({
@@ -54,7 +47,7 @@ export const createLocalL3AuthorityBroker = (options) => {
         return {
             bindingKey: selected.bindingKey,
             profile: runtime.profile,
-            grantStore: runtime.grantStore,
+            exactStore: runtime.exactStore,
             ...(runtime.trustedClientId === undefined
                 ? {}
                 : { trustedClientId: runtime.trustedClientId }),
@@ -109,75 +102,55 @@ export const createLocalL3AuthorityBroker = (options) => {
                 throw new Error("The installed L3 authorization profile was not found.");
             return selected;
         },
-        issuePreauthorization: async (input) => {
+        configureStandingPolicy: async (input) => {
             const selected = await bind(input.binding);
             if (selected === null ||
                 selected.profile.status !== "active" ||
                 selected.profile.mode !== "preauthorized") {
                 throw new Error("An active preauthorized profile is required.");
             }
-            const actions = uniqueNonEmpty(input.allowedActions, "allowedActions");
-            const targets = uniqueNonEmpty(input.allowedTargetIds, "allowedTargetIds");
-            if (!Number.isInteger(input.ttlSeconds) ||
-                input.ttlSeconds < 30 ||
-                input.ttlSeconds > selected.profile.limits.maxGrantTtlSeconds) {
-                throw new Error("The preauthorization TTL exceeds the active profile limit.");
-            }
-            if (!Number.isInteger(input.maxUses) ||
-                input.maxUses <= 0 ||
-                input.maxUses > selected.profile.limits.maxGrantUses) {
-                throw new Error("The preauthorization use budget exceeds the active profile limit.");
-            }
-            if ((input.scope === "session" && (input.sessionId === undefined || input.sessionId.trim().length === 0)) ||
-                (input.scope === "time_window" && input.sessionId !== undefined)) {
-                throw new Error("The preauthorization session binding does not match its scope.");
+            if (selected.profile.profileRevision !== input.expectedProfileRevision) {
+                throw new Error("Local L3 authorization profile revision conflict.");
             }
             const decision = await requireTrustedDecision(options.trustedHostInteraction, {
-                kind: "issue_preauthorization",
+                kind: "configure_standing_policy",
                 bindingKey: selected.bindingKey,
                 profileId: selected.profile.profileId,
                 profileDigest: selected.profile.profileDigest,
                 canonicalSummary: {
-                    scope: input.scope,
-                    allowedActions: actions,
-                    allowedTargetIds: targets,
-                    ttlSeconds: input.ttlSeconds,
-                    maxUses: input.maxUses,
-                    sessionId: input.sessionId ?? null
+                    policyId: input.policy.policyId,
+                    policyMode: input.policy.mode,
+                    policyBinding: input.policy.binding,
+                    ruleIds: input.policy.rules.map((rule) => rule.id)
                 }
             });
-            const createdAt = decision.decidedAt;
-            const grant = {
-                id: `grant-${randomUUID()}`,
-                issuer: selected.profile.profileId,
-                subjectId: selected.profile.binding.subjectId,
-                audience: "routeledger-core",
-                projectId: selected.profile.binding.projectId,
-                routeledgerRootDigest: selected.profile.binding.routeledgerRootDigest,
-                profileId: selected.profile.profileId,
-                modeEpoch: selected.profile.modeEpoch,
-                profileDigest: selected.profile.profileDigest,
-                allowedActions: actions,
-                allowedTargetIds: targets,
-                operationDigest: null,
-                scope: input.scope,
-                source: "preauthorized",
-                policyId: null,
-                policyDigest: null,
-                decisionId: decision.decisionId,
-                hostKind: selected.profile.binding.hostKind,
-                clientId: selected.profile.binding.trustedClientId,
-                sessionId: input.scope === "session" ? input.sessionId : null,
-                nonce: randomUUID(),
-                createdAt,
-                expiresAt: new Date(Date.parse(createdAt) + input.ttlSeconds * 1000).toISOString(),
-                maxUses: input.maxUses,
-                uses: 0,
-                status: "active",
-                revokedAt: null
+            const base = {
+                ...selected.profile,
+                modeEpoch: selected.profile.modeEpoch + 1,
+                profileRevision: selected.profile.profileRevision + 1,
+                delegatedPolicy: input.policy,
+                updatedAt: decision.decidedAt
             };
-            await selected.grantStore.issue(grant);
-            return grant;
+            const profile = { ...base, profileDigest: digestL3AuthorizationProfile(base) };
+            await installLocalL3AuthorizationProfile({
+                registryRoot: options.registryRoot,
+                workspaceRoot: input.binding.workspaceRoot,
+                routeledgerRoot: input.binding.routeledgerRoot,
+                binding: {
+                    projectId: input.binding.projectId,
+                    workspaceRoot: input.binding.workspaceRoot,
+                    routeledgerRoot: input.binding.routeledgerRoot,
+                    hostKind: options.hostKind,
+                    subjectId: options.subjectId,
+                    trustedClientId: options.trustedClientId
+                },
+                profile,
+                expectedProfileRevision: input.expectedProfileRevision
+            });
+            const configured = await bind(input.binding);
+            if (configured === null)
+                throw new Error("The standing policy profile was not found.");
+            return configured;
         },
         revokeAccess: async (input) => {
             const selected = await bind(input.binding);

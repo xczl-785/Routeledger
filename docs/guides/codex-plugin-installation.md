@@ -35,7 +35,7 @@ project's absolute `workspaceRoot` (and optional in-workspace
 activation is scoped to the running MCP session. On Codex, high-risk tool
 admission is the authorization boundary; profile environment values and client
 metadata cannot create admission. Generic MCP hosts use structured elicitation
-or a trusted host-injected grant and fail closed when neither is available.
+or a trusted host standing-policy decision and fail closed when neither is available.
 The canonical artifact is not authority by itself; commit also requires its
 matching consumption receipt. The default in-process store requires
 reauthorization after an MCP process restart; continuity requires persistent

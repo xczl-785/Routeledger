@@ -724,7 +724,7 @@ interface ApprovalArtifactRow {
 
 type ApprovalArtifactAuthorizationProvenance = Pick<
   ApprovalArtifact,
-  | "authorizationGrantId"
+  | "authorizationId"
   | "routeledgerRootDigest"
   | "approvalSource"
   | "policyId"
@@ -734,7 +734,6 @@ type ApprovalArtifactAuthorizationProvenance = Pick<
   | "profileDigest"
   | "hostKind"
   | "clientId"
-  | "sessionId"
 >;
 
 type ApprovalArtifactAuthorizationRecord =
@@ -760,9 +759,9 @@ const getApprovalArtifactAuthorizationProvenance = (
   if (profileCount !== 0 && profileCount !== 3) {
     throw new Error("Approval authorization profile provenance must be all present or all absent.");
   }
-  if (artifact.authorizationGrantId === undefined) return null;
+  if (artifact.authorizationId === undefined) return null;
   const provenance: ApprovalArtifactAuthorizationProvenance = {
-        authorizationGrantId: artifact.authorizationGrantId,
+        authorizationId: artifact.authorizationId,
         routeledgerRootDigest: artifact.routeledgerRootDigest,
         approvalSource: artifact.approvalSource,
         policyId: artifact.policyId,
@@ -772,7 +771,6 @@ const getApprovalArtifactAuthorizationProvenance = (
         profileDigest: artifact.profileDigest,
         hostKind: artifact.hostKind,
         clientId: artifact.clientId,
-        sessionId: artifact.sessionId
       };
   return artifact.routeledgerRootDigest === undefined
     ? { kind: "legacy_audit", provenance }

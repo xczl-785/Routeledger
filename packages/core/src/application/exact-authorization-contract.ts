@@ -1,4 +1,3 @@
-import type { L3AuthorizationGrantSource } from "./l3-authorization-grant.js";
 import type { L3ActionType } from "./types.js";
 
 /**
@@ -8,6 +7,28 @@ import type { L3ActionType } from "./types.js";
  * contract and migration oracle; EA1 and later Versions own runtime adoption.
  */
 export const EXACT_AUTHORIZATION_SCHEMA_VERSION = 2 as const;
+
+export type ExactAuthorizationSource =
+  | "user_interaction"
+  | "delegated_policy"
+  | "preauthorized"
+  | "host_admission";
+
+export interface ExactAuthorizationContext {
+  readonly audience: string;
+  readonly subjectId: string;
+  readonly projectId: string;
+  readonly routeledgerRootDigest: string;
+  readonly profileId?: string;
+  readonly modeEpoch?: number;
+  readonly profileDigest?: string;
+  readonly actionType: L3ActionType;
+  readonly targetId: string;
+  readonly operationDigest: string;
+  readonly now: string;
+  readonly hostKind: string;
+  readonly clientId?: string;
+}
 
 export interface ExactAuthorizationBinding {
   readonly proposalId: string;
@@ -24,7 +45,7 @@ export interface ExactAuthorization {
   readonly authorizationId: string;
   readonly artifactId: string;
   readonly binding: ExactAuthorizationBinding;
-  readonly source: L3AuthorizationGrantSource;
+  readonly source: ExactAuthorizationSource;
   readonly decisionRef: string;
   readonly issuer: string;
   readonly audience: string;
@@ -36,11 +57,6 @@ export interface ExactAuthorization {
   readonly profileDigest: string | null;
   readonly hostKind: string;
   readonly clientId: string | null;
-  /**
-   * 0.8 compatibility provenance only. It is never a matching, reuse, or
-   * authority key. Writers SHOULD emit null; 0.9 removes the field.
-   */
-  readonly sessionId?: string | null;
   readonly createdAt: string;
   readonly expiresAt: string;
 }
@@ -61,7 +77,7 @@ export interface ExactAuthorizationReceipt {
   readonly issuer: string;
   readonly audience: string;
   readonly subjectId: string;
-  readonly source: L3AuthorizationGrantSource;
+  readonly source: ExactAuthorizationSource;
   readonly decisionRef: string;
   readonly policyId: string | null;
   readonly policyDigest: string | null;
@@ -97,7 +113,7 @@ export interface ExactDecisionArtifactResponse {
   readonly actionType: L3ActionType;
   readonly targetId: string;
   readonly operationDigest: string;
-  readonly source: L3AuthorizationGrantSource;
+  readonly source: ExactAuthorizationSource;
   readonly decisionRef: string;
   readonly status: "approved" | "consumed";
 }
@@ -110,37 +126,3 @@ export const GENERIC_EXACT_DECISION_INPUT_SCHEMA = {
   required: ["approve"],
   additionalProperties: false
 } as const;
-
-export type LegacyAuthorizationRecordKind =
-  | "grant"
-  | "approval_artifact"
-  | "receipt"
-  | "host_state";
-
-export interface LegacyAuthorizationRecordDescriptor {
-  readonly kind: LegacyAuthorizationRecordKind;
-  readonly status?: string;
-  readonly scope?: "operation" | "turn" | "session" | "time_window";
-  readonly operationDigest?: string | null;
-}
-
-export type LegacyAuthorizationDisposition =
-  | "revoke_and_tombstone_then_reauthorize"
-  | "retain_as_immutable_audit_evidence"
-  | "migrate_policy_configuration_without_authority";
-
-/**
- * Migration is deliberately conservative: no legacy grant, including an
- * exact operation-scoped one-shot grant, becomes active v2 authority.
- */
-export const classifyLegacyAuthorizationRecord = (
-  record: LegacyAuthorizationRecordDescriptor
-): LegacyAuthorizationDisposition => {
-  if (record.kind === "grant") {
-    return "revoke_and_tombstone_then_reauthorize";
-  }
-  if (record.kind === "host_state") {
-    return "migrate_policy_configuration_without_authority";
-  }
-  return "retain_as_immutable_audit_evidence";
-};

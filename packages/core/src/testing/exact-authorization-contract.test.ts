@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  classifyLegacyAuthorizationRecord,
   EXACT_AUTHORIZATION_SCHEMA_VERSION,
   GENERIC_EXACT_DECISION_INPUT_SCHEMA,
   type ExactAuthorization,
   type ExactAuthorizationReceipt,
   type ExactDecisionArtifactResponse
 } from "../index.js";
+import { classifyLegacyAuthorizationRecord } from "../application/legacy-authorization-migration.js";
 
 const fixtureRoot = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -48,7 +48,6 @@ describe("EA0 exact-only authorization contract", () => {
       profileDigest: "profile-digest-1",
       hostKind: "generic",
       clientId: "client-1",
-      sessionId: null,
       createdAt: "2026-08-12T00:00:00.000Z",
       expiresAt: "2026-08-12T00:01:00.000Z"
     };
@@ -80,14 +79,14 @@ describe("EA0 exact-only authorization contract", () => {
     expect(authorization.authorizationId).not.toBe(authorization.artifactId);
     expect(receipt.binding).toEqual(authorization.binding);
     expect(authorization).not.toHaveProperty("scope");
-    expect(authorization).not.toHaveProperty("maxUses");
+    expect(authorization).not.toHaveProperty("decisionBudget");
     expect(authorization).not.toHaveProperty("allowedActions");
     expect(authorization).not.toHaveProperty("allowedTargetIds");
     expect(receipt).not.toHaveProperty("consumedUse");
     expect(receipt).not.toHaveProperty("sessionId");
   });
 
-  it("keeps sessionId only as nullable 0.8 provenance, never inside the exact binding", () => {
+  it("does not expose session identity in the exact binding", () => {
     const bindingKeys = [
       "proposalId",
       "projectId",
@@ -115,7 +114,7 @@ describe("EA0 exact-only authorization contract", () => {
     };
     expect(response).not.toHaveProperty("scope");
     expect(response).not.toHaveProperty("sessionId");
-    expect(response).not.toHaveProperty("grantId");
+    expect(response.authorizationId).toBe("authorization-1");
     expect({
       proposalId: response.proposalId,
       projectId: response.projectId,

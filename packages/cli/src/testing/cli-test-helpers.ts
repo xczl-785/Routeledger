@@ -7,7 +7,6 @@ import { expect } from "vitest";
 
 import {
   MemoryExactAuthorizationStore,
-  MemoryL3AuthorizationGrantStore,
   type ProjectAggregateSnapshot
 } from "@routeledger/core";
 import {
@@ -21,13 +20,12 @@ import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 
 import { runCli } from "../index.js";
 
-const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
 const trustedExactStores = new Map<string, MemoryExactAuthorizationStore>();
 
 export const createTempProjectRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-cli-"));
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
-  trustedGrantStores.delete(projectRoot);
+
   trustedExactStores.delete(projectRoot);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
@@ -108,13 +106,6 @@ export const runCliJson = async (projectRoot: string, argv: string[]) => {
         approved: true,
         decisionId: `test-decision-${proposal.id}`
       }),
-      grantStore:
-        trustedGrantStores.get(projectRoot) ??
-        (() => {
-          const store = new MemoryL3AuthorizationGrantStore();
-          trustedGrantStores.set(projectRoot, store);
-          return store;
-        })(),
       exactStore:
         trustedExactStores.get(projectRoot) ??
         (() => {
@@ -276,7 +267,7 @@ export const seedJsonRoundTripProject = async (projectRoot: string) => {
     "--pending-operation-id",
     pendingOperationId
   ]);
-  const approvalArtifactId = approveResult.stdoutJson.data.id as string;
+  const approvalArtifactId = approveResult.stdoutJson.data.artifactId as string;
 
   return {
     projectId,
@@ -324,7 +315,7 @@ export const createVersionViaL3 = async (
     "--pending-operation-id",
     pendingOperationId,
     "--approval-artifact-id",
-    approveResult.stdoutJson.data.id
+    approveResult.stdoutJson.data.artifactId
   ]);
 
   expect(commitResult.exitCode).toBe(0);
@@ -370,7 +361,7 @@ export const setCurrentVersionViaL3 = async (
     "--pending-operation-id",
     pendingOperationId,
     "--approval-artifact-id",
-    approveResult.stdoutJson.data.id
+    approveResult.stdoutJson.data.artifactId
   ]);
 
   expect(commitResult.exitCode).toBe(0);

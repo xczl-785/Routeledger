@@ -7,7 +7,6 @@ import {
   buildBalancedL3AuthorizationPolicy,
   type L3AuthorizationEvaluationContext,
   type ExactAuthorizationCandidate,
-  type L3AuthorizationGrant,
   type PendingOperation
 } from "@routeledger/core";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,7 +30,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-const createFixture = async (maxUses = 2) => {
+const createFixture = async (decisionBudget = 2) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-local-l3-"));
   roots.push(root);
   const workspaceRoot = path.join(root, "workspace");
@@ -47,7 +46,7 @@ const createFixture = async (maxUses = 2) => {
     currentVersionId: "version-1",
     routeVersionIds: ["version-1", "version-2"],
     expiresAt: "2026-08-11T00:00:00.000Z",
-    maxUses,
+    decisionBudget,
     subjectId: "mcp-user",
     hostKind: "generic",
     clientId: "trusted-client"
@@ -57,7 +56,7 @@ const createFixture = async (maxUses = 2) => {
     authorityId: "authority-local",
     statePath,
     policy,
-    grantTtlSeconds: 300,
+    authorizationTtlSeconds: 300,
     trustedClientId: "trusted-client"
   };
   await installLocalL3AuthorityConfig({
@@ -105,7 +104,7 @@ const proposalFor = (context: L3AuthorizationEvaluationContext): PendingOperatio
   approvalArtifactId: null
 });
 
-const legacyGrantFor = (authorization: ExactAuthorizationCandidate): L3AuthorizationGrant => ({
+const legacyGrantFor = (authorization: ExactAuthorizationCandidate) => ({
   id: authorization.authorizationId,
   issuer: authorization.issuer,
   subjectId: authorization.subjectId,
@@ -148,7 +147,7 @@ describe("local L3 authorization runtime", () => {
       currentVersionId: null,
       routeVersionIds: ["version-1"],
       expiresAt: "2026-08-11T00:00:00.000Z",
-      maxUses: 1,
+      decisionBudget: 1,
       subjectId: "mcp-user",
       hostKind: "generic"
     });
@@ -162,7 +161,7 @@ describe("local L3 authorization runtime", () => {
           authorityId: "unsafe",
           statePath: path.join(root, "state.json"),
           policy,
-          grantTtlSeconds: 60
+          authorizationTtlSeconds: 60
         }
       })
     ).rejects.toThrow("outside the workspace");
@@ -185,8 +184,6 @@ describe("local L3 authorization runtime", () => {
     });
     expect(decision.effect).toBe("allow");
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await expect(runtime.grantStore.issue(legacyGrantFor(decision.authorization))).rejects.toThrow("audit-only");
-    await expect(runtime.grantStore.get(decision.authorization.authorizationId)).resolves.toBeNull();
     await expect(runtime.exactStore.get(decision.authorization.authorizationId)).resolves.toMatchObject({
       binding: { operationDigest: "digest-1" },
       source: "delegated_policy"
@@ -223,7 +220,6 @@ describe("local L3 authorization runtime", () => {
     await expect(
       runtime.exactStore.issue({ ...decision.authorization, issuer: "conflicting-issuer" })
     ).rejects.toThrow("already exists");
-    await expect(runtime.grantStore.issue(legacyGrantFor(decision.authorization))).rejects.toThrow("audit-only");
   });
 
   it("atomically enforces the delegated rule budget across concurrent requests", async () => {
@@ -331,7 +327,7 @@ describe("local L3 authorization runtime", () => {
       }
     });
     blockTransaction = true;
-    const transaction = runtime.grantStore.revoke("missing", new Date().toISOString());
+    const transaction = runtime.exactStore.revoke("missing", new Date().toISOString());
     await entered.promise;
     const lockPath = `${fixture.statePath}.lock`;
     const metadataPath = path.join(lockPath, "metadata.json");
@@ -340,7 +336,7 @@ describe("local L3 authorization runtime", () => {
     const after = JSON.parse(await fs.readFile(metadataPath, "utf8")) as { updatedAt: string };
     expect(Date.parse(after.updatedAt)).toBeGreaterThan(Date.parse(before.updatedAt));
     resume.resolve();
-    await expect(transaction).resolves.toBeNull();
+    await expect(transaction).resolves.toBe(false);
   });
 
   it("rejects a former owner's write without releasing the replacement owner", async () => {
@@ -364,7 +360,7 @@ describe("local L3 authorization runtime", () => {
       }
     });
     blockTransaction = true;
-    const transaction = runtime.grantStore.revoke("missing", new Date().toISOString());
+    const transaction = runtime.exactStore.revoke("missing", new Date().toISOString());
     await entered.promise;
     const lockPath = `${fixture.statePath}.lock`;
     const formerLockPath = `${lockPath}.former`;
@@ -411,7 +407,7 @@ describe("local L3 authorization runtime", () => {
       }
     });
     blockTransaction = true;
-    const transaction = runtime.grantStore.revoke("missing", new Date().toISOString());
+    const transaction = runtime.exactStore.revoke("missing", new Date().toISOString());
     await entered.promise;
     const state = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as {
       revision: number;
@@ -478,7 +474,6 @@ describe("local L3 authorization runtime", () => {
       context: evaluationContext("rotation-digest")
     });
     if (decision.effect !== "allow") throw new Error("expected delegated grant");
-    await expect(runtime.grantStore.issue(legacyGrantFor(decision.authorization))).rejects.toThrow("audit-only");
 
     const rotatedConfig: LocalL3AuthorityConfig = {
       ...fixture.config,
@@ -497,7 +492,6 @@ describe("local L3 authorization runtime", () => {
       hostKind: "generic",
       subjectId: "mcp-user"
     });
-    await expect(rotated.grantStore.get(decision.authorization.authorizationId)).resolves.toBeNull();
     await expect(rotated.exactStore.consumeAndRecordReceipt({
       authorizationId: decision.authorization.authorizationId,
       artifactId: "must-not-exist-after-policy-rotation",
@@ -545,7 +539,6 @@ describe("local L3 authorization runtime", () => {
     if (reserved.effect !== "allow" || issued.effect !== "allow") {
       throw new Error("expected legacy grants");
     }
-    await expect(runtime.grantStore.issue(legacyGrantFor(issued.authorization))).rejects.toThrow("audit-only");
     const current = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as Record<string, unknown>;
     const legacy: Record<string, unknown> = { ...current, schemaVersion: 1 };
     delete legacy.legacyTombstones;
@@ -606,7 +599,7 @@ describe("local L3 authorization runtime", () => {
     await fs.mkdir(lockPath, { mode: 0o700 });
     const stale = new Date(Date.now() - 60_000);
     await fs.utimes(lockPath, stale, stale);
-    await expect(runtime.grantStore.revoke("missing", new Date().toISOString())).resolves.toBeNull();
+    await expect(runtime.exactStore.revoke("missing", new Date().toISOString())).resolves.toBe(false);
     await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -646,7 +639,7 @@ describe("local L3 authorization runtime", () => {
       schemaVersion: 1,
       authorityId: "stdio-authority",
       statePath,
-      grantTtlSeconds: 300,
+      authorizationTtlSeconds: 300,
       policy: {
         schemaVersion: 1,
         policyId: "stdio-policy",
@@ -666,7 +659,7 @@ describe("local L3 authorization runtime", () => {
             conditions: {
               gateMustPass: true,
               expiresAt: "2099-01-01T00:00:00.000Z",
-              maxUses: 1
+              decisionBudget: 1
             }
           }
         ],
@@ -702,7 +695,7 @@ describe("local L3 authorization runtime", () => {
         }
       },
       l3Authorization: {
-        grantStore: runtime.grantStore,
+
         exactStore: runtime.exactStore,
         delegatedAuthority: runtime.authority,
         interaction: {
@@ -710,7 +703,7 @@ describe("local L3 authorization runtime", () => {
             throw new Error("host prompt must not be used");
           }
         },
-        sessionId: "interrupted-session"
+
       }
     });
     const interrupted = await interruptedRegistry.invoke("approve_l3_operation", {
@@ -785,7 +778,7 @@ describe("local L3 authorization runtime", () => {
       hostProfile: "generic",
       runtimeProfile: "json-only",
       l3Authorization: {
-        grantStore: recoveredRuntime.grantStore,
+
         exactStore: recoveredRuntime.exactStore,
         delegatedAuthority: recoveredRuntime.authority
       },

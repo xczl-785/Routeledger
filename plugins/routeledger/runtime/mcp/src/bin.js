@@ -130,7 +130,7 @@ export const main = async (argv = process.argv.slice(2)) => {
             ? {}
             : {
                 l3Authorization: {
-                    grantStore: l3AuthorityRuntime.grantStore,
+                    exactStore: l3AuthorityRuntime.exactStore,
                     ...(l3AuthorityRuntime.trustedClientId === undefined
                         ? {}
                         : { trustedClientId: l3AuthorityRuntime.trustedClientId }),

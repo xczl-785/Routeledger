@@ -155,7 +155,7 @@ describe("@routeledger/json validate", () => {
     );
     snapshot.approvalArtifacts[0] = {
       ...snapshot.approvalArtifacts[0]!,
-      authorizationGrantId: "grant-partial"
+      authorizationId: "grant-partial"
     };
     expect(validateProjectAggregateSnapshot(snapshot).issues).toEqual(
       expect.arrayContaining([

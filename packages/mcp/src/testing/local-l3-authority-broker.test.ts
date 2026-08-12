@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   buildBalancedL3AuthorizationPolicy,
   digestL3AuthorizationProfile,
-  type L3AuthorizationGrant,
   type L3AuthorizationProfileV2
 } from "@routeledger/core";
 import { afterEach, describe, expect, it } from "vitest";
@@ -93,39 +92,8 @@ describe("local L3 authority broker", () => {
     expect(boundA?.profile.profileId).toBe("profile-0");
     expect(boundB?.profile.profileId).toBe("profile-1");
 
-    const now = "2026-08-11T00:00:00.000Z";
-    const grant: L3AuthorizationGrant = {
-      id: "grant-a",
-      issuer: boundA!.profile.profileId,
-      subjectId: "local-user",
-      audience: "routeledger-core",
-      projectId: "project-a",
-      routeledgerRootDigest: boundA!.profile.binding.routeledgerRootDigest,
-      profileId: boundA!.profile.profileId,
-      modeEpoch: boundA!.profile.modeEpoch,
-      profileDigest: boundA!.profile.profileDigest,
-      allowedActions: ["start_version"],
-      allowedTargetIds: ["version-a"],
-      operationDigest: null,
-      scope: "session",
-      source: "preauthorized",
-      policyId: null,
-      policyDigest: null,
-      decisionId: "decision-a",
-      hostKind: "codex",
-      clientId: "codex-desktop",
-      sessionId: "session-a",
-      nonce: "nonce-a",
-      createdAt: now,
-      expiresAt: "2026-08-11T00:05:00.000Z",
-      maxUses: 1,
-      uses: 0,
-      status: "active",
-      revokedAt: null
-    };
-    await expect(boundA!.grantStore.issue(grant)).rejects.toThrow("audit-only");
-    await expect(boundA!.grantStore.get(grant.id)).resolves.toBeNull();
-    await expect(boundB!.grantStore.get(grant.id)).resolves.toBeNull();
+    await expect(boundA!.exactStore.get("authorization-from-other-binding")).resolves.toBeNull();
+    await expect(boundB!.exactStore.get("authorization-from-other-binding")).resolves.toBeNull();
   });
 
   it("fails closed when the verified project has no installed profile", async () => {
@@ -186,7 +154,7 @@ describe("local L3 authority broker", () => {
       currentVersionId: "version-1",
       routeVersionIds: ["version-1", "version-2"],
       expiresAt: "2026-08-12T00:00:00.000Z",
-      maxUses: 2,
+      decisionBudget: 2,
       subjectId: profile.binding.subjectId,
       hostKind: profile.binding.hostKind,
       clientId: profile.binding.trustedClientId ?? undefined

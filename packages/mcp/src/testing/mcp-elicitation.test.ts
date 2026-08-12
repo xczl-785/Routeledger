@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import {
   digestL3AuthorizationProfile,
   GENERIC_EXACT_DECISION_INPUT_SCHEMA,
-  MemoryL3AuthorizationGrantStore,
   type L3AuthorizationMode,
   type L3AuthorizationProfileV2
 } from "@routeledger/core";
@@ -168,7 +167,7 @@ describe("MCP L3 authorization elicitation", () => {
       expect(structured(approvalResponse).data).toMatchObject({
         status: "approved",
         approvalSource: "user_interaction",
-        authorizationGrantId: expect.any(String),
+        authorizationId: expect.any(String),
         hostKind: "codex",
         clientId: null,
         approver: { id: "routeledger-user", type: "user" }
@@ -289,7 +288,7 @@ describe("MCP L3 authorization elicitation", () => {
       });
 
       expect(structured(await approvalPromise).error).toMatchObject({
-        code: "AUTHORIZATION_GRANT_REJECTED",
+        code: "EXACT_AUTHORIZATION_REJECTED",
         details: { reason: "HOST_DECLINED" }
       });
       const proposals = await call(server, "list", "list_l3_proposals", { projectId });
@@ -316,8 +315,8 @@ describe("MCP L3 authorization elicitation", () => {
       routeledgerRoot: projectRoot,
       hostProfile: "generic",
       l3Authorization: {
-        grantStore: new MemoryL3AuthorizationGrantStore(),
-        sessionId: "test-session",
+
+
         interaction: { requestAuthorization: async () => decision }
       }
     });
@@ -353,7 +352,7 @@ describe("MCP L3 authorization elicitation", () => {
         expectedRouteLedgerRoot: projectRoot
       });
       expect(structured(approval).error).toMatchObject({
-        code: "AUTHORIZATION_GRANT_REJECTED",
+        code: "EXACT_AUTHORIZATION_REJECTED",
         details: { reason }
       });
       const proposals = await call(server, "list", "list_l3_proposals", { projectId });
@@ -369,7 +368,7 @@ describe("MCP L3 authorization elicitation", () => {
   it("uses only a host-injected delegated authority and enforces its atomic budget", async () => {
     const projectRoot = createTempProjectRoot();
     const outbound: JsonRpcMessage[] = [];
-    const grantStore = new MemoryL3AuthorizationGrantStore();
+
     let remainingUses = 1;
     const server = createRouteLedgerStdioServer({
       workspaceRoot: projectRoot,
@@ -377,13 +376,12 @@ describe("MCP L3 authorization elicitation", () => {
       hostProfile: "generic",
       sendMessage: (message) => outbound.push(message),
       l3Authorization: {
-        grantStore,
         interaction: {
           requestAuthorization: async () => {
             throw new Error("host prompt must not be used for delegated allow");
           }
         },
-        sessionId: "trusted-session",
+
         trustedClientId: "trusted-host-client",
         delegatedAuthority: {
           authorityHandle: "host-vault://policy-test",
@@ -427,7 +425,6 @@ describe("MCP L3 authorization elicitation", () => {
                 profileDigest: null,
                 hostKind: "generic",
                 clientId: "trusted-host-client",
-                sessionId: null,
                 createdAt: now.toISOString(),
                 expiresAt: new Date(now.getTime() + 60_000).toISOString()
               }
@@ -502,103 +499,6 @@ describe("MCP L3 authorization elicitation", () => {
     }
   });
 
-  it("does not promote a host-injected legacy preauthorization into exact authority", async () => {
-    const projectRoot = createTempProjectRoot();
-    const grantStore = new MemoryL3AuthorizationGrantStore();
-    const server = createRouteLedgerStdioServer({
-      workspaceRoot: projectRoot,
-      routeledgerRoot: projectRoot,
-      hostProfile: "generic",
-      l3Authorization: {
-        grantStore,
-        interaction: {
-          requestAuthorization: async () => {
-            throw new Error("preauthorization must not prompt");
-          }
-        },
-        sessionId: "preauthorized-session",
-        trustedClientId: "trusted-preauthorized-client"
-      }
-    });
-    try {
-      await server.handleMessage({
-        jsonrpc: "2.0",
-        id: "initialize",
-        method: "initialize",
-        params: {
-          protocolVersion: MCP_PROTOCOL_VERSION,
-          capabilities: {},
-          clientInfo: { name: "self-reported-name", version: "1.0.0" }
-        }
-      });
-      await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const initialized = await call(server, "init", "init_project", {
-        name: "Preauthorization Probe",
-        contentLocale: "en",
-        expectedRouteLedgerRoot: projectRoot
-      });
-      const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const created = await call(server, "create", "create_version", {
-        projectId,
-        title: "Version 1",
-        expectedRouteLedgerRoot: projectRoot
-      });
-      const pendingOperationId = (
-        structured(created).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
-      const proposalResponse = await call(server, "proposal", "get_l3_proposal", {
-        projectId,
-        pendingOperationId
-      });
-      const proposal = structured(proposalResponse).data as {
-        actionType: "create_version";
-        targetId: string;
-        digest: { value: string };
-      };
-      const now = new Date();
-      await grantStore.issue({
-        id: "preauthorized-grant",
-        issuer: "trusted-host-preauthorization",
-        subjectId: "mcp-user",
-        audience: "routeledger-core",
-        projectId,
-        routeledgerRootDigest: `sha256:${createHash("sha256")
-          .update(fs.realpathSync.native(projectRoot))
-          .digest("hex")}`,
-        allowedActions: [proposal.actionType],
-        allowedTargetIds: [proposal.targetId],
-        operationDigest: proposal.digest.value,
-        scope: "operation",
-        source: "preauthorized",
-        policyId: null,
-        policyDigest: null,
-        decisionId: "preauthorized-decision",
-        hostKind: "generic",
-        clientId: "trusted-preauthorized-client",
-        sessionId: "preauthorized-session",
-        nonce: randomUUID(),
-        createdAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + 60_000).toISOString(),
-        maxUses: 1,
-        uses: 0,
-        status: "active",
-        revokedAt: null
-      });
-
-      const response = await call(server, "approve", "approve_l3_operation", {
-        projectId,
-        pendingOperationId,
-        expectedRouteLedgerRoot: projectRoot
-      });
-      expect(structured(response).error).toMatchObject({
-        code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE"
-      });
-    } finally {
-      server.close();
-      cleanupProjectRoot(projectRoot);
-    }
-  });
-
   it("enforces V3 preauthorized miss and trusted interactive provenance without fallback mixing", async () => {
     const projectRoot = createTempProjectRoot();
     const bootstrap = createRouteLedgerStdioServer({
@@ -640,7 +540,7 @@ describe("MCP L3 authorization elicitation", () => {
         routeledgerRoot: projectRoot,
         hostProfile: "generic",
         l3Authorization: {
-          grantStore: new MemoryL3AuthorizationGrantStore(),
+
           profile: profileFor({ mode: "preauthorized", projectId, projectRoot }),
           interaction: {
             requestAuthorization: async () => {
@@ -648,7 +548,7 @@ describe("MCP L3 authorization elicitation", () => {
               return { action: "accept", content: { approve: true } };
             }
           },
-          sessionId: "v3-session",
+
           trustedClientId: "trusted-v3-client"
         }
       });
@@ -725,7 +625,7 @@ describe("MCP L3 authorization elicitation", () => {
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
       });
-      expect(structured(miss).error).toMatchObject({ code: "PREAUTHORIZATION_GRANT_REQUIRED" });
+      expect(structured(miss).error).toMatchObject({ code: "STANDING_POLICY_DECISION_REQUIRED" });
       expect(interactionCalls).toBe(0);
       preauthorized.close();
 
@@ -735,7 +635,7 @@ describe("MCP L3 authorization elicitation", () => {
         routeledgerRoot: projectRoot,
         hostProfile: "generic",
         l3Authorization: {
-          grantStore: new MemoryL3AuthorizationGrantStore(),
+
           profile: interactiveProfile,
           interaction: {
             requestAuthorization: async () => ({
@@ -743,7 +643,7 @@ describe("MCP L3 authorization elicitation", () => {
               content: { approve: true }
             })
           },
-          sessionId: "v3-session",
+
           trustedClientId: "trusted-v3-client"
         }
       });
@@ -774,7 +674,7 @@ describe("MCP L3 authorization elicitation", () => {
         routeledgerRoot: projectRoot,
         hostProfile: "generic",
         l3Authorization: {
-          grantStore: new MemoryL3AuthorizationGrantStore(),
+
           profile: interactiveProfile,
           interaction: {
             requestAuthorization: async () => ({
@@ -787,7 +687,7 @@ describe("MCP L3 authorization elicitation", () => {
               }
             })
           },
-          sessionId: "v3-session",
+
           trustedClientId: "trusted-v3-client"
         }
       });

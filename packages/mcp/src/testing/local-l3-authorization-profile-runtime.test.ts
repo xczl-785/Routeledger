@@ -5,8 +5,6 @@ import path from "node:path";
 import {
   buildBalancedL3AuthorizationPolicy,
   digestL3AuthorizationProfile,
-  type ExactAuthorizationCandidate,
-  type L3AuthorizationConsumptionReceipt,
   type L3AuthorizationEvaluationContext,
   type L3AuthorizationProfileV2,
   type PendingOperation
@@ -43,7 +41,7 @@ const createFixture = async () => {
     currentVersionId: "version-1",
     routeVersionIds: ["version-1", "version-2"],
     expiresAt: "2026-08-12T00:00:00.000Z",
-    maxUses: 2,
+    decisionBudget: 2,
     subjectId: binding.subjectId,
     hostKind: binding.hostKind,
     clientId: binding.trustedClientId ?? undefined
@@ -105,44 +103,6 @@ const proposalFor = (context: L3AuthorizationEvaluationContext): PendingOperatio
   rejectedAt: null,
   rejectionReason: null,
   approvalArtifactId: null
-});
-
-const receiptFor = (
-  profile: L3AuthorizationProfileV2,
-  authorization: ExactAuthorizationCandidate,
-  suffix: string
-): L3AuthorizationConsumptionReceipt => ({
-  approvalArtifactId: `artifact-${suffix}`,
-  pendingOperationId: `pending-${suffix}`,
-  grantId: authorization.authorizationId,
-  audience: authorization.audience,
-  subjectId: authorization.subjectId,
-  projectId: authorization.binding.projectId,
-  routeledgerRootDigest: authorization.binding.routeledgerRootDigest,
-  profileId: profile.profileId,
-  modeEpoch: profile.modeEpoch,
-  profileDigest: profile.profileDigest,
-  actionType: "start_version",
-  targetId: "version-2",
-  operationDigest: authorization.binding.operationDigest,
-  approvalSource: "delegated_policy",
-  decisionRef: authorization.decisionRef,
-  approverId: profile.binding.subjectId,
-  approverType: "user",
-  approverDisplayName: "Local user",
-  policyId: authorization.policyId,
-  policyDigest: authorization.policyDigest,
-  hostKind: profile.binding.hostKind,
-  clientId: profile.binding.trustedClientId,
-  sessionId: null,
-  createdAt: authorization.createdAt,
-  expiresAt: authorization.expiresAt,
-  consumedUse: 1,
-  status: "authorized",
-  commitClaimId: null,
-  commitClaimedAt: null,
-  committedAt: null,
-  revokedAt: null
 });
 
 afterEach(async () => {
@@ -553,9 +513,6 @@ describe("local L3 authorization profile runtime", () => {
       context: contextFor(fixture.profile)
     });
     if (first.effect !== "allow") throw new Error("expected delegated grant");
-    const revokedReceipt = receiptFor(fixture.profile, first.authorization, "revoked");
-    await expect(runtime.grantStore.recordConsumptionReceipt(revokedReceipt))
-      .rejects.toThrow("audit-only");
     const candidate = await runtime.exactStore.get(first.authorization.authorizationId);
     if (candidate === null) throw new Error("expected exact authorization");
     const consumed = await runtime.exactStore.consumeAndRecordReceipt({

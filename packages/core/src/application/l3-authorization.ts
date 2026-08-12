@@ -35,7 +35,6 @@ export const BALANCED_ALWAYS_PROMPT_ACTIONS = [
 
 export type L3AuthorizationMode = "interactive" | "delegated" | "preauthorized";
 export type L3AuthorizationEffect = "allow" | "prompt" | "deny";
-export type L3AuthorizationScope = "operation" | "turn" | "session" | "time_window";
 export type L3AuthorizationTargetRelation = "current" | "legal-successor" | "other";
 
 export interface L3AuthorizationPolicyBinding {
@@ -55,7 +54,7 @@ export interface L3AuthorizationRuleConditions {
   allowedTargetRelations?: L3AuthorizationTargetRelation[];
   requiredCurrentVersionId?: string;
   expiresAt?: string;
-  maxUses?: number;
+  decisionBudget?: number;
 }
 
 export interface L3AuthorizationRule {
@@ -130,7 +129,7 @@ export interface BuildBalancedL3AuthorizationPolicyInput {
   currentVersionId: string | null;
   routeVersionIds: string[];
   expiresAt: string;
-  maxUses: number;
+  decisionBudget: number;
   subjectId?: string;
   hostKind?: string;
   clientId?: string;
@@ -278,12 +277,12 @@ export const validateL3AuthorizationPolicy = (
       }
       if (
         rule.effect === "allow" &&
-        (!Number.isInteger(rule.conditions?.maxUses) || (rule.conditions?.maxUses ?? 0) <= 0)
+        (!Number.isInteger(rule.conditions?.decisionBudget) || (rule.conditions?.decisionBudget ?? 0) <= 0)
       ) {
         addIssue(
           issues,
           "ALLOW_MAX_USES_REQUIRED",
-          `${base}.conditions.maxUses`,
+          `${base}.conditions.decisionBudget`,
           "allow rules must have a positive maximum-use budget"
         );
       }
@@ -313,14 +312,14 @@ export const validateL3AuthorizationPolicy = (
         );
       }
       if (
-        rule.conditions?.maxUses !== undefined &&
-        (!Number.isInteger(rule.conditions.maxUses) || rule.conditions.maxUses <= 0)
+        rule.conditions?.decisionBudget !== undefined &&
+        (!Number.isInteger(rule.conditions.decisionBudget) || rule.conditions.decisionBudget <= 0)
       ) {
         addIssue(
           issues,
           "MAX_USES_INVALID",
-          `${base}.conditions.maxUses`,
-          "maxUses must be a positive integer"
+          `${base}.conditions.decisionBudget`,
+          "decisionBudget must be a positive integer"
         );
       }
     }
@@ -499,7 +498,7 @@ export const buildBalancedL3AuthorizationPolicy = (
           ? {}
           : { requiredCurrentVersionId: input.currentVersionId }),
         expiresAt: input.expiresAt,
-        maxUses: input.maxUses
+        decisionBudget: input.decisionBudget
       }
     },
     {
@@ -514,7 +513,7 @@ export const buildBalancedL3AuthorizationPolicy = (
           ? {}
           : { requiredCurrentVersionId: input.currentVersionId }),
         expiresAt: input.expiresAt,
-        maxUses: input.maxUses
+        decisionBudget: input.decisionBudget
       }
     }
   ],

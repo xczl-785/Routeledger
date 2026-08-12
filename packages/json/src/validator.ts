@@ -1691,17 +1691,16 @@ export const validateProjectAggregateSnapshot = (
   for (const artifact of snapshot.approvalArtifacts) {
     const operation = pendingOperationsById.get(artifact.pendingOperationId);
     const provenancePresent = [
-      artifact.authorizationGrantId,
+      artifact.authorizationId,
       artifact.approvalSource,
       artifact.policyId,
       artifact.policyDigest,
       artifact.hostKind,
-      artifact.clientId,
-      artifact.sessionId
+      artifact.clientId
     ].some((value) => value !== undefined);
     const provenanceComplete =
-      typeof artifact.authorizationGrantId === "string" &&
-      artifact.authorizationGrantId.length > 0 &&
+      typeof artifact.authorizationId === "string" &&
+      artifact.authorizationId.length > 0 &&
       (artifact.approvalSource === "user_interaction" ||
         artifact.approvalSource === "delegated_policy" ||
         artifact.approvalSource === "preauthorized" ||
@@ -1711,10 +1710,8 @@ export const validateProjectAggregateSnapshot = (
       artifact.policyId !== undefined &&
       artifact.policyDigest !== undefined &&
       artifact.clientId !== undefined &&
-      (artifact.routeledgerRootDigest !== undefined || artifact.sessionId !== undefined) &&
-      (artifact.routeledgerRootDigest === undefined ||
-        (typeof artifact.routeledgerRootDigest === "string" &&
-          artifact.routeledgerRootDigest.length > 0)) &&
+      typeof artifact.routeledgerRootDigest === "string" &&
+      artifact.routeledgerRootDigest.length > 0 &&
       (artifact.approvalSource !== "delegated_policy" ||
         (typeof artifact.policyId === "string" &&
           artifact.policyId.length > 0 &&

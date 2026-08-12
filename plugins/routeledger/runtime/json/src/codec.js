@@ -965,60 +965,146 @@ const decodePendingOperation = (operation) => ({
     rejectionReason: operation.rejection_reason,
     approvalArtifactId: operation.approval_artifact_id
 });
-const encodeApprovalArtifact = (artifact) => ({
-    schema_version: ROUTELEDGER_SCHEMA_VERSION,
-    kind: "approval_artifact",
-    id: artifact.id,
-    project_id: artifact.projectId,
-    pending_operation_id: artifact.pendingOperationId,
-    action_type: artifact.actionType,
-    target_id: artifact.targetId,
-    digest: encodeDigest(artifact.digest),
-    status: artifact.status,
-    approver: encodeActor(artifact.approver),
-    decision_ref: artifact.decisionRef,
-    created_at: artifact.createdAt,
-    expires_at: artifact.expiresAt,
-    consumed_at: artifact.consumedAt,
-    ...(artifact.authorizationGrantId === undefined
-        ? {}
-        : { authorization_grant_id: artifact.authorizationGrantId }),
-    ...(artifact.approvalSource === undefined ? {} : { approval_source: artifact.approvalSource }),
-    ...(artifact.policyId === undefined ? {} : { policy_id: artifact.policyId }),
-    ...(artifact.policyDigest === undefined ? {} : { policy_digest: artifact.policyDigest }),
-    ...(artifact.profileId === undefined ? {} : { profile_id: artifact.profileId }),
-    ...(artifact.modeEpoch === undefined ? {} : { mode_epoch: artifact.modeEpoch }),
-    ...(artifact.profileDigest === undefined ? {} : { profile_digest: artifact.profileDigest }),
-    ...(artifact.hostKind === undefined ? {} : { host_kind: artifact.hostKind }),
-    ...(artifact.clientId === undefined ? {} : { client_id: artifact.clientId }),
-    ...(artifact.sessionId === undefined ? {} : { session_id: artifact.sessionId })
-});
-const decodeApprovalArtifact = (artifact) => ({
-    id: artifact.id,
-    projectId: artifact.project_id,
-    pendingOperationId: artifact.pending_operation_id,
-    actionType: artifact.action_type,
-    targetId: artifact.target_id,
-    digest: decodeDigest(artifact.digest),
-    status: artifact.status,
-    approver: decodeActor(artifact.approver),
-    decisionRef: artifact.decision_ref,
-    createdAt: artifact.created_at,
-    expiresAt: artifact.expires_at,
-    consumedAt: artifact.consumed_at,
-    ...(artifact.authorization_grant_id === undefined
-        ? {}
-        : { authorizationGrantId: artifact.authorization_grant_id }),
-    ...(artifact.approval_source === undefined ? {} : { approvalSource: artifact.approval_source }),
-    ...(artifact.policy_id === undefined ? {} : { policyId: artifact.policy_id }),
-    ...(artifact.policy_digest === undefined ? {} : { policyDigest: artifact.policy_digest }),
-    ...(artifact.profile_id === undefined ? {} : { profileId: artifact.profile_id }),
-    ...(artifact.mode_epoch === undefined ? {} : { modeEpoch: artifact.mode_epoch }),
-    ...(artifact.profile_digest === undefined ? {} : { profileDigest: artifact.profile_digest }),
-    ...(artifact.host_kind === undefined ? {} : { hostKind: artifact.host_kind }),
-    ...(artifact.client_id === undefined ? {} : { clientId: artifact.client_id }),
-    ...(artifact.session_id === undefined ? {} : { sessionId: artifact.session_id })
-});
+const encodeApprovalArtifact = (artifact) => {
+    const profileCount = [artifact.profileId, artifact.modeEpoch, artifact.profileDigest]
+        .filter((value) => value !== undefined).length;
+    if (profileCount !== 0 && profileCount !== 3) {
+        throw new Error("Approval authorization profile provenance must be all present or all absent.");
+    }
+    const authorizationRecord = artifact.authorizationId === undefined
+        ? undefined
+        : artifact.routeledgerRootDigest === undefined
+            ? {
+                kind: "legacy_audit",
+                authorization_grant_id: artifact.authorizationId,
+                ...(artifact.approvalSource === undefined ? {} : { approval_source: artifact.approvalSource }),
+                ...(artifact.policyId === undefined ? {} : { policy_id: artifact.policyId }),
+                ...(artifact.policyDigest === undefined ? {} : { policy_digest: artifact.policyDigest }),
+                ...(artifact.profileId === undefined ? {} : { profile_id: artifact.profileId }),
+                ...(artifact.modeEpoch === undefined ? {} : { mode_epoch: artifact.modeEpoch }),
+                ...(artifact.profileDigest === undefined ? {} : { profile_digest: artifact.profileDigest }),
+                ...(artifact.hostKind === undefined ? {} : { host_kind: artifact.hostKind }),
+                ...(artifact.clientId === undefined ? {} : { client_id: artifact.clientId }),
+            }
+            : {
+                kind: "exact_v2",
+                authorization_id: artifact.authorizationId,
+                binding: {
+                    proposal_id: artifact.pendingOperationId,
+                    project_id: artifact.projectId,
+                    routeledger_root_digest: artifact.routeledgerRootDigest,
+                    action_type: artifact.actionType,
+                    target_id: artifact.targetId,
+                    operation_digest: encodeDigest(artifact.digest)
+                },
+                ...(artifact.approvalSource === undefined ? {} : { approval_source: artifact.approvalSource }),
+                ...(artifact.policyId === undefined ? {} : { policy_id: artifact.policyId }),
+                ...(artifact.policyDigest === undefined ? {} : { policy_digest: artifact.policyDigest }),
+                ...(artifact.profileId === undefined ? {} : { profile_id: artifact.profileId }),
+                ...(artifact.modeEpoch === undefined ? {} : { mode_epoch: artifact.modeEpoch }),
+                ...(artifact.profileDigest === undefined ? {} : { profile_digest: artifact.profileDigest }),
+                ...(artifact.hostKind === undefined ? {} : { host_kind: artifact.hostKind }),
+                ...(artifact.clientId === undefined ? {} : { client_id: artifact.clientId })
+            };
+    return ({
+        schema_version: ROUTELEDGER_SCHEMA_VERSION,
+        kind: "approval_artifact",
+        id: artifact.id,
+        project_id: artifact.projectId,
+        pending_operation_id: artifact.pendingOperationId,
+        action_type: artifact.actionType,
+        target_id: artifact.targetId,
+        digest: encodeDigest(artifact.digest),
+        status: artifact.status,
+        approver: encodeActor(artifact.approver),
+        decision_ref: artifact.decisionRef,
+        created_at: artifact.createdAt,
+        expires_at: artifact.expiresAt,
+        consumed_at: artifact.consumedAt,
+        ...(authorizationRecord === undefined ? {} : { authorization_record: authorizationRecord })
+    });
+};
+const decodeApprovalArtifact = (artifact) => {
+    const record = artifact.authorization_record;
+    if (record?.kind === "exact_v2") {
+        if (record.binding.proposal_id !== artifact.pending_operation_id ||
+            record.binding.project_id !== artifact.project_id ||
+            record.binding.action_type !== artifact.action_type ||
+            record.binding.target_id !== artifact.target_id ||
+            JSON.stringify(record.binding.operation_digest) !== JSON.stringify(artifact.digest)) {
+            throw new Error("Exact approval authorization record binding mismatch.");
+        }
+    }
+    const provenance = record === undefined
+        ? {
+            authorizationId: artifact.authorization_grant_id,
+            approvalSource: artifact.approval_source,
+            policyId: artifact.policy_id,
+            policyDigest: artifact.policy_digest,
+            profileId: artifact.profile_id,
+            modeEpoch: artifact.mode_epoch,
+            profileDigest: artifact.profile_digest,
+            hostKind: artifact.host_kind,
+            clientId: artifact.client_id,
+            routeledgerRootDigest: undefined
+        }
+        : record.kind === "exact_v2"
+            ? {
+                authorizationId: record.authorization_id,
+                approvalSource: record.approval_source,
+                policyId: record.policy_id,
+                policyDigest: record.policy_digest,
+                profileId: record.profile_id,
+                modeEpoch: record.mode_epoch,
+                profileDigest: record.profile_digest,
+                hostKind: record.host_kind,
+                clientId: record.client_id,
+                routeledgerRootDigest: record.binding.routeledger_root_digest
+            }
+            : {
+                authorizationId: record.authorization_grant_id,
+                approvalSource: record.approval_source,
+                policyId: record.policy_id,
+                policyDigest: record.policy_digest,
+                profileId: record.profile_id,
+                modeEpoch: record.mode_epoch,
+                profileDigest: record.profile_digest,
+                hostKind: record.host_kind,
+                clientId: record.client_id,
+                routeledgerRootDigest: undefined
+            };
+    const profileCount = [provenance.profileId, provenance.modeEpoch, provenance.profileDigest]
+        .filter((value) => value !== undefined).length;
+    if (profileCount !== 0 && profileCount !== 3) {
+        throw new Error("Approval authorization profile provenance must be all present or all absent.");
+    }
+    return ({
+        id: artifact.id,
+        projectId: artifact.project_id,
+        pendingOperationId: artifact.pending_operation_id,
+        actionType: artifact.action_type,
+        targetId: artifact.target_id,
+        digest: decodeDigest(artifact.digest),
+        status: artifact.status,
+        approver: decodeActor(artifact.approver),
+        decisionRef: artifact.decision_ref,
+        createdAt: artifact.created_at,
+        expiresAt: artifact.expires_at,
+        consumedAt: artifact.consumed_at,
+        ...(provenance.authorizationId === undefined
+            ? {}
+            : { authorizationId: provenance.authorizationId }),
+        ...(provenance.routeledgerRootDigest === undefined ? {} : { routeledgerRootDigest: provenance.routeledgerRootDigest }),
+        ...(provenance.approvalSource === undefined ? {} : { approvalSource: provenance.approvalSource }),
+        ...(provenance.policyId === undefined ? {} : { policyId: provenance.policyId }),
+        ...(provenance.policyDigest === undefined ? {} : { policyDigest: provenance.policyDigest }),
+        ...(provenance.profileId === undefined ? {} : { profileId: provenance.profileId }),
+        ...(provenance.modeEpoch === undefined ? {} : { modeEpoch: provenance.modeEpoch }),
+        ...(provenance.profileDigest === undefined ? {} : { profileDigest: provenance.profileDigest }),
+        ...(provenance.hostKind === undefined ? {} : { hostKind: provenance.hostKind }),
+        ...(provenance.clientId === undefined ? {} : { clientId: provenance.clientId }),
+    });
+};
 export const encodeProjectAggregateToJsonDocuments = (snapshot) => {
     const documents = [
         buildRouteLedgerSchemaDocument(),

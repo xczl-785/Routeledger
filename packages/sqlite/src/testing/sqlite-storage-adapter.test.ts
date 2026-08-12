@@ -2143,7 +2143,7 @@ describe("sqlite storage adapter", () => {
         createdAt: "2026-06-27T03:01:00.000Z",
         expiresAt: "2026-06-28T03:01:00.000Z",
         consumedAt: null,
-        authorizationGrantId: "grant-shutdown-1",
+        authorizationId: "grant-shutdown-1",
         approvalSource: "user_interaction",
         policyId: null,
         policyDigest: null,
@@ -2152,7 +2152,6 @@ describe("sqlite storage adapter", () => {
         profileDigest: "profile-digest-shutdown-1",
         hostKind: "codex",
         clientId: "codex-client",
-        sessionId: "session-1"
       };
 
       await adapter.saveProjectAggregate({
@@ -2177,14 +2176,13 @@ describe("sqlite storage adapter", () => {
       expect(loaded?.approvalArtifacts[0]).toMatchObject({
         actionType: "shutdown_version",
         pendingOperationId: pendingOperation.id,
-        authorizationGrantId: "grant-shutdown-1",
+        authorizationId: "grant-shutdown-1",
         approvalSource: "user_interaction",
         profileId: "profile-shutdown-1",
         modeEpoch: 3,
         profileDigest: "profile-digest-shutdown-1",
         hostKind: "codex",
         clientId: "codex-client",
-        sessionId: "session-1"
       });
     } finally {
       adapter.close();

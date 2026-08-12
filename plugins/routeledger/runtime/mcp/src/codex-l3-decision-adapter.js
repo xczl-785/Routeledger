@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { assertDecisionResolutionMatchesRequest, validateL3AuthorizationGrant } from "../../core/src/index.js";
+import { assertDecisionResolutionMatchesRequest } from "../../core/src/index.js";
+import { validateExactAuthorizationCandidate } from "./exact-authorization-candidate-validator.js";
 /**
  * Converts admission of a high-risk RouteLedger tool call by Codex into one
  * exact, single-use capability. Codex owns whether the call is prompted,
@@ -18,37 +19,46 @@ export class CodexL3DecisionAdapter {
     }
     async resolve(request) {
         const now = this.now();
-        const grant = {
-            id: this.nextId(),
+        const authorizationId = this.nextId();
+        const decisionRef = `codex-tool-call-${this.nextId()}`;
+        const candidate = {
+            schemaVersion: 2,
+            authorizationId,
+            binding: {
+                proposalId: request.proposalId,
+                projectId: request.projectId,
+                routeledgerRootDigest: this.options.authorizationContext.routeledgerRootDigest,
+                actionType: request.actionType,
+                targetId: request.targetId,
+                operationDigest: request.operationDigest
+            },
             issuer: "codex-native-tool-admission",
             subjectId: this.options.authorizationContext.subjectId,
             audience: this.options.authorizationContext.audience,
-            projectId: request.projectId,
-            routeledgerRootDigest: this.options.authorizationContext.routeledgerRootDigest,
-            allowedActions: [request.actionType],
-            allowedTargetIds: [request.targetId],
-            operationDigest: request.operationDigest,
-            scope: "operation",
             source: "host_admission",
             policyId: null,
             policyDigest: null,
-            decisionId: `codex-tool-call-${this.nextId()}`,
+            decisionRef,
+            profileId: null,
+            modeEpoch: null,
+            profileDigest: null,
             hostKind: "codex",
             clientId: this.options.authorizationContext.clientId ?? null,
-            sessionId: this.options.sessionId,
-            nonce: this.nextId(),
             createdAt: now.toISOString(),
-            expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
-            maxUses: 1,
-            uses: 0,
-            status: "active",
-            revokedAt: null
+            expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
         };
-        const failure = validateL3AuthorizationGrant(grant, this.options.authorizationContext);
-        if (failure !== null) {
-            throw new Error(`Codex host-admission grant is invalid: ${failure}`);
+        const validationFailure = validateExactAuthorizationCandidate({
+            candidate,
+            request,
+            context: this.options.authorizationContext,
+            expectedSource: "host_admission",
+            expectedIssuer: "codex-native-tool-admission",
+            now
+        });
+        if (validationFailure !== null) {
+            throw new Error(`Codex exact host admission is invalid: ${validationFailure}`);
         }
-        await this.options.grantStore.issue(grant);
+        await this.options.exactStore.issue(candidate);
         const resolution = {
             status: "resolved",
             decision: {
@@ -57,9 +67,9 @@ export class CodexL3DecisionAdapter {
                 actionType: request.actionType,
                 targetId: request.targetId,
                 operationDigest: request.operationDigest,
-                source: grant.source,
-                decisionRef: grant.decisionId,
-                authorizationGrantId: grant.id
+                source: candidate.source,
+                decisionRef,
+                authorizationId: authorizationId
             }
         };
         assertDecisionResolutionMatchesRequest(request, resolution);

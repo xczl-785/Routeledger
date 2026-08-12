@@ -366,7 +366,7 @@ const runPluginStdioSmoke = async () => {
     const authorizationStatus = responses[9]?.result?.structuredContent?.data;
     if (
       authorizationStatus?.controlPlane !== "codex_native_tool_admission_v2" ||
-      authorizationStatus?.authorizationBackend !== "exact_grant_receipt" ||
+      authorizationStatus?.authorizationBackend !== "exact_authorization_receipt" ||
       authorizationStatus?.profileCompatible !== null ||
       authorizationStatus?.effectiveMode?.mode !== "preauthorized" ||
       authorizationStatus?.effectiveMode?.codexPermissionProfile !== ":danger-full-access"

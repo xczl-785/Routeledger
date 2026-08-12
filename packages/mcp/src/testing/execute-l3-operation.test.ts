@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  MemoryL3AuthorizationGrantStore
+  MemoryExactAuthorizationStore
 } from "@routeledger/core";
 import type { RouteLedgerMcpDelegatedAuthorizationRequest } from "../index.js";
 
@@ -19,7 +19,7 @@ describe("execute_l3_operation", () => {
     let delegatedCalls = 0;
     const registry = createRegistry(projectRoot, {
       l3Authorization: {
-        grantStore: new MemoryL3AuthorizationGrantStore(),
+        exactStore: new MemoryExactAuthorizationStore(),
         interaction: {
           requestAuthorization: async () => {
             throw new Error("automatic execution must not prompt");
@@ -60,7 +60,6 @@ describe("execute_l3_operation", () => {
                 profileDigest: null,
                 hostKind: "generic",
                 clientId: "automatic-client",
-                sessionId: null,
                 createdAt: now.toISOString(),
                 expiresAt: new Date(now.getTime() + 60_000).toISOString()
               }
@@ -94,7 +93,10 @@ describe("execute_l3_operation", () => {
         data: {
           status: "committed",
           decisionArtifact: {
+            artifactId: expect.any(String),
+            authorizationId: expect.any(String),
             proposalId: expect.any(String),
+            routeledgerRootDigest: expect.any(String),
             source: "delegated_policy",
             operationDigest: expect.any(String)
           },
@@ -214,6 +216,9 @@ describe("execute_l3_operation", () => {
         data: {
           status: "committed",
           decisionArtifact: {
+            artifactId: expect.any(String),
+            authorizationId: expect.any(String),
+            routeledgerRootDigest: expect.any(String),
             source: "host_admission",
             operationDigest: expect.any(String)
           }
@@ -224,7 +229,7 @@ describe("execute_l3_operation", () => {
         ok: true,
         data: {
           controlPlane: "codex_native_tool_admission_v2",
-          authorizationBackend: "exact_grant_receipt",
+          authorizationBackend: "exact_authorization_receipt",
           profileCompatible: null,
           effectiveMode: {
             status: "host_managed",
@@ -323,7 +328,7 @@ describe("execute_l3_operation", () => {
         ok: true,
         data: {
           controlPlane: "codex_native_tool_admission_v2",
-          authorizationBackend: "exact_grant_receipt",
+          authorizationBackend: "exact_authorization_receipt",
           profile: null,
           profileCompatible: null,
           effectiveMode: {

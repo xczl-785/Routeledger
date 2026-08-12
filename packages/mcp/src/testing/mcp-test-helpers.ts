@@ -30,7 +30,6 @@ import {
   resolveWorkspaceConfigSync
 } from "../workspace-config.js";
 import {
-  MemoryL3AuthorizationGrantStore,
   MemoryExactAuthorizationStore,
   RouteLedgerService
 } from "../../../core/src/index.js";
@@ -58,16 +57,7 @@ export type ToolListResult = {
   };
 };
 
-const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
 const trustedExactStores = new Map<string, MemoryExactAuthorizationStore>();
-
-const getTrustedGrantStore = (projectRoot: string): MemoryL3AuthorizationGrantStore => {
-  const existing = trustedGrantStores.get(projectRoot);
-  if (existing !== undefined) return existing;
-  const created = new MemoryL3AuthorizationGrantStore();
-  trustedGrantStores.set(projectRoot, created);
-  return created;
-};
 
 const getTrustedExactStore = (projectRoot: string): MemoryExactAuthorizationStore => {
   const existing = trustedExactStores.get(projectRoot);
@@ -153,14 +143,13 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
     ...options,
     l3Authorization:
       options.l3Authorization ?? {
-        grantStore: new MemoryL3AuthorizationGrantStore(),
+        exactStore: new MemoryExactAuthorizationStore(),
         interaction: {
           requestAuthorization: async () => ({
             action: "accept" as const,
             content: { approve: true }
           })
         },
-        sessionId: "vitest-session",
         trustedClientId: "vitest"
       }
   });
@@ -216,7 +205,6 @@ export const createRegistry = (
     workspaceRoot: projectRoot,
     routeledgerRoot: projectRoot,
     l3Authorization: {
-      grantStore: getTrustedGrantStore(projectRoot),
       exactStore: getTrustedExactStore(projectRoot),
       interaction: {
         requestAuthorization: async () => ({
@@ -224,7 +212,6 @@ export const createRegistry = (
           content: { approve: true }
         })
       },
-      sessionId: "vitest-session",
       trustedClientId: "vitest"
     },
     ...extraOptions
@@ -265,14 +252,14 @@ export const createServer = (
       workspaceRoot: projectRoot,
       routeledgerRoot: projectRoot,
       l3Authorization: {
-        grantStore: new MemoryL3AuthorizationGrantStore(),
+
         interaction: {
           requestAuthorization: async () => ({
             action: "accept" as const,
             content: { approve: true }
           })
         },
-        sessionId: "vitest-session",
+
         trustedClientId: "vitest"
       },
       ...extraOptions
@@ -304,7 +291,7 @@ export const createCapturedServer = (
 };
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
-  trustedGrantStores.delete(projectRoot);
+
   trustedExactStores.delete(projectRoot);
   fs.rmSync(projectRoot, {
     recursive: true,

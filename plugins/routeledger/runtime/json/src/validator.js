@@ -1,7 +1,7 @@
 import path from "node:path";
 import { canonicalizeLocale, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, validateWorkItemActive } from "../../core/src/index.js";
 import { decodeProjectAggregateFromJsonDocumentsForValidation } from "./codec.js";
-import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, SCHEMA_DOCUMENT_PATH } from "./constants.js";
+import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, ROUTELEDGER_READABLE_SCHEMA_VERSIONS, SCHEMA_DOCUMENT_PATH } from "./constants.js";
 const KNOWN_DOCUMENT_PREFIXES = [
     `${ROUTELEDGER_JSON_ROOT}/versions/`,
     `${ROUTELEDGER_JSON_ROOT}/work_items/`,
@@ -465,8 +465,9 @@ const validateDocumentContract = (issues, documentPath, record) => {
             }
         }));
     }
-    if (contract.requireSchemaVersion && record.schema_version !== ROUTELEDGER_SCHEMA_VERSION) {
-        issues.push(createIssue("error", "JSON_DOCUMENT_SCHEMA_VERSION_INVALID", `JSON 文档 schema_version 必须等于 ${ROUTELEDGER_SCHEMA_VERSION}`, {
+    if (contract.requireSchemaVersion &&
+        !ROUTELEDGER_READABLE_SCHEMA_VERSIONS.includes(record.schema_version)) {
+        issues.push(createIssue("error", "JSON_DOCUMENT_SCHEMA_VERSION_INVALID", `JSON 文档 schema_version 必须是可读取版本 ${ROUTELEDGER_READABLE_SCHEMA_VERSIONS.join(", ")}`, {
             path: documentPath,
             details: {
                 expectedSchemaVersion: ROUTELEDGER_SCHEMA_VERSION,
@@ -973,16 +974,15 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
     for (const artifact of snapshot.approvalArtifacts) {
         const operation = pendingOperationsById.get(artifact.pendingOperationId);
         const provenancePresent = [
-            artifact.authorizationGrantId,
+            artifact.authorizationId,
             artifact.approvalSource,
             artifact.policyId,
             artifact.policyDigest,
             artifact.hostKind,
-            artifact.clientId,
-            artifact.sessionId
+            artifact.clientId
         ].some((value) => value !== undefined);
-        const provenanceComplete = typeof artifact.authorizationGrantId === "string" &&
-            artifact.authorizationGrantId.length > 0 &&
+        const provenanceComplete = typeof artifact.authorizationId === "string" &&
+            artifact.authorizationId.length > 0 &&
             (artifact.approvalSource === "user_interaction" ||
                 artifact.approvalSource === "delegated_policy" ||
                 artifact.approvalSource === "preauthorized" ||
@@ -992,7 +992,8 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
             artifact.policyId !== undefined &&
             artifact.policyDigest !== undefined &&
             artifact.clientId !== undefined &&
-            artifact.sessionId !== undefined &&
+            typeof artifact.routeledgerRootDigest === "string" &&
+            artifact.routeledgerRootDigest.length > 0 &&
             (artifact.approvalSource !== "delegated_policy" ||
                 (typeof artifact.policyId === "string" &&
                     artifact.policyId.length > 0 &&

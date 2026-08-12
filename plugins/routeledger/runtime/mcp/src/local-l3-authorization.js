@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { digestL3AuthorizationPolicy, evaluateL3AuthorizationPolicy, validateL3AuthorizationProfile, validateL3AuthorizationGrant, validateL3AuthorizationPolicy } from "../../core/src/index.js";
+import { digestL3AuthorizationPolicy, evaluateL3AuthorizationPolicy, MemoryExactAuthorizationStore, validateL3AuthorizationProfile, validateL3AuthorizationPolicy } from "../../core/src/index.js";
+import { LEGACY_AUTHORITY_CONFIG_TTL_FIELD, LEGACY_GRANT_FIELDS } from "./legacy-local-l3-authority-decoder.js";
 export const LOCAL_L3_AUTHORITY_SCHEMA_VERSION = 1;
-export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 1;
+export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 2;
 const LOCK_STALE_AFTER_MS = 30_000;
 const LOCK_WAIT_TIMEOUT_MS = 5_000;
 const LOCK_RETRY_MS = 20;
@@ -16,7 +17,9 @@ const emptyState = () => ({
     policyUsages: {},
     reservedGrants: {},
     grants: {},
-    receipts: {}
+    receipts: {},
+    legacyTombstones: {},
+    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
 });
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
@@ -89,10 +92,11 @@ const validateConfig = (value, hostKind, subjectId) => {
     if (!isNonEmptyString(value.statePath) || !path.isAbsolute(value.statePath)) {
         throw new Error("statePath must be an absolute path.");
     }
-    if (!Number.isInteger(value.grantTtlSeconds) ||
-        value.grantTtlSeconds < 30 ||
-        value.grantTtlSeconds > 86_400) {
-        throw new Error("grantTtlSeconds must be an integer from 30 through 86400.");
+    const authorizationTtlSeconds = value.authorizationTtlSeconds ?? value[LEGACY_AUTHORITY_CONFIG_TTL_FIELD];
+    if (!Number.isInteger(authorizationTtlSeconds) ||
+        authorizationTtlSeconds < 30 ||
+        authorizationTtlSeconds > 86_400) {
+        throw new Error("authorizationTtlSeconds must be an integer from 30 through 86400.");
     }
     if (value.trustedClientId !== undefined && !isNonEmptyString(value.trustedClientId)) {
         throw new Error("trustedClientId must be a non-empty string when provided.");
@@ -117,11 +121,65 @@ const validateConfig = (value, hostKind, subjectId) => {
         throw new Error("The policy client binding must exactly match trustedClientId.");
     }
     for (const rule of policy.rules.filter((candidate) => candidate.effect === "allow")) {
-        if (rule.conditions?.maxUses === undefined || rule.conditions.expiresAt === undefined) {
-            throw new Error(`Delegated allow rule ${rule.id} requires maxUses and expiresAt.`);
+        if (rule.conditions?.decisionBudget === undefined || rule.conditions.expiresAt === undefined) {
+            throw new Error(`Delegated allow rule ${rule.id} requires decisionBudget and expiresAt.`);
         }
     }
-    return value;
+    return {
+        schemaVersion: LOCAL_L3_AUTHORITY_SCHEMA_VERSION,
+        authorityId: value.authorityId,
+        statePath: value.statePath,
+        policy,
+        authorizationTtlSeconds: authorizationTtlSeconds,
+        ...(value.trustedClientId === undefined
+            ? {}
+            : { trustedClientId: value.trustedClientId })
+    };
+};
+const migrateLegacyState = (value) => {
+    if (value.schemaVersion !== 1 ||
+        !Number.isInteger(value.revision) ||
+        !isObject(value.activePolicies) ||
+        !isObject(value.policyUsages) ||
+        !isObject(value.reservedGrants) ||
+        !isObject(value.grants) ||
+        !isObject(value.receipts)) {
+        throw new Error("Local L3 authority state is invalid and cannot be trusted.");
+    }
+    const legacy = parseState({
+        ...value,
+        schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
+        legacyTombstones: {},
+        exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+    });
+    const migratedAt = new Date().toISOString();
+    const tombstones = {};
+    const revokedGrants = Object.fromEntries(Object.entries(legacy.grants).map(([id, grant]) => {
+        tombstones[`grant:${id}`] = {
+            recordKind: "grant",
+            reason: "legacy_reauthorization_required",
+            migratedAt
+        };
+        return [id, { ...grant, status: "revoked", revokedAt: migratedAt }];
+    }));
+    for (const id of Object.keys(legacy.reservedGrants)) {
+        tombstones[`reserved_grant:${id}`] = {
+            recordKind: "reserved_grant",
+            reason: "legacy_reauthorization_required",
+            migratedAt
+        };
+    }
+    return {
+        schemaVersion: 2,
+        revision: legacy.revision + 1,
+        activePolicies: legacy.activePolicies,
+        policyUsages: legacy.policyUsages,
+        reservedGrants: {},
+        grants: revokedGrants,
+        receipts: legacy.receipts,
+        legacyTombstones: tombstones,
+        exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+    };
 };
 const parseState = (value) => {
     if (!isObject(value) ||
@@ -131,7 +189,8 @@ const parseState = (value) => {
         !isObject(value.policyUsages) ||
         !isObject(value.reservedGrants) ||
         !isObject(value.grants) ||
-        !isObject(value.receipts)) {
+        !isObject(value.receipts)
+        || !isObject(value.legacyTombstones) || !isObject(value.exactStore)) {
         throw new Error("Local L3 authority state is invalid and cannot be trusted.");
     }
     for (const [authorityId, active] of Object.entries(value.activePolicies)) {
@@ -148,11 +207,11 @@ const parseState = (value) => {
             !isObject(usage) ||
             !isNonEmptyString(usage.policyDigest) ||
             !isNonEmptyString(usage.ruleId) ||
-            !Number.isInteger(usage.uses) ||
-            usage.uses < 0 ||
-            !Number.isInteger(usage.maxUses) ||
-            usage.maxUses <= 0 ||
-            usage.uses > usage.maxUses ||
+            !Number.isInteger(usage.decisions) ||
+            usage.decisions < 0 ||
+            !Number.isInteger(usage.decisionBudget) ||
+            usage.decisionBudget <= 0 ||
+            usage.decisions > usage.decisionBudget ||
             !isNonEmptyString(usage.updatedAt) ||
             Number.isNaN(Date.parse(usage.updatedAt))) {
             throw new Error("Local L3 authority policy-usage state is invalid and cannot be trusted.");
@@ -166,15 +225,16 @@ const parseState = (value) => {
             !isNonEmptyString(grant.audience) ||
             !isNonEmptyString(grant.projectId) ||
             !isNonEmptyString(grant.routeledgerRootDigest) ||
-            !Array.isArray(grant.allowedActions) ||
-            grant.allowedActions.length === 0 ||
-            !Array.isArray(grant.allowedTargetIds) ||
-            grant.allowedTargetIds.length === 0 ||
-            !Number.isInteger(grant.maxUses) ||
-            grant.maxUses <= 0 ||
-            !Number.isInteger(grant.uses) ||
-            grant.uses < 0 ||
-            grant.uses > grant.maxUses ||
+            !Array.isArray(grant[LEGACY_GRANT_FIELDS.actions]) ||
+            grant[LEGACY_GRANT_FIELDS.actions].length === 0 ||
+            !Array.isArray(grant[LEGACY_GRANT_FIELDS.targets]) ||
+            grant[LEGACY_GRANT_FIELDS.targets].length === 0 ||
+            !Number.isInteger(grant[LEGACY_GRANT_FIELDS.limit]) ||
+            grant[LEGACY_GRANT_FIELDS.limit] <= 0 ||
+            !Number.isInteger(grant[LEGACY_GRANT_FIELDS.count]) ||
+            grant[LEGACY_GRANT_FIELDS.count] < 0 ||
+            grant[LEGACY_GRANT_FIELDS.count] >
+                grant[LEGACY_GRANT_FIELDS.limit] ||
             (grant.status !== "active" && grant.status !== "revoked" && grant.status !== "exhausted") ||
             !isNonEmptyString(grant.createdAt) ||
             !isNonEmptyString(grant.expiresAt) ||
@@ -183,17 +243,17 @@ const parseState = (value) => {
             throw new Error("Local L3 authority grant state is invalid and cannot be trusted.");
         }
     };
-    for (const [grantId, grant] of Object.entries(value.reservedGrants)) {
-        validateStoredGrant(grantId, grant);
+    for (const [authorizationId, grant] of Object.entries(value.reservedGrants)) {
+        validateStoredGrant(authorizationId, grant);
     }
-    for (const [grantId, grant] of Object.entries(value.grants)) {
-        validateStoredGrant(grantId, grant);
+    for (const [authorizationId, grant] of Object.entries(value.grants)) {
+        validateStoredGrant(authorizationId, grant);
     }
     for (const [artifactId, receipt] of Object.entries(value.receipts)) {
         if (!isObject(receipt) ||
             receipt.approvalArtifactId !== artifactId ||
             !isNonEmptyString(receipt.pendingOperationId) ||
-            !isNonEmptyString(receipt.grantId) ||
+            !isNonEmptyString(receipt.authorizationId) ||
             !isNonEmptyString(receipt.operationDigest) ||
             !Number.isInteger(receipt.consumedUse) ||
             receipt.consumedUse <= 0 ||
@@ -209,6 +269,22 @@ const parseState = (value) => {
             (receipt.status === "revoked" && !isNonEmptyString(receipt.revokedAt))) {
             throw new Error("Local L3 authority receipt state is invalid and cannot be trusted.");
         }
+    }
+    for (const [recordId, tombstone] of Object.entries(value.legacyTombstones)) {
+        if (!isNonEmptyString(recordId) ||
+            !isObject(tombstone) ||
+            (tombstone.recordKind !== "grant" && tombstone.recordKind !== "reserved_grant") ||
+            tombstone.reason !== "legacy_reauthorization_required" ||
+            !isNonEmptyString(tombstone.migratedAt) ||
+            Number.isNaN(Date.parse(tombstone.migratedAt))) {
+            throw new Error("Local L3 authority legacy tombstone is invalid and cannot be trusted.");
+        }
+    }
+    try {
+        new MemoryExactAuthorizationStore(value.exactStore);
+    }
+    catch {
+        throw new Error("Local exact authorization state is invalid and cannot be trusted.");
     }
     return value;
 };
@@ -233,38 +309,84 @@ class LocalL3AuthorityStateFile {
                 throw error;
             await this.writeAtomic(emptyState());
         }
-        await this.read();
+        const lock = await this.acquireLock();
+        try {
+            await assertPrivateExistingFile(this.statePath, "Local L3 authority state");
+            const raw = JSON.parse(await fs.readFile(this.statePath, "utf8"));
+            if (isObject(raw) && raw.schemaVersion === 1) {
+                const migrated = migrateLegacyState(raw);
+                await lock.assertOwned();
+                await this.writeAtomic(migrated);
+            }
+            else {
+                parseState(raw);
+            }
+        }
+        finally {
+            await lock.release();
+        }
     }
     async read() {
         await assertPrivateExistingFile(this.statePath, "Local L3 authority state");
         return parseState(JSON.parse(await fs.readFile(this.statePath, "utf8")));
     }
-    async activatePolicy(authorityId, policyDigest, activatedAt) {
+    async activatePolicy(authorityId, activationDigest, exactPolicy, activatedAt) {
         await this.transact((state) => {
-            const previous = state.activePolicies[authorityId];
-            if (previous?.policyDigest === policyDigest)
-                return;
-            for (const [grantId, grant] of Object.entries(state.reservedGrants)) {
+            const exactStore = new MemoryExactAuthorizationStore(state.exactStore);
+            const exactState = exactStore.exportState();
+            const isStaleProvenance = (value) => value.issuer === exactPolicy.issuerId &&
+                (value.policyId !== exactPolicy.policyId ||
+                    value.policyDigest !== exactPolicy.policyDigest ||
+                    value.profileId !== exactPolicy.profileId ||
+                    value.modeEpoch !== exactPolicy.modeEpoch ||
+                    value.profileDigest !== exactPolicy.profileDigest);
+            for (const receipt of Object.values(exactState.receipts)) {
+                if (isStaleProvenance(receipt) && receipt.status === "commit_claimed") {
+                    throw new Error("Cannot rotate the active exact policy while its prior authorization commit is claimed.");
+                }
+            }
+            for (const stored of Object.values(exactState.authorizations)) {
+                if (stored.status === "active" && isStaleProvenance(stored.candidate)) {
+                    stored.status = "revoked";
+                    stored.revokedAt = activatedAt;
+                }
+            }
+            for (const [artifactId, receipt] of Object.entries(exactState.receipts)) {
+                if (receipt.status === "authorized" && isStaleProvenance(receipt)) {
+                    exactState.receipts[artifactId] = {
+                        ...receipt,
+                        status: "revoked",
+                        revokedAt: activatedAt
+                    };
+                }
+            }
+            state.exactStore = exactState;
+            for (const [authorizationId, grant] of Object.entries(state.reservedGrants)) {
                 const grantAuthorizationDigest = grant.profileId === undefined
                     ? grant.policyDigest
                     : grant.profileDigest;
-                if (grant.issuer === authorityId && grantAuthorizationDigest !== policyDigest) {
-                    delete state.reservedGrants[grantId];
+                if (grant.issuer === authorityId && grantAuthorizationDigest !== activationDigest) {
+                    delete state.reservedGrants[authorizationId];
                 }
             }
-            for (const [grantId, grant] of Object.entries(state.grants)) {
+            for (const [authorizationId, grant] of Object.entries(state.grants)) {
                 if (grant.issuer === authorityId &&
                     (grant.profileId !== undefined || grant.source === "delegated_policy") &&
-                    (grant.profileId === undefined ? grant.policyDigest : grant.profileDigest) !== policyDigest &&
+                    (grant.profileId === undefined ? grant.policyDigest : grant.profileDigest) !== activationDigest &&
                     grant.status === "active") {
-                    state.grants[grantId] = {
+                    state.grants[authorizationId] = {
                         ...grant,
                         status: "revoked",
                         revokedAt: activatedAt
                     };
                 }
             }
-            state.activePolicies[authorityId] = { policyDigest, updatedAt: activatedAt };
+            if (state.activePolicies[authorityId]?.policyDigest !== activationDigest) {
+                state.activePolicies[authorityId] = {
+                    policyDigest: activationDigest,
+                    updatedAt: activatedAt
+                };
+            }
         });
     }
     async transact(mutate) {
@@ -272,6 +394,7 @@ class LocalL3AuthorityStateFile {
         try {
             const state = await this.read();
             const expectedRevision = state.revision;
+            const before = structuredClone(state);
             await this.testHooks?.afterStateRead?.();
             const result = await mutate(state);
             await lock.assertOwned();
@@ -279,7 +402,10 @@ class LocalL3AuthorityStateFile {
             if (current.revision !== expectedRevision) {
                 throw new Error("Local L3 authority state revision changed during a locked transaction.");
             }
+            if (isDeepStrictEqual(state, before))
+                return result;
             state.revision = expectedRevision + 1;
+            await this.testHooks?.beforeStateWrite?.();
             await lock.assertOwned();
             await this.writeAtomic(state);
             return result;
@@ -480,261 +606,63 @@ class LocalL3AuthorityStateFile {
         }
     }
 }
-class PersistentLocalL3AuthorizationGrantStore {
+class PersistentLocalExactAuthorizationStore {
     stateFile;
     constructor(stateFile) {
         this.stateFile = stateFile;
     }
-    async issue(grant) {
-        await this.stateFile.transact((state) => {
-            const existing = state.grants[grant.id];
-            if (existing !== undefined) {
-                if (isDeepStrictEqual(existing, grant))
-                    return;
-                throw new Error(`L3 authorization grant already exists: ${grant.id}`);
-            }
-            const reserved = state.reservedGrants[grant.id];
-            if (reserved !== undefined && !isDeepStrictEqual(reserved, grant)) {
-                throw new Error(`Reserved L3 authorization grant mismatch: ${grant.id}`);
-            }
-            delete state.reservedGrants[grant.id];
-            state.grants[grant.id] = structuredClone(grant);
+    async run(operation) {
+        return this.stateFile.transact(async (state) => {
+            const store = new MemoryExactAuthorizationStore(state.exactStore);
+            const result = await operation(store);
+            state.exactStore = store.exportState();
+            return result;
         });
     }
-    async get(grantId) {
-        const grant = (await this.stateFile.read()).grants[grantId];
-        return grant === undefined ? null : structuredClone(grant);
+    issue(candidate) {
+        return this.run((store) => store.issue(candidate));
     }
-    async findMatching(context) {
-        const matches = Object.values((await this.stateFile.read()).grants)
-            .filter((grant) => validateL3AuthorizationGrant(grant, context) === null)
-            .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-        return matches[0] === undefined ? null : structuredClone(matches[0]);
+    get(authorizationId) {
+        return this.run((store) => store.get(authorizationId));
     }
-    async consume(grantId, context) {
-        return this.stateFile.transact((state) => {
-            const grant = state.grants[grantId];
-            if (grant === undefined)
-                return { ok: false, code: "GRANT_NOT_FOUND" };
-            const failure = validateL3AuthorizationGrant(grant, context);
-            if (failure !== null)
-                return { ok: false, code: failure };
-            const consumedUse = grant.uses + 1;
-            const updated = {
-                ...grant,
-                uses: consumedUse,
-                status: consumedUse >= grant.maxUses ? "exhausted" : "active"
-            };
-            state.grants[grantId] = updated;
-            return { ok: true, grant: structuredClone(updated), consumedUse };
-        });
+    getReceipt(authorizationId) {
+        return this.run((store) => store.getReceipt(authorizationId));
     }
-    async consumeAndRecordReceipt(grantId, context, pendingOperationId, createReceipt) {
-        return this.stateFile.transact((state) => {
-            const replayReceipt = Object.values(state.receipts).find((receipt) => receipt.grantId === grantId &&
-                receipt.pendingOperationId === pendingOperationId &&
-                receipt.audience === context.audience &&
-                receipt.subjectId === context.subjectId &&
-                receipt.projectId === context.projectId &&
-                receipt.routeledgerRootDigest === context.routeledgerRootDigest &&
-                receipt.profileId === context.profileId &&
-                receipt.modeEpoch === context.modeEpoch &&
-                receipt.profileDigest === context.profileDigest &&
-                receipt.actionType === context.actionType &&
-                receipt.targetId === context.targetId &&
-                receipt.operationDigest === context.operationDigest &&
-                receipt.hostKind === context.hostKind &&
-                (receipt.clientId == null || receipt.clientId === context.clientId) &&
-                (receipt.sessionId == null || receipt.sessionId === context.sessionId));
-            const grant = state.grants[grantId];
-            if (grant === undefined)
-                return { ok: false, code: "GRANT_NOT_FOUND" };
-            if (replayReceipt !== undefined) {
-                return {
-                    ok: true,
-                    grant: structuredClone(grant),
-                    consumedUse: replayReceipt.consumedUse,
-                    receipt: structuredClone(replayReceipt)
-                };
-            }
-            const failure = validateL3AuthorizationGrant(grant, context);
-            if (failure !== null)
-                return { ok: false, code: failure };
-            const consumedUse = grant.uses + 1;
-            const updated = {
-                ...grant,
-                uses: consumedUse,
-                status: consumedUse >= grant.maxUses ? "exhausted" : "active"
-            };
-            const consumption = {
-                ok: true,
-                grant: structuredClone(updated),
-                consumedUse
-            };
-            const receipt = createReceipt(consumption);
-            if (receipt.grantId !== grantId ||
-                receipt.pendingOperationId !== pendingOperationId ||
-                receipt.audience !== context.audience ||
-                receipt.subjectId !== context.subjectId ||
-                receipt.projectId !== context.projectId ||
-                receipt.routeledgerRootDigest !== context.routeledgerRootDigest ||
-                receipt.profileId !== context.profileId ||
-                receipt.modeEpoch !== context.modeEpoch ||
-                receipt.profileDigest !== context.profileDigest ||
-                receipt.actionType !== context.actionType ||
-                receipt.targetId !== context.targetId ||
-                receipt.operationDigest !== context.operationDigest ||
-                receipt.hostKind !== context.hostKind ||
-                (receipt.clientId != null && receipt.clientId !== context.clientId) ||
-                (receipt.sessionId != null && receipt.sessionId !== context.sessionId) ||
-                receipt.consumedUse !== consumedUse ||
-                receipt.approvalArtifactId.trim().length === 0 ||
-                receipt.pendingOperationId.trim().length === 0) {
-                throw new Error("L3 authorization consumption receipt does not match the consumed grant.");
-            }
-            if (state.receipts[receipt.approvalArtifactId] !== undefined) {
-                throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
-            }
-            state.grants[grantId] = updated;
-            state.receipts[receipt.approvalArtifactId] = structuredClone(receipt);
-            return { ...consumption, receipt: structuredClone(receipt) };
-        });
+    acquireCommitOwnership(authorizationId, ownerId) {
+        return this.run((store) => store.acquireCommitOwnership(authorizationId, ownerId));
     }
-    async findConsumedAuthorization(context, pendingOperationId) {
-        const state = await this.stateFile.read();
-        const receipt = Object.values(state.receipts).find((candidate) => candidate.status !== "revoked" &&
-            candidate.pendingOperationId === pendingOperationId &&
-            candidate.audience === context.audience &&
-            candidate.subjectId === context.subjectId &&
-            candidate.projectId === context.projectId &&
-            candidate.routeledgerRootDigest === context.routeledgerRootDigest &&
-            candidate.profileId === context.profileId &&
-            candidate.modeEpoch === context.modeEpoch &&
-            candidate.profileDigest === context.profileDigest &&
-            candidate.actionType === context.actionType &&
-            candidate.targetId === context.targetId &&
-            candidate.operationDigest === context.operationDigest &&
-            candidate.hostKind === context.hostKind &&
-            (candidate.clientId == null || candidate.clientId === context.clientId) &&
-            (candidate.sessionId == null || candidate.sessionId === context.sessionId));
-        if (receipt === undefined)
-            return null;
-        const grant = state.grants[receipt.grantId];
-        if (grant === undefined)
-            return null;
-        return {
-            grant: structuredClone(grant),
-            receipt: structuredClone(receipt)
-        };
+    releaseCommitOwnership(authorizationId, ownerId) {
+        return this.run((store) => store.releaseCommitOwnership(authorizationId, ownerId));
     }
-    async recordConsumptionReceipt(receipt) {
-        await this.stateFile.transact((state) => {
-            const existing = state.receipts[receipt.approvalArtifactId];
-            if (existing !== undefined) {
-                if (isDeepStrictEqual(existing, receipt))
-                    return;
-                throw new Error(`L3 authorization consumption receipt already exists: ${receipt.approvalArtifactId}`);
-            }
-            state.receipts[receipt.approvalArtifactId] = structuredClone(receipt);
-        });
+    consumeAndRecordReceipt(input) {
+        return this.run((store) => store.consumeAndRecordReceipt(input));
     }
-    async verifyConsumptionReceipt(binding) {
-        const receipt = (await this.stateFile.read()).receipts[binding.approvalArtifactId];
-        return (receipt !== undefined &&
-            receipt.consumedUse > 0 &&
-            Object.entries(binding).every(([key, value]) => receipt[key] === value));
+    verifyReceipt(binding) {
+        return this.run((store) => store.verifyReceipt(binding));
     }
-    async claimCommit(binding, claim) {
-        return this.stateFile.transact((state) => {
-            const receipt = state.receipts[binding.approvalArtifactId];
-            if (receipt === undefined)
-                return { ok: false, code: "RECEIPT_NOT_FOUND" };
-            if (!this.receiptMatchesBinding(receipt, binding)) {
-                return { ok: false, code: "RECEIPT_BINDING_MISMATCH" };
-            }
-            if (receipt.status === "revoked") {
-                return { ok: false, code: "RECEIPT_REVOKED" };
-            }
-            if (receipt.status === "commit_claimed" || receipt.status === "committed") {
-                if (receipt.commitClaimId !== claim.claimId) {
-                    return { ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" };
-                }
-                return { ok: true, receipt: structuredClone(receipt), replayed: true };
-            }
-            const claimed = {
-                ...receipt,
-                status: "commit_claimed",
-                commitClaimId: claim.claimId,
-                commitClaimedAt: claim.claimedAt,
-                committedAt: null,
-                revokedAt: null
-            };
-            state.receipts[receipt.approvalArtifactId] = claimed;
-            return { ok: true, receipt: structuredClone(claimed), replayed: false };
-        });
+    claimCommit(binding, claim) {
+        return this.run((store) => store.claimCommit(binding, claim));
     }
-    async finalizeCommit(binding, claimId, committedAt) {
-        return this.stateFile.transact((state) => {
-            const receipt = state.receipts[binding.approvalArtifactId];
-            if (receipt === undefined)
-                return { ok: false, code: "RECEIPT_NOT_FOUND" };
-            if (!this.receiptMatchesBinding(receipt, binding)) {
-                return { ok: false, code: "RECEIPT_BINDING_MISMATCH" };
-            }
-            if (receipt.status === "revoked") {
-                return { ok: false, code: "RECEIPT_REVOKED" };
-            }
-            if (receipt.commitClaimId !== claimId || receipt.status === "authorized") {
-                return { ok: false, code: "RECEIPT_CLAIMED_BY_OTHER" };
-            }
-            if (receipt.status === "committed") {
-                return { ok: true, receipt: structuredClone(receipt), replayed: true };
-            }
-            const committed = {
-                ...receipt,
-                status: "committed",
-                committedAt
-            };
-            state.receipts[receipt.approvalArtifactId] = committed;
-            return { ok: true, receipt: structuredClone(committed), replayed: false };
-        });
+    finalizeCommit(binding, claimId, committedAt) {
+        return this.run((store) => store.finalizeCommit(binding, claimId, committedAt));
     }
-    async revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt) {
-        return this.stateFile.transact((state) => {
-            let revoked = 0;
-            for (const [approvalArtifactId, receipt] of Object.entries(state.receipts)) {
-                if (receipt.profileId === profileId &&
-                    receipt.modeEpoch !== undefined &&
-                    receipt.modeEpoch < beforeModeEpoch &&
-                    (receipt.status === undefined || receipt.status === "authorized")) {
-                    state.receipts[approvalArtifactId] = { ...receipt, status: "revoked", revokedAt };
-                    revoked += 1;
-                }
-            }
-            return revoked;
-        });
+    revoke(authorizationId, revokedAt) {
+        return this.run((store) => store.revoke(authorizationId, revokedAt));
     }
-    receiptMatchesBinding(receipt, binding) {
-        return Object.entries(binding).every(([key, value]) => receipt[key] === value);
-    }
-    async revoke(grantId, revokedAt) {
-        return this.stateFile.transact((state) => {
-            const grant = state.grants[grantId];
-            if (grant === undefined)
-                return null;
-            const updated = { ...grant, status: "revoked", revokedAt };
-            state.grants[grantId] = updated;
-            for (const [approvalArtifactId, receipt] of Object.entries(state.receipts)) {
-                if (receipt.grantId === grantId &&
-                    (receipt.status === undefined || receipt.status === "authorized")) {
-                    state.receipts[approvalArtifactId] = { ...receipt, status: "revoked", revokedAt };
-                }
-            }
-            return structuredClone(updated);
-        });
+    revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt) {
+        return this.run((store) => store.revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt));
     }
 }
 const minimumIsoTimestamp = (...timestamps) => timestamps.reduce((minimum, candidate) => Date.parse(candidate) < Date.parse(minimum) ? candidate : minimum);
+const assertExactProposalContext = (proposal, context) => {
+    if (proposal.id.trim().length === 0 ||
+        proposal.projectId !== context.projectId ||
+        proposal.actionType !== context.actionType ||
+        proposal.targetId !== context.targetId ||
+        proposal.digest.value !== context.operationDigest) {
+        throw new Error("The delegated authority request does not match the exact proposal.");
+    }
+};
 export const installLocalL3AuthorityConfig = async (input) => {
     if (input.config.policy.binding.hostKind === undefined ||
         input.config.policy.binding.subjectId === undefined) {
@@ -763,16 +691,27 @@ export const loadLocalL3AuthorityRuntime = async (input) => {
     const statePath = await assertTrustedPath(config.statePath, input.workspaceRoot, input.routeledgerRoot, "Local L3 authority state");
     const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
     await stateFile.initialize();
-    const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
+    const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
     const policyDigest = digestL3AuthorizationPolicy(config.policy);
-    await stateFile.activatePolicy(config.authorityId, policyDigest, new Date().toISOString());
+    await stateFile.activatePolicy(config.authorityId, policyDigest, {
+        issuerId: config.authorityId,
+        policyId: config.policy.policyId,
+        policyDigest,
+        profileId: null,
+        modeEpoch: null,
+        profileDigest: null
+    }, new Date().toISOString());
     const authorityHandle = `local:${config.authorityId}:${policyDigest}`;
     const authority = {
         authorityHandle,
-        requestGrant: async (request) => {
+        issuerId: config.authorityId,
+        policyId: config.policy.policyId,
+        policyDigest,
+        requestExactDecision: async (request) => {
             if (request.authorityHandle !== authorityHandle) {
                 throw new Error("Local L3 authority handle mismatch.");
             }
+            assertExactProposalContext(request.proposal, request.context);
             const decision = evaluateL3AuthorizationPolicy(config.policy, request.context);
             if (decision.effect !== "allow" || decision.matchedRuleId === null) {
                 const effect = decision.effect === "prompt" ? "prompt" : "deny";
@@ -785,72 +724,57 @@ export const loadLocalL3AuthorityRuntime = async (input) => {
                 };
             }
             const rule = config.policy.rules.find((candidate) => candidate.id === decision.matchedRuleId);
-            if (rule?.conditions?.maxUses === undefined || rule.conditions.expiresAt === undefined) {
+            if (rule?.conditions?.decisionBudget === undefined || rule.conditions.expiresAt === undefined) {
                 throw new Error("Matched delegated rule has no finite budget or expiry.");
             }
             const now = request.context.now;
-            const grant = {
-                id: `grant-${randomUUID()}`,
+            const proposalId = request.proposal.id;
+            const authorization = {
+                schemaVersion: 2,
+                authorizationId: `authorization-${policyDigest}-${proposalId}`,
+                binding: {
+                    proposalId,
+                    projectId: request.context.projectId,
+                    routeledgerRootDigest: request.context.routeledgerRootDigest,
+                    actionType: request.context.actionType,
+                    targetId: request.context.targetId,
+                    operationDigest: request.context.operationDigest
+                },
                 issuer: config.authorityId,
                 subjectId: request.context.subjectId ?? config.policy.binding.subjectId,
                 audience: "routeledger-core",
-                projectId: request.context.projectId,
-                routeledgerRootDigest: request.context.routeledgerRootDigest,
-                allowedActions: [request.context.actionType],
-                allowedTargetIds: [request.context.targetId],
-                operationDigest: request.context.operationDigest,
-                scope: "operation",
                 source: "delegated_policy",
                 policyId: config.policy.policyId,
                 policyDigest,
-                decisionId: `decision-${randomUUID()}`,
+                decisionRef: `decision-${proposalId}`,
+                profileId: null,
+                modeEpoch: null,
+                profileDigest: null,
                 hostKind: request.context.hostKind ?? input.hostKind,
                 clientId: request.context.clientId ?? null,
-                sessionId: null,
-                nonce: randomUUID(),
                 createdAt: now,
-                expiresAt: minimumIsoTimestamp(rule.conditions.expiresAt, new Date(Date.parse(now) + config.grantTtlSeconds * 1000).toISOString()),
-                maxUses: 1,
-                uses: 0,
-                status: "active",
-                revokedAt: null
+                expiresAt: minimumIsoTimestamp(rule.conditions.expiresAt, new Date(Date.parse(now) + config.authorizationTtlSeconds * 1000).toISOString())
             };
             const usageKey = `${policyDigest}:${rule.id}`;
-            const grantDecision = await stateFile.transact((state) => {
-                const recoverableGrant = [
-                    ...Object.values(state.reservedGrants),
-                    ...Object.values(state.grants)
-                ].find((candidate) => candidate.issuer === config.authorityId &&
-                    candidate.source === "delegated_policy" &&
-                    candidate.policyDigest === policyDigest &&
-                    candidate.subjectId === grant.subjectId &&
-                    candidate.projectId === grant.projectId &&
-                    candidate.routeledgerRootDigest === grant.routeledgerRootDigest &&
-                    candidate.hostKind === grant.hostKind &&
-                    candidate.clientId === grant.clientId &&
-                    candidate.sessionId === grant.sessionId &&
-                    candidate.operationDigest === grant.operationDigest &&
-                    candidate.allowedActions.includes(request.context.actionType) &&
-                    candidate.allowedTargetIds.includes(request.context.targetId) &&
-                    candidate.uses === 0 &&
-                    candidate.status === "active" &&
-                    Date.parse(now) < Date.parse(candidate.expiresAt));
-                if (recoverableGrant !== undefined) {
-                    return { effect: "allow", grant: structuredClone(recoverableGrant) };
-                }
+            const grantDecision = await stateFile.transact(async (state) => {
+                const exactStore = new MemoryExactAuthorizationStore(state.exactStore);
+                const existing = await exactStore.get(authorization.authorizationId);
+                if (existing !== null)
+                    return { effect: "allow", authorization: existing };
                 const usage = state.policyUsages[usageKey] ?? {
                     policyDigest,
                     ruleId: rule.id,
-                    uses: 0,
-                    maxUses: rule.conditions.maxUses,
+                    decisions: 0,
+                    decisionBudget: rule.conditions.decisionBudget,
                     updatedAt: now
                 };
-                if (usage.maxUses !== rule.conditions.maxUses || usage.uses >= usage.maxUses) {
+                if (usage.decisionBudget !== rule.conditions.decisionBudget || usage.decisions >= usage.decisionBudget) {
                     return { effect: "deny" };
                 }
-                state.policyUsages[usageKey] = { ...usage, uses: usage.uses + 1, updatedAt: now };
-                state.reservedGrants[grant.id] = structuredClone(grant);
-                return { effect: "allow", grant };
+                state.policyUsages[usageKey] = { ...usage, decisions: usage.decisions + 1, updatedAt: now };
+                await exactStore.issue(authorization);
+                state.exactStore = exactStore.exportState();
+                return { effect: "allow", authorization };
             });
             return grantDecision.effect === "allow"
                 ? grantDecision
@@ -865,7 +789,7 @@ export const loadLocalL3AuthorityRuntime = async (input) => {
     };
     return {
         authority,
-        grantStore,
+        exactStore,
         ...(config.trustedClientId === undefined
             ? {}
             : { trustedClientId: config.trustedClientId }),
@@ -886,32 +810,47 @@ export const loadLocalL3AuthorityProfileRuntime = async (input) => {
     const statePath = await assertTrustedPath(input.statePath, input.workspaceRoot, input.routeledgerRoot, "Local L3 authority profile state");
     const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
     await stateFile.initialize();
-    const grantStore = new PersistentLocalL3AuthorizationGrantStore(stateFile);
+    const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
     const baseRuntime = {
         profile: structuredClone(input.profile),
-        grantStore,
+        exactStore,
         ...(input.profile.binding.trustedClientId === null
             ? {}
             : { trustedClientId: input.profile.binding.trustedClientId }),
         statePath
     };
-    await stateFile.activatePolicy(input.profile.profileId, input.profile.profileDigest, new Date().toISOString());
-    await grantStore.revokeProfileReceipts(input.profile.profileId, input.profile.modeEpoch, new Date().toISOString());
-    if (input.profile.status !== "active" || input.profile.mode !== "delegated") {
+    const profilePolicy = input.profile.delegatedPolicy;
+    const profilePolicyDigest = profilePolicy === null ? "disabled-standing-policy" : digestL3AuthorizationPolicy(profilePolicy);
+    await stateFile.activatePolicy(input.profile.profileId, input.profile.profileDigest, {
+        issuerId: input.profile.profileId,
+        policyId: profilePolicy?.policyId ?? "disabled-standing-policy",
+        policyDigest: profilePolicyDigest,
+        profileId: input.profile.profileId,
+        modeEpoch: input.profile.modeEpoch,
+        profileDigest: input.profile.profileDigest
+    }, new Date().toISOString());
+    if (input.profile.status !== "active" ||
+        (input.profile.mode !== "delegated" && input.profile.mode !== "preauthorized")) {
         return baseRuntime;
     }
     const policy = input.profile.delegatedPolicy;
     if (policy === null) {
-        throw new Error("An active delegated profile requires a deterministic policy.");
+        if (input.profile.mode === "preauthorized")
+            return baseRuntime;
+        throw new Error("An active policy-backed profile requires a deterministic standing policy.");
     }
     const policyDigest = digestL3AuthorizationPolicy(policy);
     const authorityHandle = `local-profile:${input.profile.profileId}:${input.profile.profileDigest}`;
     const delegatedAuthority = {
         authorityHandle,
-        requestGrant: async (request) => {
+        issuerId: input.profile.profileId,
+        policyId: policy.policyId,
+        policyDigest,
+        requestExactDecision: async (request) => {
             if (request.authorityHandle !== authorityHandle) {
                 throw new Error("Local L3 profile authority handle mismatch.");
             }
+            assertExactProposalContext(request.proposal, request.context);
             if (request.context.profileId !== input.profile.profileId ||
                 request.context.modeEpoch !== input.profile.modeEpoch ||
                 request.context.profileDigest !== input.profile.profileDigest) {
@@ -928,77 +867,57 @@ export const loadLocalL3AuthorityProfileRuntime = async (input) => {
                 };
             }
             const rule = policy.rules.find((candidate) => candidate.id === decision.matchedRuleId);
-            if (rule?.conditions?.maxUses === undefined || rule.conditions.expiresAt === undefined) {
+            if (rule?.conditions?.decisionBudget === undefined || rule.conditions.expiresAt === undefined) {
                 throw new Error("Matched delegated rule has no finite budget or expiry.");
             }
             const now = request.context.now;
-            const grant = {
-                id: `grant-${randomUUID()}`,
+            const proposalId = request.proposal.id;
+            const authorization = {
+                schemaVersion: 2,
+                authorizationId: `authorization-${input.profile.profileDigest}-${policyDigest}-${proposalId}`,
+                binding: {
+                    proposalId,
+                    projectId: request.context.projectId,
+                    routeledgerRootDigest: request.context.routeledgerRootDigest,
+                    actionType: request.context.actionType,
+                    targetId: request.context.targetId,
+                    operationDigest: request.context.operationDigest
+                },
                 issuer: input.profile.profileId,
                 subjectId: input.profile.binding.subjectId,
                 audience: "routeledger-core",
-                projectId: request.context.projectId,
-                routeledgerRootDigest: request.context.routeledgerRootDigest,
                 profileId: input.profile.profileId,
                 modeEpoch: input.profile.modeEpoch,
                 profileDigest: input.profile.profileDigest,
-                allowedActions: [request.context.actionType],
-                allowedTargetIds: [request.context.targetId],
-                operationDigest: request.context.operationDigest,
-                scope: "operation",
-                source: "delegated_policy",
+                source: input.profile.mode === "preauthorized" ? "preauthorized" : "delegated_policy",
                 policyId: policy.policyId,
                 policyDigest,
-                decisionId: `decision-${randomUUID()}`,
+                decisionRef: `decision-${proposalId}`,
                 hostKind: input.profile.binding.hostKind,
                 clientId: input.profile.binding.trustedClientId,
-                sessionId: null,
-                nonce: randomUUID(),
                 createdAt: now,
-                expiresAt: minimumIsoTimestamp(rule.conditions.expiresAt, new Date(Date.parse(now) + input.profile.limits.maxGrantTtlSeconds * 1000).toISOString()),
-                maxUses: 1,
-                uses: 0,
-                status: "active",
-                revokedAt: null
+                expiresAt: minimumIsoTimestamp(rule.conditions.expiresAt, new Date(Date.parse(now) + input.profile.limits.maxAuthorizationTtlSeconds * 1000).toISOString())
             };
             const usageKey = `${input.profile.profileDigest}:${rule.id}`;
-            const grantDecision = await stateFile.transact((state) => {
-                const recoverableGrant = [
-                    ...Object.values(state.reservedGrants),
-                    ...Object.values(state.grants)
-                ].find((candidate) => candidate.issuer === input.profile.profileId &&
-                    candidate.source === "delegated_policy" &&
-                    candidate.profileId === input.profile.profileId &&
-                    candidate.modeEpoch === input.profile.modeEpoch &&
-                    candidate.profileDigest === input.profile.profileDigest &&
-                    candidate.subjectId === grant.subjectId &&
-                    candidate.projectId === grant.projectId &&
-                    candidate.routeledgerRootDigest === grant.routeledgerRootDigest &&
-                    candidate.hostKind === grant.hostKind &&
-                    candidate.clientId === grant.clientId &&
-                    candidate.sessionId === null &&
-                    candidate.operationDigest === grant.operationDigest &&
-                    candidate.allowedActions.includes(request.context.actionType) &&
-                    candidate.allowedTargetIds.includes(request.context.targetId) &&
-                    candidate.uses === 0 &&
-                    candidate.status === "active" &&
-                    Date.parse(now) < Date.parse(candidate.expiresAt));
-                if (recoverableGrant !== undefined) {
-                    return { effect: "allow", grant: structuredClone(recoverableGrant) };
-                }
+            const grantDecision = await stateFile.transact(async (state) => {
+                const exactStore = new MemoryExactAuthorizationStore(state.exactStore);
+                const existing = await exactStore.get(authorization.authorizationId);
+                if (existing !== null)
+                    return { effect: "allow", authorization: existing };
                 const usage = state.policyUsages[usageKey] ?? {
                     policyDigest: input.profile.profileDigest,
                     ruleId: rule.id,
-                    uses: 0,
-                    maxUses: rule.conditions.maxUses,
+                    decisions: 0,
+                    decisionBudget: rule.conditions.decisionBudget,
                     updatedAt: now
                 };
-                if (usage.maxUses !== rule.conditions.maxUses || usage.uses >= usage.maxUses) {
+                if (usage.decisionBudget !== rule.conditions.decisionBudget || usage.decisions >= usage.decisionBudget) {
                     return { effect: "deny" };
                 }
-                state.policyUsages[usageKey] = { ...usage, uses: usage.uses + 1, updatedAt: now };
-                state.reservedGrants[grant.id] = structuredClone(grant);
-                return { effect: "allow", grant };
+                state.policyUsages[usageKey] = { ...usage, decisions: usage.decisions + 1, updatedAt: now };
+                await exactStore.issue(authorization);
+                state.exactStore = exactStore.exportState();
+                return { effect: "allow", authorization };
             });
             return grantDecision.effect === "allow"
                 ? grantDecision

@@ -65,10 +65,7 @@ import type {
   ExactAuthorizationCandidate,
   ExactAuthorizationReceiptBinding
 } from "./exact-authorization-contract.js";
-import {
-  MemoryExactAuthorizationStore,
-  type ExactAuthorizationStore
-} from "./exact-authorization-store.js";
+import type { ExactAuthorizationStore } from "./exact-authorization-store.js";
 import {
   buildCurrentContextResult,
   buildDerivedCurrentContextData,
@@ -85,7 +82,6 @@ import {
   isSelfReferentialUndoForVersion
 } from "./version-closeout-query.js";
 import type { VersionCloseoutSummary } from "./version-closeout-query.js";
-import type { L3AuthorizationGrantStore } from "./l3-authorization-grant.js";
 import {
   buildBalancedL3AuthorizationPolicy,
   type L3AuthorizationEvaluationContext,
@@ -142,9 +138,7 @@ export interface RouteLedgerServiceOptions {
   deps: DomainDependencies;
   projectRoot?: string;
   l3Authorization?: {
-    grantStore: L3AuthorizationGrantStore;
-    /** EA1 exact kernel. Omitted callers receive an isolated in-memory store. */
-    exactStore?: ExactAuthorizationStore;
+    exactStore: ExactAuthorizationStore;
     audience: string;
     subjectId: string;
     routeledgerRootDigest: string;
@@ -153,7 +147,6 @@ export interface RouteLedgerServiceOptions {
     profileDigest?: string;
     hostKind: string;
     clientId?: string;
-    sessionId?: string;
   };
 }
 
@@ -458,7 +451,7 @@ export interface ApproveL3OperationInput {
 export interface AuthorizeL3OperationInput {
   projectId: string;
   pendingOperationId: string;
-  grantId: string;
+  authorizationId: string;
   actor: Actor;
 }
 
@@ -3226,21 +3219,21 @@ export class RouteLedgerService {
     this.exactAuthorizationStore =
       options.l3Authorization === undefined
         ? null
-        : options.l3Authorization.exactStore ?? new MemoryExactAuthorizationStore();
+        : options.l3Authorization.exactStore;
   }
 
   private async getExactArtifactReceiptBinding(
     artifact: ApprovalArtifact,
     pendingOperation: PendingOperation
   ): Promise<ExactAuthorizationReceiptBinding | null> {
-    if (this.exactAuthorizationStore === null || artifact.authorizationGrantId === undefined) {
+    if (this.exactAuthorizationStore === null || artifact.authorizationId === undefined) {
       return null;
     }
     const expected = buildExactAuthorizationBinding(
       pendingOperation,
       this.l3Authorization!.routeledgerRootDigest
     );
-    const candidate = await this.exactAuthorizationStore.get(artifact.authorizationGrantId);
+    const candidate = await this.exactAuthorizationStore.get(artifact.authorizationId);
     if (candidate === null) return null;
     if (
       candidate.binding.proposalId !== expected.proposalId ||
@@ -4334,7 +4327,7 @@ export class RouteLedgerService {
     policyId: string;
     routeledgerRootDigest: string;
     expiresAt: string;
-    maxUses: number;
+    decisionBudget: number;
     subjectId?: string;
     hostKind?: string;
     clientId?: string;
@@ -4347,7 +4340,7 @@ export class RouteLedgerService {
       currentVersionId: snapshot.project.currentVersionId,
       routeVersionIds: snapshot.versions.map((version) => version.id),
       expiresAt: input.expiresAt,
-      maxUses: input.maxUses,
+      decisionBudget: input.decisionBudget,
       ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
       ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
       ...(input.clientId === undefined ? {} : { clientId: input.clientId })
@@ -4357,7 +4350,7 @@ export class RouteLedgerService {
   async approveL3Operation(input: ApproveL3OperationInput): Promise<ApprovalArtifact> {
     if (this.l3Authorization !== undefined) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "Legacy L3 approval cannot bypass the configured trusted authorization control plane",
         { pendingOperationId: input.pendingOperationId, reason: "LEGACY_APPROVAL_DISABLED" }
       );
@@ -4451,7 +4444,7 @@ export class RouteLedgerService {
     const existingArtifact = snapshot.approvalArtifacts.find(
       (artifact) =>
         artifact.pendingOperationId === pendingOperation.id &&
-        artifact.authorizationGrantId === input.grantId &&
+        artifact.authorizationId === input.authorizationId &&
         artifact.status === "approved"
     );
     if (existingArtifact !== undefined) {
@@ -4468,22 +4461,22 @@ export class RouteLedgerService {
     }
 
     const now = this.deps.clock.now();
-    const exactCandidate = await exactStore.get(input.grantId);
+    const exactCandidate = await exactStore.get(input.authorizationId);
     if (exactCandidate === null) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "No trusted exact authorization is registered for this proposal",
         {
           pendingOperationId: pendingOperation.id,
-          grantId: input.grantId,
+          authorizationId: input.authorizationId,
           reason: "EXACT_AUTHORIZATION_REQUIRED"
         }
       );
     }
-    const existingReceipt = await exactStore.getReceipt(input.grantId);
+    const existingReceipt = await exactStore.getReceipt(input.authorizationId);
     const artifactId = existingReceipt?.artifactId ?? this.deps.idGenerator.nextId();
     const consumed = await exactStore.consumeAndRecordReceipt({
-      authorizationId: input.grantId,
+      authorizationId: input.authorizationId,
       artifactId,
       binding,
       now
@@ -4491,11 +4484,11 @@ export class RouteLedgerService {
 
     if (!consumed.ok) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
-        "L3 authorization grant did not authorize this operation",
+        "EXACT_AUTHORIZATION_REJECTED",
+        "The exact authorization did not authorize this operation",
         {
           pendingOperationId: pendingOperation.id,
-          grantId: input.grantId,
+          authorizationId: input.authorizationId,
           reason: consumed.code
         }
       );
@@ -4516,7 +4509,7 @@ export class RouteLedgerService {
       createdAt: receipt.createdAt,
       expiresAt: receipt.expiresAt,
       consumedAt: null,
-      authorizationGrantId: receipt.authorizationId,
+      authorizationId: receipt.authorizationId,
       routeledgerRootDigest: receipt.binding.routeledgerRootDigest,
       approvalSource: receipt.source,
       policyId: receipt.policyId,
@@ -4526,7 +4519,6 @@ export class RouteLedgerService {
       ...(receipt.profileDigest === null ? {} : { profileDigest: receipt.profileDigest }),
       hostKind: receipt.hostKind,
       clientId: receipt.clientId,
-      sessionId: exactCandidate.sessionId
     };
 
     const latestSnapshot = await requireProject(this.storage, input.projectId);
@@ -4544,7 +4536,7 @@ export class RouteLedgerService {
           toState: artifact.status,
           metadata: {
             pendingOperationId: pendingOperation.id,
-            authorizationGrantId: exactCandidate.authorizationId,
+            authorizationId: exactCandidate.authorizationId,
             approvalSource: exactCandidate.source,
             decisionRef: exactCandidate.decisionRef,
             policyId: exactCandidate.policyId,
@@ -4554,7 +4546,6 @@ export class RouteLedgerService {
             profileDigest: exactCandidate.profileDigest,
             hostKind: exactCandidate.hostKind,
             clientId: exactCandidate.clientId,
-            sessionId: exactCandidate.sessionId,
             exactAuthorization: true,
             expiresAt: artifact.expiresAt,
             approverId: approver.id,
@@ -4705,7 +4696,7 @@ export class RouteLedgerService {
       );
       if (this.l3Authorization !== undefined && replayReceiptBinding === null) {
         throw new ApplicationError(
-          "AUTHORIZATION_GRANT_REJECTED",
+          "EXACT_AUTHORIZATION_REJECTED",
           "A committed trusted operation cannot replay without its exact authorization receipt",
           {
             approvalArtifactId: artifact.id,
@@ -4722,7 +4713,7 @@ export class RouteLedgerService {
         );
         if (!finalized.ok) {
           throw new ApplicationError(
-            "AUTHORIZATION_GRANT_REJECTED",
+            "EXACT_AUTHORIZATION_REJECTED",
             "The trusted authorization commit receipt could not be recovered",
             {
               approvalArtifactId: artifact.id,
@@ -4764,9 +4755,9 @@ export class RouteLedgerService {
 
     const artifact = requireApprovalArtifact(snapshot, input.approvalArtifactId);
 
-    if (this.l3Authorization !== undefined && artifact.authorizationGrantId === undefined) {
+    if (this.l3Authorization !== undefined && artifact.authorizationId === undefined) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "Legacy unconsumed approval artifacts must be reauthorized by the trusted control plane",
         {
           approvalArtifactId: artifact.id,
@@ -4885,7 +4876,7 @@ export class RouteLedgerService {
         artifact.profileDigest !== this.l3Authorization.profileDigest)
     ) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "The approval artifact belongs to an inactive authorization profile epoch",
         {
           approvalArtifactId: artifact.id,
@@ -4910,12 +4901,12 @@ export class RouteLedgerService {
         !(await this.exactAuthorizationStore.verifyReceipt(exactReceiptBinding)))
     ) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "The approval artifact has no matching trusted authorization receipt",
         {
           approvalArtifactId: artifact.id,
           pendingOperationId: pendingOperation.id,
-          authorizationGrantId: artifact.authorizationGrantId,
+          authorizationId: artifact.authorizationId,
           reason: "AUTHORIZATION_RECEIPT_INVALID"
         }
       );
@@ -5025,7 +5016,7 @@ export class RouteLedgerService {
         : null;
     if (authorizationCommitClaim !== null && !authorizationCommitClaim.ok) {
       throw new ApplicationError(
-        "AUTHORIZATION_GRANT_REJECTED",
+        "EXACT_AUTHORIZATION_REJECTED",
         "The trusted authorization receipt could not be claimed for commit",
         {
           approvalArtifactId: artifact.id,
@@ -5114,7 +5105,7 @@ export class RouteLedgerService {
       );
       if (!finalized.ok) {
         throw new ApplicationError(
-          "AUTHORIZATION_GRANT_REJECTED",
+          "EXACT_AUTHORIZATION_REJECTED",
           "The canonical commit succeeded but its trusted authorization receipt needs recovery",
           {
             approvalArtifactId: artifact.id,

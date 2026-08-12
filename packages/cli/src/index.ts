@@ -10,7 +10,7 @@ import {
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
   MemoryExactAuthorizationStore,
-  MemoryL3AuthorizationGrantStore,
+  projectDecisionArtifact,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
   type Actor,
@@ -25,7 +25,6 @@ import {
   isBatchPreviousCurrentPolicy,
   isRouteOperationWorkflowMode,
   type L3ActionType,
-  type L3AuthorizationGrantStore,
   type ExactAuthorizationStore,
   type PendingOperation,
   type ResidualAuditInput
@@ -55,24 +54,20 @@ export interface RunCliOptions {
       approved: boolean;
       decisionId: string;
     }>;
-    grantStore?: L3AuthorizationGrantStore;
     exactStore?: ExactAuthorizationStore;
     subjectId?: string;
     hostKind?: string;
     clientId?: string;
-    sessionId?: string;
   };
 }
 
 interface CliL3AuthorizationRuntime {
   requestAuthorization: NonNullable<RunCliOptions["l3Authorization"]>["requestAuthorization"];
-  grantStore: L3AuthorizationGrantStore;
   exactStore: ExactAuthorizationStore;
   subjectId: string;
   routeledgerRootDigest: string;
   hostKind: string;
   clientId: string;
-  sessionId: string;
 }
 
 type CliResponse =
@@ -395,14 +390,12 @@ const createService = (
       ? {}
       : {
           l3Authorization: {
-            grantStore: l3Authorization.grantStore,
             exactStore: l3Authorization.exactStore,
             audience: "routeledger-core",
             subjectId: l3Authorization.subjectId,
             routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
             hostKind: l3Authorization.hostKind,
-            clientId: l3Authorization.clientId,
-            sessionId: l3Authorization.sessionId
+            clientId: l3Authorization.clientId
           }
         })
   });
@@ -1306,16 +1299,16 @@ const handleCommand = async ({
         const decision = await l3Authorization.requestAuthorization(proposal);
         if (!decision.approved) {
           throw new ApplicationError(
-            "AUTHORIZATION_GRANT_REJECTED",
+            "EXACT_AUTHORIZATION_REJECTED",
             "The attached CLI host declined L3 authorization",
             { pendingOperationId, reason: "HOST_DECLINED" }
           );
         }
         const now = new Date();
-        const grantId = randomUUID();
+        const authorizationId = randomUUID();
         await l3Authorization.exactStore.issue({
           schemaVersion: 2,
-          authorizationId: grantId,
+          authorizationId: authorizationId,
           binding: {
             proposalId: proposal.id,
             projectId,
@@ -1336,18 +1329,18 @@ const handleCommand = async ({
           profileDigest: null,
           hostKind: l3Authorization.hostKind,
           clientId: l3Authorization.clientId,
-          sessionId: null,
           createdAt: now.toISOString(),
           expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
         });
+        const artifact = await service.authorizeL3Operation({
+          projectId,
+          pendingOperationId,
+          authorizationId,
+          actor: DEFAULT_ACTOR
+        });
         return {
           ok: true,
-          data: await service.authorizeL3Operation({
-            projectId,
-            pendingOperationId,
-            grantId,
-            actor: DEFAULT_ACTOR
-          })
+          data: projectDecisionArtifact(artifact)
         };
       }
 
@@ -1698,8 +1691,6 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
       ? undefined
       : {
           requestAuthorization: options.l3Authorization.requestAuthorization,
-          grantStore:
-            options.l3Authorization.grantStore ?? new MemoryL3AuthorizationGrantStore(),
           exactStore:
             options.l3Authorization.exactStore ?? new MemoryExactAuthorizationStore(),
           subjectId: options.l3Authorization.subjectId ?? DEFAULT_APPROVER.id,
@@ -1707,8 +1698,7 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
             .update(options.projectRoot)
             .digest("hex")}`,
           hostKind: options.l3Authorization.hostKind ?? "cli-host",
-          clientId: options.l3Authorization.clientId ?? "local-cli",
-          sessionId: options.l3Authorization.sessionId ?? randomUUID()
+          clientId: options.l3Authorization.clientId ?? "local-cli"
         };
 
   const getStorage = (): SQLiteStorageAdapter => {

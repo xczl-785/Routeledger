@@ -1,14 +1,14 @@
 import type {
   ExactAuthorizationCandidate,
   ExactProposalDecisionRequest,
-  L3AuthorizationGrantContext,
+  ExactAuthorizationContext,
   L3AuthorizationProfileV2
 } from "@routeledger/core";
 
 export const validateExactAuthorizationCandidate = (input: {
   candidate: Readonly<ExactAuthorizationCandidate>;
   request: Readonly<ExactProposalDecisionRequest>;
-  context: Readonly<L3AuthorizationGrantContext>;
+  context: Readonly<ExactAuthorizationContext>;
   profile?: Readonly<L3AuthorizationProfileV2>;
   expectedSource: ExactAuthorizationCandidate["source"];
   expectedIssuer: string;

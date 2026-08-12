@@ -3,12 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   createExactProposalDecisionRequest,
   digestL3AuthorizationProfile,
-  MemoryL3AuthorizationGrantStore,
   MemoryExactAuthorizationStore,
   type ExactAuthorizationCandidate,
-  type L3AuthorizationConsumptionReceipt,
-  type L3AuthorizationGrant,
-  type L3AuthorizationGrantContext,
+  type ExactAuthorizationContext,
   type L3AuthorizationProfileV2,
   type PendingOperation
 } from "@routeledger/core";
@@ -42,7 +39,7 @@ const proposal: PendingOperation = {
   approvalArtifactId: null
 };
 
-const context: L3AuthorizationGrantContext = {
+const context: ExactAuthorizationContext = {
   audience: "routeledger-core",
   subjectId: "user-1",
   projectId: "project-1",
@@ -52,92 +49,26 @@ const context: L3AuthorizationGrantContext = {
   operationDigest: "digest-1",
   now: "2026-08-11T00:00:10.000Z",
   hostKind: "generic",
-  clientId: "client-1",
-  sessionId: "session-1"
+  clientId: "client-1"
 };
 
-const grant = (
-  source: L3AuthorizationGrant["source"] = "preauthorized"
-): L3AuthorizationGrant => ({
-  id: `grant-${source}`,
-  issuer: "trusted-host",
-  subjectId: context.subjectId,
-  audience: context.audience,
-  projectId: context.projectId,
-  routeledgerRootDigest: context.routeledgerRootDigest,
-  allowedActions: [context.actionType],
-  allowedTargetIds: [context.targetId],
-  operationDigest: context.operationDigest,
-  scope: "operation",
-  source,
-  policyId: source === "delegated_policy" ? "policy-1" : null,
-  policyDigest: source === "delegated_policy" ? "policy-digest-1" : null,
-  decisionId: `decision-${source}`,
-  hostKind: context.hostKind,
-  clientId: context.clientId ?? null,
-  sessionId: context.sessionId ?? null,
-  nonce: `nonce-${source}`,
-  createdAt: "2026-08-11T00:00:00.000Z",
-  expiresAt: "2026-08-11T01:00:00.000Z",
-  maxUses: 1,
-  uses: 0,
-  status: "active",
-  revokedAt: null
-});
-
 const adapter = (
-  store: MemoryL3AuthorizationGrantStore,
   overrides: Partial<ConstructorParameters<typeof ExistingL3DecisionAdapter>[0]> = {}
-) =>
-  new ExistingL3DecisionAdapter({
-    proposal,
-    authorizationContext: context,
-    exactStore: new MemoryExactAuthorizationStore(),
-    interaction: {
-      requestAuthorization: async () => {
-        throw new Error("interaction must not be used");
-      }
-    },
-    hostProfile: "generic",
-    trustedClientId: "client-1",
-    getEvaluationContext: async () => {
-      throw new Error("delegated evaluation must not be used");
-    },
-    ...overrides
-  });
-
-const receiptFor = (
-  consumedGrant: L3AuthorizationGrant,
-  consumedUse: number
-): L3AuthorizationConsumptionReceipt => ({
-  approvalArtifactId: "artifact-1",
-  pendingOperationId: proposal.id,
-  grantId: consumedGrant.id,
-  audience: context.audience,
-  subjectId: context.subjectId,
-  projectId: context.projectId,
-  routeledgerRootDigest: context.routeledgerRootDigest,
-  actionType: context.actionType,
-  targetId: context.targetId,
-  operationDigest: context.operationDigest,
-  approvalSource: consumedGrant.source,
-  decisionRef: consumedGrant.decisionId,
-  approverId: "user-1",
-  approverType: "user",
-  approverDisplayName: undefined,
-  policyId: consumedGrant.policyId,
-  policyDigest: consumedGrant.policyDigest,
-  hostKind: context.hostKind,
-  clientId: context.clientId,
-  sessionId: context.sessionId,
-  createdAt: "2026-08-11T00:00:10.000Z",
-  expiresAt: consumedGrant.expiresAt,
-  consumedUse,
-  status: "authorized",
-  commitClaimId: null,
-  commitClaimedAt: null,
-  committedAt: null,
-  revokedAt: null
+) => new ExistingL3DecisionAdapter({
+  proposal,
+  authorizationContext: context,
+  exactStore: new MemoryExactAuthorizationStore(),
+  interaction: {
+    requestAuthorization: async () => {
+      throw new Error("interaction must not be used");
+    }
+  },
+  hostProfile: "generic",
+  trustedClientId: "client-1",
+  getEvaluationContext: async () => {
+    throw new Error("delegated evaluation must not be used");
+  },
+  ...overrides
 });
 
 describe("ExistingL3DecisionAdapter", () => {
@@ -164,7 +95,6 @@ describe("ExistingL3DecisionAdapter", () => {
     profileDigest: null,
     hostKind: context.hostKind,
     clientId: context.clientId ?? null,
-    sessionId: null,
     createdAt: "2026-08-11T00:00:00.000Z",
     expiresAt: "2026-08-11T01:00:00.000Z"
   });
@@ -193,7 +123,7 @@ describe("ExistingL3DecisionAdapter", () => {
   ])("rejects delegated %s provenance mismatch before persistence", async (_label, mutate) => {
     const exactStore = new MemoryExactAuthorizationStore();
     const candidate = mutate(delegatedCandidate());
-    const resolver = adapter(new MemoryL3AuthorizationGrantStore(), {
+    const resolver = adapter({
       exactStore,
       delegatedAuthority: {
         authorityHandle: "host-vault://policy-1",
@@ -218,13 +148,13 @@ describe("ExistingL3DecisionAdapter", () => {
       })
     });
     await expect(resolver.resolve(createExactProposalDecisionRequest(proposal)))
-      .rejects.toMatchObject({ code: "AUTHORIZATION_GRANT_REJECTED" });
+      .rejects.toMatchObject({ code: "EXACT_AUTHORIZATION_REJECTED" });
     await expect(exactStore.get(candidate.authorizationId)).resolves.toBeNull();
   });
 
   it("rejects legacy scope content without minting exact authority", async () => {
     const exactStore = new MemoryExactAuthorizationStore();
-    const resolver = adapter(new MemoryL3AuthorizationGrantStore(), {
+    const resolver = adapter({
       exactStore,
       interaction: {
         requestAuthorization: async () => ({
@@ -236,40 +166,14 @@ describe("ExistingL3DecisionAdapter", () => {
 
     await expect(resolver.resolve(createExactProposalDecisionRequest(proposal)))
       .rejects.toMatchObject({
-        code: "AUTHORIZATION_GRANT_REJECTED",
+        code: "EXACT_AUTHORIZATION_REJECTED",
         details: { reason: "INVALID_DECISION_RESPONSE" }
       });
     await expect(exactStore.get("grant-user_interaction")).resolves.toBeNull();
   });
 
-  it("does not promote a consumed legacy authorization into active exact authority", async () => {
-    const store = new MemoryL3AuthorizationGrantStore();
-    const replayGrant = grant();
-    await store.issue(replayGrant);
-    const consumed = await store.consumeAndRecordReceipt(
-      replayGrant.id,
-      context,
-      proposal.id,
-      ({ grant: exactGrant, consumedUse }) => receiptFor(exactGrant, consumedUse)
-    );
-    expect(consumed.ok).toBe(true);
-
-    await expect(adapter(store).resolve(createExactProposalDecisionRequest(proposal)))
-      .rejects.toMatchObject({ code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE" });
-  });
-
-  it("does not execute a matching legacy preauthorization", async () => {
-    const store = new MemoryL3AuthorizationGrantStore();
-    const preauthorized = grant();
-    await store.issue(preauthorized);
-
-    await expect(adapter(store).resolve(createExactProposalDecisionRequest(proposal)))
-      .rejects.toMatchObject({ code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE" });
-  });
-
   it("preserves delegated denial details for the compatibility handler", async () => {
-    const store = new MemoryL3AuthorizationGrantStore();
-    const resolver = adapter(store, {
+    const resolver = adapter({
       delegatedAuthority: {
         authorityHandle: "host-vault://policy-1",
         issuerId: "trusted-host",
@@ -310,20 +214,18 @@ describe("ExistingL3DecisionAdapter", () => {
   });
 
   it("fails closed before any source lookup when the request does not match the proposal", async () => {
-    const store = new MemoryL3AuthorizationGrantStore();
     await expect(
-      adapter(store).resolve({
+      adapter().resolve({
         ...createExactProposalDecisionRequest(proposal),
         targetId: "version-other"
       })
     ).rejects.toMatchObject({
-      code: "AUTHORIZATION_GRANT_REJECTED",
+      code: "EXACT_AUTHORIZATION_REJECTED",
       details: { reason: "PROPOSAL_REQUEST_MISMATCH" }
     });
   });
 
   it("fails closed when a direct caller supplies a disabled profile", async () => {
-    const store = new MemoryL3AuthorizationGrantStore();
     const profileBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
       schemaVersion: 3,
       profileId: "profile-disabled",
@@ -350,7 +252,7 @@ describe("ExistingL3DecisionAdapter", () => {
     };
 
     await expect(
-      adapter(store, { profile }).resolve(createExactProposalDecisionRequest(proposal))
+      adapter({ profile }).resolve(createExactProposalDecisionRequest(proposal))
     ).rejects.toMatchObject({
       code: "AUTHORIZATION_PROFILE_DISABLED",
       details: { profileId: "profile-disabled", modeEpoch: 2 }

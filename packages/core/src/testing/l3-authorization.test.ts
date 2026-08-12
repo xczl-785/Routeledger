@@ -19,7 +19,7 @@ const policy = (): L3AuthorizationPolicy =>
     currentVersionId: "version-1",
     routeVersionIds: ["version-1", "version-2"],
     expiresAt: "2026-08-10T12:00:00.000Z",
-    maxUses: 3,
+    decisionBudget: 3,
     subjectId: "user-1",
     hostKind: "codex",
     clientId: "client-1"

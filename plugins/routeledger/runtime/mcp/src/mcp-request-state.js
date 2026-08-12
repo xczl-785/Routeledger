@@ -44,18 +44,32 @@ export const verifyMcpRequestState = (token, secret, expected) => {
         throw new Error("Invalid MCP request state payload.");
     }
     const state = decoded;
-    if (state.schemaVersion !== 1 ||
+    if (state.schemaVersion !== 2 ||
         state.toolName !== "execute_l3_operation" ||
         state.toolName !== expected.toolName ||
         state.argumentsDigest !== expected.argumentsDigest ||
-        typeof state.pendingOperationId !== "string" ||
-        state.pendingOperationId.length === 0 ||
+        state.binding === undefined ||
+        typeof state.binding.proposalId !== "string" ||
+        typeof state.binding.projectId !== "string" ||
+        typeof state.binding.routeledgerRootDigest !== "string" ||
+        typeof state.binding.actionType !== "string" ||
+        typeof state.binding.targetId !== "string" ||
+        typeof state.binding.operationDigest !== "string" ||
+        Object.values(state.binding).some((value) => typeof value !== "string" || value.trim().length === 0) ||
         typeof state.issuedAt !== "string" ||
         typeof state.expiresAt !== "string") {
         throw new Error("MCP request state does not match the retried tool call.");
     }
     const now = expected.now ?? new Date();
-    if (!Number.isFinite(Date.parse(state.expiresAt)) || Date.parse(state.expiresAt) <= now.getTime()) {
+    const issuedAt = Date.parse(state.issuedAt);
+    const expiresAt = Date.parse(state.expiresAt);
+    if (!Number.isFinite(issuedAt) ||
+        !Number.isFinite(expiresAt) ||
+        issuedAt > now.getTime() ||
+        expiresAt <= issuedAt) {
+        throw new Error("MCP request state timestamps are invalid.");
+    }
+    if (expiresAt <= now.getTime()) {
         throw new Error("MCP request state has expired.");
     }
     return state;

@@ -206,7 +206,14 @@ describe("routeledger cli", () => {
 
       expect(approveResult.exitCode).toBe(0);
 
-      const approvalArtifactId = approveResult.stdoutJson.data.id as string;
+      expect(approveResult.stdoutJson.data).toMatchObject({
+        artifactId: expect.any(String),
+        authorizationId: expect.any(String),
+        routeledgerRootDigest: expect.any(String),
+        operationDigest: expect.any(String)
+      });
+      expect(approveResult.stdoutJson.data).not.toHaveProperty("sessionId");
+      const approvalArtifactId = approveResult.stdoutJson.data.artifactId as string;
       const commitResult = await runCliJsonWithFirstVersion(projectRoot, [
         "l3",
         "commit",
@@ -410,7 +417,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         startProposalId,
         "--approval-artifact-id",
-        startApprove.stdoutJson.data.id
+        startApprove.stdoutJson.data.artifactId
       ]);
       await runCliJsonWithFirstVersion(projectRoot, [
         "version",
@@ -491,7 +498,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         startProposalId,
         "--approval-artifact-id",
-        startApprove.stdoutJson.data.id
+        startApprove.stdoutJson.data.artifactId
       ]);
       await runCliJsonWithFirstVersion(projectRoot, [
         "version",
@@ -531,7 +538,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         closeProposalId,
         "--approval-artifact-id",
-        closeApprove.stdoutJson.data.id
+        closeApprove.stdoutJson.data.artifactId
       ]);
       expect(closeCommit.exitCode).toBe(0);
 
@@ -562,7 +569,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         reopenProposalId,
         "--approval-artifact-id",
-        reopenApprove.stdoutJson.data.id
+        reopenApprove.stdoutJson.data.artifactId
       ]);
       expect(reopenCommit.exitCode).toBe(0);
 
@@ -594,7 +601,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         currentSetProposalId,
         "--approval-artifact-id",
-        currentSetApprove.stdoutJson.data.id
+        currentSetApprove.stdoutJson.data.artifactId
       ]);
       expect(currentSetCommit.exitCode).toBe(0);
     } finally {
@@ -638,7 +645,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         createProposalId,
         "--approval-artifact-id",
-        createApprove.stdoutJson.data.id
+        createApprove.stdoutJson.data.artifactId
       ]);
 
       const insertResult = await runCliJsonWithFirstVersion(projectRoot, [
@@ -671,7 +678,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         insertProposalId,
         "--approval-artifact-id",
-        insertApprove.stdoutJson.data.id
+        insertApprove.stdoutJson.data.artifactId
       ]);
 
       const childResult = await runCliJsonWithFirstVersion(projectRoot, [
@@ -705,7 +712,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         childProposalId,
         "--approval-artifact-id",
-        childApprove.stdoutJson.data.id
+        childApprove.stdoutJson.data.artifactId
       ]);
 
       const reorderResult = await runCliJsonWithFirstVersion(projectRoot, [
@@ -737,7 +744,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         reorderProposalId,
         "--approval-artifact-id",
-        reorderApprove.stdoutJson.data.id
+        reorderApprove.stdoutJson.data.artifactId
       ]);
       expect(reorderCommit.exitCode).toBe(0);
 
@@ -981,7 +988,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         proposeSwitch.stdoutJson.data.pendingOperationId,
         "--approval-artifact-id",
-        approveSwitch.stdoutJson.data.id
+        approveSwitch.stdoutJson.data.artifactId
       ]);
       const dryRunAfterSwitch = await runCliJsonWithFirstVersion(projectRoot, [
         "transition_version",
@@ -1043,7 +1050,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId,
         "--approval-artifact-id",
-        approveStart.stdoutJson.data.id
+        approveStart.stdoutJson.data.artifactId
       ]);
       const completeVersion = await runCliJsonWithFirstVersion(projectRoot, [
         "version",
@@ -1242,7 +1249,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId,
         "--approval-artifact-id",
-        approveStart.stdoutJson.data.id
+        approveStart.stdoutJson.data.artifactId
       ]);
 
       await runCliJsonWithFirstVersion(projectRoot, [
@@ -1293,7 +1300,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         shutdownResult.stdoutJson.data.pendingOperationId,
         "--approval-artifact-id",
-        approveShutdown.stdoutJson.data.id
+        approveShutdown.stdoutJson.data.artifactId
       ]);
       const contextResult = await runCliJsonWithFirstVersion(projectRoot, [
         "context",
@@ -1384,7 +1391,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId,
         "--approval-artifact-id",
-        approveStart.stdoutJson.data.id
+        approveStart.stdoutJson.data.artifactId
       ]);
 
       await runCliJsonWithFirstVersion(projectRoot, [
@@ -1476,7 +1483,7 @@ describe("routeledger cli", () => {
         "--pending-operation-id",
         bareStart.stderrJson.error.details.pendingOperationId,
         "--approval-artifact-id",
-        approveStart.stdoutJson.data.id
+        approveStart.stdoutJson.data.artifactId
       ]);
       await runCliJsonWithFirstVersion(projectRoot, [
         "version",
