@@ -31,6 +31,7 @@ import {
 } from "../workspace-config.js";
 import {
   MemoryL3AuthorizationGrantStore,
+  MemoryExactAuthorizationStore,
   RouteLedgerService
 } from "../../../core/src/index.js";
 import { createTestDependencies } from "../../../core/src/testing/builders.js";
@@ -58,12 +59,21 @@ export type ToolListResult = {
 };
 
 const trustedGrantStores = new Map<string, MemoryL3AuthorizationGrantStore>();
+const trustedExactStores = new Map<string, MemoryExactAuthorizationStore>();
 
 const getTrustedGrantStore = (projectRoot: string): MemoryL3AuthorizationGrantStore => {
   const existing = trustedGrantStores.get(projectRoot);
   if (existing !== undefined) return existing;
   const created = new MemoryL3AuthorizationGrantStore();
   trustedGrantStores.set(projectRoot, created);
+  return created;
+};
+
+const getTrustedExactStore = (projectRoot: string): MemoryExactAuthorizationStore => {
+  const existing = trustedExactStores.get(projectRoot);
+  if (existing !== undefined) return existing;
+  const created = new MemoryExactAuthorizationStore();
+  trustedExactStores.set(projectRoot, created);
   return created;
 };
 
@@ -207,6 +217,7 @@ export const createRegistry = (
     routeledgerRoot: projectRoot,
     l3Authorization: {
       grantStore: getTrustedGrantStore(projectRoot),
+      exactStore: getTrustedExactStore(projectRoot),
       interaction: {
         requestAuthorization: async () => ({
           action: "accept" as const,
@@ -294,6 +305,7 @@ export const createCapturedServer = (
 
 export const cleanupProjectRoot = (projectRoot: string): void => {
   trustedGrantStores.delete(projectRoot);
+  trustedExactStores.delete(projectRoot);
   fs.rmSync(projectRoot, {
     recursive: true,
     force: true,

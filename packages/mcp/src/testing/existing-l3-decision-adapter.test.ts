@@ -4,6 +4,7 @@ import {
   createExactProposalDecisionRequest,
   digestL3AuthorizationProfile,
   MemoryL3AuthorizationGrantStore,
+  MemoryExactAuthorizationStore,
   type L3AuthorizationConsumptionReceipt,
   type L3AuthorizationGrant,
   type L3AuthorizationGrantContext,
@@ -91,6 +92,7 @@ const adapter = (
     proposal,
     authorizationContext: context,
     grantStore: store,
+    exactStore: new MemoryExactAuthorizationStore(),
     interaction: {
       requestAuthorization: async () => {
         throw new Error("interaction must not be used");
@@ -140,7 +142,7 @@ const receiptFor = (
 });
 
 describe("ExistingL3DecisionAdapter", () => {
-  it("resolves a consumed authorization replay before consulting other sources", async () => {
+  it("does not promote a consumed legacy authorization into active exact authority", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     const replayGrant = grant();
     await store.issue(replayGrant);
@@ -152,28 +154,17 @@ describe("ExistingL3DecisionAdapter", () => {
     );
     expect(consumed.ok).toBe(true);
 
-    await expect(adapter(store).resolve(createExactProposalDecisionRequest(proposal))).resolves.toMatchObject({
-      status: "resolved",
-      decision: {
-        proposalId: proposal.id,
-        source: "preauthorized",
-        authorizationGrantId: replayGrant.id
-      }
-    });
+    await expect(adapter(store).resolve(createExactProposalDecisionRequest(proposal)))
+      .rejects.toMatchObject({ code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE" });
   });
 
-  it("resolves a matching finite preauthorization without delegated or interactive fallback", async () => {
+  it("does not execute a matching legacy preauthorization", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     const preauthorized = grant();
     await store.issue(preauthorized);
 
-    await expect(adapter(store).resolve(createExactProposalDecisionRequest(proposal))).resolves.toMatchObject({
-      status: "resolved",
-      decision: {
-        source: "preauthorized",
-        authorizationGrantId: preauthorized.id
-      }
-    });
+    await expect(adapter(store).resolve(createExactProposalDecisionRequest(proposal)))
+      .rejects.toMatchObject({ code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE" });
   });
 
   it("preserves delegated denial details for the compatibility handler", async () => {

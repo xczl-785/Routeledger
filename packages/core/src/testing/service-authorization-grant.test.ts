@@ -87,6 +87,42 @@ const setup = async (
     reason: "start version",
     actor: TEST_ACTOR
   });
+  const issueLegacyFixture = grantStore.issue.bind(grantStore);
+  grantStore.issue = async (grant) => {
+    await issueLegacyFixture(grant);
+    if (
+      grant.operationDigest === null ||
+      grant.allowedActions.length !== 1 ||
+      grant.allowedTargetIds.length !== 1
+    ) return;
+    await exactStore.issue({
+      schemaVersion: 2,
+      authorizationId: grant.id,
+      binding: {
+        proposalId: proposal.id,
+        projectId: grant.projectId,
+        routeledgerRootDigest: grant.routeledgerRootDigest,
+        actionType: grant.allowedActions[0]!,
+        targetId: grant.allowedTargetIds[0]!,
+        operationDigest: grant.operationDigest
+      },
+      source: grant.source,
+      decisionRef: grant.decisionId,
+      issuer: grant.issuer,
+      audience: grant.audience,
+      subjectId: grant.subjectId,
+      policyId: grant.policyId,
+      policyDigest: grant.policyDigest,
+      profileId: grant.profileId ?? null,
+      modeEpoch: grant.modeEpoch ?? null,
+      profileDigest: grant.profileDigest ?? null,
+      hostKind: grant.hostKind,
+      clientId: grant.clientId,
+      sessionId: null,
+      createdAt: grant.createdAt,
+      expiresAt: grant.expiresAt
+    });
+  };
   return { storage, grantStore, exactStore, service, prepared, proposal };
 };
 
@@ -583,12 +619,12 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       decisionRef: "decision-1",
       hostKind: "codex",
       clientId: "codex-client",
-      sessionId: "session-1",
+      sessionId: null,
       approver: { id: "local-user", type: "user" }
     });
     await expect(grantStore.get("grant-1")).resolves.toMatchObject({
-      uses: 1,
-      status: "exhausted"
+      uses: 0,
+      status: "active"
     });
     expect(
       (await storage.loadProjectAggregate(prepared.projectId))?.events.at(-1)?.eventType
@@ -614,8 +650,8 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       })
     ).rejects.toThrow("injected save failure");
     await expect(grantStore.get("grant-1")).resolves.toMatchObject({
-      uses: 1,
-      status: "exhausted"
+      uses: 0,
+      status: "active"
     });
     expect((await storage.loadProjectAggregate(prepared.projectId))?.approvalArtifacts).toEqual([]);
 
@@ -633,7 +669,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     expect((await storage.loadProjectAggregate(prepared.projectId))?.approvalArtifacts).toEqual([
       recovered
     ]);
-    await expect(grantStore.get("grant-1")).resolves.toMatchObject({ uses: 1, status: "exhausted" });
+    await expect(grantStore.get("grant-1")).resolves.toMatchObject({ uses: 0, status: "active" });
   });
 
   it("rejects a grant that does not bind the exact operation digest", async () => {
@@ -654,7 +690,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       })
     ).rejects.toMatchObject({
       code: "AUTHORIZATION_GRANT_REJECTED",
-      details: { reason: "EXACT_SHAPE_REQUIRED" }
+      details: { reason: "AUTHORIZATION_BINDING_MISMATCH" }
     });
   });
 

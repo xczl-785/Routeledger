@@ -85,10 +85,7 @@ import {
   isSelfReferentialUndoForVersion
 } from "./version-closeout-query.js";
 import type { VersionCloseoutSummary } from "./version-closeout-query.js";
-import type {
-  L3AuthorizationGrantStore,
-  L3AuthorizationReceiptBinding
-} from "./l3-authorization-grant.js";
+import type { L3AuthorizationGrantStore } from "./l3-authorization-grant.js";
 import {
   buildBalancedL3AuthorizationPolicy,
   type L3AuthorizationEvaluationContext,
@@ -169,37 +166,6 @@ const buildAuthorizationCommitClaimId = (
     .update(`${artifact.id}\0${pendingOperation.id}\0${pendingOperation.digest.value}`, "utf8")
     .digest("hex")}`;
 
-const buildLegacyAuthorizationReceiptBinding = (
-  artifact: ApprovalArtifact,
-  authorization: NonNullable<RouteLedgerServiceOptions["l3Authorization"]>
-): L3AuthorizationReceiptBinding => ({
-  approvalArtifactId: artifact.id,
-  pendingOperationId: artifact.pendingOperationId,
-  grantId: artifact.authorizationGrantId ?? "",
-  audience: authorization.audience,
-  subjectId: authorization.subjectId,
-  projectId: artifact.projectId,
-  routeledgerRootDigest: authorization.routeledgerRootDigest,
-  profileId: artifact.profileId,
-  modeEpoch: artifact.modeEpoch,
-  profileDigest: artifact.profileDigest,
-  actionType: artifact.actionType,
-  targetId: artifact.targetId,
-  operationDigest: artifact.digest.value,
-  approvalSource: artifact.approvalSource,
-  decisionRef: artifact.decisionRef,
-  approverId: artifact.approver.id,
-  approverType: artifact.approver.type,
-  approverDisplayName: artifact.approver.displayName,
-  policyId: artifact.policyId,
-  policyDigest: artifact.policyDigest,
-  hostKind: artifact.hostKind,
-  clientId: artifact.clientId,
-  sessionId: artifact.sessionId,
-  createdAt: artifact.createdAt,
-  expiresAt: artifact.expiresAt
-});
-
 const buildExactAuthorizationBinding = (
   pendingOperation: PendingOperation,
   routeledgerRootDigest: string
@@ -211,60 +177,6 @@ const buildExactAuthorizationBinding = (
   targetId: pendingOperation.targetId,
   operationDigest: pendingOperation.digest.value
 });
-
-const exactCandidateFromLegacyGrant = (
-  grant: Awaited<ReturnType<L3AuthorizationGrantStore["get"]>>,
-  binding: ExactAuthorizationBinding
-): ExactAuthorizationCandidate | null => {
-  if (
-    grant === null ||
-    grant.projectId !== binding.projectId ||
-    grant.routeledgerRootDigest !== binding.routeledgerRootDigest ||
-    grant.allowedActions.length !== 1 ||
-    grant.allowedActions[0] !== binding.actionType ||
-    grant.allowedTargetIds.length !== 1 ||
-    grant.allowedTargetIds[0] !== binding.targetId ||
-    grant.operationDigest !== binding.operationDigest ||
-    grant.scope !== "operation" ||
-    grant.maxUses !== 1 ||
-    grant.uses !== 0 ||
-    grant.status !== "active" ||
-    grant.revokedAt !== null
-  ) {
-    return null;
-  }
-  return {
-    schemaVersion: 2,
-    authorizationId: grant.id,
-    binding,
-    source: grant.source,
-    decisionRef: grant.decisionId,
-    issuer: grant.issuer,
-    audience: grant.audience,
-    subjectId: grant.subjectId,
-    policyId: grant.policyId,
-    policyDigest: grant.policyDigest,
-    profileId: grant.profileId ?? null,
-    modeEpoch: grant.modeEpoch ?? null,
-    profileDigest: grant.profileDigest ?? null,
-    hostKind: grant.hostKind,
-    clientId: grant.clientId,
-    sessionId: grant.sessionId,
-    createdAt: grant.createdAt,
-    expiresAt: grant.expiresAt
-  };
-};
-
-const exactCandidateFromConsumedLegacyGrant = (
-  grant: Awaited<ReturnType<L3AuthorizationGrantStore["get"]>>,
-  binding: ExactAuthorizationBinding
-): ExactAuthorizationCandidate | null => {
-  if (grant === null || grant.status !== "exhausted" || grant.uses !== 1) return null;
-  return exactCandidateFromLegacyGrant(
-    { ...grant, status: "active", uses: 0 },
-    binding
-  );
-};
 
 const buildExactReceiptBinding = (
   candidate: ExactAuthorizationCandidate,
@@ -3328,29 +3240,8 @@ export class RouteLedgerService {
       pendingOperation,
       this.l3Authorization!.routeledgerRootDigest
     );
-    let candidate = await this.exactAuthorizationStore.get(artifact.authorizationGrantId);
-    if (candidate === null) {
-      const legacyGrant = await this.l3Authorization!.grantStore.get(
-        artifact.authorizationGrantId
-      );
-      candidate = exactCandidateFromConsumedLegacyGrant(legacyGrant, expected);
-      if (
-        candidate === null ||
-        !(await this.l3Authorization!.grantStore.verifyConsumptionReceipt(
-          buildLegacyAuthorizationReceiptBinding(artifact, this.l3Authorization!)
-        ))
-      ) {
-        return null;
-      }
-      await this.exactAuthorizationStore.issue(candidate);
-      const restored = await this.exactAuthorizationStore.consumeAndRecordReceipt({
-        authorizationId: candidate.authorizationId,
-        artifactId: artifact.id,
-        binding: expected,
-        now: artifact.createdAt
-      });
-      if (!restored.ok) return null;
-    }
+    const candidate = await this.exactAuthorizationStore.get(artifact.authorizationGrantId);
+    if (candidate === null) return null;
     if (
       candidate.binding.proposalId !== expected.proposalId ||
       candidate.binding.projectId !== expected.projectId ||
@@ -4577,100 +4468,20 @@ export class RouteLedgerService {
     }
 
     const now = this.deps.clock.now();
-    const legacyAuthorizationContext = {
-      audience: authorization.audience,
-      subjectId: authorization.subjectId,
-      projectId: binding.projectId,
-      routeledgerRootDigest: binding.routeledgerRootDigest,
-      ...(authorization.profileId === undefined ? {} : { profileId: authorization.profileId }),
-      ...(authorization.modeEpoch === undefined ? {} : { modeEpoch: authorization.modeEpoch }),
-      ...(authorization.profileDigest === undefined ? {} : { profileDigest: authorization.profileDigest }),
-      actionType: binding.actionType,
-      targetId: binding.targetId,
-      operationDigest: binding.operationDigest,
-      now,
-      hostKind: authorization.hostKind,
-      ...(authorization.clientId === undefined ? {} : { clientId: authorization.clientId }),
-      ...(authorization.sessionId === undefined ? {} : { sessionId: authorization.sessionId })
-    };
-    const registered = await exactStore.get(input.grantId);
-    let exactCandidate = registered;
-    let legacyReplayArtifactId: string | null = null;
+    const exactCandidate = await exactStore.get(input.grantId);
     if (exactCandidate === null) {
-      const grant = await authorization.grantStore.get(input.grantId);
-      exactCandidate = exactCandidateFromLegacyGrant(grant, binding);
-      if (exactCandidate === null) {
-        const legacyReplay = await authorization.grantStore.findConsumedAuthorization(
-          legacyAuthorizationContext,
-          binding.proposalId
-        );
-        exactCandidate = exactCandidateFromConsumedLegacyGrant(legacyReplay?.grant ?? null, binding);
-        legacyReplayArtifactId = legacyReplay?.receipt.approvalArtifactId ?? null;
-      }
-      if (exactCandidate === null) {
-        throw new ApplicationError(
-          "AUTHORIZATION_GRANT_REJECTED",
-          "Legacy authorization input is not one exact, unused authorization",
-          {
-            pendingOperationId: pendingOperation.id,
-            grantId: input.grantId,
-            reason: "EXACT_SHAPE_REQUIRED"
-          }
-        );
-      }
-      await exactStore.issue(exactCandidate);
+      throw new ApplicationError(
+        "AUTHORIZATION_GRANT_REJECTED",
+        "No trusted exact authorization is registered for this proposal",
+        {
+          pendingOperationId: pendingOperation.id,
+          grantId: input.grantId,
+          reason: "EXACT_AUTHORIZATION_REQUIRED"
+        }
+      );
     }
     const existingReceipt = await exactStore.getReceipt(input.grantId);
-    const artifactId =
-      existingReceipt?.artifactId ?? legacyReplayArtifactId ?? this.deps.idGenerator.nextId();
-    if (registered === null && legacyReplayArtifactId === null) {
-      const approver = approverForExactAuthorization(exactCandidate);
-      const legacyConsumed = await authorization.grantStore.consumeAndRecordReceipt(
-        input.grantId,
-        legacyAuthorizationContext,
-        binding.proposalId,
-        ({ consumedUse }) => ({
-          approvalArtifactId: artifactId,
-          pendingOperationId: binding.proposalId,
-          grantId: exactCandidate.authorizationId,
-          audience: exactCandidate.audience,
-          subjectId: exactCandidate.subjectId,
-          projectId: binding.projectId,
-          routeledgerRootDigest: binding.routeledgerRootDigest,
-          ...(exactCandidate.profileId === null ? {} : { profileId: exactCandidate.profileId }),
-          ...(exactCandidate.modeEpoch === null ? {} : { modeEpoch: exactCandidate.modeEpoch }),
-          ...(exactCandidate.profileDigest === null ? {} : { profileDigest: exactCandidate.profileDigest }),
-          actionType: binding.actionType,
-          targetId: binding.targetId,
-          operationDigest: binding.operationDigest,
-          approvalSource: exactCandidate.source,
-          decisionRef: exactCandidate.decisionRef,
-          approverId: approver.id,
-          approverType: approver.type,
-          approverDisplayName: approver.displayName,
-          policyId: exactCandidate.policyId,
-          policyDigest: exactCandidate.policyDigest,
-          hostKind: exactCandidate.hostKind,
-          clientId: exactCandidate.clientId,
-          sessionId: exactCandidate.sessionId,
-          createdAt: exactCandidate.createdAt,
-          expiresAt: exactCandidate.expiresAt,
-          consumedUse,
-          status: "authorized",
-          commitClaimId: null,
-          commitClaimedAt: null,
-          committedAt: null,
-          revokedAt: null
-        })
-      );
-      if (!legacyConsumed.ok) {
-        throw new ApplicationError(
-          "AUTHORIZATION_GRANT_REJECTED",
-          "The compatibility authority container could not consume the exact input",
-          { pendingOperationId: pendingOperation.id, grantId: input.grantId, reason: legacyConsumed.code }
-        );
-      }
-    }
+    const artifactId = existingReceipt?.artifactId ?? this.deps.idGenerator.nextId();
     const consumed = await exactStore.consumeAndRecordReceipt({
       authorizationId: input.grantId,
       artifactId,

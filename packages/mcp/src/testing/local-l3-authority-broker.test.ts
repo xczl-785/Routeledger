@@ -122,8 +122,8 @@ describe("local L3 authority broker", () => {
       status: "active",
       revokedAt: null
     };
-    await boundA!.grantStore.issue(grant);
-    await expect(boundA!.grantStore.get(grant.id)).resolves.toMatchObject({ projectId: "project-a" });
+    await expect(boundA!.grantStore.issue(grant)).rejects.toThrow("audit-only");
+    await expect(boundA!.grantStore.get(grant.id)).resolves.toBeNull();
     await expect(boundB!.grantStore.get(grant.id)).resolves.toBeNull();
   });
 
@@ -225,32 +225,22 @@ describe("local L3 authority broker", () => {
     ).rejects.toThrow("explicit non-wildcard");
     expect(decisions).toHaveLength(0);
 
-    const grant = await broker.issuePreauthorization({
-      binding: bindingRequest,
-      scope: "session",
-      allowedActions: ["start_version"],
-      allowedTargetIds: ["version-2"],
-      ttlSeconds: 60,
-      maxUses: 1,
-      sessionId: "session-1"
-    });
+    await expect(broker.issuePreauthorization({
+        binding: bindingRequest,
+        scope: "session",
+        allowedActions: ["start_version"],
+        allowedTargetIds: ["version-2"],
+        ttlSeconds: 60,
+        maxUses: 1,
+        sessionId: "session-1"
+      })).rejects.toThrow("evaluated per proposal");
     expect(decisions).toHaveLength(1);
-    expect(grant).toMatchObject({
-      source: "preauthorized",
-      profileId: profile.profileId,
-      modeEpoch: 1,
-      decisionId: "host-decision-1",
-      scope: "session",
-      maxUses: 1,
-      sessionId: "session-1"
-    });
 
     const revoked = await broker.revokeAccess({
       binding: bindingRequest,
       expectedProfileRevision: 1
     });
     expect(revoked.profile).toMatchObject({ status: "disabled", modeEpoch: 2, profileRevision: 2 });
-    await expect(revoked.grantStore.get(grant.id)).resolves.toMatchObject({ status: "revoked" });
     await expect(
       broker.revokeAccess({ binding: bindingRequest, expectedProfileRevision: 1 })
     ).rejects.toThrow("revision conflict");
