@@ -229,7 +229,7 @@ export interface ApprovalArtifact {
   consumedAt: string | null;
   /** Absent only on legacy artifacts created before the trusted authorization control plane. */
   authorizationGrantId?: string;
-  approvalSource?: "user_interaction" | "delegated_policy" | "preauthorized";
+  approvalSource?: "user_interaction" | "delegated_policy" | "preauthorized" | "host_admission";
   policyId?: string | null;
   policyDigest?: string | null;
   profileId?: string;

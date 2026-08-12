@@ -411,7 +411,7 @@ interface JsonApprovalArtifact {
   expires_at: string;
   consumed_at: string | null;
   authorization_grant_id?: string;
-  approval_source?: "user_interaction" | "delegated_policy" | "preauthorized";
+  approval_source?: "user_interaction" | "delegated_policy" | "preauthorized" | "host_admission";
   policy_id?: string | null;
   policy_digest?: string | null;
   profile_id?: string;

@@ -444,7 +444,7 @@ describe("@routeledger/json canonical codec", () => {
         id: "approval-trusted-1",
         decisionRef: "decision-trusted-1",
         authorizationGrantId: "grant-1",
-        approvalSource: "user_interaction",
+        approvalSource: "host_admission",
         policyId: null,
         policyDigest: null,
         profileId: "profile-1",
@@ -463,7 +463,7 @@ describe("@routeledger/json canonical codec", () => {
     expect(decoded.approvalArtifacts[0]).not.toHaveProperty("authorizationGrantId");
     expect(decoded.approvalArtifacts[1]).toMatchObject({
       authorizationGrantId: "grant-1",
-      approvalSource: "user_interaction",
+      approvalSource: "host_admission",
       policyId: null,
       policyDigest: null,
       profileId: "profile-1",

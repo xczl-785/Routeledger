@@ -20,9 +20,11 @@ The plugin starts its bundled runtime relative to the plugin root:
 node ./runtime/bin.js --profile codex --sqlite-read-model disabled
 ```
 
-The plugin manifest explicitly forwards `CODEX_PERMISSION_PROFILE` into that
-STDIO runtime. Codex otherwise filters the child-process environment, which
-would leave the L3 permission adapter unable to resolve the active mode.
+The plugin manifest may forward `CODEX_PERMISSION_PROFILE` into that STDIO
+runtime when the host exposes it, but the field is diagnostic only. Codex
+enforces the active task permission before a high-risk RouteLedger tool call
+reaches the server; RouteLedger converts arrival of that admitted call into an
+exact, single-use authorization capability.
 
 It receives the managed workspace through MCP Roots. Installing the plugin
 does not bind it to the repository that supplied it. Some Codex clients do not
@@ -30,16 +32,16 @@ send Roots/rootUri; in that case `process cwd` may be the plugin cache and is
 not a project identity. Call `activate_routeledger_binding` with the host
 project's absolute `workspaceRoot` (and optional in-workspace
 `routeledgerRoot`) through the host's available approval workflow. The
-activation is scoped to the running MCP session. Approval metadata remains a
-host hint, while L3 approval itself uses MCP structured elicitation or a
-trusted host-injected grant and fails closed when neither is available. The
-canonical artifact is not authority by itself; commit also requires its
-matching host-owned consumption receipt. The default in-process store requires
+activation is scoped to the running MCP session. On Codex, high-risk tool
+admission is the authorization boundary; profile environment values and client
+metadata cannot create admission. Generic MCP hosts use structured elicitation
+or a trusted host-injected grant and fail closed when neither is available.
+The canonical artifact is not authority by itself; commit also requires its
+matching consumption receipt. The default in-process store requires
 reauthorization after an MCP process restart; continuity requires persistent
 trusted storage outside Agent write scope. The
-0.5.0 plugin does not yet claim a complete three-tier normal Agent-turn
-approval experience; its Codex evidence covers the authorization kernel and
-native elicitation transport.
+0.7.2 candidate still requires a merged-main Desktop acceptance before its
+Codex-native admission claim is released.
 Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.

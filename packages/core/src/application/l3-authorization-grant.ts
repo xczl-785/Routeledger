@@ -7,7 +7,8 @@ export type L3AuthorizationGrantStatus = "active" | "revoked" | "exhausted";
 export type L3AuthorizationGrantSource =
   | "user_interaction"
   | "delegated_policy"
-  | "preauthorized";
+  | "preauthorized"
+  | "host_admission";
 
 export interface L3AuthorizationGrant {
   id: string;

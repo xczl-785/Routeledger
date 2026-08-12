@@ -88,11 +88,13 @@ import {
   ExistingL3DecisionAdapter,
   requireResolvedExistingL3Decision
 } from "./existing-l3-decision-adapter.js";
+import { CodexL3DecisionAdapter } from "./codex-l3-decision-adapter.js";
 
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
 export * from "./local-l3-authority-broker.js";
 export * from "./existing-l3-decision-adapter.js";
+export * from "./codex-l3-decision-adapter.js";
 export * from "./mcp-decision-input.js";
 export * from "./mcp-request-state.js";
 
@@ -905,7 +907,7 @@ const createInstructions = (options: {
     "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
     "L3 route changes are proposal-based: execute_l3_operation performs the proposal, decision, artifact, and commit chain with an idempotency key; the low-level propose, approve, reject, and commit tools remain available. Project files are never authorization authority.",
     "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
-    "High-risk tools are shutdown_version, execute_l3_operation, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; L3 decision tools fail closed without a trusted host authority, preauthorization, or elicitation.",
+    "High-risk tools are shutdown_version, execute_l3_operation, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; Codex gates high-risk calls before RouteLedger issues an exact single-use capability, while generic MCP hosts require trusted authority, preauthorization, or elicitation.",
     `Current host profile: ${hostLabel}. Default actor: ${actorLabel}. Default approver: ${approverLabel}.`
   ].join(" ");
 };
@@ -1413,35 +1415,12 @@ export const createRouteLedgerMcpRegistry = (
     // let a stale injected identity misreport it after a direct registry call.
     runtimeProfile
   };
-  const codexPermissionRecoveryActions =
-    hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable"
-      ? [
-          {
-            action: "update_plugin",
-            instruction: `Install or upgrade RouteLedger to plugin ${runtimeIdentity.pluginVersion ?? "the current marketplace version"}.`,
-            expectedRuntime: {
-              pluginVersion: runtimeIdentity.pluginVersion,
-              runtimePayloadDigest: runtimeIdentity.runtimePayloadDigest
-            }
-          },
-          {
-            action: "restart_codex_desktop",
-            instruction:
-              "Quit and reopen Codex Desktop so the RouteLedger MCP process is recreated from the updated plugin manifest."
-          },
-          {
-            action: "verify_permission_context",
-            instruction:
-              "In a new task, call get_runtime_context and then get_l3_authorization_status with detail=summary.",
-            tool: "get_l3_authorization_status",
-            toolInput: { detail: "summary" },
-            expected: {
-              controlPlane: "codex_permission_adapter_v2",
-              effectiveModeStatus: "resolved"
-            }
-          }
-        ]
-      : [];
+  const usesCodexNativeToolAdmission =
+    hostProfile === "codex" &&
+    options.hostPermissionContext !== undefined &&
+    options.l3AuthorityCandidateIdentity === undefined &&
+    options.l3Authorization?.profile === undefined &&
+    options.l3Authorization?.delegatedAuthority === undefined;
   const serverInfo = createServerInfo(runtimeIdentity);
   const instructions = createInstructions({
     hostProfile,
@@ -1469,14 +1448,7 @@ export const createRouteLedgerMcpRegistry = (
     string,
     { fingerprint: string; proposalId: Promise<string>; inFlight?: Promise<ToolResponse> }
   >();
-  const createExistingL3DecisionAdapter = (proposal: Readonly<PendingOperation>) => {
-    if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
-      throw new ApplicationError(
-        "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-        options.hostPermissionContext.reason,
-        { reason: options.hostPermissionContext.code, pendingOperationId: proposal.id }
-      );
-    }
+  const createL3DecisionAdapter = (proposal: Readonly<PendingOperation>) => {
     if (options.l3Authorization === undefined) {
       throw new ApplicationError(
         "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
@@ -1533,6 +1505,14 @@ export const createRouteLedgerMcpRegistry = (
         : { clientId: l3Authorization.trustedClientId }),
       sessionId: l3Authorization.sessionId
     };
+
+    if (usesCodexNativeToolAdmission) {
+      return new CodexL3DecisionAdapter({
+        authorizationContext,
+        grantStore: l3Authorization.grantStore,
+        sessionId: l3Authorization.sessionId
+      });
+    }
 
     return new ExistingL3DecisionAdapter({
       proposal,
@@ -1604,7 +1584,7 @@ export const createRouteLedgerMcpRegistry = (
 
     const result = await orchestrateL3Operation({
       proposal,
-      adapter: createExistingL3DecisionAdapter(proposal),
+      adapter: createL3DecisionAdapter(proposal),
       port: {
         authorize: async (_proposal, decision) => {
           if (decision.authorizationGrantId === undefined) {
@@ -1916,18 +1896,31 @@ export const createRouteLedgerMcpRegistry = (
                 fallbackUsed: options.hostPermissionContext.fallbackUsed,
                 profileCompatible
               }
-            : options.hostPermissionContext ?? null;
+            : usesCodexNativeToolAdmission
+              ? {
+                  status: "host_managed",
+                  mode: null,
+                  source: "codex_native_tool_admission",
+                  codexPermissionProfile: null,
+                  fallbackUsed: false,
+                  profileCompatible,
+                  reason:
+                    "Codex enforces the active task permission before this high-risk tool call reaches RouteLedger."
+                }
+              : options.hostPermissionContext ?? null;
         const compatibilityBackend =
           options.l3AuthorityCandidateIdentity !== undefined || profile !== undefined
             ? "host_authority_broker_v2"
-            : options.l3Authorization === undefined
+            : usesCodexNativeToolAdmission
+              ? "exact_grant_receipt"
+              : options.l3Authorization === undefined
               ? "unavailable"
               : "v1_compatibility";
         const controlPlane =
           options.l3AuthorityCandidateIdentity !== undefined || profile !== undefined
             ? "host_authority_broker_v2"
-            : hostProfile === "codex" && options.hostPermissionContext?.status === "resolved"
-              ? "codex_permission_adapter_v2"
+            : usesCodexNativeToolAdmission
+              ? "codex_native_tool_admission_v2"
               : compatibilityBackend;
         return {
           ok: true,
@@ -1940,7 +1933,7 @@ export const createRouteLedgerMcpRegistry = (
                   profileCompatible,
                   effectiveMode,
                   management: "host_only",
-                  recommendedNextActions: codexPermissionRecoveryActions
+                  recommendedNextActions: []
                 }
               : {
                   controlPlane: "host_authority_broker_v2",
@@ -3839,16 +3832,6 @@ export const createRouteLedgerMcpRegistry = (
             }
           );
         }
-        if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
-          throw new ApplicationError(
-            "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-            options.hostPermissionContext.reason,
-            {
-              reason: options.hostPermissionContext.code,
-              recommendedNextActions: codexPermissionRecoveryActions
-            }
-          );
-        }
         if (
           hostProfile === "codex" &&
           options.hostPermissionContext?.status === "resolved" &&
@@ -3934,9 +3917,9 @@ export const createRouteLedgerMcpRegistry = (
     defineTool(
       "approve_l3_operation",
       {
-        what: "Request trusted host authorization for an L3 proposal.",
+        what: "Authorize one pending L3 proposal.",
         parameter: "pendingOperationId",
-        warning: "the MCP client must support structured elicitation"
+        warning: "Codex gates this call; other hosts need trusted authority"
       },
       objectSchema(
         {
@@ -3954,7 +3937,7 @@ export const createRouteLedgerMcpRegistry = (
       },
       async (input) => {
         const proposal = await service.getL3Proposal(input.projectId, input.pendingOperationId);
-        const adapter = createExistingL3DecisionAdapter(proposal);
+        const adapter = createL3DecisionAdapter(proposal);
         const decision = requireResolvedExistingL3Decision(
           await adapter.resolve(createExactProposalDecisionRequest(proposal))
         );

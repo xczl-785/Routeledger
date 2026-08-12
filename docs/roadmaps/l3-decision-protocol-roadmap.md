@@ -84,9 +84,9 @@ state.
 | L3-D1 | Host-neutral decision contract and compatible logical phase projection | `complete` | Product definition accepted; source baseline clean | Public contract tests, legal/illegal transition matrix, existing L3 regression green, no canonical schema migration | No Codex fields in core; no orchestration or adapter implementation |
 | L3-D2 | Existing replay, preauthorized, delegated, and interactive paths behind one adapter boundary | `complete` | D1 contract frozen and closed | Four paths and negative matrices remain behavior-equivalent | Keep low-level tools and finite-capability checks |
 | L3-D3 | One external call completes automatic decisions or returns recoverable input-required state | `complete` | D2 compatibility boundary closed | No double-consume/commit across retry, duplicate, disconnect, and recovery | Host mode discovery remains D4/D5 |
-| L3-D4 | Codex adapter proves three user-facing behaviors in a real Desktop session | `in_progress` | D3 orchestrator closed; fresh host available | Equivalent canonical mutations/audit across modes; explicit fallback when mode is unavailable | 0.7.1 supersedes indistinguishable 0.7.0 candidate; do not infer conversation mode or place Codex fields in core |
+| L3-D4 | Codex adapter proves native high-risk tool admission in a real Desktop session | `in_progress` | D3 orchestrator closed; fresh host available | Exact grant/artifact/receipt semantics with or without profile environment forwarding | 0.7.2 supersedes 0.7.1; Codex owns admission, RouteLedger owns exact authorization and commit correctness |
 | L3-D5 | Generic MCP 2025/2026 adapter and non-Codex conformance | `complete` | D3 stable API and D4 host/core boundary | Equivalent proposal outcomes; tamper/disconnect/timeout/retry/crash matrix | Local single-user only; no Codex assumptions |
-| L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `in_progress` | D4 implementation boundary and D5 accepted; Desktop acceptance intentionally runs from main | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | 0.7.1 is the traceable candidate; tag only after main acceptance |
+| L3-D6 | Compatibility cleanup, recovery matrix, full regression, and release candidate | `in_progress` | D4 implementation boundary and D5 accepted; Desktop acceptance intentionally runs from main | Full tests/typecheck/lint/package/plugin/host smokes and independent RC audit | 0.7.2 is the traceable candidate; tag only after main acceptance |
 
 ## 6. L3-D1 contract gate
 
@@ -208,30 +208,24 @@ does not claim persistence beyond the live registry process.
 
 ## 10. L3-D4 capability probe and contract
 
-Codex 0.147.0 exposes the active Desktop permission profile to child runtimes through
-`CODEX_PERMISSION_PROFILE` only when the STDIO server configuration explicitly forwards that
-variable. A live app-server `permissionProfile/list` probe returned the three built-in profiles
-`:read-only`, `:workspace`, and `:danger-full-access`; a post-merge Desktop acceptance run found
-that the plugin manifest had omitted the forwarding declaration. The 0.7.0 repair adds
-`env_vars = ["CODEX_PERMISSION_PROFILE"]` to the bundled MCP manifest and treats the live plugin
-process, rather than an Agent shell child, as the acceptance surface.
+The initial D4 design treated `CODEX_PERMISSION_PROFILE` forwarding as an authorization
+prerequisite. Version 0.7.1 made the repaired bytes traceable, but Windows Desktop then loaded the
+correct 0.7.1 version and digest without providing that environment field. The control plane still
+reported unavailable and `approve_l3_operation` failed before any host authorization UI. This
+proved that environment forwarding is not a dependable cross-platform authority boundary.
 
-The Codex adapter maps those profiles to `interactive`, `delegated`, and `preauthorized`
-respectively. If the field is absent or unknown, only an explicit `ROUTELEDGER_CODEX_L3_MODE`
-plugin configuration may select a mode; without it the adapter reports unavailable and fails
-closed. Codex-specific profile identifiers remain outside core.
-
-The first repair incorrectly retained version 0.7.0 after distribution bytes changed. Windows
-Desktop then demonstrated that an installed/running older 0.7.0 MCP could survive the marketplace
-update while presenting the same version identity. Candidate 0.7.1 makes the update distinguishable,
-adds explicit recovery actions, and changes the release guard so changed same-version bytes are
-rejected even before a tag exists.
+Version 0.7.2 moves the boundary to Codex's native high-risk tool admission. Codex decides whether
+the active task may invoke `approve_l3_operation` or `execute_l3_operation`; only an admitted call
+reaches RouteLedger. RouteLedger then issues an exact operation-scoped, session-bound, single-use
+`host_admission` capability and preserves proposal digest binding, consumption receipt verification,
+live gate validation, and atomic commit. A forwarded profile remains optional diagnostic context.
+Generic MCP delegated, preauthorized, and elicitation paths are unchanged.
 
 | Checkpoint | Status | Evidence | Impact |
 | --- | --- | --- | --- |
-| D4 live capability probe | `rework_pending_desktop_retest` | Source and fresh native host prove forwarding, while Windows reported old 0.7.0 digest `412a…` after a same-version update | Install 0.7.1, restart Desktop, and verify its exact identity before closing D4 |
-| D4 provider gate | `passed` | Five provider tests cover all built-ins, explicit fallback, missing context, unknown profile, and invalid fallback; MCP regression proves unavailable context stops before proposal creation | No mode guessing or orphan proposal on unavailable host context |
-| D4 integration regression | `passed` | 55 test files / 597 tests; 6 JSONL client tests; full typecheck, lint, and `git diff --check` | Candidate is ready for packaging and fresh-host behavior validation |
+| D4 live capability probe | `rework_implemented_pending_desktop_retest` | Windows proved true 0.7.1 identity plus absent profile context; 0.7.2 no longer depends on that context | Test exact 0.7.2 identity and native prompt/admission behavior on merged main |
+| D4 provider gate | `passed_after_rework` | Adapter test proves exact action/target/digest/session binding and single consumption | Host admission cannot widen into a reusable RouteLedger capability |
+| D4 integration regression | `passed_after_rework` | Missing-profile tests complete both explicit propose/approve/commit and one-call execution; status has no false update/restart actions | Windows failure path is covered without weakening proposal/artifact/receipt semantics |
 | D4 Desktop three-mode acceptance | `pending_on_main` | User selected merged `main` as the only final test surface; no local candidate install | D4 remains `in_progress`; its frozen host/core boundary allowed independent D5 work to close |
 
 ## 11. L3-D5 generic MCP contract and evidence
@@ -260,8 +254,8 @@ organizations, cross-device state, and multi-user policy remain outside this rou
 ## 12. L3-D6 release-candidate gate
 
 Cleanup and compatibility work is resolved in
-`docs/release/0.7.1-release-candidate-audit.md`. The generated plugin is 0.7.1 and the complete
-source/distribution gate is green. Default status output hides profile bookkeeping; the new
+`docs/release/0.7.2-release-candidate-audit.md`. The generated plugin is 0.7.2 and its complete
+local source/distribution gate is green after the native-admission repair. Default status output hides profile bookkeeping; the new
 high-level API returns `decisionArtifact`; legacy persistence, readers, low-level tools, V1/V2
 authority, grants, receipts, and replay remain intact.
 
@@ -269,7 +263,7 @@ authority, grants, receipts, and replay remain intact.
 | --- | --- | --- | --- |
 | D6 cleanup gate | `passed` | Decision artifact projection, summary-first status, explicit internal diagnostics, no canonical schema migration | Product semantics are simpler without deleting migration evidence |
 | D6 recovery gate | `passed` | Duplicate/retry/restart/tamper/expiry/revoke/concurrency/receipt and legacy matrices reconciled in the RC audit | No unresolved compatibility blocker found |
-| D6 source/distribution gate | `passed` | 57 files / 604 tests, 6 JSONL tests, typecheck, lint, two-profile MCP package smoke, plugin and Git marketplace smokes, previous-0.6.0 release check | Candidate may enter protected-branch PR |
+| D6 source/distribution gate | `passed_after_rework` | 58 files / 608 tests, 6 JSONL tests, typecheck, lint, two-profile MCP package smoke, plugin and Git marketplace smokes, and 0.7.2 replay check against origin/main | Candidate may enter protected-branch PR |
 | D6 native host and Desktop gate | `pending_on_main` | User selected merged `main` as the only final test surface | D6 remains `in_progress`; no tag before this gate passes |
 
 ## 13. Deferred and decision log
@@ -278,7 +272,7 @@ authority, grants, receipts, and replay remain intact.
 | --- | --- | --- | --- | --- |
 | L3-DEF-001 | Restore RouteLedger MCP lifecycle tracking | Current task tool snapshot lacks installed RouteLedger tools | A fresh or reloaded host exposes `get_runtime_context` | Reconcile roadmap state through MCP; retain truthful historical events |
 | L3-DEF-002 | Decide whether intermediate logical phases should be persisted | D1 intentionally uses compatibility projection | Projection is stable and D3 recovery requirements are measured | Activate a later migration only with schema/rollback proof, otherwise retain projection |
-| L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Current support remains unknown | D4 fresh-host capability probe | Dynamic mapping if supported; explicit plugin fallback otherwise |
+| L3-DEF-003 | Determine Codex effective conversation-mode runtime field | Resolved: it is not required authority for L3 | Closed by the 0.7.1 Windows evidence and 0.7.2 host-admission design | Retain forwarded profile only as optional diagnostics; do not gate L3 execution on it |
 | L3-DEF-004 | Run three-mode Codex Desktop acceptance from merged main | User selected main as the only final test surface; no local candidate install | After D6 candidate merges through protected-branch CI | Test all three fresh task modes before creating the immutable release tag |
 
 ## 14. Update discipline
