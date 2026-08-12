@@ -985,7 +985,8 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
             artifact.authorizationGrantId.length > 0 &&
             (artifact.approvalSource === "user_interaction" ||
                 artifact.approvalSource === "delegated_policy" ||
-                artifact.approvalSource === "preauthorized") &&
+                artifact.approvalSource === "preauthorized" ||
+                artifact.approvalSource === "host_admission") &&
             typeof artifact.hostKind === "string" &&
             artifact.hostKind.length > 0 &&
             artifact.policyId !== undefined &&

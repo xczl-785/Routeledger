@@ -1,7 +1,7 @@
 {
   "name": "routeledger",
-  "version": "0.7.1",
-  "description": "Low-friction L3 route decisions with Codex permission mapping and MCP 2025/2026 compatibility.",
+  "version": "0.7.2",
+  "description": "Codex-native L3 tool admission with exact RouteLedger grants and MCP 2025/2026 compatibility.",
   "author": {
     "name": "RouteLedger"
   },
@@ -16,7 +16,7 @@
     "capabilities": [
       "Read RouteLedger context",
       "Write RouteLedger canonical JSON through MCP",
-      "Authorize L3 route changes through interactive, delegated, or finite preauthorized profiles",
+      "Authorize L3 route changes through Codex-native tool admission or compatible external authorities",
       "Execute an exact L3 route change through one idempotent decision call"
     ],
     "defaultPrompt": [

@@ -180,7 +180,7 @@ describe("execute_l3_operation", () => {
     }
   });
 
-  it("fails before proposal creation when Codex permission context is unavailable", async () => {
+  it("uses Codex native tool admission when the permission-profile environment is unavailable", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot, {
       hostProfile: "codex",
@@ -201,25 +201,17 @@ describe("execute_l3_operation", () => {
         projectId,
         actionType: "start_version",
         targetId: versionId,
-        reason: "Must not guess",
+        reason: "The Codex host admitted this high-risk tool call",
         idempotencyKey: "unavailable"
       });
 
       expect(response).toMatchObject({
-        ok: false,
-        error: {
-          code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-          details: {
-            reason: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE",
-            recommendedNextActions: [
-              { action: "update_plugin" },
-              { action: "restart_codex_desktop" },
-              {
-                action: "verify_permission_context",
-                tool: "get_l3_authorization_status",
-                toolInput: { detail: "summary" }
-              }
-            ]
+        ok: true,
+        data: {
+          status: "committed",
+          decisionArtifact: {
+            source: "host_admission",
+            operationDigest: expect.any(String)
           }
         }
       });
@@ -227,16 +219,81 @@ describe("execute_l3_operation", () => {
       expect(status).toMatchObject({
         ok: true,
         data: {
+          controlPlane: "codex_native_tool_admission_v2",
+          authorizationBackend: "exact_grant_receipt",
           profileCompatible: null,
-          recommendedNextActions: [
-            { action: "update_plugin" },
-            { action: "restart_codex_desktop" },
-            { action: "verify_permission_context" }
-          ]
+          effectiveMode: {
+            status: "host_managed",
+            mode: null,
+            source: "codex_native_tool_admission",
+            profileCompatible: null
+          },
+          recommendedNextActions: []
         }
       });
       const proposals = await registry.invoke("list_l3_proposals", { projectId });
-      expect(proposals.data).toHaveLength(0);
+      expect(proposals.data).toHaveLength(1);
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("completes propose, approve, and commit through native Codex admission without a profile", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRegistry(projectRoot, {
+      hostProfile: "codex",
+      hostPermissionContext: {
+        status: "unavailable",
+        code: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE",
+        codexPermissionProfile: null,
+        reason: "No forwarded permission-profile environment"
+      }
+    });
+    try {
+      const initialized = await registry.invoke("init_project", { name: "Codex explicit flow" });
+      const projectId = (initialized.data as { project: { id: string } }).project.id;
+      const versionId = (initialized.data as { firstVersion: { id: string } }).firstVersion.id;
+      await registry.invoke("prepare_version", { projectId, versionId });
+
+      const proposed = await registry.invoke("propose_l3_operation", {
+        projectId,
+        actionType: "start_version",
+        targetId: versionId,
+        reason: "Verify the explicit Windows Desktop flow"
+      });
+      const pendingOperationId = (proposed.data as { id: string }).id;
+      const approved = await registry.invoke("approve_l3_operation", {
+        projectId,
+        pendingOperationId
+      });
+      const approval = approved.data as {
+        id: string;
+        approvalSource: string;
+        status: string;
+      };
+      expect(approval).toMatchObject({
+        approvalSource: "host_admission",
+        status: "approved"
+      });
+
+      const committed = await registry.invoke("commit_l3_operation", {
+        projectId,
+        pendingOperationId,
+        approvalArtifactId: approval.id
+      });
+      expect(committed).toMatchObject({
+        ok: true,
+        data: {
+          pendingOperation: { status: "committed" },
+          approvalArtifact: {
+            id: approval.id,
+            status: "consumed",
+            approvalSource: "host_admission"
+          },
+          replayed: false
+        }
+      });
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);
@@ -261,8 +318,8 @@ describe("execute_l3_operation", () => {
       expect(response).toMatchObject({
         ok: true,
         data: {
-          controlPlane: "codex_permission_adapter_v2",
-          authorizationBackend: "v1_compatibility",
+          controlPlane: "codex_native_tool_admission_v2",
+          authorizationBackend: "exact_grant_receipt",
           profile: null,
           profileCompatible: null,
           effectiveMode: {

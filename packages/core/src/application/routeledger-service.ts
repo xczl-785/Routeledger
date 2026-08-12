@@ -4419,10 +4419,15 @@ export class RouteLedgerService {
         const grant = consumption.grant;
         const approver: Actor = {
           id: grant.subjectId,
-          type: grant.source === "delegated_policy" ? "system" : "user",
+          type:
+            grant.source === "delegated_policy" || grant.source === "host_admission"
+              ? "system"
+              : "user",
           displayName:
             grant.source === "delegated_policy"
               ? "RouteLedger deterministic policy"
+              : grant.source === "host_admission"
+                ? "Codex native tool admission"
               : grant.subjectId
         };
         const artifact: ApprovalArtifact = {
@@ -4452,7 +4457,7 @@ export class RouteLedgerService {
         return {
           ...buildAuthorizationReceiptBinding(artifact, authorization),
           consumedUse: consumption.consumedUse,
-          ...(grant.profileId === undefined
+          ...(grant.profileId === undefined && grant.source !== "host_admission"
             ? {}
             : {
                 status: "authorized" as const,
