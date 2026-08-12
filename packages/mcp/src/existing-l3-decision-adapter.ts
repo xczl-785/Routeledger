@@ -126,18 +126,15 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       return resolvedDecision(request, consumedReplay.grant);
     }
 
-    const reusableGrant =
+    const exactOneShot =
       this.options.profile === undefined || this.options.profile.mode === "preauthorized"
-        ? await this.options.grantStore.findMatching(this.options.authorizationContext)
+        ? await this.options.grantStore.findExactOneShot(this.options.authorizationContext)
         : null;
     if (
-      reusableGrant !== null &&
-      (this.options.profile === undefined
-        ? reusableGrant.source === "preauthorized" ||
-          (reusableGrant.source === "user_interaction" && reusableGrant.scope === "session")
-        : reusableGrant.source === "preauthorized")
+      exactOneShot !== null &&
+      exactOneShot.source === "preauthorized"
     ) {
-      return resolvedDecision(request, reusableGrant);
+      return resolvedDecision(request, exactOneShot);
     }
 
     if (this.options.profile?.mode === "preauthorized") {

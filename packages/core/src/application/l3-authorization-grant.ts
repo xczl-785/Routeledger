@@ -171,7 +171,7 @@ export interface L3ConsumedAuthorizationReplay {
 export interface L3AuthorizationGrantStore {
   issue(grant: L3AuthorizationGrant): Promise<void>;
   get(grantId: string): Promise<L3AuthorizationGrant | null>;
-  findMatching(context: L3AuthorizationGrantContext): Promise<L3AuthorizationGrant | null>;
+  findExactOneShot(context: L3AuthorizationGrantContext): Promise<L3AuthorizationGrant | null>;
   consume(
     grantId: string,
     context: L3AuthorizationGrantContext
@@ -348,9 +348,18 @@ export class MemoryL3AuthorizationGrantStore implements L3AuthorizationGrantStor
     return grant === undefined ? null : cloneGrant(grant);
   }
 
-  async findMatching(context: L3AuthorizationGrantContext): Promise<L3AuthorizationGrant | null> {
+  async findExactOneShot(context: L3AuthorizationGrantContext): Promise<L3AuthorizationGrant | null> {
     const matches = [...this.grants.values()]
-      .filter((grant) => validateL3AuthorizationGrant(grant, context) === null)
+      .filter(
+        (grant) =>
+          grant.scope === "operation" &&
+          grant.allowedActions.length === 1 &&
+          grant.allowedTargetIds.length === 1 &&
+          grant.operationDigest !== null &&
+          grant.maxUses === 1 &&
+          grant.uses === 0 &&
+          validateL3AuthorizationGrant(grant, context) === null
+      )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     return matches[0] === undefined ? null : cloneGrant(matches[0]);
   }

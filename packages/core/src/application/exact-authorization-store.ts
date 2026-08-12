@@ -114,11 +114,23 @@ const receiptBindingMatches = (
   receipt: ExactAuthorizationReceipt,
   binding: ExactAuthorizationReceiptBinding
 ): boolean =>
-  Object.entries(binding).every(
-    ([key, value]) => receipt[key as keyof ExactAuthorizationReceipt] === value ||
-      (typeof value === "object" && value !== null &&
-        isDeepStrictEqual(receipt[key as keyof ExactAuthorizationReceipt], value))
-  );
+  receipt.authorizationId === binding.authorizationId &&
+  receipt.artifactId === binding.artifactId &&
+  bindingMatches(receipt.binding, binding.binding) &&
+  receipt.issuer === binding.issuer &&
+  receipt.audience === binding.audience &&
+  receipt.subjectId === binding.subjectId &&
+  receipt.source === binding.source &&
+  receipt.decisionRef === binding.decisionRef &&
+  receipt.policyId === binding.policyId &&
+  receipt.policyDigest === binding.policyDigest &&
+  receipt.profileId === binding.profileId &&
+  receipt.modeEpoch === binding.modeEpoch &&
+  receipt.profileDigest === binding.profileDigest &&
+  receipt.hostKind === binding.hostKind &&
+  receipt.clientId === binding.clientId &&
+  receipt.createdAt === binding.createdAt &&
+  receipt.expiresAt === binding.expiresAt;
 
 const buildReceiptBinding = (
   authorization: ExactAuthorization

@@ -670,9 +670,18 @@ class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantSt
     return grant === undefined ? null : structuredClone(grant);
   }
 
-  async findMatching(context: L3AuthorizationGrantContext): Promise<L3AuthorizationGrant | null> {
+  async findExactOneShot(context: L3AuthorizationGrantContext): Promise<L3AuthorizationGrant | null> {
     const matches = Object.values((await this.stateFile.read()).grants)
-      .filter((grant) => validateL3AuthorizationGrant(grant, context) === null)
+      .filter(
+        (grant) =>
+          grant.scope === "operation" &&
+          grant.allowedActions.length === 1 &&
+          grant.allowedTargetIds.length === 1 &&
+          grant.operationDigest !== null &&
+          grant.maxUses === 1 &&
+          grant.uses === 0 &&
+          validateL3AuthorizationGrant(grant, context) === null
+      )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     return matches[0] === undefined ? null : structuredClone(matches[0]);
   }

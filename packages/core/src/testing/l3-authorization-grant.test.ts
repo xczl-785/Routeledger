@@ -337,17 +337,17 @@ describe("L3 authorization grant store", () => {
     });
   });
 
-  it("finds a reusable session grant only within its exact bindings", async () => {
+  it("selects only an unused exact one-shot and never a session grant", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     await store.issue(
       grant({ scope: "session", operationDigest: null, maxUses: 2 })
     );
 
-    await expect(store.findMatching(context({ operationDigest: "operation-2" }))).resolves.toMatchObject({
-      id: "grant-1",
-      scope: "session"
-    });
-    await expect(store.findMatching(context({ targetId: "other" }))).resolves.toBeNull();
+    await expect(store.findExactOneShot(context({ operationDigest: "operation-2" })))
+      .resolves.toBeNull();
+    await store.issue(grant({ id: "grant-exact", operationDigest: "operation-2" }));
+    await expect(store.findExactOneShot(context({ operationDigest: "operation-2" })))
+      .resolves.toMatchObject({ id: "grant-exact", scope: "operation", maxUses: 1, uses: 0 });
   });
 
   it("enforces operation, session, and time-window scope invariants and rejects turn grants", () => {

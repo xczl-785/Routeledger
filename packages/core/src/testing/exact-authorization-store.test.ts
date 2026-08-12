@@ -162,6 +162,13 @@ describe("MemoryExactAuthorizationStore", () => {
     await expect(
       store.verifyReceipt({ ...receiptBinding, decisionRef: "forged" })
     ).resolves.toBe(false);
+    await expect(
+      store.verifyReceipt({
+        authorizationId: receiptBinding.authorizationId,
+        artifactId: receiptBinding.artifactId,
+        binding: receiptBinding.binding
+      } as typeof receiptBinding)
+    ).resolves.toBe(false);
     await store.claimCommit(receiptBinding, {
       claimId: "claim-1",
       claimedAt: "2026-08-12T00:31:00.000Z"
