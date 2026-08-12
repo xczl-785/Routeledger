@@ -45,6 +45,9 @@ export interface ExactAuthorization {
   readonly expiresAt: string;
 }
 
+/** Exact decision before the canonical approval artifact is minted. */
+export type ExactAuthorizationCandidate = Omit<ExactAuthorization, "artifactId">;
+
 export type ExactAuthorizationReceiptStatus =
   | "authorized"
   | "commit_claimed"
@@ -75,6 +78,15 @@ export interface ExactAuthorizationReceipt {
   readonly committedAt: string | null;
   readonly revokedAt: string | null;
 }
+
+export type ExactAuthorizationReceiptBinding = Omit<
+  ExactAuthorizationReceipt,
+  | "status"
+  | "commitClaimId"
+  | "commitClaimedAt"
+  | "committedAt"
+  | "revokedAt"
+>;
 
 export interface ExactDecisionArtifactResponse {
   readonly artifactId: string;
