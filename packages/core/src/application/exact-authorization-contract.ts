@@ -81,6 +81,7 @@ export interface ExactDecisionArtifactResponse {
   readonly authorizationId: string;
   readonly proposalId: string;
   readonly projectId: string;
+  readonly routeledgerRootDigest: string;
   readonly actionType: L3ActionType;
   readonly targetId: string;
   readonly operationDigest: string;
