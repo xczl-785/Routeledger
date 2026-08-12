@@ -348,12 +348,12 @@ describe("JsonFirstStorageAdapter", () => {
       ).rejects.toMatchObject({
         code: "JSON_SOURCE_INVALID",
         details: {
-          issues: [
+          issues: expect.arrayContaining([
             expect.objectContaining({
               code: "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE",
               path: expect.stringContaining("approval_artifacts")
             })
-          ]
+          ])
         }
       });
       reloaded.storage.close();

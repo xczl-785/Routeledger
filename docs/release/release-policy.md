@@ -6,11 +6,11 @@ and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
 `routeledger@routeledger-team` version 0.6.0 is the latest published Git
-marketplace release, fixed by `routeledger-plugin-v0.6.0`. Version 0.7.2 is the
-current Desktop-test candidate and supersedes 0.7.1 after the correctly loaded
-0.7.1 runtime still lacked usable L3 host admission on Windows. It remains a
-candidate until its verified `main` commit receives
-`routeledger-plugin-v0.7.2`.
+marketplace release, fixed by `routeledger-plugin-v0.6.0`. Version 0.8.0 is the
+current Desktop-test candidate. It replaces reusable scope authorization with
+one exact authorization per proposal while preserving legacy records as
+audit-only history. It remains a candidate until its verified `main` commit
+receives `routeledger-plugin-v0.8.0`.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;

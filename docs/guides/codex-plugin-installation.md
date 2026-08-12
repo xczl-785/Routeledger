@@ -24,7 +24,7 @@ The plugin manifest may forward `CODEX_PERMISSION_PROFILE` into that STDIO
 runtime when the host exposes it, but the field is diagnostic only. Codex
 enforces the active task permission before a high-risk RouteLedger tool call
 reaches the server; RouteLedger converts arrival of that admitted call into an
-exact, single-use authorization capability.
+exact, single-use authorization.
 
 It receives the managed workspace through MCP Roots. Installing the plugin
 does not bind it to the repository that supplied it. Some Codex clients do not
@@ -39,9 +39,9 @@ or a trusted host standing-policy decision and fail closed when neither is avail
 The canonical artifact is not authority by itself; commit also requires its
 matching consumption receipt. The default in-process store requires
 reauthorization after an MCP process restart; continuity requires persistent
-trusted storage outside Agent write scope. The
-0.7.2 candidate still requires a merged-main Desktop acceptance before its
-Codex-native admission claim is released.
+trusted storage outside Agent write scope. The 0.8.0 candidate still requires
+merged-main Desktop acceptance before its exact-only authorization claim is
+released.
 Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.
