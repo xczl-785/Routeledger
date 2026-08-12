@@ -34,7 +34,6 @@ const candidate = (
   profileDigest: null,
   hostKind: "codex",
   clientId: "client-1",
-  sessionId: null,
   createdAt: "2026-08-12T00:00:00.000Z",
   expiresAt: "2026-08-12T01:00:00.000Z",
   ...overrides

@@ -1,7 +1,7 @@
 import type {
-  L3AuthorizationConsumptionReceipt,
-  L3AuthorizationGrantSource
-} from "./l3-authorization-grant.js";
+  ExactAuthorizationReceipt,
+  ExactAuthorizationSource
+} from "./exact-authorization-contract.js";
 import type {
   ApprovalArtifact,
   L3ActionType,
@@ -33,15 +33,17 @@ export interface ExactDecision {
   readonly actionType: L3ActionType;
   readonly targetId: string;
   readonly operationDigest: string;
-  readonly source: L3AuthorizationGrantSource;
+  readonly source: ExactAuthorizationSource;
   readonly decisionRef: string;
-  readonly authorizationGrantId?: string;
+  readonly authorizationId?: string;
 }
 
 export interface DecisionArtifact {
-  readonly id: string;
+  readonly artifactId: string;
+  readonly authorizationId: string | null;
   readonly proposalId: string;
   readonly projectId: string;
+  readonly routeledgerRootDigest: string | null;
   readonly actionType: L3ActionType;
   readonly targetId: string;
   readonly operationDigest: string;
@@ -56,9 +58,11 @@ export interface DecisionArtifact {
 export const projectDecisionArtifact = (
   artifact: Readonly<ApprovalArtifact>
 ): DecisionArtifact => ({
-  id: artifact.id,
+  artifactId: artifact.id,
+  authorizationId: artifact.authorizationId ?? null,
   proposalId: artifact.pendingOperationId,
   projectId: artifact.projectId,
+  routeledgerRootDigest: artifact.routeledgerRootDigest ?? null,
   actionType: artifact.actionType,
   targetId: artifact.targetId,
   operationDigest: artifact.digest.value,
@@ -109,7 +113,7 @@ export type L3DecisionPhaseObservation =
 export interface L3DecisionPhaseEvidence {
   readonly proposal: Readonly<PendingOperation>;
   readonly approvalArtifact?: Readonly<ApprovalArtifact> | null;
-  readonly authorizationReceipt?: Readonly<L3AuthorizationConsumptionReceipt> | null;
+  readonly authorizationReceipt?: Readonly<ExactAuthorizationReceipt> | null;
   readonly observation?: L3DecisionPhaseObservation | null;
 }
 
@@ -185,8 +189,8 @@ export const assertDecisionResolutionMatchesRequest = (
   const resolutionDetailIsValid =
     resolution.status === "resolved"
       ? resolution.decision.decisionRef.trim().length > 0 &&
-        (resolution.decision.authorizationGrantId === undefined ||
-          resolution.decision.authorizationGrantId.trim().length > 0)
+        (resolution.decision.authorizationId === undefined ||
+          resolution.decision.authorizationId.trim().length > 0)
       : resolution.request.reason.trim().length > 0;
 
   if (!exactBinding || !resolutionDetailIsValid) {
@@ -208,37 +212,35 @@ const artifactMatchesProposal = (
   artifact.digest.value === proposal.digest.value;
 
 const receiptMatchesProposal = (
-  receipt: Readonly<L3AuthorizationConsumptionReceipt>,
+  receipt: Readonly<ExactAuthorizationReceipt>,
   artifact: Readonly<ApprovalArtifact>,
   proposal: Readonly<PendingOperation>
 ): boolean =>
-  receipt.approvalArtifactId === artifact.id &&
-  receipt.pendingOperationId === proposal.id &&
-  receipt.projectId === proposal.projectId &&
-  receipt.actionType === proposal.actionType &&
-  receipt.targetId === proposal.targetId &&
-  receipt.operationDigest === proposal.digest.value &&
-  artifact.authorizationGrantId !== undefined &&
-  receipt.grantId === artifact.authorizationGrantId &&
-  receipt.approvalSource === artifact.approvalSource &&
+  receipt.artifactId === artifact.id &&
+  receipt.binding.proposalId === proposal.id &&
+  receipt.binding.projectId === proposal.projectId &&
+  artifact.routeledgerRootDigest !== undefined &&
+  receipt.binding.routeledgerRootDigest === artifact.routeledgerRootDigest &&
+  receipt.binding.actionType === proposal.actionType &&
+  receipt.binding.targetId === proposal.targetId &&
+  receipt.binding.operationDigest === proposal.digest.value &&
+  artifact.authorizationId !== undefined &&
+  receipt.authorizationId === artifact.authorizationId &&
+  receipt.source === artifact.approvalSource &&
   receipt.decisionRef === artifact.decisionRef &&
-  receipt.approverId === artifact.approver.id &&
-  receipt.approverType === artifact.approver.type &&
-  receipt.approverDisplayName === artifact.approver.displayName &&
-  receipt.policyId === artifact.policyId &&
-  receipt.policyDigest === artifact.policyDigest &&
-  receipt.profileId === artifact.profileId &&
-  receipt.modeEpoch === artifact.modeEpoch &&
-  receipt.profileDigest === artifact.profileDigest &&
+  receipt.policyId === (artifact.policyId ?? null) &&
+  receipt.policyDigest === (artifact.policyDigest ?? null) &&
+  receipt.profileId === (artifact.profileId ?? null) &&
+  receipt.modeEpoch === (artifact.modeEpoch ?? null) &&
+  receipt.profileDigest === (artifact.profileDigest ?? null) &&
   receipt.hostKind === artifact.hostKind &&
-  receipt.clientId === artifact.clientId &&
-  receipt.sessionId === artifact.sessionId;
+  receipt.clientId === (artifact.clientId ?? null);
 
 const validateEvidenceBindings = (
   evidence: L3DecisionPhaseEvidence
 ): {
   artifact: Readonly<ApprovalArtifact> | null;
-  receipt: Readonly<L3AuthorizationConsumptionReceipt> | null;
+  receipt: Readonly<ExactAuthorizationReceipt> | null;
 } => {
   const artifact = evidence.approvalArtifact ?? null;
   const receipt = evidence.authorizationReceipt ?? null;
@@ -272,7 +274,7 @@ const validateEvidenceBindings = (
 const validateCanonicalStatus = (
   evidence: L3DecisionPhaseEvidence,
   artifact: Readonly<ApprovalArtifact> | null,
-  receipt: Readonly<L3AuthorizationConsumptionReceipt> | null
+  receipt: Readonly<ExactAuthorizationReceipt> | null
 ): L3DecisionPhaseProjection | null => {
   const { proposal, observation } = evidence;
 

@@ -110,8 +110,8 @@ export const validateL3AuthorizationPolicy = (policy) => {
                 addIssue(issues, "ALLOW_EXPIRY_REQUIRED", `${base}.conditions.expiresAt`, "allow rules must have an ISO expiry");
             }
             if (rule.effect === "allow" &&
-                (!Number.isInteger(rule.conditions?.maxUses) || (rule.conditions?.maxUses ?? 0) <= 0)) {
-                addIssue(issues, "ALLOW_MAX_USES_REQUIRED", `${base}.conditions.maxUses`, "allow rules must have a positive maximum-use budget");
+                (!Number.isInteger(rule.conditions?.decisionBudget) || (rule.conditions?.decisionBudget ?? 0) <= 0)) {
+                addIssue(issues, "ALLOW_MAX_USES_REQUIRED", `${base}.conditions.decisionBudget`, "allow rules must have a positive maximum-use budget");
             }
             if (rule.conditions?.allowedTargetRelations !== undefined) {
                 if (!Array.isArray(rule.conditions.allowedTargetRelations) ||
@@ -124,9 +124,9 @@ export const validateL3AuthorizationPolicy = (policy) => {
                 !isIsoDate(rule.conditions.expiresAt)) {
                 addIssue(issues, "EXPIRY_INVALID", `${base}.conditions.expiresAt`, "expiresAt must be an ISO timestamp");
             }
-            if (rule.conditions?.maxUses !== undefined &&
-                (!Number.isInteger(rule.conditions.maxUses) || rule.conditions.maxUses <= 0)) {
-                addIssue(issues, "MAX_USES_INVALID", `${base}.conditions.maxUses`, "maxUses must be a positive integer");
+            if (rule.conditions?.decisionBudget !== undefined &&
+                (!Number.isInteger(rule.conditions.decisionBudget) || rule.conditions.decisionBudget <= 0)) {
+                addIssue(issues, "MAX_USES_INVALID", `${base}.conditions.decisionBudget`, "decisionBudget must be a positive integer");
             }
         }
     }
@@ -271,7 +271,7 @@ export const buildBalancedL3AuthorizationPolicy = (input) => ({
                     ? {}
                     : { requiredCurrentVersionId: input.currentVersionId }),
                 expiresAt: input.expiresAt,
-                maxUses: input.maxUses
+                decisionBudget: input.decisionBudget
             }
         },
         {
@@ -286,7 +286,7 @@ export const buildBalancedL3AuthorizationPolicy = (input) => ({
                     ? {}
                     : { requiredCurrentVersionId: input.currentVersionId }),
                 expiresAt: input.expiresAt,
-                maxUses: input.maxUses
+                decisionBudget: input.decisionBudget
             }
         }
     ],

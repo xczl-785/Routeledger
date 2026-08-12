@@ -1682,12 +1682,12 @@ const encodeApprovalArtifact = (artifact: ApprovalArtifact): JsonApprovalArtifac
     throw new Error("Approval authorization profile provenance must be all present or all absent.");
   }
   const authorizationRecord: JsonApprovalAuthorizationRecord | undefined =
-    artifact.authorizationGrantId === undefined
+    artifact.authorizationId === undefined
       ? undefined
       : artifact.routeledgerRootDigest === undefined
         ? {
             kind: "legacy_audit",
-            authorization_grant_id: artifact.authorizationGrantId,
+            authorization_grant_id: artifact.authorizationId,
             ...(artifact.approvalSource === undefined ? {} : { approval_source: artifact.approvalSource }),
             ...(artifact.policyId === undefined ? {} : { policy_id: artifact.policyId }),
             ...(artifact.policyDigest === undefined ? {} : { policy_digest: artifact.policyDigest }),
@@ -1696,11 +1696,10 @@ const encodeApprovalArtifact = (artifact: ApprovalArtifact): JsonApprovalArtifac
             ...(artifact.profileDigest === undefined ? {} : { profile_digest: artifact.profileDigest }),
             ...(artifact.hostKind === undefined ? {} : { host_kind: artifact.hostKind }),
             ...(artifact.clientId === undefined ? {} : { client_id: artifact.clientId }),
-            ...(artifact.sessionId === undefined ? {} : { session_id: artifact.sessionId })
           }
         : {
             kind: "exact_v2",
-            authorization_id: artifact.authorizationGrantId,
+            authorization_id: artifact.authorizationId,
             binding: {
               proposal_id: artifact.pendingOperationId,
               project_id: artifact.projectId,
@@ -1752,7 +1751,7 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
   }
   const provenance = record === undefined
     ? {
-        authorizationGrantId: artifact.authorization_grant_id,
+        authorizationId: artifact.authorization_grant_id,
         approvalSource: artifact.approval_source,
         policyId: artifact.policy_id,
         policyDigest: artifact.policy_digest,
@@ -1761,12 +1760,11 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
         profileDigest: artifact.profile_digest,
         hostKind: artifact.host_kind,
         clientId: artifact.client_id,
-        sessionId: artifact.session_id,
         routeledgerRootDigest: undefined
       }
     : record.kind === "exact_v2"
       ? {
-          authorizationGrantId: record.authorization_id,
+          authorizationId: record.authorization_id,
           approvalSource: record.approval_source,
           policyId: record.policy_id,
           policyDigest: record.policy_digest,
@@ -1775,11 +1773,10 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
           profileDigest: record.profile_digest,
           hostKind: record.host_kind,
           clientId: record.client_id,
-          sessionId: undefined,
           routeledgerRootDigest: record.binding.routeledger_root_digest
         }
       : {
-          authorizationGrantId: record.authorization_grant_id,
+          authorizationId: record.authorization_grant_id,
           approvalSource: record.approval_source,
           policyId: record.policy_id,
           policyDigest: record.policy_digest,
@@ -1788,7 +1785,6 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
           profileDigest: record.profile_digest,
           hostKind: record.host_kind,
           clientId: record.client_id,
-          sessionId: record.session_id,
           routeledgerRootDigest: undefined
         };
   const profileCount = [provenance.profileId, provenance.modeEpoch, provenance.profileDigest]
@@ -1809,9 +1805,9 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
   createdAt: artifact.created_at,
   expiresAt: artifact.expires_at,
   consumedAt: artifact.consumed_at,
-  ...(provenance.authorizationGrantId === undefined
+  ...(provenance.authorizationId === undefined
     ? {}
-    : { authorizationGrantId: provenance.authorizationGrantId }),
+    : { authorizationId: provenance.authorizationId }),
   ...(provenance.routeledgerRootDigest === undefined ? {} : { routeledgerRootDigest: provenance.routeledgerRootDigest }),
   ...(provenance.approvalSource === undefined ? {} : { approvalSource: provenance.approvalSource }),
   ...(provenance.policyId === undefined ? {} : { policyId: provenance.policyId }),
@@ -1821,7 +1817,6 @@ const decodeApprovalArtifact = (artifact: JsonApprovalArtifact): ApprovalArtifac
   ...(provenance.profileDigest === undefined ? {} : { profileDigest: provenance.profileDigest }),
   ...(provenance.hostKind === undefined ? {} : { hostKind: provenance.hostKind }),
   ...(provenance.clientId === undefined ? {} : { clientId: provenance.clientId }),
-  ...(provenance.sessionId === undefined ? {} : { sessionId: provenance.sessionId })
   });
 };
 

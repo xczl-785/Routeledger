@@ -50,7 +50,7 @@ describe("L3 operation orchestrator", () => {
           ...exact,
           source: "delegated_policy",
           decisionRef: "decision-1",
-          authorizationGrantId: "grant-1"
+          authorizationId: "grant-1"
         }
       })
     };

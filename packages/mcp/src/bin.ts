@@ -212,7 +212,6 @@ export const main = async (argv: string[] = process.argv.slice(2)): Promise<void
       ? {}
       : {
           l3Authorization: {
-            grantStore: l3AuthorityRuntime.grantStore,
             exactStore: l3AuthorityRuntime.exactStore,
             ...(l3AuthorityRuntime.trustedClientId === undefined
               ? {}

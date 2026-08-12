@@ -89,6 +89,20 @@ try {
   if (patch.length > 0) {
     runOrThrow("git", ["apply", "--whitespace=nowarn"], fixtureRoot, { input: patch });
   }
+  const untracked = execFileSync(
+    "git",
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    { cwd: repositoryRoot, encoding: "buffer" }
+  )
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean);
+  for (const relativePath of untracked) {
+    const sourcePath = path.join(repositoryRoot, relativePath);
+    const targetPath = path.join(fixtureRoot, relativePath);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.copyFile(sourcePath, targetPath);
+  }
   await fs.copyFile(
     path.join(repositoryRoot, "scripts", "regular-file-tree.mjs"),
     path.join(fixtureRoot, "scripts", "regular-file-tree.mjs")

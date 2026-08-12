@@ -6,13 +6,13 @@ import {
   type ExactAuthorizationCandidate,
   type ExactProposalDecisionRequest,
   type ExactAuthorizationStore,
-  type L3AuthorizationGrantContext,
+  type ExactAuthorizationContext,
   type L3DecisionAdapter
 } from "@routeledger/core";
 import { validateExactAuthorizationCandidate } from "./exact-authorization-candidate-validator.js";
 
 export interface CodexL3DecisionAdapterOptions {
-  readonly authorizationContext: Readonly<L3AuthorizationGrantContext>;
+  readonly authorizationContext: Readonly<ExactAuthorizationContext>;
   readonly exactStore: ExactAuthorizationStore;
   readonly nextId?: () => string;
   readonly now?: () => Date;
@@ -64,7 +64,6 @@ export class CodexL3DecisionAdapter implements L3DecisionAdapter {
       profileDigest: null,
       hostKind: "codex",
       clientId: this.options.authorizationContext.clientId ?? null,
-      sessionId: null,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
     };
@@ -90,7 +89,7 @@ export class CodexL3DecisionAdapter implements L3DecisionAdapter {
         operationDigest: request.operationDigest,
         source: candidate.source,
         decisionRef,
-        authorizationGrantId: authorizationId
+        authorizationId: authorizationId
       }
     };
     assertDecisionResolutionMatchesRequest(request, resolution);

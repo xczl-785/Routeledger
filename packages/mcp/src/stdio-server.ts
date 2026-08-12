@@ -1,10 +1,9 @@
 import { createInterface, type Interface as ReadLineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 
 import {
-  MemoryL3AuthorizationGrantStore,
+  MemoryExactAuthorizationStore,
   type ExactAuthorizationBinding
 } from "@routeledger/core";
 
@@ -93,9 +92,9 @@ export interface CreateRouteLedgerStdioServerOptions
   extends Omit<RouteLedgerMcpRegistryOptions, "l3Authorization"> {
   l3Authorization?: Omit<
     RouteLedgerRegistryL3Authorization,
-    "interaction" | "sessionId"
+    "interaction" | "exactStore"
   > &
-    Partial<Pick<RouteLedgerRegistryL3Authorization, "interaction" | "sessionId">>;
+    Partial<Pick<RouteLedgerRegistryL3Authorization, "interaction" | "exactStore">>;
   /** Host-owned V2 broker; selection occurs only from verified runtime binding metadata. */
   l3AuthorityBroker?: LocalL3AuthorityBroker;
   sendMessage?: (message: JsonRpcMessage) => void;
@@ -732,8 +731,7 @@ export const createRouteLedgerStdioServer = (
   const sendMessage = (message: JsonRpcMessage): void => {
     options.sendMessage?.(message);
   };
-  const grantStore = configuredL3Authorization?.grantStore ?? new MemoryL3AuthorizationGrantStore();
-  const authorizationSessionId = configuredL3Authorization?.sessionId ?? randomUUID();
+  const exactStore = configuredL3Authorization?.exactStore ?? new MemoryExactAuthorizationStore();
   const state: ProtocolState = {
     initializeCompleted: false,
     initializedNotificationReceived: false,
@@ -802,10 +800,8 @@ export const createRouteLedgerStdioServer = (
     return {
       ...registryOptions,
       l3Authorization: {
-        grantStore: selected?.grantStore ?? grantStore,
-        ...(selected?.exactStore === undefined ? {} : { exactStore: selected.exactStore }),
+        exactStore: selected?.exactStore ?? exactStore,
         interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
-        sessionId: configuredL3Authorization?.sessionId ?? authorizationSessionId,
         ...(selected !== undefined && "profile" in selected && selected.profile !== undefined
           ? { profile: selected.profile }
           : {}),

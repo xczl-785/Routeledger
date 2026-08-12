@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  MemoryL3AuthorizationGrantStore,
+  MemoryExactAuthorizationStore,
   RouteLedgerService
 } from "../../../core/src/index.js";
 import {
@@ -295,7 +295,7 @@ describe("JsonFirstStorageAdapter", () => {
           JSON.stringify(approvalDigest),
           "forged-decision",
           JSON.stringify({
-            authorizationGrantId: "forged-grant",
+            authorizationId: "forged-grant",
             approvalSource: "delegated_policy",
             policyId: "forged-policy",
             policyDigest: "sha256:forged-policy",
@@ -328,7 +328,7 @@ describe("JsonFirstStorageAdapter", () => {
           }
         },
         l3Authorization: {
-          grantStore: new MemoryL3AuthorizationGrantStore(),
+          exactStore: new MemoryExactAuthorizationStore(),
           audience: "routeledger-core",
           subjectId: "local-user",
           routeledgerRootDigest: "sha256:trusted-root-binding",
@@ -346,9 +346,14 @@ describe("JsonFirstStorageAdapter", () => {
           }
         })
       ).rejects.toMatchObject({
-        code: "JSON_SQLITE_CONFLICT",
+        code: "JSON_SOURCE_INVALID",
         details: {
-          differingDocumentPaths: [expect.stringContaining("approval_artifacts")]
+          issues: [
+            expect.objectContaining({
+              code: "APPROVAL_AUTHORIZATION_PROVENANCE_INCOMPLETE",
+              path: expect.stringContaining("approval_artifacts")
+            })
+          ]
         }
       });
       reloaded.storage.close();

@@ -46,8 +46,8 @@ target are equal.
 
 ## Compatibility and migration
 
-0.8 may read `sessionId` as optional provenance and should write it as null. It is never part of
-matching, reuse, authority, or receipt verification. 0.9 removes the field physically.
+Current writers do not emit `sessionId`. A legacy decoder may read it only while classifying old
+audit records; it is never part of matching, authority, or receipt verification.
 
 All legacy active grants are revoked and tombstoned, including operation-scoped one-shot grants;
 the proposal must be authorized again under v2. Session, time-window, turn, multi-action,
@@ -59,7 +59,7 @@ all-or-none trusted trio.
 
 JSON and SQLite readers use dual-read/exact-only-write during 0.8. Old binaries must reject the new
 state rather than partially interpret it. Migration is atomic, idempotent, and leaves a durable
-tombstone; EA2 owns its implementation and crash matrix.
+tombstone.
 
 ## Compatibility goldens and target reds
 

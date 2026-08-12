@@ -7,8 +7,6 @@ import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
-  MemoryExactAuthorizationStore,
-  type L3AuthorizationGrantStore,
   type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
   type ExactAuthorizationBinding,
@@ -157,10 +155,8 @@ export interface RouteLedgerMcpRegistryOptions {
     trustedClientId: string | null;
   };
   l3Authorization?: {
-    grantStore: L3AuthorizationGrantStore;
-    exactStore?: ExactAuthorizationStore;
+    exactStore: ExactAuthorizationStore;
     interaction: RouteLedgerMcpAuthorizationInteraction;
-    sessionId: string;
     /** Host-owned V2 profile selected from the verified project/root binding. */
     profile?: L3AuthorizationProfileV2;
     /** Trusted host identity injected at startup; never derived from MCP clientInfo. */
@@ -959,32 +955,13 @@ const digestExecutionInput = (value: unknown): string =>
     .update(JSON.stringify(canonicalizeExecutionInput(value)))
     .digest("hex")}`;
 
-const compatibilityExactStores = new WeakMap<
-  L3AuthorizationGrantStore,
-  ExactAuthorizationStore
->();
-
-const resolveExactStore = (authorization: {
-  grantStore: L3AuthorizationGrantStore;
-  exactStore?: ExactAuthorizationStore;
-}): ExactAuthorizationStore => {
-  if (authorization.exactStore !== undefined) return authorization.exactStore;
-  const existing = compatibilityExactStores.get(authorization.grantStore);
-  if (existing !== undefined) return existing;
-  const created = new MemoryExactAuthorizationStore();
-  compatibilityExactStores.set(authorization.grantStore, created);
-  return created;
-};
-
 const createService = (
   workspaceRoot: string,
   routeledgerRoot: string,
   sqliteReadModel: SqliteReadModelMode,
   storageTestHooks?: JsonFirstStorageTestHooks,
   authorization?: {
-    grantStore: L3AuthorizationGrantStore;
-    exactStore?: ExactAuthorizationStore;
-    sessionId: string;
+    exactStore: ExactAuthorizationStore;
     clientId?: string;
     subjectId: string;
     hostKind: string;
@@ -1004,8 +981,7 @@ const createService = (
       ? {}
       : {
           l3Authorization: {
-            grantStore: authorization.grantStore,
-            exactStore: resolveExactStore(authorization),
+            exactStore: authorization.exactStore,
             audience: "routeledger-core",
             subjectId: authorization.subjectId,
             routeledgerRootDigest: digestRouteLedgerRoot(routeledgerRoot),
@@ -1019,8 +995,7 @@ const createService = (
             hostKind: authorization.hostKind,
             ...(authorization.clientId === undefined
               ? {}
-              : { clientId: authorization.clientId }),
-            sessionId: authorization.sessionId
+              : { clientId: authorization.clientId })
           }
         }),
     deps: {
@@ -1410,11 +1385,7 @@ export const createRouteLedgerMcpRegistry = (
           options.l3Authorization === undefined
             ? undefined
             : {
-                grantStore: options.l3Authorization.grantStore,
-                ...(options.l3Authorization.exactStore === undefined
-                  ? {}
-                  : { exactStore: options.l3Authorization.exactStore }),
-                sessionId: options.l3Authorization.sessionId,
+                exactStore: options.l3Authorization.exactStore,
                 ...(options.l3Authorization.profile === undefined
                   ? {}
                   : { profile: options.l3Authorization.profile }),
@@ -1533,21 +1504,20 @@ export const createRouteLedgerMcpRegistry = (
       hostKind: hostProfile,
       ...(l3Authorization.trustedClientId === undefined
         ? {}
-        : { clientId: l3Authorization.trustedClientId }),
-      sessionId: l3Authorization.sessionId
+        : { clientId: l3Authorization.trustedClientId })
     };
 
     if (usesCodexNativeToolAdmission) {
       return new CodexL3DecisionAdapter({
         authorizationContext,
-        exactStore: resolveExactStore(l3Authorization)
+        exactStore: l3Authorization.exactStore
       });
     }
 
     return new ExistingL3DecisionAdapter({
       proposal,
       authorizationContext,
-      exactStore: resolveExactStore(l3Authorization),
+      exactStore: l3Authorization.exactStore,
       interaction: l3Authorization.interaction,
       hostProfile,
       ...(l3Authorization.trustedClientId === undefined
@@ -1616,17 +1586,17 @@ export const createRouteLedgerMcpRegistry = (
       adapter: createL3DecisionAdapter(proposal),
       port: {
         authorize: async (_proposal, decision) => {
-          if (decision.authorizationGrantId === undefined) {
+          if (decision.authorizationId === undefined) {
             throw new ApplicationError(
-              "AUTHORIZATION_GRANT_REJECTED",
-              "The resolved L3 decision has no exact authorization grant",
-              { pendingOperationId: proposal.id, reason: "AUTHORIZATION_GRANT_ID_REQUIRED" }
+              "EXACT_AUTHORIZATION_REJECTED",
+              "The resolved L3 decision has no exact authorization",
+              { pendingOperationId: proposal.id, reason: "AUTHORIZATION_ID_REQUIRED" }
             );
           }
           return service.authorizeL3Operation({
             projectId: proposal.projectId,
             pendingOperationId: proposal.id,
-            grantId: decision.authorizationGrantId,
+            authorizationId: decision.authorizationId,
             actor
           });
         },
@@ -1941,7 +1911,7 @@ export const createRouteLedgerMcpRegistry = (
           options.l3AuthorityCandidateIdentity !== undefined || profile !== undefined
             ? "host_authority_broker_v2"
             : usesCodexNativeToolAdmission
-              ? "exact_grant_receipt"
+              ? "exact_authorization_receipt"
               : options.l3Authorization === undefined
               ? "unavailable"
               : "v1_compatibility";
@@ -2018,11 +1988,11 @@ export const createRouteLedgerMcpRegistry = (
             minimum: 1,
             maximum: 168
           }),
-          maxUses: integerSchema("Maximum delegated policy uses and profile grant uses. Defaults to 16.", {
+          decisionBudget: integerSchema("Maximum exact decisions allowed by the standing policy. Defaults to 16.", {
             minimum: 1,
             maximum: 100
           }),
-          maxAuthorizationTtlSeconds: integerSchema("Maximum grant TTL. Defaults to 3600 seconds.", {
+          maxAuthorizationTtlSeconds: integerSchema("Maximum exact-authorization validity. Defaults to 3600 seconds.", {
             minimum: 30,
             maximum: 86400
           })
@@ -2036,7 +2006,7 @@ export const createRouteLedgerMcpRegistry = (
       async (input) => {
         const mode = input.mode as L3AuthorizationProfileV2["mode"];
         const now = new Date();
-        const maxUses = input.maxUses ?? 16;
+        const decisionBudget = input.decisionBudget ?? 16;
         const binding = {
           projectId: input.projectId,
           workspaceRootDigest: digestAuthorizationPath(initialBinding.workspaceRoot!),
@@ -2057,7 +2027,7 @@ export const createRouteLedgerMcpRegistry = (
                 expiresAt: new Date(
                   now.getTime() + (input.expiresInHours ?? 24) * 60 * 60 * 1000
                 ).toISOString(),
-                maxUses,
+                decisionBudget,
                 subjectId: approver.id,
                 hostKind: hostProfile,
                 ...(binding.trustedClientId === null
@@ -2092,7 +2062,7 @@ export const createRouteLedgerMcpRegistry = (
               "Verify project, workspace-root, RouteLedger-root, subject, host, and trusted-client bindings.",
               "Keep target IDs explicit; do not add wildcard targets.",
               "Keep TTL and use budgets finite.",
-              "Treat mode or scope expansion as a new trusted-host user decision.",
+              "Treat a mode or policy-capability expansion as a new trusted-host user decision.",
               "Install only through the host authority broker; project files and MCP tools are not authority."
             ]
           }
@@ -2938,7 +2908,7 @@ export const createRouteLedgerMcpRegistry = (
             minimum: 1,
             maximum: 168
           }),
-          maxUses: integerSchema("Maximum delegated uses per rule. Defaults to 16.", {
+          decisionBudget: integerSchema("Maximum exact decisions per standing-policy rule. Defaults to 16.", {
             minimum: 1,
             maximum: 100
           })
@@ -2951,13 +2921,13 @@ export const createRouteLedgerMcpRegistry = (
       },
       async (input) => {
         const expiresInHours = input.expiresInHours ?? 24;
-        const maxUses = input.maxUses ?? 16;
+        const decisionBudget = input.decisionBudget ?? 16;
         const policy = await service.recommendBalancedL3AuthorizationPolicy({
           projectId: input.projectId,
           policyId: `balanced-${input.projectId}-${Date.now()}`,
           routeledgerRootDigest: digestRouteLedgerRoot(initialBinding.routeledgerRoot!),
           expiresAt: new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString(),
-          maxUses,
+          decisionBudget,
           subjectId: approver.id,
           hostKind: hostProfile,
           ...(options.l3Authorization?.trustedClientId === undefined
@@ -4002,11 +3972,11 @@ export const createRouteLedgerMcpRegistry = (
           });
         }
         const decision = requireResolvedExistingL3Decision(resolution);
-        if (decision.authorizationGrantId === undefined) {
+        if (decision.authorizationId === undefined) {
           throw new ApplicationError(
-            "AUTHORIZATION_GRANT_REJECTED",
-            "The resolved L3 decision has no exact authorization grant",
-            { pendingOperationId: proposal.id, reason: "AUTHORIZATION_GRANT_ID_REQUIRED" }
+            "EXACT_AUTHORIZATION_REJECTED",
+            "The resolved L3 decision has no exact authorization",
+            { pendingOperationId: proposal.id, reason: "AUTHORIZATION_ID_REQUIRED" }
           );
         }
 
@@ -4015,7 +3985,7 @@ export const createRouteLedgerMcpRegistry = (
           data: await service.authorizeL3Operation({
             projectId: input.projectId,
             pendingOperationId: input.pendingOperationId,
-            grantId: decision.authorizationGrantId,
+            authorizationId: decision.authorizationId,
             actor
           })
         };

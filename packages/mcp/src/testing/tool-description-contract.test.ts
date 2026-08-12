@@ -89,6 +89,40 @@ describe("MCP tool description contract", () => {
     }
   });
 
+  it("exposes exact-only L3 authorization schemas", () => {
+    const registry = createRouteLedgerMcpRegistry({});
+    try {
+      const l3Tools = registry.tools.filter((tool) =>
+        [
+          "execute_l3_operation",
+          "propose_l3_operation",
+          "approve_l3_operation",
+          "commit_l3_operation",
+          "get_l3_authorization_status",
+          "recommend_l3_authorization_profile",
+          "recommend_l3_authorization_policy"
+        ].includes(tool.name)
+      );
+      const publicContract = JSON.stringify(
+        l3Tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))
+      );
+      for (const forbidden of [
+        "authorizationGrantId",
+        "grantStore",
+        "issuePreauthorization",
+        "maxUses",
+        "sessionId",
+        "time_window"
+      ]) {
+        expect(publicContract).not.toContain(forbidden);
+      }
+      expect(publicContract).toContain("decisionBudget");
+      expect(publicContract).toContain("pendingOperationId");
+    } finally {
+      registry.close();
+    }
+  });
+
   it("keeps close residual-audit schemas free of the removed legacy create_undo routing", () => {
     const registry = createRouteLedgerMcpRegistry({});
 

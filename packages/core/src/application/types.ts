@@ -228,7 +228,7 @@ export interface ApprovalArtifact {
   expiresAt: string;
   consumedAt: string | null;
   /** Absent only on legacy artifacts created before the trusted authorization control plane. */
-  authorizationGrantId?: string;
+  authorizationId?: string;
   /** Exact authorization root binding; absent on legacy audit-only artifacts. */
   routeledgerRootDigest?: string;
   approvalSource?: "user_interaction" | "delegated_policy" | "preauthorized" | "host_admission";
@@ -239,7 +239,6 @@ export interface ApprovalArtifact {
   profileDigest?: string;
   hostKind?: string;
   clientId?: string | null;
-  sessionId?: string | null;
 }
 
 export type CurrentContextRiskSeverity = "info" | "warning" | "blocking";

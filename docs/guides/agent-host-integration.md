@@ -77,10 +77,10 @@ writes prompted, and require the strongest available confirmation for
 `commit_l3_operation`. The server independently checks binding preflight,
 `expectedRouteLedgerRoot`, canonical storage rules, and approval artifacts;
 host approval UI does not replace those checks. `approve_l3_operation` also
-requires either MCP structured elicitation, a host-injected preauthorization
-grant, or an atomic delegated decision from a host-managed authority.
-Project files are never authorization authority. The host-managed grant store
-must retain the exact consumption receipt across service reconstruction;
+requires either MCP structured elicitation, Codex native admission, or an
+atomic proposal decision from a host-managed standing policy.
+Project files are never authorization authority. The host-managed exact store
+must retain the authorization receipt across service reconstruction;
 canonical approval JSON alone cannot authorize commit. If approval must survive
 an MCP process restart, inject a persistent trusted store or integrity-proof
 implementation outside Agent write scope. Use
@@ -105,8 +105,9 @@ artifact, commit, or receipt semantics:
 - missing configuration, expired state, modified state, changed arguments, or
   response-only retries fail before authorization is consumed.
 
-For a host without an interaction UI, configure the existing finite delegated
-or preauthorized authority explicitly. RouteLedger never infers Codex modes in
+For a host without an interaction UI, configure a delegated or preauthorized
+standing policy explicitly. Each evaluation creates a new authorization for the
+current proposal. RouteLedger never infers Codex modes in
 the generic MCP adapter and never treats client identity metadata, natural
 language, or project files as authorization authority.
 
@@ -137,7 +138,7 @@ The host-side config schema is:
   "schemaVersion": 1,
   "authorityId": "local-routeledger-authority",
   "statePath": "/ABS/HOST-MANAGED/PATH/routeledger-authority.state.json",
-  "grantTtlSeconds": 300,
+  "authorizationTtlSeconds": 300,
   "trustedClientId": "optional-host-issued-client-id",
   "policy": {
     "schemaVersion": 1,
@@ -164,18 +165,13 @@ checklist, then let a trusted host integration call the exported
 paths. That API is intentionally not an MCP tool. Candidate generation cannot
 install authority, and project files cannot point the runtime to an authority.
 
-The state file atomically persists policy-use budgets, reserved and issued
-grants, exact consumption receipts, expiry, exhaustion, and revocation. MCP
-restart recovers an exact reserved or issued operation grant before charging
-the matching policy budget again. This closes the interruption window between
-the delegated authority decision and grant issuance. A consumed authorization
-can only reconstruct the original pending operation; a second pending operation
-cannot reuse the receipt even when its action payload has the same digest.
-Process reconstruction reloads that state. Rotating the installed policy
-digest revokes outstanding delegated grants from the previous policy. A
-trusted receipt is created in the same state transaction that consumes a
-grant; if the subsequent canonical project save fails, retry reconstructs the
-same approval artifact from the receipt instead of consuming a second use.
+The state file atomically persists standing-policy decision budgets, exact
+authorizations, receipts, claim state, expiry, and revocation. MCP restart can
+recover only the original proposal's exact authorization. A second proposal
+cannot reuse it even when action and target are identical. Rotating the profile
+or policy atomically invalidates outstanding authorization from the previous
+epoch. If canonical save fails after authorization, retry reconstructs the
+same approval artifact from the receipt without creating another credential.
 
 The state transaction lock is a host-side lease with a heartbeat, OS-process
 liveness check, owner-specific `lockId` release, and a pre-write revision

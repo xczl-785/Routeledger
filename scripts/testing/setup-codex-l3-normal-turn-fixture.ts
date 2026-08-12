@@ -7,7 +7,6 @@ import {
   type L3AuthorizationPolicy,
   type L3AuthorizationProfileV2
 } from "@routeledger/core";
-import { createLocalL3AuthorityBroker } from "../../packages/mcp/src/local-l3-authority-broker.js";
 import {
   buildLocalL3AuthorityBindingIdentity,
   installLocalL3AuthorizationProfile
@@ -73,11 +72,11 @@ const main = async (): Promise<void> => {
   });
   const now = new Date().toISOString();
   const delegatedPolicy: L3AuthorizationPolicy | null =
-    mode === "delegated"
+    mode !== "interactive"
       ? {
           schemaVersion: 1,
           policyId: "policy-codex-normal-turn",
-          mode: "delegated",
+          mode,
           binding: {
             projectId,
             routeledgerRootDigest: binding.routeledgerRootDigest,
@@ -96,7 +95,7 @@ const main = async (): Promise<void> => {
                 gateMustPass: true,
                 allowedTargetRelations: ["other"],
                 expiresAt: new Date(Date.now() + 300_000).toISOString(),
-                maxUses: 1
+                decisionBudget: 1
               }
             }
           ],
@@ -104,7 +103,7 @@ const main = async (): Promise<void> => {
         }
       : null;
   const base: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profileId: "profile-codex-normal-turn",
     status: "active",
     binding,
@@ -112,7 +111,7 @@ const main = async (): Promise<void> => {
     modeEpoch: 1,
     profileRevision: 1,
     delegatedPolicy,
-    limits: { maxGrantTtlSeconds: 300, maxGrantUses: 1 },
+    limits: { maxAuthorizationTtlSeconds: 300 },
     createdAt: now,
     updatedAt: now
   };
@@ -131,31 +130,6 @@ const main = async (): Promise<void> => {
     },
     profile
   });
-  let preauthorizationGrantId: string | null = null;
-  if (mode === "preauthorized") {
-    const broker = createLocalL3AuthorityBroker({
-      registryRoot,
-      hostKind: "codex",
-      subjectId: "routeledger-approver",
-      trustedClientId: "codex-local-host",
-      trustedHostInteraction: {
-        requestDecision: async () => ({
-          kind: "trusted_host_user",
-          decisionId: "fixture-trusted-host-decision",
-          decidedAt: new Date().toISOString()
-        })
-      }
-    });
-    const grant = await broker.issuePreauthorization({
-      binding: { projectId, workspaceRoot, routeledgerRoot: workspaceRoot },
-      scope: "time_window",
-      allowedActions: [proposal.actionType],
-      allowedTargetIds: [proposal.targetId],
-      ttlSeconds: 300,
-      maxUses: 1
-    });
-    preauthorizationGrantId = grant.id;
-  }
   process.stdout.write(
     `${JSON.stringify({
       projectId,
@@ -165,7 +139,7 @@ const main = async (): Promise<void> => {
       operationDigest: proposal.digest.value,
       mode,
       profileDigest: profile.profileDigest,
-      preauthorizationGrantId
+      standingPolicyConfigured: delegatedPolicy !== null
     })}\n`
   );
   } finally {

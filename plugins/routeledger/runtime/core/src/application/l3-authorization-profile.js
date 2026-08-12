@@ -1,8 +1,7 @@
 import crypto from "node:crypto";
 import { validateL3AuthorizationPolicy } from "./l3-authorization.js";
-export const L3_AUTHORIZATION_PROFILE_SCHEMA_VERSION = 2;
-export const L3_AUTHORIZATION_PROFILE_MAX_GRANT_TTL_SECONDS = 86_400;
-export const L3_AUTHORIZATION_PROFILE_MAX_GRANT_USES = 100;
+export const L3_AUTHORIZATION_PROFILE_SCHEMA_VERSION = 3;
+export const L3_AUTHORIZATION_PROFILE_MAX_AUTHORIZATION_TTL_SECONDS = 86_400;
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
 const isIsoDate = (value) => isNonEmptyString(value) && !Number.isNaN(Date.parse(value));
 const canonicalize = (value) => {
@@ -68,19 +67,16 @@ export const validateL3AuthorizationProfile = (profile) => {
     if (!Number.isInteger(profile.profileRevision) || profile.profileRevision <= 0) {
         addIssue(issues, "PROFILE_REVISION_INVALID", "$.profileRevision", "profileRevision must be positive");
     }
-    if (!Number.isInteger(profile.limits?.maxGrantTtlSeconds) ||
-        profile.limits.maxGrantTtlSeconds < 30 ||
-        profile.limits.maxGrantTtlSeconds > L3_AUTHORIZATION_PROFILE_MAX_GRANT_TTL_SECONDS) {
-        addIssue(issues, "MAX_GRANT_TTL_INVALID", "$.limits.maxGrantTtlSeconds", "maxGrantTtlSeconds must be from 30 through 86400");
+    if (!Number.isInteger(profile.limits?.maxAuthorizationTtlSeconds) ||
+        profile.limits.maxAuthorizationTtlSeconds < 30 ||
+        profile.limits.maxAuthorizationTtlSeconds > L3_AUTHORIZATION_PROFILE_MAX_AUTHORIZATION_TTL_SECONDS) {
+        addIssue(issues, "MAX_GRANT_TTL_INVALID", "$.limits.maxAuthorizationTtlSeconds", "maxAuthorizationTtlSeconds must be from 30 through 86400");
     }
-    if (!Number.isInteger(profile.limits?.maxGrantUses) ||
-        profile.limits.maxGrantUses <= 0 ||
-        profile.limits.maxGrantUses > L3_AUTHORIZATION_PROFILE_MAX_GRANT_USES) {
-        addIssue(issues, "MAX_GRANT_USES_INVALID", "$.limits.maxGrantUses", "maxGrantUses must be from 1 through 100");
-    }
-    if (profile.mode === "delegated") {
+    if (profile.mode === "delegated" || profile.mode === "preauthorized") {
         if (profile.delegatedPolicy === null) {
-            addIssue(issues, "DELEGATED_POLICY_REQUIRED", "$.delegatedPolicy", "delegated mode requires a policy");
+            if (profile.mode === "delegated") {
+                addIssue(issues, "DELEGATED_POLICY_REQUIRED", "$.delegatedPolicy", "delegated mode requires a policy");
+            }
         }
         else {
             const policyValidation = validateL3AuthorizationPolicy(profile.delegatedPolicy);
@@ -88,7 +84,7 @@ export const validateL3AuthorizationProfile = (profile) => {
                 addIssue(issues, "DELEGATED_POLICY_INVALID", "$.delegatedPolicy", policyValidation.issues[0]?.code ?? "unknown policy issue");
             }
             if (profile.delegatedPolicy.mode !== "delegated") {
-                addIssue(issues, "DELEGATED_POLICY_MODE_INVALID", "$.delegatedPolicy.mode", "the delegated policy must use delegated mode");
+                addIssue(issues, "DELEGATED_POLICY_MODE_INVALID", "$.delegatedPolicy.mode", "the standing policy must use delegated evaluation semantics");
             }
             const policyBinding = profile.delegatedPolicy.binding;
             if (policyBinding.projectId !== profile.binding.projectId ||
@@ -101,7 +97,7 @@ export const validateL3AuthorizationProfile = (profile) => {
         }
     }
     else if (profile.delegatedPolicy !== null) {
-        addIssue(issues, "DELEGATED_POLICY_FORBIDDEN", "$.delegatedPolicy", "only delegated mode may carry a delegated policy");
+        addIssue(issues, "DELEGATED_POLICY_FORBIDDEN", "$.delegatedPolicy", "only delegated or preauthorized mode may carry a standing policy");
     }
     if (!isIsoDate(profile.createdAt)) {
         addIssue(issues, "CREATED_AT_INVALID", "$.createdAt", "createdAt must be an ISO timestamp");

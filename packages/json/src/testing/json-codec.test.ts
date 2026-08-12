@@ -451,7 +451,7 @@ describe("@routeledger/json canonical codec", () => {
         ...legacyArtifact,
         id: "approval-trusted-1",
         decisionRef: "decision-trusted-1",
-        authorizationGrantId: "grant-1",
+        authorizationId: "grant-1",
         approvalSource: "host_admission",
         policyId: null,
         policyDigest: null,
@@ -460,7 +460,6 @@ describe("@routeledger/json canonical codec", () => {
         profileDigest: "profile-digest-1",
         hostKind: "codex",
         clientId: "codex-client",
-        sessionId: "session-1"
       }
     ];
 
@@ -468,9 +467,9 @@ describe("@routeledger/json canonical codec", () => {
       encodeProjectAggregateToJsonDocuments(snapshot)
     );
 
-    expect(decoded.approvalArtifacts[0]).not.toHaveProperty("authorizationGrantId");
+    expect(decoded.approvalArtifacts[0]).not.toHaveProperty("authorizationId");
     expect(decoded.approvalArtifacts[1]).toMatchObject({
-      authorizationGrantId: "grant-1",
+      authorizationId: "grant-1",
       approvalSource: "host_admission",
       policyId: null,
       policyDigest: null,
@@ -479,7 +478,6 @@ describe("@routeledger/json canonical codec", () => {
       profileDigest: "profile-digest-1",
       hostKind: "codex",
       clientId: "codex-client",
-      sessionId: "session-1"
     });
   });
 

@@ -1,7 +1,9 @@
 export const projectDecisionArtifact = (artifact) => ({
-    id: artifact.id,
+    artifactId: artifact.id,
+    authorizationId: artifact.authorizationId ?? null,
     proposalId: artifact.pendingOperationId,
     projectId: artifact.projectId,
+    routeledgerRootDigest: artifact.routeledgerRootDigest ?? null,
     actionType: artifact.actionType,
     targetId: artifact.targetId,
     operationDigest: artifact.digest.value,
@@ -47,8 +49,8 @@ export const assertDecisionResolutionMatchesRequest = (request, resolution) => {
     const exactBinding = exactResolutionBindingMatches(request, candidate);
     const resolutionDetailIsValid = resolution.status === "resolved"
         ? resolution.decision.decisionRef.trim().length > 0 &&
-            (resolution.decision.authorizationGrantId === undefined ||
-                resolution.decision.authorizationGrantId.trim().length > 0)
+            (resolution.decision.authorizationId === undefined ||
+                resolution.decision.authorizationId.trim().length > 0)
         : resolution.request.reason.trim().length > 0;
     if (!exactBinding || !resolutionDetailIsValid) {
         fail("DECISION_RESOLUTION_BINDING_MISMATCH", "The decision resolution does not match the exact proposal request.");
@@ -59,27 +61,25 @@ const artifactMatchesProposal = (artifact, proposal) => artifact.pendingOperatio
     artifact.actionType === proposal.actionType &&
     artifact.targetId === proposal.targetId &&
     artifact.digest.value === proposal.digest.value;
-const receiptMatchesProposal = (receipt, artifact, proposal) => receipt.approvalArtifactId === artifact.id &&
-    receipt.pendingOperationId === proposal.id &&
-    receipt.projectId === proposal.projectId &&
-    receipt.actionType === proposal.actionType &&
-    receipt.targetId === proposal.targetId &&
-    receipt.operationDigest === proposal.digest.value &&
-    artifact.authorizationGrantId !== undefined &&
-    receipt.grantId === artifact.authorizationGrantId &&
-    receipt.approvalSource === artifact.approvalSource &&
+const receiptMatchesProposal = (receipt, artifact, proposal) => receipt.artifactId === artifact.id &&
+    receipt.binding.proposalId === proposal.id &&
+    receipt.binding.projectId === proposal.projectId &&
+    artifact.routeledgerRootDigest !== undefined &&
+    receipt.binding.routeledgerRootDigest === artifact.routeledgerRootDigest &&
+    receipt.binding.actionType === proposal.actionType &&
+    receipt.binding.targetId === proposal.targetId &&
+    receipt.binding.operationDigest === proposal.digest.value &&
+    artifact.authorizationId !== undefined &&
+    receipt.authorizationId === artifact.authorizationId &&
+    receipt.source === artifact.approvalSource &&
     receipt.decisionRef === artifact.decisionRef &&
-    receipt.approverId === artifact.approver.id &&
-    receipt.approverType === artifact.approver.type &&
-    receipt.approverDisplayName === artifact.approver.displayName &&
-    receipt.policyId === artifact.policyId &&
-    receipt.policyDigest === artifact.policyDigest &&
-    receipt.profileId === artifact.profileId &&
-    receipt.modeEpoch === artifact.modeEpoch &&
-    receipt.profileDigest === artifact.profileDigest &&
+    receipt.policyId === (artifact.policyId ?? null) &&
+    receipt.policyDigest === (artifact.policyDigest ?? null) &&
+    receipt.profileId === (artifact.profileId ?? null) &&
+    receipt.modeEpoch === (artifact.modeEpoch ?? null) &&
+    receipt.profileDigest === (artifact.profileDigest ?? null) &&
     receipt.hostKind === artifact.hostKind &&
-    receipt.clientId === artifact.clientId &&
-    receipt.sessionId === artifact.sessionId;
+    receipt.clientId === (artifact.clientId ?? null);
 const validateEvidenceBindings = (evidence) => {
     const artifact = evidence.approvalArtifact ?? null;
     const receipt = evidence.authorizationReceipt ?? null;
