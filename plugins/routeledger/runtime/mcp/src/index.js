@@ -774,6 +774,32 @@ export const createRouteLedgerMcpRegistry = (options) => {
         // let a stale injected identity misreport it after a direct registry call.
         runtimeProfile
     };
+    const codexPermissionRecoveryActions = hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable"
+        ? [
+            {
+                action: "update_plugin",
+                instruction: `Install or upgrade RouteLedger to plugin ${runtimeIdentity.pluginVersion ?? "the current marketplace version"}.`,
+                expectedRuntime: {
+                    pluginVersion: runtimeIdentity.pluginVersion,
+                    runtimePayloadDigest: runtimeIdentity.runtimePayloadDigest
+                }
+            },
+            {
+                action: "restart_codex_desktop",
+                instruction: "Quit and reopen Codex Desktop so the RouteLedger MCP process is recreated from the updated plugin manifest."
+            },
+            {
+                action: "verify_permission_context",
+                instruction: "In a new task, call get_runtime_context and then get_l3_authorization_status with detail=summary.",
+                tool: "get_l3_authorization_status",
+                toolInput: { detail: "summary" },
+                expected: {
+                    controlPlane: "codex_permission_adapter_v2",
+                    effectiveModeStatus: "resolved"
+                }
+            }
+        ]
+        : [];
     const serverInfo = createServerInfo(runtimeIdentity);
     const instructions = createInstructions({
         hostProfile,
@@ -1184,7 +1210,8 @@ export const createRouteLedgerMcpRegistry = (options) => {
                         profile: null,
                         profileCompatible,
                         effectiveMode,
-                        management: "host_only"
+                        management: "host_only",
+                        recommendedNextActions: codexPermissionRecoveryActions
                     }
                     : {
                         controlPlane: "host_authority_broker_v2",
@@ -2589,7 +2616,10 @@ export const createRouteLedgerMcpRegistry = (options) => {
                 });
             }
             if (hostProfile === "codex" && options.hostPermissionContext?.status === "unavailable") {
-                throw new ApplicationError("AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE", options.hostPermissionContext.reason, { reason: options.hostPermissionContext.code });
+                throw new ApplicationError("AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE", options.hostPermissionContext.reason, {
+                    reason: options.hostPermissionContext.code,
+                    recommendedNextActions: codexPermissionRecoveryActions
+                });
             }
             if (hostProfile === "codex" &&
                 options.hostPermissionContext?.status === "resolved" &&
