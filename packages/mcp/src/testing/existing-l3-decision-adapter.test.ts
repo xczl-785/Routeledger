@@ -5,6 +5,7 @@ import {
   digestL3AuthorizationProfile,
   MemoryL3AuthorizationGrantStore,
   MemoryExactAuthorizationStore,
+  type ExactAuthorizationCandidate,
   type L3AuthorizationConsumptionReceipt,
   type L3AuthorizationGrant,
   type L3AuthorizationGrantContext,
@@ -140,6 +141,80 @@ const receiptFor = (
 });
 
 describe("ExistingL3DecisionAdapter", () => {
+  const delegatedCandidate = (): ExactAuthorizationCandidate => ({
+    schemaVersion: 2,
+    authorizationId: "exact-delegated-1",
+    binding: {
+      proposalId: proposal.id,
+      projectId: proposal.projectId,
+      routeledgerRootDigest: context.routeledgerRootDigest,
+      actionType: proposal.actionType,
+      targetId: proposal.targetId,
+      operationDigest: proposal.digest.value
+    },
+    source: "delegated_policy",
+    decisionRef: "trusted-decision-1",
+    issuer: "trusted-host",
+    audience: context.audience,
+    subjectId: context.subjectId,
+    policyId: "policy-1",
+    policyDigest: "policy-digest-1",
+    profileId: null,
+    modeEpoch: null,
+    profileDigest: null,
+    hostKind: context.hostKind,
+    clientId: context.clientId ?? null,
+    sessionId: null,
+    createdAt: "2026-08-11T00:00:00.000Z",
+    expiresAt: "2026-08-11T01:00:00.000Z"
+  });
+
+  it.each([
+    ["issuer", (value: ExactAuthorizationCandidate) => ({ ...value, issuer: "forged" })],
+    ["audience", (value: ExactAuthorizationCandidate) => ({ ...value, audience: "forged" })],
+    ["subject", (value: ExactAuthorizationCandidate) => ({ ...value, subjectId: "forged" })],
+    ["host", (value: ExactAuthorizationCandidate) => ({ ...value, hostKind: "forged" })],
+    ["client", (value: ExactAuthorizationCandidate) => ({ ...value, clientId: "forged" })],
+    ["profile", (value: ExactAuthorizationCandidate) => ({
+      ...value,
+      profileId: "forged",
+      modeEpoch: 1,
+      profileDigest: "forged"
+    })],
+    ["time", (value: ExactAuthorizationCandidate) => ({
+      ...value,
+      createdAt: "2026-08-11T00:00:11.000Z"
+    })]
+  ])("rejects delegated %s provenance mismatch before persistence", async (_label, mutate) => {
+    const exactStore = new MemoryExactAuthorizationStore();
+    const candidate = mutate(delegatedCandidate());
+    const resolver = adapter(new MemoryL3AuthorizationGrantStore(), {
+      exactStore,
+      delegatedAuthority: {
+        authorityHandle: "host-vault://policy-1",
+        issuerId: "trusted-host",
+        requestExactDecision: async () => ({ effect: "allow", authorization: candidate })
+      },
+      getEvaluationContext: async () => ({
+        projectId: proposal.projectId,
+        currentVersionId: null,
+        targetRelation: "other",
+        gateAllowed: true,
+        actionType: proposal.actionType,
+        targetId: proposal.targetId,
+        operationDigest: proposal.digest.value,
+        routeledgerRootDigest: context.routeledgerRootDigest,
+        now: context.now,
+        subjectId: context.subjectId,
+        hostKind: context.hostKind,
+        clientId: context.clientId
+      })
+    });
+    await expect(resolver.resolve(createExactProposalDecisionRequest(proposal)))
+      .rejects.toMatchObject({ code: "AUTHORIZATION_GRANT_REJECTED" });
+    await expect(exactStore.get(candidate.authorizationId)).resolves.toBeNull();
+  });
+
   it("rejects legacy scope content without minting exact authority", async () => {
     const exactStore = new MemoryExactAuthorizationStore();
     const resolver = adapter(new MemoryL3AuthorizationGrantStore(), {
@@ -190,6 +265,7 @@ describe("ExistingL3DecisionAdapter", () => {
     const resolver = adapter(store, {
       delegatedAuthority: {
         authorityHandle: "host-vault://policy-1",
+        issuerId: "trusted-host",
         requestExactDecision: async () => ({
           effect: "deny",
           code: "POLICY_DENIED",

@@ -797,6 +797,21 @@ class PersistentLocalExactAuthorizationStore implements ExactAuthorizationStore 
       store.revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt)
     );
   }
+  revokeProfileAuthorizations(
+    profileId: string,
+    beforeModeEpoch: number,
+    currentProfileDigest: string,
+    revokedAt: string
+  ) {
+    return this.run((store) =>
+      store.revokeProfileAuthorizations(
+        profileId,
+        beforeModeEpoch,
+        currentProfileDigest,
+        revokedAt
+      )
+    );
+  }
 }
 
 class PersistentLocalL3AuthorizationGrantStore implements L3AuthorizationGrantStore {
@@ -998,6 +1013,7 @@ export const loadLocalL3AuthorityRuntime = async (
   const authorityHandle = `local:${config.authorityId}:${policyDigest}`;
   const authority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
     authorityHandle,
+    issuerId: config.authorityId,
     requestExactDecision: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
       if (request.authorityHandle !== authorityHandle) {
         throw new Error("Local L3 authority handle mismatch.");
@@ -1023,7 +1039,7 @@ export const loadLocalL3AuthorityRuntime = async (
       const proposalId = request.proposal.id;
       const authorization: ExactAuthorizationCandidate = {
         schemaVersion: 2,
-        authorizationId: `authorization-${proposalId}`,
+        authorizationId: `authorization-${policyDigest}-${proposalId}`,
         binding: {
           proposalId,
           projectId: request.context.projectId,
@@ -1134,9 +1150,10 @@ export const loadLocalL3AuthorityProfileRuntime = async (
     input.profile.profileDigest,
     new Date().toISOString()
   );
-  await exactStore.revokeProfileReceipts(
+  await exactStore.revokeProfileAuthorizations(
     input.profile.profileId,
     input.profile.modeEpoch,
+    input.profile.profileDigest,
     new Date().toISOString()
   );
   if (
@@ -1154,6 +1171,7 @@ export const loadLocalL3AuthorityProfileRuntime = async (
   const authorityHandle = `local-profile:${input.profile.profileId}:${input.profile.profileDigest}`;
   const delegatedAuthority: RouteLedgerMcpDelegatedAuthorizationAuthority = {
     authorityHandle,
+    issuerId: input.profile.profileId,
     requestExactDecision: async (request): Promise<RouteLedgerMcpDelegatedAuthorizationResult> => {
       if (request.authorityHandle !== authorityHandle) {
         throw new Error("Local L3 profile authority handle mismatch.");
@@ -1184,7 +1202,7 @@ export const loadLocalL3AuthorityProfileRuntime = async (
       const proposalId = request.proposal.id;
       const authorization: ExactAuthorizationCandidate = {
         schemaVersion: 2,
-        authorizationId: `authorization-${proposalId}`,
+        authorizationId: `authorization-${input.profile.profileDigest}-${policyDigest}-${proposalId}`,
         binding: {
           proposalId,
           projectId: request.context.projectId,

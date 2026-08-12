@@ -199,6 +199,123 @@ describe("local L3 authorization profile runtime", () => {
     expect(first.authorization.authorizationId).not.toBe(second.authorization.authorizationId);
   });
 
+  it("revokes an unconsumed exact candidate across an active profile epoch rotation", async () => {
+    const fixture = await createFixture();
+    const firstRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const context = contextFor(fixture.profile);
+    const first = await firstRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: firstRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(context),
+      context
+    });
+    if (first.effect !== "allow") throw new Error("expected first exact decision");
+
+    const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+      ...fixture.profile,
+      modeEpoch: 2,
+      profileRevision: 2,
+      updatedAt: "2026-08-11T00:02:00.000Z"
+    };
+    const rotated = {
+      ...rotatedBase,
+      profileDigest: digestL3AuthorizationProfile(rotatedBase)
+    };
+    const rotatedRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      profile: rotated,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const oldConsume = await rotatedRuntime.exactStore.consumeAndRecordReceipt({
+      authorizationId: first.authorization.authorizationId,
+      artifactId: "must-not-exist",
+      binding: first.authorization.binding,
+      now: context.now
+    });
+    expect(oldConsume).toEqual({ ok: false, code: "AUTHORIZATION_INACTIVE" });
+
+    const rotatedContext = contextFor(rotated);
+    const second = await rotatedRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: rotatedRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(rotatedContext),
+      context: rotatedContext
+    });
+    expect(second).toMatchObject({
+      effect: "allow",
+      authorization: {
+        profileId: rotated.profileId,
+        modeEpoch: 2,
+        profileDigest: rotated.profileDigest
+      }
+    });
+    if (second.effect !== "allow") throw new Error("expected rotated exact decision");
+    expect(second.authorization.authorizationId).not.toBe(first.authorization.authorizationId);
+  });
+
+  it("revokes an unconsumed exact candidate across a policy rotation in the same epoch", async () => {
+    const fixture = await createFixture();
+    const firstRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    const context = contextFor(fixture.profile);
+    const first = await firstRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: firstRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(context),
+      context
+    });
+    if (first.effect !== "allow") throw new Error("expected first exact decision");
+
+    const rotatedPolicy = {
+      ...fixture.profile.delegatedPolicy!,
+      policyId: "policy-2"
+    };
+    const rotatedBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
+      ...fixture.profile,
+      profileRevision: 2,
+      delegatedPolicy: rotatedPolicy,
+      updatedAt: "2026-08-11T00:02:00.000Z"
+    };
+    const rotated = {
+      ...rotatedBase,
+      profileDigest: digestL3AuthorizationProfile(rotatedBase)
+    };
+    const rotatedRuntime = await loadLocalL3AuthorityProfileRuntime({
+      ...fixture,
+      profile: rotated,
+      hostKind: "codex",
+      subjectId: "local-user"
+    });
+    await expect(rotatedRuntime.exactStore.consumeAndRecordReceipt({
+      authorizationId: first.authorization.authorizationId,
+      artifactId: "must-not-exist",
+      binding: first.authorization.binding,
+      now: context.now
+    })).resolves.toEqual({ ok: false, code: "AUTHORIZATION_INACTIVE" });
+
+    const rotatedContext = contextFor(rotated);
+    const second = await rotatedRuntime.delegatedAuthority!.requestExactDecision({
+      authorityHandle: rotatedRuntime.delegatedAuthority!.authorityHandle,
+      proposal: proposalFor(rotatedContext),
+      context: rotatedContext
+    });
+    expect(second).toMatchObject({
+      effect: "allow",
+      authorization: {
+        policyId: "policy-2",
+        modeEpoch: fixture.profile.modeEpoch,
+        profileDigest: rotated.profileDigest
+      }
+    });
+    if (second.effect !== "allow") throw new Error("expected rotated exact decision");
+    expect(second.authorization.authorizationId).not.toBe(first.authorization.authorizationId);
+  });
+
   it("issues and recovers an exact delegated grant with profile provenance", async () => {
     const fixture = await createFixture();
     const runtime = await loadLocalL3AuthorityProfileRuntime({

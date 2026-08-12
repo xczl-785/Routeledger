@@ -66,6 +66,12 @@ export interface ExactAuthorizationStore {
     beforeModeEpoch: number,
     revokedAt: string
   ): Promise<number>;
+  revokeProfileAuthorizations(
+    profileId: string,
+    beforeModeEpoch: number,
+    currentProfileDigest: string,
+    revokedAt: string
+  ): Promise<number>;
 }
 
 export type StoredExactAuthorization = {
@@ -380,6 +386,40 @@ export class MemoryExactAuthorizationStore implements ExactAuthorizationStore {
         receipt.profileId === profileId &&
         receipt.modeEpoch !== null &&
         receipt.modeEpoch < beforeModeEpoch &&
+        receipt.status === "authorized"
+      ) {
+        this.receipts.set(artifactId, { ...receipt, status: "revoked", revokedAt });
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  async revokeProfileAuthorizations(
+    profileId: string,
+    beforeModeEpoch: number,
+    currentProfileDigest: string,
+    revokedAt: string
+  ): Promise<number> {
+    let count = 0;
+    for (const stored of this.authorizations.values()) {
+      if (
+        stored.candidate.profileId === profileId &&
+        stored.candidate.modeEpoch !== null &&
+        (stored.candidate.modeEpoch < beforeModeEpoch ||
+          stored.candidate.profileDigest !== currentProfileDigest) &&
+        stored.status === "active"
+      ) {
+        stored.status = "revoked";
+        stored.revokedAt = revokedAt;
+        count += 1;
+      }
+    }
+    for (const [artifactId, receipt] of this.receipts) {
+      if (
+        receipt.profileId === profileId &&
+        receipt.modeEpoch !== null &&
+        (receipt.modeEpoch < beforeModeEpoch || receipt.profileDigest !== currentProfileDigest) &&
         receipt.status === "authorized"
       ) {
         this.receipts.set(artifactId, { ...receipt, status: "revoked", revokedAt });

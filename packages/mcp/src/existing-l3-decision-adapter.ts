@@ -24,6 +24,7 @@ import {
   isMcpDecisionInputRequiredError,
   toL3DecisionInputRequest
 } from "./mcp-decision-input.js";
+import { validateExactAuthorizationCandidate } from "./exact-authorization-candidate-validator.js";
 
 export type ExistingL3DecisionResolution =
   | Exclude<DecisionResolution, { status: "denied" }>
@@ -191,6 +192,15 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       this.options.profile?.mode === "preauthorized"
         ? "preauthorized"
         : "delegated_policy";
+    const validationFailure = validateExactAuthorizationCandidate({
+      candidate: authorization,
+      request,
+      context: this.options.authorizationContext,
+      profile: this.options.profile,
+      expectedSource,
+      expectedIssuer: delegatedAuthority.issuerId,
+      now: this.now()
+    });
     if (
       authorization.schemaVersion !== 2 ||
       authorization.binding.proposalId !== request.proposalId ||
@@ -200,7 +210,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
       authorization.binding.actionType !== request.actionType ||
       authorization.binding.targetId !== request.targetId ||
       authorization.binding.operationDigest !== request.operationDigest ||
-      authorization.source !== expectedSource ||
+      validationFailure !== null ||
       !authorization.policyId ||
       !authorization.policyDigest
     ) {
@@ -209,7 +219,7 @@ export class ExistingL3DecisionAdapter implements L3DecisionAdapter {
         "The host-managed delegated authority returned an invalid one-shot grant",
         {
           authorityHandle: delegatedAuthority.authorityHandle,
-          reason: "DELEGATED_EXACT_DECISION_INVALID"
+          reason: validationFailure ?? "DELEGATED_EXACT_DECISION_INVALID"
         }
       );
     }

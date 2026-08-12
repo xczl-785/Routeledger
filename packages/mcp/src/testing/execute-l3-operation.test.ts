@@ -29,6 +29,7 @@ describe("execute_l3_operation", () => {
         trustedClientId: "automatic-client",
         delegatedAuthority: {
           authorityHandle: "host-vault://d3-test",
+          issuerId: "test-authority",
           requestExactDecision: async ({ proposal, context }: RouteLedgerMcpDelegatedAuthorizationRequest) => {
             delegatedCalls += 1;
             const now = new Date();
