@@ -1318,7 +1318,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     recommendedChecklist: [
                         "Verify project, workspace-root, RouteLedger-root, subject, host, and trusted-client bindings.",
                         "Keep target IDs explicit; do not add wildcard targets.",
-                        "Keep TTL and use budgets finite.",
+                        "Keep credential validity and per-proposal decision budgets finite.",
                         "Treat a mode or policy-capability expansion as a new trusted-host user decision.",
                         "Install only through the host authority broker; project files and MCP tools are not authority."
                     ]
@@ -1977,7 +1977,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                     reviewChecklist: [
                         "Verify the project and RouteLedger-root bindings.",
                         "Verify the current-version and target list snapshot.",
-                        "Choose an expiry and maximum-use budget.",
+                        "Choose credential validity and a per-proposal decision budget.",
                         "Keep shutdown, reopen, route editing, and current-pointer changes in alwaysPrompt.",
                         "Install only in a host-managed authority and inject its opaque handle at MCP startup; never save this candidate as project authority."
                     ]

@@ -111,7 +111,7 @@ export const validateL3AuthorizationPolicy = (policy) => {
             }
             if (rule.effect === "allow" &&
                 (!Number.isInteger(rule.conditions?.decisionBudget) || (rule.conditions?.decisionBudget ?? 0) <= 0)) {
-                addIssue(issues, "ALLOW_MAX_USES_REQUIRED", `${base}.conditions.decisionBudget`, "allow rules must have a positive maximum-use budget");
+                addIssue(issues, "ALLOW_DECISION_BUDGET_REQUIRED", `${base}.conditions.decisionBudget`, "allow rules must have a positive per-proposal decision budget");
             }
             if (rule.conditions?.allowedTargetRelations !== undefined) {
                 if (!Array.isArray(rule.conditions.allowedTargetRelations) ||
@@ -126,7 +126,7 @@ export const validateL3AuthorizationPolicy = (policy) => {
             }
             if (rule.conditions?.decisionBudget !== undefined &&
                 (!Number.isInteger(rule.conditions.decisionBudget) || rule.conditions.decisionBudget <= 0)) {
-                addIssue(issues, "MAX_USES_INVALID", `${base}.conditions.decisionBudget`, "decisionBudget must be a positive integer");
+                addIssue(issues, "DECISION_BUDGET_INVALID", `${base}.conditions.decisionBudget`, "decisionBudget must be a positive integer");
             }
         }
     }
