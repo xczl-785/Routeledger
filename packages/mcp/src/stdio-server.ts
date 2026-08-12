@@ -806,6 +806,7 @@ export const createRouteLedgerStdioServer = (
       ...registryOptions,
       l3Authorization: {
         grantStore: selected?.grantStore ?? grantStore,
+        ...(selected?.exactStore === undefined ? {} : { exactStore: selected.exactStore }),
         interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
         sessionId: configuredL3Authorization?.sessionId ?? authorizationSessionId,
         ...(selected !== undefined && "profile" in selected && selected.profile !== undefined

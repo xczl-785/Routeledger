@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import {
+  digestL3AuthorizationProfile,
   validateL3AuthorizationProfile,
   type L3AuthorityBindingIdentityV2,
   type L3AuthorizationProfileV2
@@ -174,6 +175,63 @@ const parseProfile = (value: unknown): L3AuthorizationProfileV2 => {
   return profile;
 };
 
+const migrateProfileV2 = (value: Record<string, unknown>): L3AuthorizationProfileV2 => {
+  if (
+    value.schemaVersion !== 2 ||
+    !isObject(value.limits) ||
+    !Number.isInteger(value.limits.maxGrantTtlSeconds) ||
+    !Number.isInteger(value.limits.maxGrantUses) ||
+    typeof value.profileDigest !== "string"
+  ) {
+    throw new Error("Local L3 authorization profile is invalid and cannot be trusted.");
+  }
+  const legacyDigest = sha256(JSON.stringify(canonicalize({
+    schemaVersion: 2,
+    profileId: value.profileId,
+    status: value.status,
+    binding: value.binding,
+    mode: value.mode,
+    modeEpoch: value.modeEpoch,
+    delegatedPolicy: value.delegatedPolicy,
+    limits: value.limits
+  })));
+  if (value.profileDigest !== legacyDigest) {
+    throw new Error("Local L3 authorization profile is invalid: PROFILE_DIGEST_MISMATCH.");
+  }
+  const migratedAt = new Date().toISOString();
+  const base = {
+    ...value,
+    schemaVersion: 3 as const,
+    modeEpoch: (value.modeEpoch as number) + 1,
+    profileRevision: (value.profileRevision as number) + 1,
+    limits: {
+      maxAuthorizationTtlSeconds: value.limits.maxGrantTtlSeconds as number
+    },
+    updatedAt: migratedAt
+  } as unknown as Omit<L3AuthorizationProfileV2, "profileDigest">;
+  const migrated: L3AuthorizationProfileV2 = {
+    ...base,
+    profileDigest: digestL3AuthorizationProfile(base)
+  };
+  const validation = validateL3AuthorizationProfile(migrated);
+  if (!validation.valid) {
+    throw new Error(
+      `Local L3 authorization profile is invalid: ${validation.issues[0]?.code ?? "UNKNOWN"}.`
+    );
+  }
+  return migrated;
+};
+
+const readAndMigrateProfile = async (profilePath: string): Promise<L3AuthorizationProfileV2> => {
+  const raw = await readJson(profilePath, "Local L3 authorization profile");
+  if (isObject(raw) && raw.schemaVersion === 2) {
+    const migrated = migrateProfileV2(raw);
+    await writeJsonAtomic(profilePath, migrated);
+    return migrated;
+  }
+  return parseProfile(raw);
+};
+
 export const digestLocalL3AuthorityPath = async (candidate: string): Promise<string> =>
   `sha256:${sha256(await fs.realpath(candidate))}`;
 
@@ -285,7 +343,9 @@ export const loadLocalL3AuthorityProfileRegistry = async (
       const profilePath = path.join(bindingDirectory(registryRoot, bindingKey), "profile.json");
       let profile: L3AuthorizationProfileV2;
       try {
-        profile = parseProfile(await readJson(profilePath, "Local L3 authorization profile"));
+        profile = await withBindingLock(bindingDirectory(registryRoot, bindingKey), () =>
+          readAndMigrateProfile(profilePath)
+        );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw error;
@@ -323,7 +383,7 @@ export const installLocalL3AuthorizationProfile = async (
   await withBindingLock(directory, async () => {
     let existing: L3AuthorizationProfileV2 | null = null;
     try {
-      existing = parseProfile(await readJson(profilePath, "Local L3 authorization profile"));
+      existing = await readAndMigrateProfile(profilePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }

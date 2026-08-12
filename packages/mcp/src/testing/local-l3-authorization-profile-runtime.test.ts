@@ -49,7 +49,7 @@ const createFixture = async () => {
     clientId: binding.trustedClientId ?? undefined
   });
   const base: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profileId: "profile-1",
     status: "active",
     binding,
@@ -57,7 +57,7 @@ const createFixture = async () => {
     modeEpoch: 1,
     profileRevision: 1,
     delegatedPolicy: policy,
-    limits: { maxGrantTtlSeconds: 300, maxGrantUses: 5 },
+    limits: { maxAuthorizationTtlSeconds: 300 },
     createdAt: "2026-08-11T00:00:00.000Z",
     updatedAt: "2026-08-11T00:00:00.000Z"
   };

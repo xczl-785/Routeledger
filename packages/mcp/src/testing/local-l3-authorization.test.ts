@@ -556,6 +556,69 @@ describe("local L3 authorization runtime", () => {
     ).rejects.toThrow("cannot be trusted");
   });
 
+  it("atomically migrates v1 grants to revoked audit records and tombstones every reserved authority", async () => {
+    const fixture = await createFixture(2);
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const reserved = await runtime.authority.requestGrant({
+      authorityHandle: runtime.authority.authorityHandle,
+      proposal: {} as never,
+      context: evaluationContext("legacy-reserved")
+    });
+    const issued = await runtime.authority.requestGrant({
+      authorityHandle: runtime.authority.authorityHandle,
+      proposal: {} as never,
+      context: evaluationContext("legacy-issued")
+    });
+    if (reserved.effect !== "allow" || issued.effect !== "allow") {
+      throw new Error("expected legacy grants");
+    }
+    await runtime.grantStore.issue(issued.grant);
+    const current = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as Record<string, unknown>;
+    const legacy: Record<string, unknown> = { ...current, schemaVersion: 1 };
+    delete legacy.legacyTombstones;
+    await fs.writeFile(fixture.statePath, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
+
+    await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const migratedText = await fs.readFile(fixture.statePath, "utf8");
+    const migrated = JSON.parse(migratedText) as {
+      schemaVersion: number;
+      reservedGrants: Record<string, unknown>;
+      grants: Record<string, { status: string; revokedAt?: string }>;
+      legacyTombstones: Record<string, { reason: string }>;
+    };
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.reservedGrants).toEqual({});
+    expect(migrated.grants[issued.grant.id]).toMatchObject({
+      status: "revoked",
+      revokedAt: expect.any(String)
+    });
+    expect(migrated.legacyTombstones).toMatchObject({
+      [`reserved_grant:${reserved.grant.id}`]: { reason: "legacy_reauthorization_required" },
+      [`grant:${issued.grant.id}`]: { reason: "legacy_reauthorization_required" }
+    });
+
+    await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    expect(await fs.readFile(fixture.statePath, "utf8")).toBe(migratedText);
+  });
+
   it("recovers an abandoned state lock before applying a trusted mutation", async () => {
     const fixture = await createFixture();
     const runtime = await loadLocalL3AuthorityRuntime({
@@ -666,6 +729,7 @@ describe("local L3 authorization runtime", () => {
       },
       l3Authorization: {
         grantStore: runtime.grantStore,
+        exactStore: runtime.exactStore,
         delegatedAuthority: runtime.authority,
         interaction: {
           requestAuthorization: async () => {
@@ -748,6 +812,7 @@ describe("local L3 authorization runtime", () => {
       runtimeProfile: "json-only",
       l3Authorization: {
         grantStore: recoveredRuntime.grantStore,
+        exactStore: recoveredRuntime.exactStore,
         delegatedAuthority: recoveredRuntime.authority
       },
       input: Readable.from(lines),

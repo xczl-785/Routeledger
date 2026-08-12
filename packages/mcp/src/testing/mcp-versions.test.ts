@@ -45,8 +45,6 @@ describe("routeledger mcp registry", () => {
         pendingOperationId: createFirstDetails.pendingOperationId
       });
 
-      registry.close();
-      registry = createRegistry(projectRoot);
       await expect(
         registry.invoke("commit_l3_operation", {
           projectId,
@@ -54,6 +52,8 @@ describe("routeledger mcp registry", () => {
           approvalArtifactId: (firstApproval.data as { id: string }).id
         })
       ).resolves.toMatchObject({ ok: true });
+      registry.close();
+      registry = createRegistry(projectRoot);
 
       const createSuccessor = await registry.invoke("create_version", {
         projectId,
@@ -141,13 +141,13 @@ describe("routeledger mcp registry", () => {
         pendingOperationId: advanceDetails.pendingOperationId
       });
 
-      registry.close();
-      registry = createRegistry(projectRoot);
       await registry.invoke("commit_l3_operation", {
         projectId,
         pendingOperationId: advanceDetails.pendingOperationId,
         approvalArtifactId: (advanceApproval.data as { id: string }).id
       });
+      registry.close();
+      registry = createRegistry(projectRoot);
       const context = await registry.invoke("get_current_context", { projectId });
 
       expect(context).toMatchObject({

@@ -215,7 +215,6 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
 };
 
 describe("sqlite storage adapter", () => {
-  it.todo("[EA2 target red] round-trips profileId, modeEpoch, and profileDigest in authorization provenance");
 
   it("init 创建 DB 文件并启用 foreign_keys/WAL", () => {
     const projectRoot = createTempProjectRoot();
@@ -276,13 +275,60 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-        expect(migrationCount.count).toBe(7);
+        expect(migrationCount.count).toBe(8);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
       }
     } finally {
       cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("upgrades every real migration prefix through 0008 and rejects future histories", () => {
+    for (let prefixLength = 0; prefixLength <= SQLITE_MIGRATIONS.length; prefixLength += 1) {
+      const db = new BetterSqlite3(":memory:");
+      try {
+        ensureSchemaMigrationsTable(db);
+        for (const migration of SQLITE_MIGRATIONS.slice(0, prefixLength)) {
+          db.exec(migration.sql);
+          db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
+            .run(migration.id, "2026-08-12T00:00:00.000Z");
+        }
+        applyMigrations(db);
+        applyMigrations(db);
+        expect(
+          (db.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count
+        ).toBe(SQLITE_MIGRATIONS.length);
+        expect(
+          (db.prepare("PRAGMA table_info(approval_artifacts)").all() as Array<{ name: string }>)
+            .map(({ name }) => name)
+        ).toContain("authorization_record_json");
+      } finally {
+        db.close();
+      }
+    }
+
+    const future = new BetterSqlite3(":memory:");
+    try {
+      ensureSchemaMigrationsTable(future);
+      future.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
+        .run("9999_future", "2026-08-12T00:00:00.000Z");
+      expect(() => applyMigrations(future)).toThrow("Unsupported or non-prefix");
+    } finally {
+      future.close();
+    }
+  });
+
+  it("makes the 0008 approval format unreadable to the 0.7.2 column projection", () => {
+    const db = new BetterSqlite3(":memory:");
+    try {
+      applyMigrations(db);
+      expect(() => db.prepare(
+        "SELECT authorization_provenance_json FROM approval_artifacts"
+      ).all()).toThrow("no such column");
+    } finally {
+      db.close();
     }
   });
 
@@ -545,7 +591,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(7);
+      ).toBe(8);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -2101,6 +2147,9 @@ describe("sqlite storage adapter", () => {
         approvalSource: "user_interaction",
         policyId: null,
         policyDigest: null,
+        profileId: "profile-shutdown-1",
+        modeEpoch: 3,
+        profileDigest: "profile-digest-shutdown-1",
         hostKind: "codex",
         clientId: "codex-client",
         sessionId: "session-1"
@@ -2130,6 +2179,9 @@ describe("sqlite storage adapter", () => {
         pendingOperationId: pendingOperation.id,
         authorizationGrantId: "grant-shutdown-1",
         approvalSource: "user_interaction",
+        profileId: "profile-shutdown-1",
+        modeEpoch: 3,
+        profileDigest: "profile-digest-shutdown-1",
         hostKind: "codex",
         clientId: "codex-client",
         sessionId: "session-1"

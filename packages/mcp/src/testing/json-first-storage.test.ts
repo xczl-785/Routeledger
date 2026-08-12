@@ -289,7 +289,7 @@ describe("JsonFirstStorageAdapter", () => {
       delete approvalDigestGate.blockedConstraintIds;
       sqliteStorage.db
         .prepare(
-          "UPDATE approval_artifacts SET digest_json = ?, decision_ref = ?, authorization_provenance_json = ? WHERE id = ?"
+          "UPDATE approval_artifacts SET digest_json = ?, decision_ref = ?, authorization_record_json = ? WHERE id = ?"
         )
         .run(
           JSON.stringify(approvalDigest),
@@ -346,9 +346,9 @@ describe("JsonFirstStorageAdapter", () => {
           }
         })
       ).rejects.toMatchObject({
-        code: "AUTHORIZATION_GRANT_REJECTED",
+        code: "JSON_SQLITE_CONFLICT",
         details: {
-          reason: "AUTHORIZATION_RECEIPT_INVALID"
+          differingDocumentPaths: [expect.stringContaining("approval_artifacts")]
         }
       });
       reloaded.storage.close();

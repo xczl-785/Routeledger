@@ -4706,6 +4706,7 @@ export class RouteLedgerService {
       expiresAt: receipt.expiresAt,
       consumedAt: null,
       authorizationGrantId: receipt.authorizationId,
+      routeledgerRootDigest: receipt.binding.routeledgerRootDigest,
       approvalSource: receipt.source,
       policyId: receipt.policyId,
       policyDigest: receipt.policyDigest,

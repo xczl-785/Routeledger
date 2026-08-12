@@ -231,7 +231,7 @@ describe("ExistingL3DecisionAdapter", () => {
   it("fails closed when a direct caller supplies a disabled profile", async () => {
     const store = new MemoryL3AuthorizationGrantStore();
     const profileBase: Omit<L3AuthorizationProfileV2, "profileDigest"> = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       profileId: "profile-disabled",
       status: "disabled",
       binding: {
@@ -246,7 +246,7 @@ describe("ExistingL3DecisionAdapter", () => {
       modeEpoch: 2,
       profileRevision: 1,
       delegatedPolicy: null,
-      limits: { maxGrantTtlSeconds: 300, maxGrantUses: 1 },
+      limits: { maxAuthorizationTtlSeconds: 300 },
       createdAt: "2026-08-11T00:00:00.000Z",
       updatedAt: "2026-08-11T00:00:00.000Z"
     };

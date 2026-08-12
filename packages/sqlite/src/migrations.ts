@@ -975,6 +975,17 @@ const L3_AUTHORIZATION_PROVENANCE_SQL = `
 ALTER TABLE approval_artifacts ADD COLUMN authorization_provenance_json TEXT;
 `;
 
+const EXACT_AUTHORIZATION_RECORD_SQL = `
+ALTER TABLE approval_artifacts
+  RENAME COLUMN authorization_provenance_json TO authorization_record_json;
+UPDATE approval_artifacts
+SET authorization_record_json = json_object(
+  'kind', 'legacy_audit',
+  'provenance', json(authorization_record_json)
+)
+WHERE authorization_record_json IS NOT NULL;
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -1003,6 +1014,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0007_l3_authorization_provenance",
     sql: L3_AUTHORIZATION_PROVENANCE_SQL
+  },
+  {
+    id: "0008_exact_authorization_record",
+    sql: EXACT_AUTHORIZATION_RECORD_SQL
   }
 ];
 
@@ -1017,6 +1032,14 @@ export const ensureSchemaMigrationsTable = (database: BetterSqlite3.Database): v
 
 export const applyMigrations = (database: BetterSqlite3.Database): void => {
   ensureSchemaMigrationsTable(database);
+  const appliedIds = (
+    database.prepare("SELECT id FROM schema_migrations ORDER BY rowid").all() as Array<{ id: string }>
+  ).map(({ id }) => id);
+  for (const [index, id] of appliedIds.entries()) {
+    if (SQLITE_MIGRATIONS[index]?.id !== id) {
+      throw new Error(`Unsupported or non-prefix SQLite migration history: ${id}.`);
+    }
+  }
   const selectApplied = database.prepare("SELECT id FROM schema_migrations WHERE id = ?");
   const insertApplied = database.prepare(
     "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)"

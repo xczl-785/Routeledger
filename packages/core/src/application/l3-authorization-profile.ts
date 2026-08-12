@@ -6,9 +6,8 @@ import {
   type L3AuthorizationPolicy
 } from "./l3-authorization.js";
 
-export const L3_AUTHORIZATION_PROFILE_SCHEMA_VERSION = 2 as const;
-export const L3_AUTHORIZATION_PROFILE_MAX_GRANT_TTL_SECONDS = 86_400 as const;
-export const L3_AUTHORIZATION_PROFILE_MAX_GRANT_USES = 100 as const;
+export const L3_AUTHORIZATION_PROFILE_SCHEMA_VERSION = 3 as const;
+export const L3_AUTHORIZATION_PROFILE_MAX_AUTHORIZATION_TTL_SECONDS = 86_400 as const;
 
 export interface L3AuthorityBindingIdentityV2 {
   projectId: string;
@@ -20,8 +19,7 @@ export interface L3AuthorityBindingIdentityV2 {
 }
 
 export interface L3AuthorizationProfileLimits {
-  maxGrantTtlSeconds: number;
-  maxGrantUses: number;
+  maxAuthorizationTtlSeconds: number;
 }
 
 export interface L3AuthorizationProfileAdoptionSource {
@@ -163,27 +161,15 @@ export const validateL3AuthorizationProfile = (
     );
   }
   if (
-    !Number.isInteger(profile.limits?.maxGrantTtlSeconds) ||
-    profile.limits.maxGrantTtlSeconds < 30 ||
-    profile.limits.maxGrantTtlSeconds > L3_AUTHORIZATION_PROFILE_MAX_GRANT_TTL_SECONDS
+    !Number.isInteger(profile.limits?.maxAuthorizationTtlSeconds) ||
+    profile.limits.maxAuthorizationTtlSeconds < 30 ||
+    profile.limits.maxAuthorizationTtlSeconds > L3_AUTHORIZATION_PROFILE_MAX_AUTHORIZATION_TTL_SECONDS
   ) {
     addIssue(
       issues,
       "MAX_GRANT_TTL_INVALID",
-      "$.limits.maxGrantTtlSeconds",
-      "maxGrantTtlSeconds must be from 30 through 86400"
-    );
-  }
-  if (
-    !Number.isInteger(profile.limits?.maxGrantUses) ||
-    profile.limits.maxGrantUses <= 0 ||
-    profile.limits.maxGrantUses > L3_AUTHORIZATION_PROFILE_MAX_GRANT_USES
-  ) {
-    addIssue(
-      issues,
-      "MAX_GRANT_USES_INVALID",
-      "$.limits.maxGrantUses",
-      "maxGrantUses must be from 1 through 100"
+      "$.limits.maxAuthorizationTtlSeconds",
+      "maxAuthorizationTtlSeconds must be from 30 through 86400"
     );
   }
   if (profile.mode === "delegated") {
