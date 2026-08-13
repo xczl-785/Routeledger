@@ -14,7 +14,7 @@ equivalent.
 
 ## Baseline shape before NF1-06
 
-`createRouteLedgerMcpRegistry` currently owns four different concerns:
+Before extraction, `createRouteLedgerMcpRegistry` owned four different concerns:
 
 1. pure schema and tool-contract construction;
 2. binding/runtime/service closure creation;
@@ -22,10 +22,11 @@ equivalent.
 4. profile filtering, handler lookup, invocation, error mapping, session
    rebinding, and registry disposal.
 
-The 48 registrations occupy one ordered array from roughly line 1,834 through
-4,080. `tools` and `getTool` expose the filtered definitions; `handlers` and
-`invoke` execute the same filtered registrations. Two Mission Control tools are
-`source-only`, producing 48 visible tools in `full` and 46 in `json-only`.
+At that baseline, the 48 registrations occupied one ordered array from roughly
+line 1,834 through 4,080. `tools` and `getTool` exposed the filtered
+definitions; `handlers` and `invoke` executed the same filtered registrations.
+Two Mission Control tools were `source-only`, producing 48 visible tools in
+`full` and 46 in `json-only`.
 
 The new characterization manifest in commit `1130900` freezes the complete
 semantic contract and order of both profiles. It is the primary equivalence
