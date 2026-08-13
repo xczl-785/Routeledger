@@ -39,9 +39,9 @@ or a trusted host standing-policy decision and fail closed when neither is avail
 The canonical artifact is not authority by itself; commit also requires its
 matching consumption receipt. The default in-process store requires
 reauthorization after an MCP process restart; continuity requires persistent
-trusted storage outside Agent write scope. The 0.8.0 candidate still requires
-merged-main Desktop acceptance before its exact-only authorization claim is
-released.
+trusted storage outside Agent write scope. The 0.8.1 release preserves this
+exact-only authorization boundary while reorganizing internal MCP and
+application modules.
 Activation may create or normalize only the binding
 `.routeledger/config.json`; `init_project` separately creates canonical
 project JSON.
