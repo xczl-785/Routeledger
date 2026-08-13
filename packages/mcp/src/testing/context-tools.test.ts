@@ -8,11 +8,7 @@ describe("context tool registrations", () => {
       service: {} as never,
       actor: {} as never,
       appendDebugLog: async () => undefined,
-      withCurrentRuntimeContextMeta: () => ({}),
-      sanitizeDocDriftForAgent: () => ({}),
-      sanitizeVersionStructureForAgent: () => ({}),
-      docDriftExpectedPointerSchema: {},
-      residualAuditInputSchema: {}
+      withCurrentRuntimeContextMeta: () => ({})
     });
 
     expect(tools.map((tool) => tool.definition.name)).toEqual([

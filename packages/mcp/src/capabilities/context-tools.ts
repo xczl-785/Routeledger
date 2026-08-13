@@ -14,6 +14,11 @@ import {
   type ToolRegistration,
   type ToolResponse
 } from "../registry/tool-contract.js";
+import { residualAuditInputSchema } from "../registry/route-input-schemas.js";
+import {
+  sanitizeDocDriftForAgent,
+  sanitizeVersionStructureForAgent
+} from "./context-agent-projection.js";
 
 type ContextService = Pick<
   RouteLedgerService,
@@ -45,10 +50,6 @@ export interface ContextToolDependencies {
     meta?: Record<string, unknown>;
     data: unknown;
   }) => Record<string, unknown>;
-  sanitizeDocDriftForAgent: (result: unknown) => Record<string, unknown>;
-  sanitizeVersionStructureForAgent: (result: unknown) => Record<string, unknown>;
-  docDriftExpectedPointerSchema: Record<string, unknown>;
-  residualAuditInputSchema: Record<string, unknown>;
 }
 
 const stringSchema = (
@@ -76,6 +77,17 @@ const objectSchema = (
   ...(required.length > 0 ? { required } : {})
 });
 
+const docDriftExpectedPointerSchema = objectSchema(
+  {
+    kind: stringSchema("Pointer kind label used by the caller."),
+    path: stringSchema("Expected repo-relative pointer path."),
+    required: booleanSchema(
+      "Defaults to true. Set false to make this pointer advisory only."
+    )
+  },
+  ["kind", "path"]
+);
+
 const withInputAdapter = <TInput>(
   adapter: (input: Record<string, any>) => TInput,
   handler: (input: TInput) => Promise<ToolResponse>
@@ -88,11 +100,7 @@ export const createContextTools = (
     service,
     actor,
     appendDebugLog,
-    withCurrentRuntimeContextMeta,
-    sanitizeDocDriftForAgent,
-    sanitizeVersionStructureForAgent,
-    docDriftExpectedPointerSchema,
-    residualAuditInputSchema
+    withCurrentRuntimeContextMeta
   } = dependencies;
 
   return [
