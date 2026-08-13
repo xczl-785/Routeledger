@@ -92,4 +92,7 @@ Ordered tool registrations and handlers live in
 schemas live in `packages/mcp/src/registry/*.ts` and
 `packages/mcp/src/l3-authorization-contract.ts`. `binding*.ts`,
 `input-adapter.ts`, `packages/core/src/application/routeledger-service.ts`,
-and their tests together define these guarantees.
+`packages/core/src/application/version-closeout-application.ts`, and their
+tests together define these guarantees. `RouteLedgerService` remains the
+public application facade and retains aggregate loading/ownership validation;
+the closeout collaborator is read-only orchestration behind that facade.
