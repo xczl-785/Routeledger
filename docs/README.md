@@ -6,6 +6,7 @@ It is not a release record and does not replace a bound project's canonical
 
 ## Entry points
 
+- [NF1 non-functional refactor and core-contract audit roadmap](roadmaps/nf1-non-functional-refactor-roadmap.md) records the planning boundary, audit findings, contract-first sequence, separate recovery tracks, and acceptance gates. It does not authorize production refactoring.
 - [L3 decision protocol implementation roadmap](roadmaps/l3-decision-protocol-roadmap.md) is the active traditional-document execution record while RouteLedger MCP access is unavailable. It tracks L3-D1 through L3-D6 states, gates, evidence, residuals, and the exact condition for restoring canonical lifecycle tracking.
 - [L3 decision protocol and host-adapter handoff](handoffs/l3-authorization-local-route-handoff.md) is the single portable continuation entry, including the accepted L3-D1 through L3-D6 route, current authorization blocker, cleanup inventory, and exact next action.
 - [L3 route-transition decision protocol](guides/l3-route-transition-decision-protocol.md) is the accepted post-0.6.0 product and architecture baseline: permission modes automate decision resolution while the complete L3 transition pipeline still runs.
