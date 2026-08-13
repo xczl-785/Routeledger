@@ -645,6 +645,16 @@ class LocalL3AuthorityStateFile {
               throw inspectionError;
             }
           }
+          if (
+            process.platform === "win32" &&
+            (error as NodeJS.ErrnoException).code === "EPERM"
+          ) {
+            const contention = new Error(
+              "Local L3 authority state lock disappeared during acquisition."
+            ) as NodeJS.ErrnoException;
+            contention.code = "EEXIST";
+            throw contention;
+          }
           throw error;
         }
         let heartbeatFailure: Error | null = null;
