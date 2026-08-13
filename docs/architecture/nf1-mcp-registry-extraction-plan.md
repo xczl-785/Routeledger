@@ -1,6 +1,7 @@
 # NF1 MCP registry extraction plan
 
-Status: NF1-06 design only. No production extraction has started.
+Status: NF1-06 implementation complete. Capability extraction and contract
+equivalence verification finished on 2026-08-13.
 
 ## Objective
 
@@ -11,7 +12,7 @@ schemas, descriptions, annotations, RouteLedger risk metadata, preflight,
 handlers, response envelopes, instructions, and runtime identity remain
 equivalent.
 
-## Current shape
+## Baseline shape before NF1-06
 
 `createRouteLedgerMcpRegistry` currently owns four different concerns:
 
@@ -169,9 +170,13 @@ Documentation-only planning, R1, R2, and every later capability are separate
 commits. Do not combine MCP registry movement with `RouteLedgerService`,
 storage, recovery, schema, or release-policy changes.
 
-## Start decision
+## Closeout
 
-The recommended next implementation is R1, followed by a review of its diff
-and contract manifest before authorizing R2. No capability handler should move
-until R1 has demonstrated that the pure contract seam is real and dependency
-free.
+The registry now keeps its public facade, explicit cross-capability order,
+runtime/session composition, preflight, invocation, and disposal in
+`packages/mcp/src/index.ts`. Tool registrations and handlers are extracted by
+Binding, Mission Control, Context, Version, Work, and L3 capability under
+`packages/mcp/src/capabilities/`; shared contracts and transport schemas live
+under `packages/mcp/src/registry/`. The characterized surface remains 48 tools
+in `full` and 46 in `json-only`, with the same order, schemas, metadata, and
+handler behavior.
