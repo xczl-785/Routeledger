@@ -6,7 +6,7 @@ import type {
 import type {
   RouteLedgerMcpAuthorizationDecision,
   RouteLedgerMcpAuthorizationRequest
-} from "./index.js";
+} from "./l3-authorization-contract.js";
 
 export class McpDecisionInputRequiredError extends Error {
   readonly name = "McpDecisionInputRequiredError";

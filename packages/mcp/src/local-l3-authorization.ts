@@ -20,7 +20,7 @@ import {
 import type {
   RouteLedgerMcpDelegatedAuthorizationAuthority,
   RouteLedgerMcpDelegatedAuthorizationResult
-} from "./index.js";
+} from "./l3-authorization-contract.js";
 import {
   LEGACY_AUTHORITY_CONFIG_TTL_FIELD,
   LEGACY_GRANT_FIELDS,

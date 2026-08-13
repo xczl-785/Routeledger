@@ -20,7 +20,7 @@ import {
   buildLocalL3AuthorityBindingKey,
   type LocalL3AuthorityBindingInput
 } from "./local-l3-authority-registry.js";
-import type { RouteLedgerMcpDelegatedAuthorizationAuthority } from "./index.js";
+import type { RouteLedgerMcpDelegatedAuthorizationAuthority } from "./l3-authorization-contract.js";
 
 export interface LocalL3AuthorityBrokerOptions {
   registryRoot: string;
