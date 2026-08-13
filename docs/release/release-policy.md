@@ -5,12 +5,10 @@ local build. A release requires a rebuilt plugin distribution, passing smoke
 and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
-`routeledger@routeledger-team` version 0.6.0 is the latest published Git
-marketplace release, fixed by `routeledger-plugin-v0.6.0`. Version 0.8.0 is the
-current Desktop-test candidate. It replaces reusable scope authorization with
-one exact authorization per proposal while preserving legacy records as
-audit-only history. It remains a candidate until its verified `main` commit
-receives `routeledger-plugin-v0.8.0`.
+`routeledger@routeledger-team` version 0.8.0 is the latest published Git
+marketplace release, fixed by `routeledger-plugin-v0.8.0`. It replaces reusable
+scope authorization with one exact authorization per proposal while preserving
+legacy records as audit-only history.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
