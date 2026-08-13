@@ -74,14 +74,17 @@ import {
 } from "./current-context-query.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import { runDocDriftCheck } from "./doc-drift-query.js";
-import { buildVersionCloseoutPlan } from "./version-closeout-planner.js";
 import type { VersionCloseoutPlan } from "./version-closeout-planner.js";
 import {
-  clampCloseoutEventLimit,
-  collectVersionCloseoutView,
   isSelfReferentialUndoForVersion
 } from "./version-closeout-query.js";
 import type { VersionCloseoutSummary } from "./version-closeout-query.js";
+import {
+  planVersionCloseoutApplication,
+  summarizeVersionCloseoutApplication,
+  type PlanVersionCloseoutInput,
+  type SummarizeVersionCloseoutInput
+} from "./version-closeout-application.js";
 import {
   buildBalancedL3AuthorizationPolicy,
   type L3AuthorizationEvaluationContext,
@@ -132,6 +135,10 @@ export type {
   VersionCloseoutPlanStepKind
 } from "./version-closeout-planner.js";
 export type { VersionCloseoutSummary } from "./version-closeout-query.js";
+export type {
+  PlanVersionCloseoutInput,
+  SummarizeVersionCloseoutInput
+} from "./version-closeout-application.js";
 
 export interface RouteLedgerServiceOptions {
   storage: StoragePort;
@@ -407,18 +414,6 @@ export interface GetCurrentContextInput {
   versionWindowBefore?: number;
   versionWindowAfter?: number;
   includeLegacyUndo?: boolean;
-}
-
-export interface SummarizeVersionCloseoutInput {
-  projectId: string;
-  versionId?: string;
-  eventLimit?: number;
-}
-
-export interface PlanVersionCloseoutInput {
-  projectId: string;
-  versionId?: string;
-  eventLimit?: number;
 }
 
 export interface ListVersionsWindowInput {
@@ -3989,50 +3984,14 @@ export class RouteLedgerService {
     input: SummarizeVersionCloseoutInput
   ): Promise<{ data: VersionCloseoutSummary; meta: Record<string, unknown> }> {
     const snapshot = await requireProject(this.storage, input.projectId);
-    const versionId = input.versionId ?? snapshot.project.currentVersionId;
-
-    if (versionId === null) {
-      throw new ApplicationError("VERSION_NOT_FOUND", "project 当前没有 current version", {
-        projectId: input.projectId
-      });
-    }
-
-    const eventLimit = clampCloseoutEventLimit(input.eventLimit);
-    const closeoutView = collectVersionCloseoutView({
-      snapshot,
-      versionId,
-      eventLimit
-    });
-
-    return {
-      data: closeoutView.summary,
-      meta: closeoutView.meta
-    };
+    return summarizeVersionCloseoutApplication(snapshot, input);
   }
 
   async planVersionCloseout(
     input: PlanVersionCloseoutInput
   ): Promise<{ data: VersionCloseoutPlan; meta: Record<string, unknown> }> {
     const snapshot = await requireProject(this.storage, input.projectId);
-    const versionId = input.versionId ?? snapshot.project.currentVersionId;
-
-    if (versionId === null) {
-      throw new ApplicationError("VERSION_NOT_FOUND", "project 当前没有 current version", {
-        projectId: input.projectId
-      });
-    }
-
-    const eventLimit = clampCloseoutEventLimit(input.eventLimit);
-    const closeoutView = collectVersionCloseoutView({
-      snapshot,
-      versionId,
-      eventLimit
-    });
-
-    return {
-      data: buildVersionCloseoutPlan(closeoutView),
-      meta: closeoutView.meta
-    };
+    return planVersionCloseoutApplication(snapshot, input);
   }
 
   async batchCreateVersions(input: BatchCreateVersionsInput): Promise<BatchCreateVersionsResult> {
