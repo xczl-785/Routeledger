@@ -10,7 +10,7 @@
     "routeledger-mcp-stdio": "./src/bin.ts"
   },
   "scripts": {
-    "test": "pnpm -C ../.. exec vitest run packages/mcp/src/testing/mcp.test.ts",
+    "test": "pnpm -C ../.. exec vitest run packages/mcp/src/testing",
     "stdio": "pnpm -C ../.. exec tsx packages/mcp/src/bin.ts",
     "smoke:mission-control-source": "pnpm -C ../.. exec tsx packages/mcp/scripts/smoke-source-mission-control.ts",
     "build:dist": "node ./scripts/build-package.mjs",

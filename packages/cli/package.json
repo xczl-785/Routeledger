@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "test": "pnpm -C ../.. exec vitest run packages/cli/src/testing/cli.test.ts"
+    "test": "pnpm -C ../.. exec vitest run packages/cli/src/testing"
   },
   "dependencies": {
     "@routeledger/core": "workspace:*",
