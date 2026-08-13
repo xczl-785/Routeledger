@@ -242,6 +242,7 @@ export interface MissionControlResponse {
   overview: MissionControlOverview | null;
   roadmap: MissionControlRoadmapItem[];
   currentVersion: MissionControlCurrentVersion | null;
+  versionDetails: MissionControlCurrentVersion[];
   tree: MissionControlVersionTree | null;
   proposals: MissionControlProposal[];
   approvals: MissionControlApprovalArtifact[];

@@ -27,11 +27,11 @@ The production surface remains named RouteLedger Mission Control; there is no
 | Axis | Selected prototype | Production target |
 | --- | --- | --- |
 | Frame | one bright continuous desktop surface | full-width single page, no sidebar |
-| Geometry | past / current / next / later columns | current column dominant; history and later columns collapsible |
+| Geometry | past / current / next / later columns | current column dominant; complete Version rail and later-detail columns collapsible |
 | Typography | neutral product sans, restrained sizes | system sans stack with Chinese fallbacks |
 | Color | white, gray separators, blue current accent | tokenized light palette, semantic status accents only |
 | State | loading, error, empty, current, collapsed history/detail | all explicit without introducing write behavior |
-| Interaction | project context, hide history, expand constraints/later/history | read-only controls only |
+| Interaction | project context, hide history, select any Version, expand constraints/later/history | read-only controls only; selecting a Version changes view state, never canonical current state |
 
 ## Data-source boundary
 
@@ -41,8 +41,13 @@ The production surface remains named RouteLedger Mission Control; there is no
 - Project switching remains a future launcher/runtime capability; the visual
   control will not claim it exists before the server can provide multiple
   healthy project destinations.
-- Version columns and route windows are derived client-side from the existing
-  `roadmap` pointers and `currentVersion`; canonical JSON remains the authority.
+- The complete Version rail is ordered from the full `roadmap` so child routes
+  remain visible. The center detail and next/later route context follow the
+  Version being inspected, while the distinct current marker continues to
+  represent canonical `currentVersion` and never moves with selection.
+- `versionDetails` is a read-only projection for every Version. Historical and
+  future selection shows the records currently retained in canonical JSON; it
+  does not claim to reconstruct the project's state at an earlier point in time.
 
 ## Verification
 

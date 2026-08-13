@@ -4,11 +4,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
   type ReactNode
 } from "react";
 import { CaretDown } from "@phosphor-icons/react/CaretDown";
 import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
 import { ClockCounterClockwise } from "@phosphor-icons/react/ClockCounterClockwise";
+import { Crosshair } from "@phosphor-icons/react/Crosshair";
 import { GitBranch } from "@phosphor-icons/react/GitBranch";
 import { LockSimple } from "@phosphor-icons/react/LockSimple";
 import { X } from "@phosphor-icons/react/X";
@@ -48,8 +52,8 @@ const stateLabel = (state: MissionControlVersionState | null, displayLabel?: str
   }
 };
 
-const stateTone = (state: MissionControlVersionState | null): string =>
-  state === null ? "neutral" : state;
+const stateTone = (state: MissionControlVersionState | null, displayLabel?: string | null): string =>
+  displayLabel === "SHUTDOWN" ? "shutdown" : state === null ? "neutral" : state;
 
 const formatDateTime = (value: string | null): string => {
   if (value === null || value.length === 0) return "—";
@@ -66,21 +70,25 @@ const formatDateTime = (value: string | null): string => {
 const versionsById = (roadmap: MissionControlRoadmapItem[]): Map<string, MissionControlRoadmapItem> =>
   new Map(roadmap.map((version) => [version.id, version]));
 
-const walkPrevious = (
-  current: MissionControlRoadmapItem,
-  roadmap: MissionControlRoadmapItem[],
-  limit = 3
-): MissionControlRoadmapItem[] => {
+const routeDepths = (roadmap: MissionControlRoadmapItem[]): Map<string, number> => {
   const byId = versionsById(roadmap);
-  const result: MissionControlRoadmapItem[] = [];
-  let pointer = current.previousVersionId;
-  while (pointer !== null && result.length < limit) {
-    const version = byId.get(pointer);
-    if (version === undefined) break;
-    result.unshift(version);
-    pointer = version.previousVersionId;
-  }
-  return result;
+  const depths = new Map<string, number>();
+  const resolve = (version: MissionControlRoadmapItem, path: Set<string>): number => {
+    const cached = depths.get(version.id);
+    if (cached !== undefined) return cached;
+    if (version.parentVersionId === null) {
+      depths.set(version.id, 0);
+      return 0;
+    }
+    if (path.has(version.id)) return 0;
+    const parent = byId.get(version.parentVersionId);
+    const nextPath = new Set(path).add(version.id);
+    const depth = parent === undefined ? 1 : resolve(parent, nextPath) + 1;
+    depths.set(version.id, depth);
+    return depth;
+  };
+  roadmap.forEach((version) => resolve(version, new Set()));
+  return depths;
 };
 
 const walkNext = (
@@ -109,7 +117,7 @@ const EmptyState = ({ title, description }: { title: string; description: string
 );
 
 const StatusMark = ({ state, label }: { state: MissionControlVersionState | null; label?: string | null }): ReactNode => (
-  <span className={classNames("status-mark", `tone-${stateTone(state)}`)}>
+  <span className={classNames("status-mark", `tone-${stateTone(state, label)}`)}>
     <i />{stateLabel(state, label)}
   </span>
 );
@@ -141,27 +149,150 @@ const ProjectContext = ({ projectName }: { projectName: string }): ReactNode => 
   );
 };
 
-const PastColumn = ({ versions }: { versions: MissionControlRoadmapItem[] }): ReactNode => (
-  <section className="horizon-column past-column" aria-label="过去版本">
-    <p className="column-kicker">过去版本</p>
-    {versions.length === 0 ? (
-      <EmptyState title="没有上游 Version" description="当前 Version 位于这条路线的起点。" />
-    ) : (
-      <div className="past-list">
-        {versions.map((version) => (
-          <article className="past-item" key={version.id}>
-            <span className="rail-dot" />
-            <div>
-              <strong>{version.title}</strong>
-              <p>位置 {version.order}</p>
-              <small>{stateLabel(version.state, version.displayLabel)}</small>
-            </div>
-          </article>
-        ))}
+export const RouteRail = ({ roadmap, current, selectedVersionId, onSelectVersion }: {
+  roadmap: MissionControlRoadmapItem[];
+  current: MissionControlRoadmapItem;
+  selectedVersionId?: string;
+  onSelectVersion?: (versionId: string) => void;
+}): ReactNode => {
+  const viewport = useRef<HTMLDivElement>(null);
+  const currentNode = useRef<HTMLButtonElement>(null);
+  const anchoredToCurrent = useRef(true);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [awayFromCurrent, setAwayFromCurrent] = useState(false);
+  const versions = useMemo(() => [...roadmap].sort((left, right) => left.order - right.order), [roadmap]);
+  const depths = useMemo(() => routeDepths(roadmap), [roadmap]);
+
+  const scrollToCurrent = (behavior: ScrollBehavior): void => {
+    const container = viewport.current;
+    const marker = currentNode.current;
+    if (container === null || marker === null) return;
+    const top = marker.offsetTop - (container.clientHeight - marker.offsetHeight) / 2;
+    container.scrollTo({ top, behavior });
+  };
+
+  const syncScrollState = (): void => {
+    const container = viewport.current;
+    const marker = currentNode.current;
+    if (container === null || marker === null) return;
+    const available = Math.max(1, container.scrollHeight - container.clientHeight);
+    setScrollProgress(container.scrollTop / available);
+    const containerCenter = container.getBoundingClientRect().top + container.clientHeight / 2;
+    const markerRect = marker.getBoundingClientRect();
+    const markerCenter = markerRect.top + markerRect.height / 2;
+    const away = Math.abs(containerCenter - markerCenter) > Math.max(32, markerRect.height * 0.55);
+    anchoredToCurrent.current = !away;
+    setAwayFromCurrent(away);
+  };
+
+  const handleRailKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const container = viewport.current;
+    if (container === null) return;
+    const steps: Record<string, number> = {
+      ArrowUp: -64,
+      ArrowDown: 64,
+      PageUp: -container.clientHeight * 0.8,
+      PageDown: container.clientHeight * 0.8
+    };
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      container.scrollTo({ top: event.key === "Home" ? 0 : container.scrollHeight, behavior: "smooth" });
+      return;
+    }
+    const step = steps[event.key];
+    if (step !== undefined) {
+      event.preventDefault();
+      container.scrollBy({ top: step, behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      scrollToCurrent("auto");
+      syncScrollState();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [current.id, versions.length]);
+
+  useEffect(() => {
+    if (selectedVersionId !== current.id) return;
+    const frame = window.requestAnimationFrame(() => {
+      scrollToCurrent("smooth");
+      syncScrollState();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [current.id, selectedVersionId]);
+
+  useEffect(() => {
+    const container = viewport.current;
+    if (container === null || typeof ResizeObserver === "undefined") return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (!anchoredToCurrent.current) return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        scrollToCurrent("auto");
+        syncScrollState();
+      });
+    });
+    observer.observe(container);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [current.id, versions.length]);
+
+  const railStyle = { "--route-scroll": `${scrollProgress * 100}%` } as CSSProperties;
+
+  return (
+    <section className="horizon-column route-column" aria-label="完整版本航迹" style={railStyle}>
+      <div className="route-column-header">
+        <div><p className="column-kicker">版本航迹</p><small>{versions.length} 个 Version</small></div>
+        <button className={classNames("current-locator", awayFromCurrent && "is-visible")} onClick={() => scrollToCurrent("smooth")} type="button">
+          <Crosshair size={15} />定位当前
+        </button>
       </div>
-    )}
-  </section>
-);
+      <div className="route-rail-frame">
+        <div className="route-rail-viewport" ref={viewport} onScroll={syncScrollState} onKeyDown={handleRailKeyDown} tabIndex={0} aria-label="Version 路线，向上查看过去，向下查看未来">
+          <div className="route-breathing-space" aria-hidden="true" />
+          <div className="route-rail-track">
+            {versions.map((version) => {
+              const relation = version.id === current.id ? "current" : version.order < current.order ? "past" : "future";
+              const depth = depths.get(version.id) ?? 0;
+              const isChildRoute = depth > 0;
+              const relationLabel = relation === "current" ? "当前" : relation === "past" ? "过去" : "未来";
+              const nodeStyle = { "--route-depth": Math.min(depth, 4) } as CSSProperties;
+              return (
+                <button
+                  className={classNames("route-node", `is-${relation}`, isChildRoute && "is-child-route", version.id === selectedVersionId && "is-selected")}
+                  data-route-node={version.id}
+                  data-route-depth={depth}
+                  key={version.id}
+                  ref={relation === "current" ? currentNode : undefined}
+                  aria-current={relation === "current" ? "step" : undefined}
+                  aria-pressed={version.id === selectedVersionId}
+                  style={nodeStyle}
+                  type="button"
+                  onClick={() => onSelectVersion?.(version.id)}
+                >
+                  <span className="route-node-dot" />
+                  <div className="route-node-copy">
+                    <span className="route-node-eyebrow">{relationLabel} · {isChildRoute ? `子路线 L${depth} · ` : ""}{version.order}</span>
+                    <strong>{version.title}</strong>
+                    <small className={classNames("route-state", `tone-${stateTone(version.state, version.displayLabel)}`)}>{stateLabel(version.state, version.displayLabel)}</small>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="route-breathing-space" aria-hidden="true" />
+        </div>
+        <div className="route-ruler" aria-hidden="true"><span /></div>
+      </div>
+      <p className="route-hint">过去向上 · 未来向下</p>
+    </section>
+  );
+};
 
 const Metric = ({ value, label }: { value: number; label: string }): ReactNode => (
   <div className="metric">
@@ -171,7 +302,7 @@ const Metric = ({ value, label }: { value: number; label: string }): ReactNode =
 
 const TodoList = ({ todos }: { todos: MissionControlTodoItem[] }): ReactNode => (
   <div className="work-list todo-list">
-    {todos.length === 0 ? <p className="quiet-empty">当前 Version 没有未完成 Todo。</p> : todos.map((todo) => (
+    {todos.length === 0 ? <p className="quiet-empty">该 Version 没有未完成 Todo。</p> : todos.map((todo) => (
       <div className="work-row" key={todo.id}>
         <span className={classNames("work-dot", todo.status === "running" && "is-running")} />
         <div><strong>{todo.title}</strong>{todo.description ? <p>{todo.description}</p> : null}</div>
@@ -182,7 +313,7 @@ const TodoList = ({ todos }: { todos: MissionControlTodoItem[] }): ReactNode => 
 
 const DeferredList = ({ deferred }: { deferred: MissionControlDeferredItem[] }): ReactNode => (
   <div className="deferred-table">
-    {deferred.length === 0 ? <p className="quiet-empty">当前 Version 没有相关 Deferred。</p> : deferred.map((item) => (
+    {deferred.length === 0 ? <p className="quiet-empty">该 Version 没有当前相关的 Deferred。</p> : deferred.map((item) => (
       <div className="deferred-row" key={item.id}>
         <span className={classNames("blue-dot", item.isDue && "is-due")} />
         <div><strong>{item.title}</strong>{item.reason ? <p>{item.reason}</p> : null}</div>
@@ -202,15 +333,33 @@ const ConstraintList = ({ constraints }: { constraints: MissionControlConstraint
   </div>
 );
 
-export const CurrentVersionColumn = ({ response }: { response: MissionControlResponse }): ReactNode => {
+export const CurrentVersionColumn = ({ response, viewedVersionId, onReturnToCurrent, sectionRef }: {
+  response: MissionControlResponse;
+  viewedVersionId?: string | null;
+  onReturnToCurrent?: () => void;
+  sectionRef?: RefObject<HTMLElement | null>;
+}): ReactNode => {
   const [activeSection, setActiveSection] = useState<"todo" | "deferred">("deferred");
   const [constraintsOpen, setConstraintsOpen] = useState(false);
   const [childrenOpen, setChildrenOpen] = useState(false);
-  const current = response.currentVersion;
-  const currentRoadmap = response.roadmap.find((version) => version.isCurrent) ?? null;
-  const children = currentRoadmap === null
+  const actualCurrentId = response.identity?.currentVersionId ?? null;
+  const selectedId = viewedVersionId ?? actualCurrentId;
+  const current = response.versionDetails.find((version) => version.id === selectedId) ?? response.currentVersion;
+  const viewedRoadmap = response.roadmap.find((version) => version.id === current?.id) ?? null;
+  const isActualCurrent = current?.id === actualCurrentId;
+  const actualCurrentOrder = response.identity?.currentVersionOrder ?? null;
+  const relation = viewedRoadmap === null || actualCurrentOrder === null
+    ? "version"
+    : viewedRoadmap.order < actualCurrentOrder ? "过去版本" : "未来版本";
+  const children = viewedRoadmap === null
     ? []
-    : response.roadmap.filter((version) => version.parentVersionId === currentRoadmap.id);
+    : response.roadmap.filter((version) => version.parentVersionId === viewedRoadmap.id);
+
+  useEffect(() => {
+    setActiveSection("deferred");
+    setConstraintsOpen(false);
+    setChildrenOpen(false);
+  }, [current?.id]);
 
   if (current === null) {
     return (
@@ -222,8 +371,11 @@ export const CurrentVersionColumn = ({ response }: { response: MissionControlRes
   }
 
   return (
-    <section className="horizon-column current-column" aria-label="当前版本">
-      <span className="current-label">当前版本</span>
+    <section ref={sectionRef} className={classNames("horizon-column current-column", !isActualCurrent && "is-inspecting")} aria-label={isActualCurrent ? "当前版本" : `正在查看${relation}`} aria-live="polite">
+      <div className="version-view-label">
+        <span className={classNames("current-label", !isActualCurrent && "inspection-label")}>{isActualCurrent ? "当前版本" : `查看${relation}`}</span>
+        {!isActualCurrent ? <button className="return-current" onClick={onReturnToCurrent} type="button"><Crosshair size={14} />查看当前 Version</button> : null}
+      </div>
       <h1>{current.title}</h1>
       <div className="current-meta">
         <StatusMark state={current.state} label={current.displayLabel} />
@@ -233,7 +385,7 @@ export const CurrentVersionColumn = ({ response }: { response: MissionControlRes
       {current.description ? <p className="current-description">{current.description}</p> : null}
       <div className="section-rule" />
 
-      <h2>当前工作概览</h2>
+      <h2>{isActualCurrent ? "当前工作概览" : "该 Version 的当前留存记录"}</h2>
       <div className="metric-line">
         <button className={activeSection === "todo" ? "active" : ""} onClick={() => setActiveSection("todo")} type="button" aria-pressed={activeSection === "todo"}>
           <Metric value={current.todos.length} label="Todo" />
@@ -249,7 +401,7 @@ export const CurrentVersionColumn = ({ response }: { response: MissionControlRes
 
       <div className="work-section-heading">
         <h2>{activeSection === "todo" ? "Todo" : "Deferred"}</h2>
-        <small>{activeSection === "todo" ? "当前 Version 的未完成工作" : "与当前 Version 相关的复评事项"}</small>
+        <small>{activeSection === "todo" ? "该 Version 当前仍未完成的工作" : "当前仍与该 Version 相关的复评事项"}</small>
       </div>
       {activeSection === "todo" ? <TodoList todos={current.todos} /> : <DeferredList deferred={current.deferred} />}
 
@@ -259,7 +411,7 @@ export const CurrentVersionColumn = ({ response }: { response: MissionControlRes
       </button>
       {constraintsOpen ? (
         current.constraints.length === 0
-          ? <p className="disclosure-empty">当前项目与 Version 没有生效中的 Constraint。</p>
+          ? <p className="disclosure-empty">该 Version 没有生效中的项目或版本 Constraint。</p>
           : <ConstraintList constraints={current.constraints} />
       ) : null}
 
@@ -365,18 +517,31 @@ export const VersionHorizon = ({ response, refreshing, onRefresh }: {
 }): ReactNode => {
   const [historyVisible, setHistoryVisible] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewedVersionId, setViewedVersionId] = useState<string | null>(response.identity?.currentVersionId ?? null);
   const historyButton = useRef<HTMLButtonElement>(null);
   const historyCloseButton = useRef<HTMLButtonElement>(null);
   const historyWasOpen = useRef(false);
+  const detailColumn = useRef<HTMLElement>(null);
   const currentRoadmap = useMemo(
     () => response.roadmap.find((version) => version.isCurrent) ?? null,
     [response.roadmap]
   );
-  const past = currentRoadmap === null ? [] : walkPrevious(currentRoadmap, response.roadmap, 3);
-  const forward = currentRoadmap === null ? [] : walkNext(currentRoadmap, response.roadmap);
+  const viewedRoadmap = response.roadmap.find((version) => version.id === viewedVersionId) ?? currentRoadmap;
+  const forward = viewedRoadmap === null ? [] : walkNext(viewedRoadmap, response.roadmap);
   const next = forward[0] ?? null;
   const later = forward.slice(1);
-  const parentTitle = response.currentVersion?.parentVersionTitle ?? null;
+  const viewedVersion = response.versionDetails.find((version) => version.id === viewedVersionId) ?? response.currentVersion;
+  const parentTitle = viewedVersion?.parentVersionTitle ?? null;
+  const selectVersion = (versionId: string): void => {
+    setViewedVersionId(versionId);
+    if (!window.matchMedia("(max-width: 820px)").matches) return;
+    window.requestAnimationFrame(() => detailColumn.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+  };
+
+  useEffect(() => {
+    if (viewedVersionId !== null && response.versionDetails.some((version) => version.id === viewedVersionId)) return;
+    setViewedVersionId(response.identity?.currentVersionId ?? null);
+  }, [response.identity?.currentVersionId, response.versionDetails, viewedVersionId]);
 
   useEffect(() => {
     if (!historyOpen) {
@@ -424,11 +589,26 @@ export const VersionHorizon = ({ response, refreshing, onRefresh }: {
 
       <section className="horizon-content">
         <button className="history-column-toggle" onClick={() => setHistoryVisible((value) => !value)} type="button">
-          <ClockCounterClockwise size={17} />{historyVisible ? "隐藏历史版本" : "显示历史版本"}
+          <GitBranch size={17} />{historyVisible ? "隐藏版本航迹" : "显示版本航迹"}
         </button>
         <div className={classNames("horizon-grid", !historyVisible && "without-history")}>
-          {historyVisible ? <PastColumn versions={past} /> : null}
-          <CurrentVersionColumn response={response} />
+          {historyVisible && currentRoadmap !== null ? (
+            <RouteRail
+              roadmap={response.roadmap}
+              current={currentRoadmap}
+              selectedVersionId={viewedVersionId ?? undefined}
+              onSelectVersion={selectVersion}
+            />
+          ) : null}
+          <CurrentVersionColumn
+            response={response}
+            viewedVersionId={viewedVersionId}
+            onReturnToCurrent={() => {
+              const currentId = response.identity?.currentVersionId;
+              if (currentId !== null && currentId !== undefined) selectVersion(currentId);
+            }}
+            sectionRef={detailColumn}
+          />
           <NextColumn version={next} />
           <FutureColumn versions={later} totalCount={Math.max(0, forward.length - 1)} />
         </div>
