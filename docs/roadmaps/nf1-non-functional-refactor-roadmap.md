@@ -131,4 +131,3 @@ Before production refactoring begins, review and approve these artifacts:
 - the first proposed `RouteLedgerService` extraction seam and its
   characterization-test list;
 - the decision on whether NF1-5 storage work remains in this Version.
-
