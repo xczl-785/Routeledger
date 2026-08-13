@@ -64,14 +64,44 @@ For each future release, create that tag on the final release commit in
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-The latest published plugin release is `routeledger-plugin-v0.6.0`; 0.8.0 is
-the current release candidate until main-host acceptance and its immutable tag;
-`codex-marketplace` remains the historical 0.3.3 branch anchor. `main` is
-the release branch: merge each verified distribution to `main`, create the
+The latest published plugin release is `routeledger-plugin-v0.8.0`;
+`codex-marketplace` remains the historical 0.3.3 branch anchor. `main` is the
+release branch: merge each verified distribution to `main`, create the
 immutable version tag on that commit, and never reuse or move an existing tag.
 The `main` push validates the previous-ref SemVer/distribution replay; it does
 not require a tag that has not been created yet. The subsequent version-tag CI
 runs the tag-to-HEAD check.
+
+## Merge, tag, and publish
+
+Use a protected-branch pull request to place the reviewed release commit on
+`main`. Do not bypass branch protection with a direct or forced push. After the
+pull request is merged, use a clean worktree and run:
+
+```bash
+git fetch origin --tags
+git switch main
+git pull --ff-only origin main
+
+export PLUGIN_VERSION=<plugin-semver>
+export RELEASE_TAG="routeledger-plugin-v${PLUGIN_VERSION}"
+
+test -z "$(git status --porcelain)"
+test -z "$(git tag --list "${RELEASE_TAG}")"
+pnpm check:codex-plugin-release --previous-ref <PREVIOUS_RELEASE_REF>
+pnpm smoke:codex-host-plugin
+
+git tag -a "${RELEASE_TAG}" -m "RouteLedger Codex plugin ${PLUGIN_VERSION}"
+pnpm check:codex-plugin-release --require-tag-ref
+git push origin "${RELEASE_TAG}"
+```
+
+The pull-request merge publishes the release commit to `origin/main`; the final
+push publishes only the immutable version tag. Never use `--force`, never move
+or delete a published tag, and do not retry with the same SemVer after changing
+plugin distribution bytes. The tag-triggered workflow must finish successfully
+and publish the GitHub Release checksum manifest before the version is described
+as published.
 
 Tag CI also runs:
 
@@ -107,5 +137,5 @@ without modifying a user profile. The published 0.4.2 path passed the same
 branch-install, upgrade, tag-reinstall, release-hash, license, and JSON-only
 runtime checks; 0.4.4 additionally publishes and anonymously revalidates its
 durable checksum manifest. The 0.4.3 candidate was never tagged or published.
-Versions 0.5.0 through 0.6.0 used the same immutable-main-tag and durable
+Versions 0.5.0 through 0.8.0 used the same immutable-main-tag and durable
 attestation path for the local L3 authorization releases.
