@@ -10,8 +10,9 @@ It does not authorize a production behavior, schema, or storage-contract change.
 1. Keep the local authority state-file lease design as the current contract.
    Its lock identity, heartbeat, live-process check, stale-owner reclamation,
    revision check, and fail-closed ownership checks already cover the intended
-   stale-lock lifecycle. The independently shipped Windows `EPERM` retry fixes
-   a host race without changing that policy.
+   stale-lock lifecycle. Independently shipped Windows `EPERM` retries cover
+   transient acquisition and owner-checked release races without changing that
+   policy.
 2. Do not change persisted `commitOwners` during NF1. A process crash can leave
    a random owner that permanently blocks a safe replay, but deleting the field
    or automatically ignoring it would weaken cross-process exclusion. Recovery

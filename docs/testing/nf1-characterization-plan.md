@@ -1,7 +1,7 @@
 # NF1 characterization-test plan
 
-Status: approved execution plan for NF1-04. No production refactor is
-authorized by this document.
+Status: NF1-04 completed. No production refactor is authorized by this
+document.
 
 ## Goal
 
@@ -84,3 +84,21 @@ Each slice must record:
   repeated at the NF1-04 close gate.
 - A flaky, platform-sensitive, or timing-heavy assertion is rejected rather
   than hidden behind a longer timeout.
+
+## Completion evidence
+
+- C1 commit `1130900` freezes all 48 full-runtime tool contracts, the 46-tool
+  JSON-only visibility subset, ordering, schemas, descriptions, annotations,
+  and RouteLedger risk metadata. A one-character digest perturbation failed on
+  the intended tool; the MCP package then passed 23 files and 214 tests.
+- C2 commit `7bc70a9` freezes all public application error codes and structured
+  `ApplicationError` fields. A one-code perturbation failed on the intended
+  value; the core suite then passed 26 files and 289 tests.
+- The first root close-gate run exposed a separate transient Windows `EPERM`
+  during owner-checked authority lock release. Commit `5a3772d` fixes that race
+  independently with bounded retry and a fresh `lockId` check before every
+  retry. Its injected regression ran five times, the authority pair passed 24
+  tests, and the MCP package passed 23 files and 215 tests.
+- Final `pnpm test`, `pnpm typecheck`, and `pnpm lint` passed. The root command
+  also completed plugin-release, attestation, workflow, and app-server JSONL
+  checks.
