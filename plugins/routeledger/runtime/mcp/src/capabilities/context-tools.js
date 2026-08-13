@@ -1,5 +1,7 @@
 import { adaptCheckDocDriftInput, adaptGetCurrentContextInput, adaptListVersionsWindowInput } from "../input-adapter.js";
 import { defineTool } from "../registry/tool-contract.js";
+import { residualAuditInputSchema } from "../registry/route-input-schemas.js";
+import { sanitizeDocDriftForAgent, sanitizeVersionStructureForAgent } from "./context-agent-projection.js";
 const stringSchema = (description, extra = {}) => ({ type: "string", description, ...extra });
 const integerSchema = (description, extra = {}) => ({ type: "integer", description, ...extra });
 const booleanSchema = (description) => ({
@@ -12,9 +14,14 @@ const objectSchema = (properties, required = []) => ({
     additionalProperties: false,
     ...(required.length > 0 ? { required } : {})
 });
+const docDriftExpectedPointerSchema = objectSchema({
+    kind: stringSchema("Pointer kind label used by the caller."),
+    path: stringSchema("Expected repo-relative pointer path."),
+    required: booleanSchema("Defaults to true. Set false to make this pointer advisory only.")
+}, ["kind", "path"]);
 const withInputAdapter = (adapter, handler) => async (input) => handler(adapter(input));
 export const createContextTools = (dependencies) => {
-    const { service, actor, appendDebugLog, withCurrentRuntimeContextMeta, sanitizeDocDriftForAgent, sanitizeVersionStructureForAgent, docDriftExpectedPointerSchema, residualAuditInputSchema } = dependencies;
+    const { service, actor, appendDebugLog, withCurrentRuntimeContextMeta } = dependencies;
     return [
         defineTool("get_current_context", { what: "Read current project, route, work, and gate context." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
