@@ -136,10 +136,14 @@ The lock race is a security-sensitive runtime behavior issue, not a reason to
 loosen the test timeout. Its decision and fix boundary belong to the recovery
 track before contract inventory proceeds.
 
-The package-local scripts also point to absent files:
+At capture time, the package-local scripts pointed to absent files:
 
 - `packages/cli`: `packages/cli/src/testing/cli.test.ts`;
 - `packages/mcp`: `packages/mcp/src/testing/mcp.test.ts`.
+
+Source commit `c61027b` replaced both paths with their existing testing
+directories; the CLI command then ran 3 files and 35 tests, while the MCP
+command discovered 23 files and 214 tests.
 
 ## Reproduction commands
 
