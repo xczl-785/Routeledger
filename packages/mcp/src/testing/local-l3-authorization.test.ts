@@ -9,7 +9,7 @@ import {
   type ExactAuthorizationCandidate,
   type PendingOperation
 } from "@routeledger/core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   installLocalL3AuthorityConfig,
@@ -132,6 +132,7 @@ const legacyGrantFor = (authorization: ExactAuthorizationCandidate) => ({
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
@@ -602,6 +603,40 @@ describe("local L3 authorization runtime", () => {
     await expect(runtime.exactStore.revoke("missing", new Date().toISOString())).resolves.toBe(false);
     await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it.runIf(process.platform === "win32")(
+    "retries a transient Windows EPERM while releasing its owned state lock",
+    async () => {
+      const fixture = await createFixture();
+      const lockPath = `${fixture.statePath}.lock`;
+      const rename = fs.rename.bind(fs);
+      let releaseRenameAttempts = 0;
+      vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+        if (
+          source === lockPath &&
+          String(destination).startsWith(`${lockPath}.released-`) &&
+          releaseRenameAttempts++ === 0
+        ) {
+          const error = new Error("simulated transient release race") as NodeJS.ErrnoException;
+          error.code = "EPERM";
+          throw error;
+        }
+        await rename(source, destination);
+      });
+
+      await expect(
+        loadLocalL3AuthorityRuntime({
+          configPath: fixture.configPath,
+          workspaceRoot: fixture.workspaceRoot,
+          routeledgerRoot: fixture.workspaceRoot,
+          hostKind: "generic",
+          subjectId: "mcp-user"
+        })
+      ).resolves.toBeDefined();
+      expect(releaseRenameAttempts).toBeGreaterThanOrEqual(2);
+      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  );
 
   it("loads the trusted authority through the real stdio runtime without elicitation", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-local-l3-stdio-"));
