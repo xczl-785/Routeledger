@@ -2,14 +2,9 @@ import path from "node:path";
 
 import type { RouteLedgerBindingSummary } from "./binding.js";
 import { arePhysicalPathsEqualSync } from "./physical-path.js";
+import type { RouteLedgerBindingToolKind } from "./registry/tool-contract.js";
 
-export type RouteLedgerBindingToolKind =
-  | "diagnostic"
-  | "discovery"
-  | "planning"
-  | "bootstrap"
-  | "read"
-  | "write";
+export type { RouteLedgerBindingToolKind } from "./registry/tool-contract.js";
 
 export interface RouteLedgerRecommendedNextAction {
   type: string;

@@ -50,8 +50,7 @@ import {
 import {
   runBindingPreflight,
   getBindingRecommendedNextActions,
-  isBindingToolKindAllowed,
-  type RouteLedgerBindingToolKind
+  isBindingToolKindAllowed
 } from "./binding-preflight.js";
 import { resolveRouteLedgerBinding, type RouteLedgerBindingSummary } from "./binding.js";
 import {
@@ -90,6 +89,13 @@ import {
   requireResolvedExistingL3Decision
 } from "./existing-l3-decision-adapter.js";
 import { CodexL3DecisionAdapter } from "./codex-l3-decision-adapter.js";
+import {
+  defineTool,
+  type ToolDefinition,
+  type ToolHandler,
+  type ToolRegistration,
+  type ToolResponse
+} from "./registry/tool-contract.js";
 
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
@@ -98,6 +104,14 @@ export * from "./existing-l3-decision-adapter.js";
 export * from "./codex-l3-decision-adapter.js";
 export * from "./mcp-decision-input.js";
 export * from "./mcp-request-state.js";
+export type {
+  RouteLedgerApprovalMode,
+  RouteLedgerToolRiskLevel,
+  ToolAnnotations,
+  ToolDefinition,
+  ToolMeta,
+  ToolResponse
+} from "./registry/tool-contract.js";
 
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
 export const MCP_MRTR_PROTOCOL_VERSION = "2026-07-28";
@@ -108,8 +122,6 @@ export type RouteLedgerHostProfileName = "generic" | "codex" | "claude-code" | "
  * describes which locally-built runtime is executing the shared MCP source.
  */
 export type RouteLedgerMcpRuntimeProfile = "full" | "json-only";
-export type RouteLedgerToolRiskLevel = "read-only" | "write" | "high-risk";
-export type RouteLedgerApprovalMode = "auto" | "prompt" | "approve";
 
 export interface RouteLedgerMcpIdentityOverride {
   id?: string;
@@ -224,55 +236,6 @@ export interface RouteLedgerServerInfo {
   runtimeIdentity: RuntimeIdentity;
 }
 
-export interface ToolAnnotations {
-  title?: string;
-  readOnlyHint?: boolean;
-  destructiveHint?: boolean;
-  idempotentHint?: boolean;
-  openWorldHint?: boolean;
-}
-
-export interface ToolMeta {
-  routeledger: {
-    riskLevel: RouteLedgerToolRiskLevel;
-    highRisk: boolean;
-    destructive: boolean;
-    recommendedApprovalMode: RouteLedgerApprovalMode;
-  };
-}
-
-export interface ToolDefinition {
-  name: string;
-  title: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  annotations: ToolAnnotations;
-  _meta: ToolMeta;
-}
-
-/**
- * Tool descriptions are intentionally compact. Shared operating discipline belongs in
- * server instructions and multi-step procedures belong in the operator Skill.
- */
-interface ToolNarrative {
-  what: string;
-  when?: string;
-  prerequisite?: string;
-  parameter?: string;
-  warning?: string;
-}
-
-export interface ToolResponse {
-  ok: boolean;
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-  };
-  meta?: Record<string, unknown>;
-}
-
 export interface RouteLedgerPendingSessionRebind {
   workspaceRoot: string;
   routeledgerRoot: string;
@@ -281,7 +244,6 @@ export interface RouteLedgerPendingSessionRebind {
   requiresInit: boolean;
 }
 
-type ToolHandler = (input: Record<string, any>) => Promise<ToolResponse>;
 type TypedToolHandler<TInput> = (input: TInput) => Promise<ToolResponse>;
 type DebugLogDraft = {
   type: string;
@@ -291,13 +253,6 @@ type DebugLogDraft = {
   constraintId?: string;
   pendingOperationId?: string;
   payload?: unknown;
-};
-
-type ToolRegistration = {
-  definition: ToolDefinition;
-  toolKind: RouteLedgerBindingToolKind;
-  visibility: "default" | "source-only";
-  handler: ToolHandler;
 };
 
 type MissionControlOpenResult = {
@@ -846,51 +801,6 @@ const docDriftExpectedPointerSchema = objectSchema(
   ["kind", "path"]
 );
 
-const approvalModeForRisk = (riskLevel: RouteLedgerToolRiskLevel): RouteLedgerApprovalMode => {
-  switch (riskLevel) {
-    case "read-only":
-      return "auto";
-    case "write":
-    case "high-risk":
-      return "prompt";
-    default: {
-      const exhaustiveRiskLevel: never = riskLevel;
-      return exhaustiveRiskLevel;
-    }
-  }
-};
-
-const createToolMetadata = (options: {
-  title: string;
-  riskLevel: RouteLedgerToolRiskLevel;
-  destructive?: boolean;
-  idempotent?: boolean;
-  recommendedApprovalMode?: RouteLedgerApprovalMode;
-}): Pick<ToolDefinition, "title" | "annotations" | "_meta"> => {
-  const destructive = options.destructive ?? false;
-  const readOnly = options.riskLevel === "read-only";
-
-  return {
-    title: options.title,
-    annotations: {
-      title: options.title,
-      readOnlyHint: readOnly,
-      destructiveHint: destructive,
-      idempotentHint: options.idempotent ?? readOnly,
-      openWorldHint: false
-    },
-    _meta: {
-      routeledger: {
-        riskLevel: options.riskLevel,
-        highRisk: options.riskLevel === "high-risk",
-        destructive,
-        recommendedApprovalMode:
-          options.recommendedApprovalMode ?? approvalModeForRisk(options.riskLevel)
-      }
-    }
-  };
-};
-
 const createInstructions = (options: {
   hostProfile: RouteLedgerHostProfileName;
   actor: Actor;
@@ -1265,96 +1175,6 @@ const resolveMissionControlRoots = (
     routeledgerRoot
   };
 };
-
-const expectedRouteLedgerRootSchema = stringSchema(
-  "Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot."
-);
-
-const responseLocaleSchema = stringSchema(
-  "Optional BCP 47 locale for human-readable tool messages. It is not persisted as project content_locale."
-);
-
-const withResponseLocaleInputSchema = (
-  inputSchema: Record<string, unknown>
-): Record<string, unknown> => {
-  const properties =
-    inputSchema.properties !== null && typeof inputSchema.properties === "object"
-      ? (inputSchema.properties as Record<string, unknown>)
-      : {};
-
-  return {
-    ...inputSchema,
-    properties: {
-      ...properties,
-      responseLocale: responseLocaleSchema
-    }
-  };
-};
-
-const withExpectedRouteLedgerRootInputSchema = (
-  inputSchema: Record<string, unknown>,
-  riskLevel: RouteLedgerToolRiskLevel
-): Record<string, unknown> => {
-  if (riskLevel === "read-only") {
-    return inputSchema;
-  }
-
-  const properties =
-    inputSchema.properties !== null && typeof inputSchema.properties === "object"
-      ? (inputSchema.properties as Record<string, unknown>)
-      : {};
-
-  return {
-    ...inputSchema,
-    properties: {
-      ...properties,
-      expectedRouteLedgerRoot: expectedRouteLedgerRootSchema
-    }
-  };
-};
-
-const formatToolNarrative = (narrative: ToolNarrative): string =>
-  [
-    narrative.what,
-    narrative.when === undefined ? undefined : `When: ${narrative.when}.`,
-    narrative.prerequisite === undefined
-      ? undefined
-      : `Needs: ${narrative.prerequisite}.`,
-    narrative.parameter === undefined ? undefined : `Input: ${narrative.parameter}.`,
-    narrative.warning === undefined ? undefined : `Warning: ${narrative.warning}.`
-  ]
-    .filter((part): part is string => part !== undefined)
-    .join(" ");
-
-const defineTool = (
-  name: string,
-  narrative: ToolNarrative,
-  inputSchema: Record<string, unknown>,
-  options: {
-    title: string;
-    riskLevel: RouteLedgerToolRiskLevel;
-    toolKind?: RouteLedgerBindingToolKind;
-    destructive?: boolean;
-    idempotent?: boolean;
-    recommendedApprovalMode?: RouteLedgerApprovalMode;
-    visibility?: "default" | "source-only";
-  },
-  handler: ToolHandler
-): ToolRegistration => ({
-  definition: {
-    name,
-    description: formatToolNarrative(narrative),
-    inputSchema: withResponseLocaleInputSchema(
-      withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel)
-    ),
-    ...createToolMetadata(options)
-  },
-  toolKind:
-    options.toolKind ??
-    (options.riskLevel === "read-only" ? "read" : "write"),
-  visibility: options.visibility ?? "default",
-  handler
-});
 
 const withInputAdapter = <TInput>(
   adapter: (input: Record<string, any>) => TInput,
