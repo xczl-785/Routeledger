@@ -86,6 +86,10 @@ rules.
 
 ## Evidence
 
-`packages/mcp/src/index.ts`, `binding*.ts`, `input-adapter.ts`, and
-`packages/core/src/application/routeledger-service.ts`, together with their
-tests, define these guarantees.
+`packages/mcp/src/index.ts` remains the public facade and composition root.
+Ordered tool registrations and handlers live in
+`packages/mcp/src/capabilities/*.ts`; shared tool contracts and transport
+schemas live in `packages/mcp/src/registry/*.ts` and
+`packages/mcp/src/l3-authorization-contract.ts`. `binding*.ts`,
+`input-adapter.ts`, `packages/core/src/application/routeledger-service.ts`,
+and their tests together define these guarantees.
