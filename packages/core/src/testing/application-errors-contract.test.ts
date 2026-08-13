@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+
+import { APPLICATION_ERROR_CODES, ApplicationError } from "../index.js";
+
+const EXPECTED_APPLICATION_ERROR_CODES = [
+  "PROJECT_NOT_FOUND",
+  "PROJECT_OWNERSHIP_MISMATCH",
+  "PROJECT_VERSION_MISMATCH",
+  "VERSION_NOT_FOUND",
+  "VERSION_OWNERSHIP_MISMATCH",
+  "ROUTE_EMPTY",
+  "INVALID_VERSION_TRANSITION",
+  "TODO_NOT_FOUND",
+  "TODO_OWNERSHIP_MISMATCH",
+  "UNDO_NOT_FOUND",
+  "UNDO_OWNERSHIP_MISMATCH",
+  "WORK_ITEM_NOT_FOUND",
+  "WORK_ITEM_OWNERSHIP_MISMATCH",
+  "DEFERRED_NOT_FOUND",
+  "DEFERRED_OWNERSHIP_MISMATCH",
+  "DEFERRED_ACTIVATE_TARGET_MISMATCH",
+  "CONSTRAINT_NOT_FOUND",
+  "CONSTRAINT_OWNERSHIP_MISMATCH",
+  "INVALID_WORK_ITEM_ACTIVE",
+  "CONTENT_LOCALE_REQUIRED",
+  "CONTENT_LOCALE_MUST_BE_CONCRETE",
+  "CONTENT_LOCALE_INVALID",
+  "PENDING_OPERATION_NOT_FOUND",
+  "PENDING_OPERATION_NOT_PENDING",
+  "COMMIT_REPLAY_MISMATCH",
+  "CONFIRMATION_REQUIRED",
+  "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+  "AUTHORIZATION_PROFILE_DISABLED",
+  "STANDING_POLICY_DECISION_REQUIRED",
+  "TRUSTED_HOST_USER_DECISION_REQUIRED",
+  "EXACT_AUTHORIZATION_REJECTED",
+  "AUTHORIZATION_POLICY_INVALID",
+  "AUTHORIZATION_POLICY_DENIED",
+  "WRITE_IN_PROGRESS",
+  "START_GATE_FAILED",
+  "CLOSE_GATE_FAILED",
+  "PENDING_OPERATION_PERSISTENCE_MISMATCH",
+  "APPROVAL_ARTIFACT_NOT_FOUND",
+  "APPROVAL_ARTIFACT_PENDING_OPERATION_MISMATCH",
+  "APPROVAL_ARTIFACT_PROJECT_MISMATCH",
+  "APPROVAL_ARTIFACT_STATUS_INVALID",
+  "APPROVAL_ARTIFACT_EXPIRED",
+  "APPROVAL_ARTIFACT_DIGEST_MISMATCH",
+  "APPROVAL_ARTIFACT_TARGET_MISMATCH",
+  "APPROVAL_ARTIFACT_ACTION_MISMATCH",
+  "APPROVAL_ARTIFACT_ALREADY_CONSUMED",
+  "MISSING_REQUIRED_FIELD",
+  "BATCH_CREATE_VERSIONS_MODE_INVALID",
+  "BATCH_CREATE_VERSIONS_PREVIOUS_CURRENT_POLICY_INVALID",
+  "ROUTE_OPERATION_WORKFLOW_MODE_INVALID",
+  "BATCH_VERSION_PLAN_INVALID",
+  "BATCH_VERSION_PLAN_BLOCKED",
+  "SET_CURRENT_TARGET_INVALID",
+  "ACTION_NOT_IMPLEMENTED"
+] as const;
+
+describe("application error compatibility contract", () => {
+  it("keeps the complete public error-code list ordered and unique", () => {
+    expect(APPLICATION_ERROR_CODES).toEqual(EXPECTED_APPLICATION_ERROR_CODES);
+    expect(new Set(APPLICATION_ERROR_CODES).size).toBe(APPLICATION_ERROR_CODES.length);
+  });
+
+  it("keeps the structured ApplicationError fields stable", () => {
+    const withDetails = new ApplicationError("PROJECT_NOT_FOUND", "Project missing", {
+      projectId: "project-1"
+    });
+    const withoutDetails = new ApplicationError("ROUTE_EMPTY", "Route is empty");
+
+    expect(withDetails).toBeInstanceOf(Error);
+    expect({
+      name: withDetails.name,
+      code: withDetails.code,
+      message: withDetails.message,
+      details: withDetails.details
+    }).toEqual({
+      name: "ApplicationError",
+      code: "PROJECT_NOT_FOUND",
+      message: "Project missing",
+      details: { projectId: "project-1" }
+    });
+    expect(withoutDetails.details).toBeUndefined();
+  });
+});
