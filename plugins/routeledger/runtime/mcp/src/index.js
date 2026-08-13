@@ -12,6 +12,7 @@ import { localizeToolResponse, resolveResponseLocale, suggestContentLocale } fro
 import { ExistingL3DecisionAdapter, requireResolvedExistingL3Decision } from "./existing-l3-decision-adapter.js";
 import { CodexL3DecisionAdapter } from "./codex-l3-decision-adapter.js";
 import { defineTool } from "./registry/tool-contract.js";
+import { createMissionControlTools } from "./capabilities/mission-control-tools.js";
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
 export * from "./local-l3-authority-broker.js";
@@ -1418,57 +1419,11 @@ export const createRouteLedgerMcpRegistry = (options) => {
             }),
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
-        defineTool("open_mission_control", { what: "Open or reuse source-mode Mission Control." }, objectSchema({
-            workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
-            routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot."),
-            devBuild: booleanSchema("When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server.")
-        }), {
-            title: "Open Mission Control",
-            riskLevel: "read-only",
-            toolKind: "diagnostic",
-            visibility: "source-only"
-        }, async (input) => {
-            const roots = resolveMissionControlRoots(input, readBinding());
-            const missionControlSource = await loadMissionControlSourceModule();
-            const result = await missionControlSource.openMissionControlSource({
-                workspaceRoot: roots.workspaceRoot,
-                routeledgerRoot: roots.routeledgerRoot,
-                devBuild: input.devBuild === true
-            });
-            return {
-                ok: true,
-                data: result,
-                meta: withCurrentRuntimeContextMeta({
-                    data: {
-                        project: result.projectId === null ? null : { id: result.projectId }
-                    }
-                })
-            };
-        }),
-        defineTool("get_mission_control_status", { what: "Inspect source-mode Mission Control health." }, objectSchema({
-            workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
-            routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot.")
-        }), {
-            title: "Get Mission Control Status",
-            riskLevel: "read-only",
-            toolKind: "diagnostic",
-            visibility: "source-only"
-        }, async (input) => {
-            const roots = resolveMissionControlRoots(input, readBinding());
-            const missionControlSource = await loadMissionControlSourceModule();
-            const status = await missionControlSource.getMissionControlStatus({
-                workspaceRoot: roots.workspaceRoot,
-                routeledgerRoot: roots.routeledgerRoot
-            });
-            return {
-                ok: true,
-                data: status,
-                meta: withCurrentRuntimeContextMeta({
-                    data: {
-                        project: status.projectId === null ? null : { id: status.projectId }
-                    }
-                })
-            };
+        ...createMissionControlTools({
+            readBinding,
+            resolveRoots: resolveMissionControlRoots,
+            loadSourceModule: loadMissionControlSourceModule,
+            withCurrentRuntimeContextMeta
         }),
         defineTool("init_project", { what: "Initialize canonical RouteLedger project data." }, objectSchema({
             name: stringSchema("Project name."),

@@ -96,6 +96,10 @@ import {
   type ToolRegistration,
   type ToolResponse
 } from "./registry/tool-contract.js";
+import {
+  createMissionControlTools,
+  type MissionControlSourceModule
+} from "./capabilities/mission-control-tools.js";
 
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
@@ -253,39 +257,6 @@ type DebugLogDraft = {
   constraintId?: string;
   pendingOperationId?: string;
   payload?: unknown;
-};
-
-type MissionControlOpenResult = {
-  url: string;
-  projectId: string | null;
-  pid: number;
-  port: number;
-  reused: boolean;
-  registryPath: string;
-  workspaceRoot: string;
-  routeledgerRoot: string;
-};
-
-type MissionControlStatusResult = {
-  registryPath: string;
-  workspaceRoot: string;
-  routeledgerRoot: string;
-  projectId: string | null;
-  matchingInstance: unknown;
-  healthyInstances: unknown[];
-  staleEntries: unknown[];
-};
-
-type MissionControlSourceModule = {
-  openMissionControlSource: (options: {
-    workspaceRoot: string;
-    routeledgerRoot: string;
-    devBuild?: boolean;
-  }) => Promise<MissionControlOpenResult>;
-  getMissionControlStatus: (options: {
-    workspaceRoot: string;
-    routeledgerRoot: string;
-  }) => Promise<MissionControlStatusResult>;
 };
 
 export type RouteLedgerMcpRegistry = {
@@ -2139,82 +2110,12 @@ export const createRouteLedgerMcpRegistry = (
         meta: withCurrentRuntimeContextMeta({ data: null })
       })
     ),
-    defineTool(
-      "open_mission_control",
-      { what: "Open or reuse source-mode Mission Control." },
-      objectSchema({
-        workspaceRoot: stringSchema(
-          "Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."
-        ),
-        routeledgerRoot: stringSchema(
-          "Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot."
-        ),
-        devBuild: booleanSchema(
-          "When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server."
-        )
-      }),
-      {
-        title: "Open Mission Control",
-        riskLevel: "read-only",
-        toolKind: "diagnostic",
-        visibility: "source-only"
-      },
-      async (input) => {
-        const roots = resolveMissionControlRoots(input, readBinding());
-        const missionControlSource = await loadMissionControlSourceModule();
-        const result = await missionControlSource.openMissionControlSource({
-          workspaceRoot: roots.workspaceRoot,
-          routeledgerRoot: roots.routeledgerRoot,
-          devBuild: input.devBuild === true
-        });
-
-        return {
-          ok: true,
-          data: result,
-          meta: withCurrentRuntimeContextMeta({
-            data: {
-              project: result.projectId === null ? null : { id: result.projectId }
-            }
-          })
-        };
-      }
-    ),
-    defineTool(
-      "get_mission_control_status",
-      { what: "Inspect source-mode Mission Control health." },
-      objectSchema({
-        workspaceRoot: stringSchema(
-          "Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."
-        ),
-        routeledgerRoot: stringSchema(
-          "Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot."
-        )
-      }),
-      {
-        title: "Get Mission Control Status",
-        riskLevel: "read-only",
-        toolKind: "diagnostic",
-        visibility: "source-only"
-      },
-      async (input) => {
-        const roots = resolveMissionControlRoots(input, readBinding());
-        const missionControlSource = await loadMissionControlSourceModule();
-        const status = await missionControlSource.getMissionControlStatus({
-          workspaceRoot: roots.workspaceRoot,
-          routeledgerRoot: roots.routeledgerRoot
-        });
-
-        return {
-          ok: true,
-          data: status,
-          meta: withCurrentRuntimeContextMeta({
-            data: {
-              project: status.projectId === null ? null : { id: status.projectId }
-            }
-          })
-        };
-      }
-    ),
+    ...createMissionControlTools({
+      readBinding,
+      resolveRoots: resolveMissionControlRoots,
+      loadSourceModule: loadMissionControlSourceModule,
+      withCurrentRuntimeContextMeta
+    }),
     defineTool(
       "init_project",
       { what: "Initialize canonical RouteLedger project data." },
