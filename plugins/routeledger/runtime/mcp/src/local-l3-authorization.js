@@ -10,6 +10,7 @@ const LOCK_STALE_AFTER_MS = 30_000;
 const LOCK_WAIT_TIMEOUT_MS = 5_000;
 const LOCK_RETRY_MS = 20;
 const LOCK_HEARTBEAT_INTERVAL_MS = 5_000;
+const LOCK_RELEASE_RETRY_DELAYS_MS = [10, 30, 100];
 const emptyState = () => ({
     schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
     revision: 0,
@@ -447,6 +448,12 @@ class LocalL3AuthorityStateFile {
                             throw inspectionError;
                         }
                     }
+                    if (process.platform === "win32" &&
+                        error.code === "EPERM") {
+                        const contention = new Error("Local L3 authority state lock disappeared during acquisition.");
+                        contention.code = "EEXIST";
+                        throw contention;
+                    }
                     throw error;
                 }
                 let heartbeatFailure = null;
@@ -478,18 +485,7 @@ class LocalL3AuthorityStateFile {
                     release: async () => {
                         clearInterval(heartbeat);
                         await heartbeatPending;
-                        const current = await this.readLockMetadata();
-                        if (current?.lockId !== metadata.lockId)
-                            return;
-                        const releasedPath = `${this.lockPath}.released-${metadata.lockId}`;
-                        try {
-                            await fs.rename(this.lockPath, releasedPath);
-                            await fs.rm(releasedPath, { recursive: true, force: true });
-                        }
-                        catch (error) {
-                            if (error.code !== "ENOENT")
-                                throw error;
-                        }
+                        await this.releaseOwnedLock(metadata);
                     }
                 };
             }
@@ -529,6 +525,37 @@ class LocalL3AuthorityStateFile {
             }
         }
         throw new Error("Timed out waiting for the local L3 authority state lock.");
+    }
+    async releaseOwnedLock(metadata) {
+        const releasedPath = `${this.lockPath}.released-${metadata.lockId}`;
+        for (let attempt = 0;; attempt += 1) {
+            const current = await this.readLockMetadata();
+            if (current?.lockId !== metadata.lockId)
+                return;
+            try {
+                await fs.rename(this.lockPath, releasedPath);
+                break;
+            }
+            catch (error) {
+                const code = error.code;
+                if (code === "ENOENT")
+                    return;
+                if (process.platform === "win32" &&
+                    code === "EPERM" &&
+                    attempt < LOCK_RELEASE_RETRY_DELAYS_MS.length) {
+                    await delay(LOCK_RELEASE_RETRY_DELAYS_MS[attempt]);
+                    continue;
+                }
+                throw error;
+            }
+        }
+        try {
+            await fs.rm(releasedPath, { recursive: true, force: true });
+        }
+        catch (error) {
+            if (error.code !== "ENOENT")
+                throw error;
+        }
     }
     async readLockMetadata() {
         try {
