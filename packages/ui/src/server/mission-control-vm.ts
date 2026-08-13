@@ -377,13 +377,12 @@ export const buildMissionControlViewModel = async (
   const pendingProposals = (await service.listL3Proposals(snapshot.project.id))
     .filter((proposal) => proposal.status === "pending")
     .map(toProposalSummary);
-  const currentVersionTodos =
-    currentVersionId === null
-      ? []
-      : snapshot.todos
+  const dueDeferredIdSet = new Set(contextData.dueDeferredIds);
+  const buildVersionPanel = (version: Version): MissionControlCurrentVersion => {
+    const versionTodos = snapshot.todos
           .filter(
             (todo) =>
-              todo.versionId === currentVersionId &&
+              todo.versionId === version.id &&
               (todo.status === "wait" || todo.status === "running")
           )
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -394,16 +393,12 @@ export const buildMissionControlViewModel = async (
             status: todo.status,
             updatedAt: todo.updatedAt
           }));
-  const dueDeferredIdSet = new Set(contextData.dueDeferredIds);
-  const currentVersionDeferred: MissionControlDeferredItem[] =
-    currentVersionId === null
-      ? []
-      : snapshot.deferredItems
+    const versionDeferred: MissionControlDeferredItem[] = snapshot.deferredItems
           .filter(
             (deferred) =>
               deferred.status === "pending" &&
-              (deferred.originVersionId === currentVersionId ||
-                deferred.targetReviewVersionId === currentVersionId)
+              (deferred.originVersionId === version.id ||
+                deferred.targetReviewVersionId === version.id)
           )
           .sort((left, right) => {
             const dueOrder =
@@ -424,15 +419,12 @@ export const buildMissionControlViewModel = async (
             isDue: dueDeferredIdSet.has(deferred.id),
             updatedAt: deferred.updatedAt
           }));
-  const currentVersionConstraints: MissionControlConstraintItem[] =
-    currentVersionId === null
-      ? []
-      : snapshot.constraints
+    const versionConstraints: MissionControlConstraintItem[] = snapshot.constraints
           .filter(
             (constraint) =>
               constraint.status === "active" &&
               (constraint.scope.type === "project" ||
-                constraint.scope.versionId === currentVersionId)
+                constraint.scope.versionId === version.id)
           )
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
           .map((constraint) => ({
@@ -444,6 +436,31 @@ export const buildMissionControlViewModel = async (
             status: constraint.status,
             updatedAt: constraint.updatedAt
           }));
+    return {
+      ...describeVersionState(version),
+      id: version.id,
+      title: version.title,
+      description: version.description,
+      state: version.state,
+      order: version.order,
+      updatedAt: version.updatedAt,
+      previousVersionTitle:
+        version.previousVersionId === null
+          ? null
+          : versionsById.get(version.previousVersionId)?.title ?? null,
+      nextVersionTitle:
+        version.nextVersionId === null
+          ? null
+          : versionsById.get(version.nextVersionId)?.title ?? null,
+      parentVersionTitle:
+        version.parentVersionId === null
+          ? null
+          : versionsById.get(version.parentVersionId)?.title ?? null,
+      todos: versionTodos,
+      deferred: versionDeferred,
+      constraints: versionConstraints
+    };
+  };
   const openLegacyRecords = dedupeLegacyUndos(
     snapshot.undos.filter((undo) => undo.status === "wait")
   );
@@ -473,33 +490,11 @@ export const buildMissionControlViewModel = async (
     };
   });
 
+  const versionDetails = versions.map(buildVersionPanel);
   const currentVersionPanel: MissionControlCurrentVersion | null =
     currentVersion === null
       ? null
-      : {
-          ...describeVersionState(currentVersion),
-          id: currentVersion.id,
-          title: currentVersion.title,
-          description: currentVersion.description,
-          state: currentVersion.state,
-          order: currentVersion.order,
-          updatedAt: currentVersion.updatedAt,
-          previousVersionTitle:
-            currentVersion.previousVersionId === null
-              ? null
-              : versionsById.get(currentVersion.previousVersionId)?.title ?? null,
-          nextVersionTitle:
-            currentVersion.nextVersionId === null
-              ? null
-              : versionsById.get(currentVersion.nextVersionId)?.title ?? null,
-          parentVersionTitle:
-            currentVersion.parentVersionId === null
-              ? null
-              : versionsById.get(currentVersion.parentVersionId)?.title ?? null,
-          todos: currentVersionTodos,
-          deferred: currentVersionDeferred,
-          constraints: currentVersionConstraints
-        };
+      : versionDetails.find((version) => version.id === currentVersion.id) ?? null;
 
   const tree: MissionControlVersionTree | null =
     treeSource === null
@@ -570,6 +565,7 @@ export const buildMissionControlViewModel = async (
     },
     roadmap,
     currentVersion: currentVersionPanel,
+    versionDetails,
     tree,
     proposals: pendingProposals,
     approvals: snapshot.approvalArtifacts
@@ -617,6 +613,7 @@ const createErrorResponse = (options: {
   overview: null,
   roadmap: [],
   currentVersion: null,
+  versionDetails: [],
   tree: null,
   proposals: [],
   approvals: [],

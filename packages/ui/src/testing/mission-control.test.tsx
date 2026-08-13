@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Actor, ProjectAggregateSnapshot } from "@routeledger/core";
 
-import { CurrentVersionColumn, VersionHorizon } from "../App.js";
+import { CurrentVersionColumn, RouteRail, VersionHorizon } from "../App.js";
 import { buildMissionControlViewModel } from "../server/mission-control-vm.js";
 import type {
   MissionControlBindingSummary,
@@ -297,6 +297,12 @@ describe("Mission Control deferred semantics", () => {
       })
     ]);
     expect(response.currentVersion?.constraints).toHaveLength(2);
+    expect(response.versionDetails).toHaveLength(2);
+    expect(response.versionDetails[1]).toMatchObject({
+      id: "version-2",
+      title: "Review",
+      state: "ready"
+    });
     expect(response.currentVersion).not.toHaveProperty("undos");
     expect(response.legacyAudit).toMatchObject({
       openRecordCount: 1,
@@ -343,25 +349,31 @@ describe("Mission Control deferred semantics", () => {
     expect(currentMarkup).not.toContain("Undo");
     expect(pageMarkup).toContain("历史兼容审计");
     expect(pageMarkup).toContain("Legacy blocker");
+    expect(pageMarkup).toContain("版本航迹");
+    expect(pageMarkup).toContain('aria-current="step"');
     expect(pageMarkup).not.toContain("Mission Control V2");
   });
 
   it("renders clear empty states for Deferred and Constraint in the rebuilt current column", async () => {
     const response = await buildViewModel(false);
+    const emptyCurrent = {
+      ...response.currentVersion!,
+      deferred: [],
+      constraints: []
+    };
     const emptyMarkup = renderToStaticMarkup(
       <CurrentVersionColumn
         response={{
           ...response,
-          currentVersion: {
-            ...response.currentVersion!,
-            deferred: [],
-            constraints: []
-          }
+          currentVersion: emptyCurrent,
+          versionDetails: response.versionDetails.map((version) =>
+            version.id === emptyCurrent.id ? emptyCurrent : version
+          )
         }}
       />
     );
 
-    expect(emptyMarkup).toContain("当前 Version 没有相关 Deferred");
+    expect(emptyMarkup).toContain("该 Version 没有当前相关的 Deferred");
     expect(emptyMarkup).toContain("Constraints（0）");
     expect(emptyMarkup).not.toContain("Undo");
   });
@@ -394,7 +406,80 @@ describe("Mission Control deferred semantics", () => {
 
     expect(pageMarkup).toContain("后续 13 个 Version");
     expect(pageMarkup).toContain("还有 10 个版本");
-    expect(pageMarkup).not.toContain("Version 15");
+    expect(pageMarkup).toContain('data-route-node="version-15"');
+    expect(pageMarkup.match(/Version 15/g)).toHaveLength(1);
+  });
+
+  it("renders past, current and future nodes in one complete route rail", async () => {
+    const response = await buildViewModel(false);
+    const previous = { ...response.roadmap[0]!, isCurrent: false, nextVersionId: "version-current" };
+    const current = {
+      ...response.roadmap[0]!,
+      id: "version-current",
+      title: "Current anchor",
+      order: 4,
+      isCurrent: true,
+      previousVersionId: previous.id,
+      nextVersionId: "version-future"
+    };
+    const child = {
+      ...response.roadmap[1]!,
+      id: "version-child",
+      title: "Child route checkpoint",
+      order: 2,
+      isCurrent: false,
+      parentVersionId: previous.id,
+      previousVersionId: null,
+      nextVersionId: null
+    };
+    const grandchild = {
+      ...response.roadmap[1]!,
+      id: "version-grandchild",
+      title: "Nested child checkpoint",
+      order: 3,
+      isCurrent: false,
+      parentVersionId: child.id,
+      previousVersionId: null,
+      nextVersionId: null
+    };
+    const future = {
+      ...response.roadmap[1]!,
+      id: "version-future",
+      title: "Future destination",
+      order: 5,
+      isCurrent: false,
+      previousVersionId: current.id,
+      nextVersionId: null
+    };
+    const railMarkup = renderToStaticMarkup(
+      <RouteRail roadmap={[previous, child, grandchild, current, future]} current={current} />
+    );
+
+    expect(railMarkup).toContain("过去 · 1");
+    expect(railMarkup).toContain("过去 · 子路线 L1 · 2");
+    expect(railMarkup).toContain("过去 · 子路线 L2 · 3");
+    expect(railMarkup).toContain('data-route-depth="2"');
+    expect(railMarkup).toContain("当前 · 4");
+    expect(railMarkup).toContain("未来 · 5");
+    expect(railMarkup).toContain("过去向上 · 未来向下");
+    expect(railMarkup).toContain('aria-current="step"');
+    expect(railMarkup).toContain("route-state tone-ready");
+  });
+
+  it("renders a selected future Version without changing the canonical current marker", async () => {
+    const response = await buildViewModel(false);
+    const selectedMarkup = renderToStaticMarkup(
+      <CurrentVersionColumn
+        response={response}
+        viewedVersionId="version-2"
+        onReturnToCurrent={() => undefined}
+      />
+    );
+
+    expect(selectedMarkup).toContain("查看未来版本");
+    expect(selectedMarkup).toContain("Review");
+    expect(selectedMarkup).toContain("查看当前 Version");
+    expect(selectedMarkup).toContain("该 Version 的当前留存记录");
   });
 
   it("keeps the closed history dialog inert and exposes its dialog relationship", async () => {
