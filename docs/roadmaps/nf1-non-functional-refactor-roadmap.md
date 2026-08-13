@@ -1,6 +1,8 @@
 # NF1 non-functional refactor and core-contract audit roadmap
 
-Status: planning only. No production refactor is authorized by this document.
+Status: implementation and closeout complete for the 0.8.1 candidate. This
+document records the approved boundaries and evidence; it does not by itself
+authorize future production changes.
 
 The captured starting point is recorded in the
 [NF1 refactor baseline](../architecture/nf1-baseline.md).
