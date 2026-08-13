@@ -11,6 +11,7 @@ import { resolveRuntimeIdentity } from "./runtime-identity.js";
 import { localizeToolResponse, resolveResponseLocale, suggestContentLocale } from "./locale.js";
 import { ExistingL3DecisionAdapter, requireResolvedExistingL3Decision } from "./existing-l3-decision-adapter.js";
 import { CodexL3DecisionAdapter } from "./codex-l3-decision-adapter.js";
+import { defineTool } from "./registry/tool-contract.js";
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
 export * from "./local-l3-authority-broker.js";
@@ -379,41 +380,6 @@ const docDriftExpectedPointerSchema = objectSchema({
     path: stringSchema("Expected repo-relative pointer path."),
     required: booleanSchema("Defaults to true. Set false to make this pointer advisory only.")
 }, ["kind", "path"]);
-const approvalModeForRisk = (riskLevel) => {
-    switch (riskLevel) {
-        case "read-only":
-            return "auto";
-        case "write":
-        case "high-risk":
-            return "prompt";
-        default: {
-            const exhaustiveRiskLevel = riskLevel;
-            return exhaustiveRiskLevel;
-        }
-    }
-};
-const createToolMetadata = (options) => {
-    const destructive = options.destructive ?? false;
-    const readOnly = options.riskLevel === "read-only";
-    return {
-        title: options.title,
-        annotations: {
-            title: options.title,
-            readOnlyHint: readOnly,
-            destructiveHint: destructive,
-            idempotentHint: options.idempotent ?? readOnly,
-            openWorldHint: false
-        },
-        _meta: {
-            routeledger: {
-                riskLevel: options.riskLevel,
-                highRisk: options.riskLevel === "high-risk",
-                destructive,
-                recommendedApprovalMode: options.recommendedApprovalMode ?? approvalModeForRisk(options.riskLevel)
-            }
-        }
-    };
-};
 const createInstructions = (options) => {
     const hostLabel = HOST_PROFILE_LABELS[options.hostProfile];
     const actorLabel = options.actor.displayName ?? options.actor.id;
@@ -676,58 +642,6 @@ const resolveMissionControlRoots = (input, binding) => {
         routeledgerRoot
     };
 };
-const expectedRouteLedgerRootSchema = stringSchema("Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot.");
-const responseLocaleSchema = stringSchema("Optional BCP 47 locale for human-readable tool messages. It is not persisted as project content_locale.");
-const withResponseLocaleInputSchema = (inputSchema) => {
-    const properties = inputSchema.properties !== null && typeof inputSchema.properties === "object"
-        ? inputSchema.properties
-        : {};
-    return {
-        ...inputSchema,
-        properties: {
-            ...properties,
-            responseLocale: responseLocaleSchema
-        }
-    };
-};
-const withExpectedRouteLedgerRootInputSchema = (inputSchema, riskLevel) => {
-    if (riskLevel === "read-only") {
-        return inputSchema;
-    }
-    const properties = inputSchema.properties !== null && typeof inputSchema.properties === "object"
-        ? inputSchema.properties
-        : {};
-    return {
-        ...inputSchema,
-        properties: {
-            ...properties,
-            expectedRouteLedgerRoot: expectedRouteLedgerRootSchema
-        }
-    };
-};
-const formatToolNarrative = (narrative) => [
-    narrative.what,
-    narrative.when === undefined ? undefined : `When: ${narrative.when}.`,
-    narrative.prerequisite === undefined
-        ? undefined
-        : `Needs: ${narrative.prerequisite}.`,
-    narrative.parameter === undefined ? undefined : `Input: ${narrative.parameter}.`,
-    narrative.warning === undefined ? undefined : `Warning: ${narrative.warning}.`
-]
-    .filter((part) => part !== undefined)
-    .join(" ");
-const defineTool = (name, narrative, inputSchema, options, handler) => ({
-    definition: {
-        name,
-        description: formatToolNarrative(narrative),
-        inputSchema: withResponseLocaleInputSchema(withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel)),
-        ...createToolMetadata(options)
-    },
-    toolKind: options.toolKind ??
-        (options.riskLevel === "read-only" ? "read" : "write"),
-    visibility: options.visibility ?? "default",
-    handler
-});
 const withInputAdapter = (adapter, handler) => async (input) => handler(adapter(input));
 export const createRouteLedgerMcpRegistry = (options) => {
     const bindingConfig = {

@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+
+import { defineTool } from "../registry/tool-contract.js";
+
+describe("MCP tool contract construction", () => {
+  it("decorates write tools without changing their handler or base schema", async () => {
+    const handler = async () => ({ ok: true as const, data: { accepted: true } });
+    const registration = defineTool(
+      "sample_write",
+      {
+        what: "Write a sample record.",
+        when: "the contract boundary is under test",
+        prerequisite: "a bound project",
+        parameter: "value",
+        warning: "This is only a fixture"
+      },
+      {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: ["value"],
+        additionalProperties: false
+      },
+      {
+        title: "Sample Write",
+        riskLevel: "write"
+      },
+      handler
+    );
+
+    expect(registration.definition).toEqual({
+      name: "sample_write",
+      title: "Sample Write",
+      description:
+        "Write a sample record. When: the contract boundary is under test. Needs: a bound project. Input: value. Warning: This is only a fixture.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+          expectedRouteLedgerRoot: {
+            type: "string",
+            description:
+              "Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot."
+          },
+          responseLocale: {
+            type: "string",
+            description:
+              "Optional BCP 47 locale for human-readable tool messages. It is not persisted as project content_locale."
+          }
+        },
+        required: ["value"],
+        additionalProperties: false
+      },
+      annotations: {
+        title: "Sample Write",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false
+      },
+      _meta: {
+        routeledger: {
+          riskLevel: "write",
+          highRisk: false,
+          destructive: false,
+          recommendedApprovalMode: "prompt"
+        }
+      }
+    });
+    expect(registration.toolKind).toBe("write");
+    expect(registration.visibility).toBe("default");
+    await expect(registration.handler({ value: "x" })).resolves.toEqual({
+      ok: true,
+      data: { accepted: true }
+    });
+  });
+});
