@@ -109,12 +109,32 @@ metric.
 | `pnpm test` | Red: one 15-second timeout in the first `mcp-versions.test.ts` registry-restart/atomic-advance test |
 | Focused `mcp-versions.test.ts` run | Red: does not exit within 60 seconds |
 
-The failed test path creates temporary MCP/runtime/CodeGraph child processes.
-When the test runner is terminated on timeout, those children may remain alive
-and amplify later runs. The processes created during this capture were
-identified by creation time and exact command line and then terminated. This is
-a test-harness/process-lifecycle gap, not evidence of a production contract
-change. It must be resolved before characterization or refactor work begins.
+The root run executes subprocess-based tests concurrently with this workflow.
+When the outer test runner is terminated, those sibling MCP/runtime/CodeGraph
+children may remain alive and amplify later runs; the first version-workflow
+test itself does not spawn them. The processes created during this capture were
+identified by creation time and exact command line and then terminated. Process
+ownership and cleanup must still be verified before characterization or
+refactor work begins.
+
+## Follow-up triage
+
+Subsequent focused runs separated two independent causes:
+
+- the first `mcp-versions.test.ts` test passes alone in roughly 6--10 seconds,
+  and the complete 20-test file passes and exits in roughly 57 seconds;
+- the 16-worker default creates enough filesystem contention to push the first
+  test past the unchanged 15-second test timeout; capping Vitest at four file
+  workers made the focused test pass three consecutive times without leaving a
+  child process;
+- with that contention removed, the root run exposed a separate deterministic
+  Windows `EPERM` race in `LocalL3AuthorityStateFile.acquireLock`: a failed
+  candidate-directory rename can race with lock release, observe that the lock
+  has disappeared, and rethrow the original `EPERM` instead of retrying.
+
+The lock race is a security-sensitive runtime behavior issue, not a reason to
+loosen the test timeout. Its decision and fix boundary belong to the recovery
+track before contract inventory proceeds.
 
 The package-local scripts also point to absent files:
 
@@ -150,4 +170,3 @@ the current facade and observable contracts. It does not implicitly authorize:
 - recovery-policy changes hidden inside code movement;
 - storage-boundary implementation before recovery semantics are settled;
 - plugin release or SemVer changes without a separate release decision.
-
