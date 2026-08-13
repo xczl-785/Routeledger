@@ -9,6 +9,7 @@
     "test": "pnpm -C ../.. exec vitest run --config packages/ui/vitest.config.ts"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@routeledger/core": "workspace:*",
     "@routeledger/json": "workspace:*",
     "better-sqlite3": "^12.2.0",

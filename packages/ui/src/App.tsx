@@ -1,69 +1,61 @@
-import { startTransition, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  startTransition,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from "react";
+import { CaretDown } from "@phosphor-icons/react/CaretDown";
+import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
+import { ClockCounterClockwise } from "@phosphor-icons/react/ClockCounterClockwise";
+import { GitBranch } from "@phosphor-icons/react/GitBranch";
+import { LockSimple } from "@phosphor-icons/react/LockSimple";
+import { X } from "@phosphor-icons/react/X";
 
 import { fetchMissionControlState } from "./api.js";
 import type {
   MissionControlApprovalArtifact,
   MissionControlAuditEvent,
-  MissionControlCurrentVersion,
+  MissionControlConstraintItem,
+  MissionControlDeferredItem,
   MissionControlLegacyAudit,
-  MissionControlOverview,
   MissionControlProposal,
   MissionControlResponse,
-  MissionControlTreeNode
+  MissionControlRoadmapItem,
+  MissionControlTodoItem,
+  MissionControlVersionState
 } from "./shared/mission-control.js";
 
-type ViewId = "overview" | "roadmap" | "current" | "tree";
-type ThemeName = "dark" | "light";
-type DrawerKind = "proposal" | "audit" | null;
-
 type AppLoadState =
-  | {
-      status: "loading";
-      data: null;
-      error: null;
-      refreshing: boolean;
-    }
-  | {
-      status: "ready";
-      data: MissionControlResponse;
-      error: null;
-      refreshing: boolean;
-    }
-  | {
-      status: "failed";
-      data: MissionControlResponse | null;
-      error: string;
-      refreshing: boolean;
-    };
-
-const navItems: Array<{ id: ViewId; icon: string; label: string }> = [
-  { id: "overview", icon: "◱", label: "总览" },
-  { id: "roadmap", icon: "⚲", label: "宏观路线图" },
-  { id: "current", icon: "◎", label: "当前 Version" },
-  { id: "tree", icon: "⎇", label: "Version 树" }
-];
-
-const themeStorageKey = "routeledger-mission-control-theme";
+  | { status: "loading"; data: null; error: null; refreshing: boolean }
+  | { status: "ready"; data: MissionControlResponse; error: null; refreshing: boolean }
+  | { status: "failed"; data: MissionControlResponse | null; error: string; refreshing: boolean };
 
 const classNames = (...parts: Array<string | false | null | undefined>): string =>
   parts.filter(Boolean).join(" ");
 
-const readInitialTheme = (): ThemeName => {
-  if (typeof window === "undefined") {
-    return "dark";
+const stateLabel = (state: MissionControlVersionState | null, displayLabel?: string | null): string => {
+  if (displayLabel === "SHUTDOWN") return "已终止";
+  switch (state) {
+    case "wait": return "等待";
+    case "ready": return "准备就绪";
+    case "running": return "进行中";
+    case "suspend": return "已暂停";
+    case "complete": return "已完成";
+    case "close": return "已关闭";
+    default: return "未设置";
   }
-
-  const savedTheme = window.localStorage.getItem(themeStorageKey);
-  return savedTheme === "light" ? "light" : "dark";
 };
 
-const formatDateTime = (value: string | null): string => {
-  if (value === null || value.length === 0) {
-    return "N/A";
-  }
+const stateTone = (state: MissionControlVersionState | null): string =>
+  state === null ? "neutral" : state;
 
+const formatDateTime = (value: string | null): string => {
+  if (value === null || value.length === 0) return "—";
   return new Date(value).toLocaleString("zh-CN", {
     hour12: false,
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -71,809 +63,409 @@ const formatDateTime = (value: string | null): string => {
   });
 };
 
-const toneClassByVersionState = (state: string | null): string => {
-  switch (state) {
-    case "running":
-      return "is-running";
-    case "ready":
-      return "is-ready";
-    case "complete":
-    case "close":
-      return "is-complete";
-    case "suspend":
-      return "is-suspend";
-    case "wait":
-      return "is-wait";
-    default:
-      return "is-neutral";
+const versionsById = (roadmap: MissionControlRoadmapItem[]): Map<string, MissionControlRoadmapItem> =>
+  new Map(roadmap.map((version) => [version.id, version]));
+
+const walkPrevious = (
+  current: MissionControlRoadmapItem,
+  roadmap: MissionControlRoadmapItem[],
+  limit = 3
+): MissionControlRoadmapItem[] => {
+  const byId = versionsById(roadmap);
+  const result: MissionControlRoadmapItem[] = [];
+  let pointer = current.previousVersionId;
+  while (pointer !== null && result.length < limit) {
+    const version = byId.get(pointer);
+    if (version === undefined) break;
+    result.unshift(version);
+    pointer = version.previousVersionId;
   }
+  return result;
 };
 
-const toneLabel = (state: string | null): string => {
-  if (state === null) {
-    return "Unavailable";
+const walkNext = (
+  current: MissionControlRoadmapItem,
+  roadmap: MissionControlRoadmapItem[]
+): MissionControlRoadmapItem[] => {
+  const byId = versionsById(roadmap);
+  const result: MissionControlRoadmapItem[] = [];
+  const visited = new Set<string>();
+  let pointer = current.nextVersionId;
+  while (pointer !== null && !visited.has(pointer)) {
+    const version = byId.get(pointer);
+    if (version === undefined) break;
+    visited.add(pointer);
+    result.push(version);
+    pointer = version.nextVersionId;
   }
-
-  return state.toUpperCase();
+  return result;
 };
 
-const currentStatusLabel = (response: MissionControlResponse | null): string => {
-  if (response === null) {
-    return "Unavailable";
-  }
-
-  return response.identity?.currentVersionDisplayLabel ?? toneLabel(response.identity?.currentVersionState ?? null);
-};
-
-const itemStatusClass = (status: string): string => {
-  switch (status) {
-    case "running":
-      return "active";
-    case "closed":
-    case "complete":
-      return "done";
-    default:
-      return status;
-  }
-};
-
-const screenTitle = (response: MissionControlResponse | null): string => {
-  if (response === null) {
-    return "RouteLedger";
-  }
-
-  return response.identity?.projectName ?? "RouteLedger";
-};
-
-const screenVersionTitle = (response: MissionControlResponse | null): string => {
-  if (response === null) {
-    return "Waiting for canonical JSON";
-  }
-
-  return response.identity?.currentVersionTitle ?? "No current version";
-};
-
-const screenMessageTone = (screen: MissionControlResponse["screen"]): "warning" | "error" | "info" => {
-  switch (screen) {
-    case "binding_error":
-    case "json_error":
-      return "error";
-    case "current_closed":
-      return "warning";
-    default:
-      return "info";
-  }
-};
-
-const SpotlightCard = (props: {
-  className?: string;
-  children: ReactNode;
-}): ReactNode => {
-  const handleMouseMove = (event: MouseEvent<HTMLDivElement>): void => {
-    const currentTarget = event.currentTarget;
-    const rect = currentTarget.getBoundingClientRect();
-    currentTarget.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`);
-    currentTarget.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`);
-  };
-
-  return (
-    <div className={classNames("spotlight-card", props.className)} onMouseMove={handleMouseMove}>
-      {props.children}
-    </div>
-  );
-};
-
-const EmptyState = (props: {
-  title: string;
-  description: string;
-}): ReactNode => (
-  <div className="empty-card">
-    <div className="empty-title">{props.title}</div>
-    <div className="empty-description">{props.description}</div>
+const EmptyState = ({ title, description }: { title: string; description: string }): ReactNode => (
+  <div className="empty-state">
+    <strong>{title}</strong>
+    <p>{description}</p>
   </div>
 );
 
-const TreeCard = (props: {
-  node: MissionControlTreeNode | null;
-}): ReactNode => {
-  if (props.node === null) {
-    return (
-      <div className="tree-card tree-card-empty">
-        <div className="tree-card-title">无节点</div>
-        <div className="tree-card-desc">当前列没有可展示的 Version。</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={classNames("tree-card", props.node.isCurrent && "is-current")}>
-      <div className="tree-card-title">{props.node.title}</div>
-      <div className="tree-card-desc">{props.node.description || "当前 Version 暂无补充描述。"}</div>
-      <div className="tree-badges">
-        <span className="tree-badge">Order {props.node.order}</span>
-        <span className="tree-badge">{props.node.displayLabel}</span>
-      </div>
-    </div>
-  );
-};
-
-const ProposalDrawer = (props: {
-  proposals: MissionControlProposal[];
-}): ReactNode => {
-  if (props.proposals.length === 0) {
-    return (
-      <EmptyState
-        title="暂无 Pending Proposal"
-        description="当前 canonical JSON 中没有待审批的 L3 proposal。Mission Control 保持只读，不会替你创建任何 proposal。"
-      />
-    );
-  }
-
-  return (
-    <>
-      {props.proposals.map((proposal, index) => (
-        <div
-          key={proposal.id}
-          className="prop-card animated-list-item"
-          style={{ animationDelay: `${index * 0.06}s` }}
-        >
-          <div className="prop-row">
-            <div className="prop-label">Action</div>
-            <div className="prop-val font-mono">{proposal.actionType}</div>
-          </div>
-          <div className="prop-row">
-            <div className="prop-label">Target</div>
-            <div className="prop-val font-mono">{proposal.targetId}</div>
-          </div>
-          <div className="prop-row">
-            <div className="prop-label">Reason</div>
-            <div className="prop-val">{proposal.reason}</div>
-          </div>
-          <div className="prop-row">
-            <div className="prop-label">Gate</div>
-            <div className="prop-val">
-              {proposal.gateKind} / {proposal.gateAllowed ? "allowed" : "blocked"} / blockers {proposal.blockerCount}
-            </div>
-          </div>
-          <div className="prop-row">
-            <div className="prop-label">Created</div>
-            <div className="prop-val">{formatDateTime(proposal.createdAt)}</div>
-          </div>
-        </div>
-      ))}
-    </>
-  );
-};
-
-export const AuditDrawer = (props: {
-  approvals: MissionControlApprovalArtifact[];
-  events: MissionControlAuditEvent[];
-  legacyAudit: MissionControlLegacyAudit;
-}): ReactNode => (
-  <div className="drawer-stack">
-    <section className="drawer-section legacy-audit-section">
-      <div className="drawer-section-title">Legacy Undo Audit（历史兼容审计）</div>
-      <div className="legacy-audit-summary">
-        当前 Version 审计阻塞 {props.legacyAudit.currentVersionBlockerCount} · 项目 open 记录{" "}
-        {props.legacyAudit.openRecordCount}
-      </div>
-      {props.legacyAudit.records.length === 0 ? (
-        <EmptyState
-          title="无 Legacy Undo 记录"
-          description="默认产品语义仅使用 Todo、Deferred 与 Constraint。"
-        />
-      ) : (
-        props.legacyAudit.records.map((record, index) => (
-          <div
-            key={record.id}
-            className="prop-card legacy-audit-card animated-list-item"
-            style={{ animationDelay: `${index * 0.04}s` }}
-          >
-            <div className="prop-row">
-              <div className="prop-label">Legacy record</div>
-              <div className="prop-val">{record.title}</div>
-            </div>
-            <div className="prop-row">
-              <div className="prop-label">Reason</div>
-              <div className="prop-val">{record.reason}</div>
-            </div>
-            <div className="prop-row">
-              <div className="prop-label">Status</div>
-              <div className="prop-val">{record.status}</div>
-            </div>
-            <div className="prop-row">
-              <div className="prop-label">Updated</div>
-              <div className="prop-val">{formatDateTime(record.updatedAt)}</div>
-            </div>
-          </div>
-        ))
-      )}
-    </section>
-
-    <section className="drawer-section">
-      <div className="drawer-section-title">审批记录</div>
-      {props.approvals.length === 0 ? (
-        <EmptyState
-          title="暂无审批记录"
-          description="当前项目没有可展示的 approval artifact；这不影响只读看板浏览。"
-        />
-      ) : (
-        props.approvals.map((approval, index) => (
-          <div
-            key={approval.id}
-            className="prop-card animated-list-item"
-            style={{ animationDelay: `${index * 0.04}s` }}
-          >
-            <div className="prop-row">
-              <div className="prop-label">Action</div>
-              <div className="prop-val font-mono">{approval.actionType}</div>
-            </div>
-            <div className="prop-row">
-              <div className="prop-label">Approver</div>
-              <div className="prop-val">{approval.approverName}</div>
-            </div>
-            <div className="prop-row">
-              <div className="prop-label">Decision Ref</div>
-              <div className="prop-val font-mono">{approval.decisionRef}</div>
-            </div>
-            <div className="prop-row">
-              <div className="prop-label">Created</div>
-              <div className="prop-val">{formatDateTime(approval.createdAt)}</div>
-            </div>
-          </div>
-        ))
-      )}
-    </section>
-
-    <section className="drawer-section">
-      <div className="drawer-section-title">事件时间线</div>
-      {props.events.length === 0 ? (
-        <EmptyState
-          title="暂无事件"
-          description="当前项目没有最近事件可展示。"
-        />
-      ) : (
-        props.events.map((event, index) => (
-          <div
-            key={event.id}
-            className="record-item animated-list-item"
-            style={{ animationDelay: `${index * 0.04}s` }}
-          >
-            <div className="record-time">{formatDateTime(event.createdAt)}</div>
-            <div className="record-event">
-              {event.eventType} · {event.targetType}
-            </div>
-            <div className="record-detail">
-              {event.actorName} · {event.targetId}
-              {event.fromState !== null || event.toState !== null
-                ? ` · ${event.fromState ?? "null"} → ${event.toState ?? "null"}`
-                : ""}
-            </div>
-          </div>
-        ))
-      )}
-    </section>
-  </div>
+const StatusMark = ({ state, label }: { state: MissionControlVersionState | null; label?: string | null }): ReactNode => (
+  <span className={classNames("status-mark", `tone-${stateTone(state)}`)}>
+    <i />{stateLabel(state, label)}
+  </span>
 );
 
-export const renderCurrentVersionPanel = (
-  currentVersion: MissionControlCurrentVersion | null
-): ReactNode => {
-  if (currentVersion === null) {
-    return (
-      <EmptyState
-        title="路线尚未定义"
-        description="Project 逻辑根已经建立；创建首个真实 Version 后即可开始推进。"
-      />
-    );
-  }
-
-  return (
-    <div className="current-grid blur-text-delayed">
-      <div className="right-col">
-        <SpotlightCard>
-          <div className="panel-title">
-            <span>Todo 列表</span>
-            <span className="panel-count">{currentVersion.todos.length}</span>
-          </div>
-          <div className="panel-list">
-            {currentVersion.todos.length === 0 ? (
-              <EmptyState title="暂无 Todo" description="当前 Version 没有 open todo。" />
-            ) : (
-              currentVersion.todos.map((todo) => (
-                <div key={todo.id} className="list-item">
-                  <div className={classNames("item-status", itemStatusClass(todo.status))}></div>
-                  <div className="item-content">
-                    <div className={classNames("item-text", itemStatusClass(todo.status))}>{todo.title}</div>
-                    <div className="item-meta">{todo.description || "无补充描述"}</div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SpotlightCard>
-
-        <SpotlightCard>
-          <div className="panel-title">
-            <span>Deferred · 待评审</span>
-            <span className="panel-count">{currentVersion.deferred.length}</span>
-          </div>
-          <div className="panel-list">
-            {currentVersion.deferred.length === 0 ? (
-              <EmptyState
-                title="暂无相关 Deferred"
-                description="当前 Version 没有发起或需要评审的 Deferred。"
-              />
-            ) : (
-              currentVersion.deferred.map((deferred) => (
-                <div key={deferred.id} className={classNames("list-item", deferred.isDue && "is-due")}>
-                  <div className={classNames("item-status", deferred.isDue ? "due" : "wait")}></div>
-                  <div className="item-content">
-                    <div className="item-text">
-                      {deferred.title}
-                      {deferred.isDue ? <span className="item-badge">DUE</span> : null}
-                    </div>
-                    <div className="item-meta">
-                      评审 Version：{deferred.targetReviewVersionTitle}
-                      {deferred.reviewTrigger ? ` · ${deferred.reviewTrigger}` : ""}
-                    </div>
-                    <div className="item-meta">{deferred.reason}</div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SpotlightCard>
-      </div>
-
-      <div className="right-col">
-        <SpotlightCard>
-          <div className="panel-title">
-            <span>Active Constraints</span>
-            <span className="panel-count">{currentVersion.constraints.length}</span>
-          </div>
-          <div className="panel-list">
-            {currentVersion.constraints.length === 0 ? (
-              <EmptyState
-                title="暂无 Active Constraint"
-                description="当前项目与 Version 没有生效中的约束。"
-              />
-            ) : (
-              currentVersion.constraints.map((constraint) => (
-                <div key={constraint.id} className="list-item constraint-item">
-                  <div className="item-status active"></div>
-                  <div className="item-content">
-                    <div className="item-text">{constraint.rule}</div>
-                    <div className="item-meta">
-                      {constraint.scope === "project" ? "项目范围" : "当前 Version"}
-                      {constraint.rationale ? ` · ${constraint.rationale}` : ""}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SpotlightCard>
-
-        <SpotlightCard>
-          <div className="panel-title">
-            <span>版本元数据</span>
-            <span className="panel-count">live</span>
-          </div>
-          <div className="meta-grid">
-            <div className="meta-row">
-              <div className="meta-label">State</div>
-              <div className="meta-value">
-                {currentVersion.displayLabel}
-                {currentVersion.stateReason !== null ? ` · ${currentVersion.stateReason}` : ""}
-              </div>
-            </div>
-            <div className="meta-row">
-              <div className="meta-label">Order</div>
-              <div className="meta-value">{currentVersion.order}</div>
-            </div>
-            <div className="meta-row">
-              <div className="meta-label">Parent</div>
-              <div className="meta-value">{currentVersion.parentVersionTitle ?? "None"}</div>
-            </div>
-            <div className="meta-row">
-              <div className="meta-label">Previous</div>
-              <div className="meta-value">{currentVersion.previousVersionTitle ?? "None"}</div>
-            </div>
-            <div className="meta-row">
-              <div className="meta-label">Next</div>
-              <div className="meta-value">{currentVersion.nextVersionTitle ?? "None"}</div>
-            </div>
-            <div className="meta-row">
-              <div className="meta-label">Updated</div>
-              <div className="meta-value">{formatDateTime(currentVersion.updatedAt)}</div>
-            </div>
-          </div>
-        </SpotlightCard>
-      </div>
-    </div>
-  );
-};
-
-export const OverviewStats = (props: {
-  overview: MissionControlOverview;
-}): ReactNode => (
-  <div className="overview-grid blur-text-delayed">
-    <SpotlightCard className="stat-card">
-      <h3>Open Todo</h3>
-      <div className="stat-value">{props.overview.openTodoCount}</div>
-      <div className="stat-desc">项目范围内 wait/running todo 数量</div>
-    </SpotlightCard>
-    <SpotlightCard className="stat-card">
-      <h3>Pending Deferred</h3>
-      <div className="stat-value">{props.overview.pendingDeferredCount}</div>
-      <div className="stat-desc">待后续 Version 评审的 Deferred 数量</div>
-    </SpotlightCard>
-    <SpotlightCard className="stat-card">
-      <h3>Due for Review</h3>
-      <div className="stat-value is-warn">{props.overview.dueDeferredCount}</div>
-      <div className="stat-desc">当前 Gate 已到期、需要评审的 Deferred 数量</div>
-    </SpotlightCard>
-    <SpotlightCard className="stat-card">
-      <h3>Active Constraints</h3>
-      <div className="stat-value">{props.overview.activeConstraintCount}</div>
-      <div className="stat-desc">项目与 Version 范围内生效约束数量</div>
-    </SpotlightCard>
-  </div>
-);
-
-export const App = (): ReactNode => {
-  const [view, setView] = useState<ViewId>("overview");
-  const [drawer, setDrawer] = useState<DrawerKind>(null);
-  const [theme, setTheme] = useState<ThemeName>(readInitialTheme);
-  const [loadState, setLoadState] = useState<AppLoadState>({
-    status: "loading",
-    data: null,
-    error: null,
-    refreshing: false
-  });
-
-  const refresh = async (): Promise<void> => {
-    startTransition(() => {
-      setLoadState((previous) => ({
-        ...previous,
-        refreshing: true
-      }));
-    });
-
-    try {
-      const nextState = await fetchMissionControlState();
-      startTransition(() => {
-        setLoadState({
-          status: "ready",
-          data: nextState,
-          error: null,
-          refreshing: false
-        });
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "读取 Mission Control 状态失败。";
-      startTransition(() => {
-        setLoadState((previous) => ({
-          status: "failed",
-          data: previous.data,
-          error: message,
-          refreshing: false
-        }));
-      });
-    }
-  };
+const ProjectContext = ({ projectName }: { projectName: string }): ReactNode => {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void refresh();
+    const close = (event: PointerEvent): void => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
   }, []);
 
+  return (
+    <div className="project-context" ref={root}>
+      <button className="project-trigger" onClick={() => setOpen((value) => !value)} type="button" aria-expanded={open}>
+        <span>{projectName}</span><CaretDown size={15} weight="bold" />
+      </button>
+      {open ? (
+        <div className="project-popover">
+          <div className="project-current"><span>{projectName}</span><CheckCircle size={17} weight="fill" /></div>
+          <p>当前 Mission Control 实例只展示它所绑定的一个项目。</p>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const PastColumn = ({ versions }: { versions: MissionControlRoadmapItem[] }): ReactNode => (
+  <section className="horizon-column past-column" aria-label="过去版本">
+    <p className="column-kicker">过去版本</p>
+    {versions.length === 0 ? (
+      <EmptyState title="没有上游 Version" description="当前 Version 位于这条路线的起点。" />
+    ) : (
+      <div className="past-list">
+        {versions.map((version) => (
+          <article className="past-item" key={version.id}>
+            <span className="rail-dot" />
+            <div>
+              <strong>{version.title}</strong>
+              <p>位置 {version.order}</p>
+              <small>{stateLabel(version.state, version.displayLabel)}</small>
+            </div>
+          </article>
+        ))}
+      </div>
+    )}
+  </section>
+);
+
+const Metric = ({ value, label }: { value: number; label: string }): ReactNode => (
+  <div className="metric">
+    <strong>{value}</strong><span>{label}</span>
+  </div>
+);
+
+const TodoList = ({ todos }: { todos: MissionControlTodoItem[] }): ReactNode => (
+  <div className="work-list todo-list">
+    {todos.length === 0 ? <p className="quiet-empty">当前 Version 没有未完成 Todo。</p> : todos.map((todo) => (
+      <div className="work-row" key={todo.id}>
+        <span className={classNames("work-dot", todo.status === "running" && "is-running")} />
+        <div><strong>{todo.title}</strong>{todo.description ? <p>{todo.description}</p> : null}</div>
+      </div>
+    ))}
+  </div>
+);
+
+const DeferredList = ({ deferred }: { deferred: MissionControlDeferredItem[] }): ReactNode => (
+  <div className="deferred-table">
+    {deferred.length === 0 ? <p className="quiet-empty">当前 Version 没有相关 Deferred。</p> : deferred.map((item) => (
+      <div className="deferred-row" key={item.id}>
+        <span className={classNames("blue-dot", item.isDue && "is-due")} />
+        <div><strong>{item.title}</strong>{item.reason ? <p>{item.reason}</p> : null}</div>
+        <small>{item.isDue ? "本 Version 需复评" : `目标：${item.targetReviewVersionTitle}`}</small>
+      </div>
+    ))}
+  </div>
+);
+
+const ConstraintList = ({ constraints }: { constraints: MissionControlConstraintItem[] }): ReactNode => (
+  <div className="constraint-list">
+    {constraints.map((constraint) => (
+      <div className="constraint-row" key={constraint.id}>
+        <span /><div><strong>{constraint.rule}</strong>{constraint.rationale ? <p>{constraint.rationale}</p> : null}</div>
+      </div>
+    ))}
+  </div>
+);
+
+export const CurrentVersionColumn = ({ response }: { response: MissionControlResponse }): ReactNode => {
+  const [activeSection, setActiveSection] = useState<"todo" | "deferred">("deferred");
+  const [constraintsOpen, setConstraintsOpen] = useState(false);
+  const [childrenOpen, setChildrenOpen] = useState(false);
+  const current = response.currentVersion;
+  const currentRoadmap = response.roadmap.find((version) => version.isCurrent) ?? null;
+  const children = currentRoadmap === null
+    ? []
+    : response.roadmap.filter((version) => version.parentVersionId === currentRoadmap.id);
+
+  if (current === null) {
+    return (
+      <section className="horizon-column current-column empty-current">
+        <span className="current-label">当前版本</span>
+        <EmptyState title="路线尚未定义" description={response.message} />
+      </section>
+    );
+  }
+
+  return (
+    <section className="horizon-column current-column" aria-label="当前版本">
+      <span className="current-label">当前版本</span>
+      <h1>{current.title}</h1>
+      <div className="current-meta">
+        <StatusMark state={current.state} label={current.displayLabel} />
+        <i className="meta-divider" />
+        <b>{current.order} / {response.identity?.versionCount ?? response.roadmap.length}</b>
+      </div>
+      {current.description ? <p className="current-description">{current.description}</p> : null}
+      <div className="section-rule" />
+
+      <h2>当前工作概览</h2>
+      <div className="metric-line">
+        <button className={activeSection === "todo" ? "active" : ""} onClick={() => setActiveSection("todo")} type="button" aria-pressed={activeSection === "todo"}>
+          <Metric value={current.todos.length} label="Todo" />
+        </button>
+        <button className={activeSection === "deferred" ? "active" : ""} onClick={() => setActiveSection("deferred")} type="button" aria-pressed={activeSection === "deferred"}>
+          <Metric value={current.deferred.length} label="Deferred" />
+        </button>
+        <button onClick={() => setConstraintsOpen((value) => !value)} type="button" aria-expanded={constraintsOpen}>
+          <Metric value={current.constraints.length} label="Constraints" />
+        </button>
+      </div>
+      <div className="section-rule" />
+
+      <div className="work-section-heading">
+        <h2>{activeSection === "todo" ? "Todo" : "Deferred"}</h2>
+        <small>{activeSection === "todo" ? "当前 Version 的未完成工作" : "与当前 Version 相关的复评事项"}</small>
+      </div>
+      {activeSection === "todo" ? <TodoList todos={current.todos} /> : <DeferredList deferred={current.deferred} />}
+
+      <button className="disclosure-row" onClick={() => setConstraintsOpen((value) => !value)} type="button" aria-expanded={constraintsOpen}>
+        <CaretDown className={constraintsOpen ? "rotated" : ""} size={16} />
+        Constraints（{current.constraints.length}）
+      </button>
+      {constraintsOpen ? (
+        current.constraints.length === 0
+          ? <p className="disclosure-empty">当前项目与 Version 没有生效中的 Constraint。</p>
+          : <ConstraintList constraints={current.constraints} />
+      ) : null}
+
+      {children.length > 0 ? (
+        <>
+          <button className="disclosure-row child-disclosure" onClick={() => setChildrenOpen((value) => !value)} type="button" aria-expanded={childrenOpen}>
+            <GitBranch size={16} />子路线（{children.length}）<CaretDown className={childrenOpen ? "rotated" : ""} size={16} />
+          </button>
+          {childrenOpen ? <div className="child-list">{children.map((child) => <div key={child.id}><span>{child.order}</span>{child.title}</div>)}</div> : null}
+        </>
+      ) : null}
+    </section>
+  );
+};
+
+const NextColumn = ({ version }: { version: MissionControlRoadmapItem | null }): ReactNode => (
+  <section className="horizon-column next-column" aria-label="下一版本">
+    <p className="column-kicker">下一版本</p>
+    {version === null ? (
+      <EmptyState title="没有下一 Version" description="当前 Version 已位于这条路线的末端。" />
+    ) : (
+      <>
+        <h2>{version.title}</h2>
+        <StatusMark state={version.state} label={version.displayLabel} />
+        <p className="version-position">位置 {version.order}</p>
+        <div className="section-rule" />
+        {version.childCount > 0 ? <div className="child-count"><GitBranch size={16} />包含 {version.childCount} 个子 Version</div> : null}
+      </>
+    )}
+  </section>
+);
+
+const FutureColumn = ({ versions, totalCount }: { versions: MissionControlRoadmapItem[]; totalCount: number }): ReactNode => {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? versions : versions.slice(0, 3);
+  const remaining = Math.max(0, totalCount - shown.length);
+
+  return (
+    <section className="horizon-column future-column" aria-label="后续版本">
+      <p className="column-kicker">后续 {totalCount} 个 Version</p>
+      <div className="section-rule" />
+      {versions.length === 0 ? <EmptyState title="暂无后续路线" description="当前没有可展示的下游 Version。" /> : (
+        <div className="future-list">
+          {shown.map((version) => (
+            <article className="future-item" key={version.id}>
+              <span className="rail-dot" />
+              <div><strong>{version.title}</strong><p>位置 {version.order} · {stateLabel(version.state, version.displayLabel)}</p></div>
+            </article>
+          ))}
+        </div>
+      )}
+      {versions.length > 3 ? (
+        <button className="future-toggle" onClick={() => setExpanded((value) => !value)} type="button" aria-expanded={expanded}>
+          <CaretDown className={expanded ? "rotated" : ""} size={15} />
+          {expanded ? "收起后续路线" : `还有 ${remaining} 个版本`}
+        </button>
+      ) : null}
+    </section>
+  );
+};
+
+const HistorySection = ({
+  approvals,
+  events,
+  proposals,
+  legacyAudit
+}: {
+  approvals: MissionControlApprovalArtifact[];
+  events: MissionControlAuditEvent[];
+  proposals: MissionControlProposal[];
+  legacyAudit: MissionControlLegacyAudit;
+}): ReactNode => (
+  <div className="history-stack">
+    {proposals.length > 0 ? (
+      <section><h3>Pending Proposal（{proposals.length}）</h3>{proposals.map((proposal) => (
+        <article className="history-record" key={proposal.id}><strong>{proposal.actionType}</strong><p>{proposal.reason}</p><small>{formatDateTime(proposal.createdAt)}</small></article>
+      ))}</section>
+    ) : null}
+    <section>
+      <h3>审批记录（{approvals.length}）</h3>
+      {approvals.length === 0 ? <p className="history-empty">暂无审批记录。</p> : approvals.map((approval) => (
+        <article className="history-record" key={approval.id}><strong>{approval.actionType}</strong><p>{approval.approverName} · {approval.status}</p><small>{formatDateTime(approval.createdAt)}</small></article>
+      ))}
+    </section>
+    <section>
+      <h3>最近事件（{events.length}）</h3>
+      {events.length === 0 ? <p className="history-empty">暂无事件记录。</p> : events.map((event) => (
+        <article className="history-record" key={event.id}><strong>{event.eventType}</strong><p>{event.actorName} · {event.fromState ?? "—"} → {event.toState ?? "—"}</p><small>{formatDateTime(event.createdAt)}</small></article>
+      ))}
+    </section>
+    {legacyAudit.records.length > 0 ? (
+      <section><h3>历史兼容审计（{legacyAudit.records.length}）</h3>{legacyAudit.records.map((record) => (
+        <article className="history-record" key={record.id}><strong>{record.title}</strong><p>{record.reason}</p><small>{record.status}</small></article>
+      ))}</section>
+    ) : null}
+  </div>
+);
+
+export const VersionHorizon = ({ response, refreshing, onRefresh }: {
+  response: MissionControlResponse;
+  refreshing: boolean;
+  onRefresh: () => void;
+}): ReactNode => {
+  const [historyVisible, setHistoryVisible] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyButton = useRef<HTMLButtonElement>(null);
+  const historyCloseButton = useRef<HTMLButtonElement>(null);
+  const historyWasOpen = useRef(false);
+  const currentRoadmap = useMemo(
+    () => response.roadmap.find((version) => version.isCurrent) ?? null,
+    [response.roadmap]
+  );
+  const past = currentRoadmap === null ? [] : walkPrevious(currentRoadmap, response.roadmap, 3);
+  const forward = currentRoadmap === null ? [] : walkNext(currentRoadmap, response.roadmap);
+  const next = forward[0] ?? null;
+  const later = forward.slice(1);
+  const parentTitle = response.currentVersion?.parentVersionTitle ?? null;
+
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    window.localStorage.setItem(themeStorageKey, theme);
-  }, [theme]);
-
-  const response = loadState.data;
-  const alertTone = response === null ? "info" : screenMessageTone(response.screen);
-
-  const renderView = (): ReactNode => {
-    if (loadState.status === "loading") {
-      return (
-        <div className="view-state">
-          <div className="loading-copy">正在读取 canonical JSON…</div>
-        </div>
-      );
+    if (!historyOpen) {
+      if (historyWasOpen.current) historyButton.current?.focus();
+      historyWasOpen.current = false;
+      return;
     }
 
-    if (response === null) {
-      return (
-        <div className="view-state">
-          <EmptyState
-            title="状态不可用"
-            description={loadState.status === "failed" ? loadState.error : "尚未获取到 Mission Control 数据。"}
-          />
+    historyWasOpen.current = true;
+    historyCloseButton.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setHistoryOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [historyOpen]);
+
+  return (
+    <main className="mission-control">
+      <header className="topbar">
+        <div className="brand"><GitBranch size={25} weight="fill" /><span>RouteLedger</span></div>
+        <div className="project-area">
+          <ProjectContext projectName={response.identity?.projectName ?? "未初始化项目"} />
+          <span className="readonly"><LockSimple size={15} />只读</span>
         </div>
-      );
-    }
+        <button ref={historyButton} className="history-button" onClick={() => setHistoryOpen(true)} type="button" aria-expanded={historyOpen} aria-controls="history-drawer">
+          <ClockCounterClockwise size={20} />历史记录
+        </button>
+      </header>
 
-    switch (view) {
-      case "overview":
-        return (
-          <>
-            <div className="view-header blur-text">
-              <h1 className="view-title">总览 (Overview)</h1>
-              <p className="view-subtitle">用 canonical JSON 直接理解当前项目身份、路线压力和诊断信息。</p>
-            </div>
+      <nav className="route-breadcrumb" aria-label="路线位置">
+        <GitBranch size={20} weight="fill" />
+        <strong>主路线</strong>
+        {parentTitle !== null ? <><span>/</span><span>{parentTitle}</span></> : null}
+        <span className="breadcrumb-spacer" />
+        <button onClick={onRefresh} disabled={refreshing} type="button">{refreshing ? "刷新中…" : "刷新数据"}</button>
+      </nav>
 
-            {response.overview === null ? (
-              <EmptyState title="暂无总览" description={response.message} />
-            ) : (
-              <>
-                <OverviewStats overview={response.overview} />
+      {response.screen !== "ready" || response.statusRisks.some((risk) => risk.severity === "blocking") ? (
+        <div className={classNames("system-notice", response.screen !== "ready" && "is-warning")}>
+          <strong>{response.screen === "ready" ? "当前状态需要留意" : "RouteLedger 状态未完全就绪"}</strong>
+          <p>{response.message}</p>
+        </div>
+      ) : null}
 
-                <div className="summary-grid">
-                  <SpotlightCard className="summary-card blur-text-delayed">
-                    <h3>项目身份</h3>
-                    <div className="summary-item">
-                      <span className="summary-label">Project</span>
-                      <span className="summary-val">{response.identity?.projectName ?? "Unavailable"}</span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">Project ID</span>
-                      <span className="summary-val path-text">{response.identity?.projectId ?? "N/A"}</span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">workspaceRoot</span>
-                      <span className="summary-val path-text">{response.binding.workspaceRoot}</span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">routeledgerRoot</span>
-                      <span className="summary-val path-text">{response.binding.routeledgerRoot}</span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">Source Mode</span>
-                      <span className="summary-val">{response.storage.mode}</span>
-                    </div>
-                  </SpotlightCard>
+      <section className="horizon-content">
+        <button className="history-column-toggle" onClick={() => setHistoryVisible((value) => !value)} type="button">
+          <ClockCounterClockwise size={17} />{historyVisible ? "隐藏历史版本" : "显示历史版本"}
+        </button>
+        <div className={classNames("horizon-grid", !historyVisible && "without-history")}>
+          {historyVisible ? <PastColumn versions={past} /> : null}
+          <CurrentVersionColumn response={response} />
+          <NextColumn version={next} />
+          <FutureColumn versions={later} totalCount={Math.max(0, forward.length - 1)} />
+        </div>
+      </section>
 
-                  <SpotlightCard className="summary-card blur-text-delayed">
-                    <h3>诊断与下一步</h3>
-                    <div className="summary-item">
-                      <span className="summary-label">Binding</span>
-                      <span className="summary-val">{response.binding.status}</span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">SQLite</span>
-                      <span className="summary-val">{response.storage.sqlite.status}</span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">Canonical JSON</span>
-                      <span className="summary-val">{response.storage.canonicalJson.status}</span>
-                    </div>
-                    <div className="summary-item summary-block">
-                      <span className="summary-label">Next Action</span>
-                      <span className="summary-val multiline">
-                        {response.nextAction?.summary ?? "当前没有系统建议动作"}
-                      </span>
-                    </div>
-                    <div className="summary-item summary-block">
-                      <span className="summary-label">Status Risks</span>
-                      <span className="summary-val multiline">
-                        {response.statusRisks.length === 0
-                          ? "暂无显式风险"
-                          : response.statusRisks.map((risk) => `${risk.severity}: ${risk.summary}`).join("\n")}
-                      </span>
-                    </div>
-                  </SpotlightCard>
-                </div>
-              </>
-            )}
-          </>
-        );
-      case "roadmap":
-        return (
-          <>
-            <div className="view-header blur-text">
-              <h1 className="view-title">宏观路线图 (Roadmap)</h1>
-              <p className="view-subtitle">按真实 Version 顺序展示主推进链，不引入 mock branch/type 字段。</p>
-            </div>
-            <div className="roadmap-rail blur-text-delayed">
-              {response.roadmap.length === 0 ? (
-                <EmptyState title="暂无路线图" description={response.message} />
-              ) : (
-                response.roadmap.map((item, index) => (
-                  <div
-                    key={item.id}
-                    className={classNames("roadmap-node", toneClassByVersionState(item.state))}
-                    style={{ animationDelay: `${index * 0.06}s` }}
-                  >
-                    <div className="node-header">
-                      <span className="node-title">{item.title}</span>
-                      <span className="node-tag">{item.displayLabel}</span>
-                      {item.isCurrent ? <span className="node-tag node-tag-current">CURRENT</span> : null}
-                      {item.isDiagnostic ? <span className="node-tag">DIAGNOSTIC</span> : null}
-                    </div>
-                    <div className="node-summary">
-                      order {item.order} · child {item.childCount} · todo {item.openTodoCount} · deferred{" "}
-                      {item.pendingDeferredCount} · constraints {item.activeConstraintCount}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        );
-      case "current":
-        return (
-          <>
-            <div className="view-header blur-text">
-              <h1 className="view-title">当前 Version</h1>
-              <p className="view-subtitle">{response.currentVersion?.description ?? response.message}</p>
-            </div>
-            {renderCurrentVersionPanel(response.currentVersion)}
-          </>
-        );
-      case "tree":
-        return (
-          <>
-            <div className="view-header blur-text">
-              <h1 className="view-title">Version 树 (Tree)</h1>
-              <p className="view-subtitle">展示父级、同级与子级 Version 关系，并保持真实 RouteLedger 语义。</p>
-            </div>
-            {response.tree === null ? (
-              <EmptyState title="暂无 Version 树" description={response.message} />
-            ) : (
-              <div className="tree-container blur-text-delayed">
-                <div className="tree-col">
-                  <div className="tree-col-title">父节点</div>
-                  <TreeCard node={response.tree.parent} />
-                </div>
-                <div className="tree-col">
-                  <div className="tree-col-title current-title">当前焦点</div>
-                  <TreeCard node={response.tree.focus} />
-                </div>
-                <div className="tree-col">
-                  <div className="tree-col-title">同级 Version</div>
-                  {response.tree.siblings.length === 0 ? (
-                    <TreeCard node={null} />
-                  ) : (
-                    response.tree.siblings.map((node) => <TreeCard key={node.id} node={node} />)
-                  )}
-                </div>
-                <div className="tree-col">
-                  <div className="tree-col-title">子分支</div>
-                  {response.tree.children.length === 0 ? (
-                    <TreeCard node={null} />
-                  ) : (
-                    response.tree.children.map((node) => <TreeCard key={node.id} node={node} />)
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        );
+      <div className={classNames("drawer-overlay", historyOpen && "is-open")} onClick={() => setHistoryOpen(false)} />
+      <aside id="history-drawer" className={classNames("history-drawer", historyOpen && "is-open")} aria-hidden={!historyOpen} inert={!historyOpen} aria-label="历史与审批" role="dialog" aria-modal="true">
+        <div className="history-header"><div><small>只读记录</small><h2>历史与审批</h2></div><button ref={historyCloseButton} onClick={() => setHistoryOpen(false)} aria-label="关闭历史记录" type="button"><X size={21} /></button></div>
+        <HistorySection approvals={response.approvals} events={response.auditTrail} proposals={response.proposals} legacyAudit={response.legacyAudit} />
+      </aside>
+    </main>
+  );
+};
+
+export const App = (): ReactNode => {
+  const [loadState, setLoadState] = useState<AppLoadState>({ status: "loading", data: null, error: null, refreshing: false });
+
+  const refresh = async (): Promise<void> => {
+    startTransition(() => setLoadState((previous) => ({ ...previous, refreshing: true })));
+    try {
+      const data = await fetchMissionControlState();
+      startTransition(() => setLoadState({ status: "ready", data, error: null, refreshing: false }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "读取 Mission Control 状态失败。";
+      startTransition(() => setLoadState((previous) => ({ status: "failed", data: previous.data, error: message, refreshing: false })));
     }
   };
 
-  return (
-    <>
-      <div className="dot-grid-bg"></div>
+  useEffect(() => { void refresh(); }, []);
 
-      <main className="app-shell">
-        <aside className="sidebar">
-          <div className="brand-area">
-            <div className="brand-logo">RL</div>
-            <div className="brand-text">
-              <div className="brand-name">RouteLedger</div>
-              <div className="brand-subtitle">Mission Control</div>
-            </div>
-          </div>
+  if (loadState.status === "loading") {
+    return <main className="mission-control centered-state"><div className="loading-mark"><GitBranch size={28} weight="fill" /></div><strong>正在读取项目路线…</strong><p>RouteLedger 正在加载 canonical JSON。</p></main>;
+  }
 
-          <nav className="nav-menu">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                className={classNames("nav-item", view === item.id && "active")}
-                onClick={() => setView(item.id)}
-                type="button"
-              >
-                <span className="nav-icon">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </nav>
+  if (loadState.data === null) {
+    return <main className="mission-control centered-state"><strong>无法读取项目路线</strong><p>{loadState.error ?? "当前没有可展示的数据。"}</p><button onClick={() => void refresh()} type="button">重新读取</button></main>;
+  }
 
-          <div className="sidebar-footer">
-            <button
-              className="theme-toggle"
-              onClick={() => setTheme((previous) => (previous === "dark" ? "light" : "dark"))}
-              title="切换主题"
-              type="button"
-            >
-              <span className="icon-dark">🌙</span>
-              <span className="icon-light">☀️</span>
-            </button>
-          </div>
-        </aside>
-
-        <section className="workspace">
-          <header className="context-bar">
-            <div className="context-info">
-              <span className="project-name">Project: {screenTitle(response)}</span>
-              <span className="divider">/</span>
-              <span className="current-version-label">{screenVersionTitle(response)}</span>
-              <span className={classNames("status-indicator", toneClassByVersionState(response?.identity?.currentVersionState ?? null))}>
-                {currentStatusLabel(response)}
-              </span>
-            </div>
-
-            <div className="context-actions">
-              <span className="data-source">Source: {response?.storage.mode ?? "loading"}</span>
-              <button className="action-pill" onClick={() => void refresh()} type="button">
-                刷新 {loadState.refreshing ? "…" : ""}
-              </button>
-              <button className="action-pill" onClick={() => setDrawer("proposal")} type="button">
-                <span className={classNames("pill-dot", response?.proposals.length ? "is-warning" : "is-idle")}></span>
-                提案
-                <span className="pill-count">{response?.proposals.length ?? 0}</span>
-              </button>
-              <button className="action-pill" onClick={() => setDrawer("audit")} type="button">
-                审计记录
-              </button>
-            </div>
-          </header>
-
-          <div className="view-container">
-            <div className={classNames("banner-card", `tone-${alertTone}`)}>
-              <div className="banner-title">
-                {response?.screen === "ready" ? "Read-only Canonical View" : "Attention"}
-              </div>
-              <div className="banner-copy">
-                {response?.message ??
-                  (loadState.status === "failed"
-                    ? loadState.error
-                    : "Mission Control 正在读取 routeledgerRoot 下的 canonical JSON。")}
-              </div>
-            </div>
-
-            {loadState.status === "failed" && loadState.error !== null ? (
-              <div className="error-inline">{loadState.error}</div>
-            ) : null}
-
-            {renderView()}
-          </div>
-        </section>
-      </main>
-
-      <div className={classNames("drawer-overlay", drawer !== null && "is-active")} onClick={() => setDrawer(null)}></div>
-      <aside className={classNames("drawer", drawer !== null && "is-open")}>
-        <div className="drawer-header">
-          <div className="drawer-title">
-            <span className="drawer-kicker">{drawer === "proposal" ? "L3 Proposal" : "History & Audit"}</span>
-            <h2>{drawer === "proposal" ? "只读 Proposal 视图" : "审计与审批轨迹"}</h2>
-          </div>
-          <button className="drawer-close" onClick={() => setDrawer(null)} type="button">
-            ✕
-          </button>
-        </div>
-        <div className="drawer-content">
-          {drawer === "proposal" ? (
-            <ProposalDrawer proposals={response?.proposals ?? []} />
-          ) : drawer === "audit" ? (
-            <AuditDrawer
-              approvals={response?.approvals ?? []}
-              events={response?.auditTrail ?? []}
-              legacyAudit={
-                response?.legacyAudit ?? {
-                  openRecordCount: 0,
-                  currentVersionBlockerCount: 0,
-                  records: []
-                }
-              }
-            />
-          ) : null}
-        </div>
-      </aside>
-    </>
-  );
+  return <VersionHorizon response={loadState.data} refreshing={loadState.refreshing} onRefresh={() => void refresh()} />;
 };

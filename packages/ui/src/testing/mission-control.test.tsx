@@ -3,11 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Actor, ProjectAggregateSnapshot } from "@routeledger/core";
 
-import {
-  AuditDrawer,
-  OverviewStats,
-  renderCurrentVersionPanel
-} from "../App.js";
+import { CurrentVersionColumn, VersionHorizon } from "../App.js";
 import { buildMissionControlViewModel } from "../server/mission-control-vm.js";
 import type {
   MissionControlBindingSummary,
@@ -331,40 +327,86 @@ describe("Mission Control deferred semantics", () => {
     });
   });
 
-  it("renders the default panels without Undo and confines it to the legacy audit drawer", async () => {
+  it("renders Version Horizon with current work semantics and confines legacy records to history", async () => {
     const response = await buildViewModel(true);
-    const defaultMarkup = [
-      renderToStaticMarkup(OverviewStats({ overview: response.overview! })),
-      renderToStaticMarkup(renderCurrentVersionPanel(response.currentVersion))
-    ].join("");
-    const auditMarkup = renderToStaticMarkup(
-      AuditDrawer({
-        approvals: [],
-        events: [],
-        legacyAudit: response.legacyAudit
-      })
+    const currentMarkup = renderToStaticMarkup(
+      <CurrentVersionColumn response={response} />
+    );
+    const pageMarkup = renderToStaticMarkup(
+      <VersionHorizon response={response} refreshing={false} onRefresh={() => undefined} />
     );
 
-    expect(defaultMarkup).toContain("Pending Deferred");
-    expect(defaultMarkup).toContain("Active Constraints");
-    expect(defaultMarkup).toContain("DUE");
-    expect(defaultMarkup).not.toContain("Undo");
-    expect(auditMarkup).toContain("Legacy Undo Audit");
-    expect(auditMarkup).toContain("Legacy blocker");
+    expect(currentMarkup).toContain("当前工作概览");
+    expect(currentMarkup).toContain("Deferred");
+    expect(currentMarkup).toContain("Constraints（2）");
+    expect(currentMarkup).toContain("本 Version 需复评");
+    expect(currentMarkup).not.toContain("Undo");
+    expect(pageMarkup).toContain("历史兼容审计");
+    expect(pageMarkup).toContain("Legacy blocker");
+    expect(pageMarkup).not.toContain("Mission Control V2");
   });
 
-  it("renders clear empty states for Deferred and Constraint", async () => {
+  it("renders clear empty states for Deferred and Constraint in the rebuilt current column", async () => {
     const response = await buildViewModel(false);
     const emptyMarkup = renderToStaticMarkup(
-      renderCurrentVersionPanel({
-        ...response.currentVersion!,
-        deferred: [],
-        constraints: []
-      })
+      <CurrentVersionColumn
+        response={{
+          ...response,
+          currentVersion: {
+            ...response.currentVersion!,
+            deferred: [],
+            constraints: []
+          }
+        }}
+      />
     );
 
-    expect(emptyMarkup).toContain("暂无相关 Deferred");
-    expect(emptyMarkup).toContain("暂无 Active Constraint");
+    expect(emptyMarkup).toContain("当前 Version 没有相关 Deferred");
+    expect(emptyMarkup).toContain("Constraints（0）");
     expect(emptyMarkup).not.toContain("Undo");
+  });
+
+  it("counts the complete downstream route while keeping later Versions collapsed", async () => {
+    const response = await buildViewModel(false);
+    const first = response.roadmap[0]!;
+    const template = response.roadmap[1]!;
+    const downstream = Array.from({ length: 14 }, (_, index) => {
+      const order = index + 2;
+      return {
+        ...template,
+        id: `version-${order}`,
+        title: `Version ${order}`,
+        order,
+        previousVersionId: order === 2 ? first.id : `version-${order - 1}`,
+        nextVersionId: order === 15 ? null : `version-${order + 1}`
+      };
+    });
+    const pageMarkup = renderToStaticMarkup(
+      <VersionHorizon
+        response={{
+          ...response,
+          roadmap: [{ ...first, nextVersionId: "version-2" }, ...downstream]
+        }}
+        refreshing={false}
+        onRefresh={() => undefined}
+      />
+    );
+
+    expect(pageMarkup).toContain("后续 13 个 Version");
+    expect(pageMarkup).toContain("还有 10 个版本");
+    expect(pageMarkup).not.toContain("Version 15");
+  });
+
+  it("keeps the closed history dialog inert and exposes its dialog relationship", async () => {
+    const response = await buildViewModel(false);
+    const pageMarkup = renderToStaticMarkup(
+      <VersionHorizon response={response} refreshing={false} onRefresh={() => undefined} />
+    );
+
+    expect(pageMarkup).toContain('aria-controls="history-drawer"');
+    expect(pageMarkup).toContain('id="history-drawer"');
+    expect(pageMarkup).toContain('role="dialog"');
+    expect(pageMarkup).toContain('aria-modal="true"');
+    expect(pageMarkup).toContain("inert");
   });
 });
