@@ -19,7 +19,7 @@ import {
 import type {
   RouteLedgerMcpAuthorizationInteraction,
   RouteLedgerMcpDelegatedAuthorizationAuthority
-} from "./index.js";
+} from "./l3-authorization-contract.js";
 import {
   isMcpDecisionInputRequiredError,
   toL3DecisionInputRequest

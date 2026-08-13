@@ -5,10 +5,8 @@ import {
   BALANCED_ALWAYS_PROMPT_ACTIONS,
   BALANCED_AUTO_ACTIONS,
   DomainError,
-  type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
   type ExactAuthorizationBinding,
-  type L3AuthorizationEvaluationContext,
   type L3AuthorizationProfileV2,
   createExactProposalDecisionRequest,
   digestL3AuthorizationPolicy,
@@ -86,6 +84,10 @@ import {
   createVersionWorkflowTools
 } from "./capabilities/version-tools.js";
 import { residualAuditInputSchema } from "./registry/route-input-schemas.js";
+import type {
+  RouteLedgerMcpAuthorizationInteraction,
+  RouteLedgerMcpDelegatedAuthorizationAuthority
+} from "./l3-authorization-contract.js";
 
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
@@ -94,6 +96,14 @@ export * from "./existing-l3-decision-adapter.js";
 export * from "./codex-l3-decision-adapter.js";
 export * from "./mcp-decision-input.js";
 export * from "./mcp-request-state.js";
+export type {
+  RouteLedgerMcpAuthorizationDecision,
+  RouteLedgerMcpAuthorizationInteraction,
+  RouteLedgerMcpAuthorizationRequest,
+  RouteLedgerMcpDelegatedAuthorizationAuthority,
+  RouteLedgerMcpDelegatedAuthorizationRequest,
+  RouteLedgerMcpDelegatedAuthorizationResult
+} from "./l3-authorization-contract.js";
 export type {
   RouteLedgerApprovalMode,
   RouteLedgerToolRiskLevel,
@@ -165,57 +175,6 @@ export interface RouteLedgerMcpRegistryOptions {
     trustedClientId?: string;
     delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
   };
-}
-
-export interface RouteLedgerMcpDelegatedAuthorizationRequest {
-  authorityHandle: string;
-  proposal: Readonly<PendingOperation>;
-  context: Readonly<L3AuthorizationEvaluationContext>;
-}
-
-export type RouteLedgerMcpDelegatedAuthorizationResult =
-  | { effect: "allow"; authorization: ExactAuthorizationCandidate }
-  | {
-      effect: "prompt" | "deny";
-      code: string;
-      policyId?: string;
-      policyDigest?: string;
-      matchedRuleId?: string;
-    };
-
-export interface RouteLedgerMcpDelegatedAuthorizationAuthority {
-  /** Opaque host-owned handle. Policy evaluation and budget consumption must be atomic. */
-  authorityHandle: string;
-  /** Trusted issuer identity injected with the host authority. */
-  issuerId: string;
-  /** Trusted standing-policy identity; candidate provenance must match it exactly. */
-  policyId: string;
-  policyDigest: string;
-  requestExactDecision(
-    request: RouteLedgerMcpDelegatedAuthorizationRequest
-  ): Promise<RouteLedgerMcpDelegatedAuthorizationResult>;
-}
-
-export interface RouteLedgerMcpAuthorizationRequest {
-  message: string;
-  requestedSchema: Record<string, unknown>;
-}
-
-export interface RouteLedgerMcpAuthorizationDecision {
-  action: "accept" | "decline" | "cancel";
-  content: Record<string, unknown> | null;
-  /** Present only when a trusted host adapter attests an exact user decision. */
-  trustedDecision?: {
-    kind: "trusted_host_user";
-    hostKind: string;
-    decisionId: string;
-  };
-}
-
-export interface RouteLedgerMcpAuthorizationInteraction {
-  requestAuthorization(
-    request: RouteLedgerMcpAuthorizationRequest
-  ): Promise<RouteLedgerMcpAuthorizationDecision>;
 }
 
 export interface RouteLedgerServerInfo {
