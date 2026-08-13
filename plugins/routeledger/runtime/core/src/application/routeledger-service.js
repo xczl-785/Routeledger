@@ -13,8 +13,8 @@ import { deferWork as deferWorkWorkflow, recordConstraint as recordConstraintWor
 import { ApplicationError } from "./errors.js";
 import { buildCurrentContextResult, buildDerivedCurrentContextData, buildNextActionResult, buildVersionsWindowResult } from "./current-context-query.js";
 import { runDocDriftCheck } from "./doc-drift-query.js";
-import { buildVersionCloseoutPlan } from "./version-closeout-planner.js";
-import { clampCloseoutEventLimit, collectVersionCloseoutView, isSelfReferentialUndoForVersion } from "./version-closeout-query.js";
+import { isSelfReferentialUndoForVersion } from "./version-closeout-query.js";
+import { planVersionCloseoutApplication, summarizeVersionCloseoutApplication } from "./version-closeout-application.js";
 import { buildBalancedL3AuthorizationPolicy } from "./l3-authorization.js";
 import { BATCH_CREATE_VERSIONS_MODES, BATCH_PREVIOUS_CURRENT_POLICIES, isBatchCreateVersionsMode, isBatchPreviousCurrentPolicy, isRouteOperationWorkflowMode } from "./types.js";
 const buildAuthorizationCommitClaimId = (artifact, pendingOperation) => `commit_${crypto
@@ -2339,41 +2339,11 @@ export class RouteLedgerService {
     }
     async summarizeVersionCloseout(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
-        const versionId = input.versionId ?? snapshot.project.currentVersionId;
-        if (versionId === null) {
-            throw new ApplicationError("VERSION_NOT_FOUND", "project 当前没有 current version", {
-                projectId: input.projectId
-            });
-        }
-        const eventLimit = clampCloseoutEventLimit(input.eventLimit);
-        const closeoutView = collectVersionCloseoutView({
-            snapshot,
-            versionId,
-            eventLimit
-        });
-        return {
-            data: closeoutView.summary,
-            meta: closeoutView.meta
-        };
+        return summarizeVersionCloseoutApplication(snapshot, input);
     }
     async planVersionCloseout(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
-        const versionId = input.versionId ?? snapshot.project.currentVersionId;
-        if (versionId === null) {
-            throw new ApplicationError("VERSION_NOT_FOUND", "project 当前没有 current version", {
-                projectId: input.projectId
-            });
-        }
-        const eventLimit = clampCloseoutEventLimit(input.eventLimit);
-        const closeoutView = collectVersionCloseoutView({
-            snapshot,
-            versionId,
-            eventLimit
-        });
-        return {
-            data: buildVersionCloseoutPlan(closeoutView),
-            meta: closeoutView.meta
-        };
+        return planVersionCloseoutApplication(snapshot, input);
     }
     async batchCreateVersions(input) {
         const mode = assertBatchCreateVersionsMode(input.mode);
