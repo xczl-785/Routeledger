@@ -275,7 +275,7 @@ const buildStatusRisks = (options) => {
     return risks;
 };
 const buildNextAction = (options) => {
-    const { currentVersion, nextVersion, currentVersionOpenTodos, currentVersionOpenUndos, pendingProposals, statusRisks, runningVersionPointerDrift, startGate, closeGate } = options;
+    const { projectId, currentVersion, nextVersion, currentVersionOpenTodos, currentVersionOpenUndos, pendingProposals, statusRisks, runningVersionPointerDrift, startGate, closeGate } = options;
     const blockingRiskCodes = buildBlockingRiskCodes(statusRisks);
     if (pendingProposals.length > 0) {
         const proposal = pendingProposals[0];
@@ -345,6 +345,26 @@ const buildNextAction = (options) => {
             requiresL3Approval: false,
             recordIds: currentVersionOpenUndos.map((item) => item.id),
             blockingRiskCodes: ["LEGACY_WORK_BLOCKS_CLOSE"]
+        };
+    }
+    if (currentVersion?.state === "complete" &&
+        closeGate !== null &&
+        closeGate.blockers.length > 0 &&
+        closeGate.blockers.every((blocker) => blocker.code === "MISSING_RESIDUAL_AUDIT")) {
+        return {
+            actionType: "review_residual_audit",
+            recommendedTool: "check_close_gate",
+            toolInput: {
+                projectId,
+                versionId: currentVersion.id,
+                residualAudit: { status: "reviewed", items: [] }
+            },
+            summary: "Review and declare the residual audit first.",
+            reason: "The ordinary close gate has no reviewed residual-audit declaration. Review residual work, then submit the provided declaration with any routed residual items.",
+            targetId: currentVersion.id,
+            requiresL3Approval: false,
+            recordIds: [currentVersion.id],
+            blockingRiskCodes: ["MISSING_RESIDUAL_AUDIT"]
         };
     }
     if (currentVersion?.state === "complete" &&
@@ -485,6 +505,21 @@ const buildNextAction = (options) => {
             actionType: "start_version",
             summary: "启动当前 ready version。",
             reason: `current version ${currentVersion.id} 已 ready 且 start gate 通过，可进入 start_version 审计链。`,
+            targetId: currentVersion.id,
+            requiresL3Approval: true,
+            recordIds: [currentVersion.id],
+            blockingRiskCodes
+        };
+    }
+    if (currentVersion?.state === "close" &&
+        currentVersion.parentVersionId === null &&
+        currentVersion.nextVersionId === null &&
+        nextVersion === null) {
+        return {
+            actionType: "create_version",
+            recommendedTool: "create_version",
+            summary: "Append one successor Version after the closed top-level tail.",
+            reason: `version ${currentVersion.id} is the ordinary closed top-level tail; continue the route by appending one real successor Version.`,
             targetId: currentVersion.id,
             requiresL3Approval: true,
             recordIds: [currentVersion.id],
@@ -652,6 +687,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
         closeGate
     });
     const nextAction = buildNextAction({
+        projectId: snapshot.project.id,
         currentVersion,
         nextVersion,
         currentVersionOpenTodos,

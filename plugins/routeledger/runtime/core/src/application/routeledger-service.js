@@ -1493,6 +1493,90 @@ const buildDigestWithGateFormat = (projectId, actionType, targetId, payload, gat
 };
 const buildDigest = (projectId, actionType, targetId, payload, gateSnapshot) => buildDigestWithGateFormat(projectId, actionType, targetId, payload, gateSnapshot, true);
 const buildLegacyDigest = (projectId, actionType, targetId, payload, gateSnapshot) => buildDigestWithGateFormat(projectId, actionType, targetId, payload, gateSnapshot, false);
+const summarizeGateForStaleProposal = (gateSnapshot) => ({
+    kind: gateSnapshot.kind,
+    allowed: gateSnapshot.allowed,
+    blockerCodes: [...new Set(gateSnapshot.blockers.map((blocker) => blocker.code))],
+    recordIds: [
+        ...new Set(gateSnapshot.blockers.flatMap((blocker) => blocker.recordIds))
+    ]
+});
+const buildStaleProposalRecoveryDetails = (options) => {
+    const { projectId, pendingOperation, artifact, liveGateSnapshot } = options;
+    const stored = summarizeGateForStaleProposal(pendingOperation.gateSnapshot);
+    const live = summarizeGateForStaleProposal(liveGateSnapshot);
+    const storedBlockerCodes = new Set(stored.blockerCodes);
+    const storedRecordIds = new Set(stored.recordIds);
+    const liveBlockerCodes = new Set(live.blockerCodes);
+    const liveRecordIds = new Set(live.recordIds);
+    const recommendedNextActions = [
+        {
+            action: "reject_stale_proposal",
+            tool: "reject_l3_operation",
+            input: {
+                projectId,
+                pendingOperationId: pendingOperation.id,
+                reason: "Route state changed after approval; reject stale proposal."
+            }
+        },
+        {
+            action: "refresh_context",
+            tool: "get_current_context",
+            input: { projectId }
+        }
+    ];
+    if (liveGateSnapshot.kind === "close") {
+        for (const todoId of liveGateSnapshot.unresolvedTodoIds) {
+            recommendedNextActions.push({
+                action: "resolve_live_blocker",
+                tool: "close_todo",
+                input: { projectId, todoId },
+                requiredInputs: ["reason", "note"]
+            });
+        }
+        const residualAudit = {
+            status: "reviewed",
+            items: pendingOperation.payload.residualAudit ?? []
+        };
+        recommendedNextActions.push({
+            action: "recheck_close_gate",
+            tool: "check_close_gate",
+            input: {
+                projectId,
+                versionId: pendingOperation.targetId,
+                residualAudit
+            }
+        }, {
+            action: "propose_replacement",
+            tool: "close_version",
+            input: {
+                projectId,
+                versionId: pendingOperation.targetId,
+                mode: "propose",
+                residualAudit
+            }
+        });
+    }
+    return {
+        staleProposal: true,
+        pendingOperationId: pendingOperation.id,
+        approvalArtifactId: artifact.id,
+        proposalStatus: pendingOperation.status,
+        artifactStatus: artifact.status,
+        gateDifference: {
+            stored,
+            live,
+            addedBlockerCodes: live.blockerCodes.filter((code) => !storedBlockerCodes.has(code)),
+            removedBlockerCodes: stored.blockerCodes.filter((code) => !liveBlockerCodes.has(code)),
+            addedRecordIds: live.recordIds.filter((id) => !storedRecordIds.has(id)),
+            removedRecordIds: stored.recordIds.filter((id) => !liveRecordIds.has(id))
+        },
+        artifactConsumed: false,
+        routeStateWritesPerformed: false,
+        writesPerformed: false,
+        recommendedNextActions
+    };
+};
 const isNewGateBlocker = (blocker) => blocker.code === "DUE_DEFERRED_REQUIRES_REVIEW" ||
     blocker.code.startsWith("DEFERRED_ROUTE_") ||
     blocker.code.startsWith("CONSTRAINT_") ||
@@ -1759,6 +1843,29 @@ const applyPendingOperation = (snapshot, operation) => ({
     ...snapshot,
     pendingOperations: appendRecord(snapshot.pendingOperations, operation)
 });
+const buildCloseGateResult = (snapshot, versionId, residualAudit, evaluatedAt) => {
+    const resolvedAudit = resolveCloseResidualAudit(snapshot, versionId, residualAudit);
+    const description = buildOperationDescription(snapshot, "close_version", versionId, {
+        residualAudit: resolvedAudit.audit?.items ?? null,
+        residualAuditReviewed: resolvedAudit.audit !== null
+    }, evaluatedAt);
+    return {
+        allowed: description.gateSnapshot.allowed,
+        blockers: description.gateSnapshot.blockers,
+        unresolvedTodoIds: description.gateSnapshot.kind === "close"
+            ? description.gateSnapshot.unresolvedTodoIds
+            : [],
+        unresolvedUndoIds: description.gateSnapshot.kind === "close"
+            ? description.gateSnapshot.unresolvedUndoIds
+            : [],
+        unresolvedDeferredIds: description.gateSnapshot.kind === "close"
+            ? description.gateSnapshot.unresolvedDeferredIds
+            : [],
+        blockedConstraintIds: description.gateSnapshot.kind === "close"
+            ? description.gateSnapshot.blockedConstraintIds
+            : []
+    };
+};
 const applyApprovalArtifact = (snapshot, artifact) => ({
     ...snapshot,
     approvalArtifacts: appendRecord(snapshot.approvalArtifacts, artifact)
@@ -1902,7 +2009,26 @@ export class RouteLedgerService {
         snapshot.versions = replaceRecord(snapshot.versions, completed.version);
         snapshot.events = snapshot.events.concat(completed.events);
         await this.saveProjectAggregate(snapshot);
-        return completed;
+        const closeReadiness = buildCloseGateResult(snapshot, input.versionId, undefined, this.deps.clock.now());
+        return {
+            ...completed,
+            closeReadiness,
+            warnings: closeReadiness.allowed
+                ? []
+                : [
+                    {
+                        code: "VERSION_COMPLETE_CLOSE_BLOCKED",
+                        message: "Version 已标记 complete，但 close gate 仍有阻断项；请在关闭前完成收口。",
+                        blockerCodes: closeReadiness.blockers.map((blocker) => blocker.code),
+                        recommendedTool: "check_close_gate",
+                        toolInput: {
+                            projectId: input.projectId,
+                            versionId: input.versionId,
+                            residualAudit: { status: "reviewed", items: [] }
+                        }
+                    }
+                ]
+        };
     }
     async createTodo(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
@@ -2315,27 +2441,7 @@ export class RouteLedgerService {
     }
     async checkCloseGate(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
-        const resolvedAudit = resolveCloseResidualAudit(snapshot, input.versionId, input.residualAudit);
-        const description = buildOperationDescription(snapshot, "close_version", input.versionId, {
-            residualAudit: resolvedAudit.audit?.items ?? null,
-            residualAuditReviewed: resolvedAudit.audit !== null
-        }, this.deps.clock.now());
-        return {
-            allowed: description.gateSnapshot.allowed,
-            blockers: description.gateSnapshot.blockers,
-            unresolvedTodoIds: description.gateSnapshot.kind === "close"
-                ? description.gateSnapshot.unresolvedTodoIds
-                : [],
-            unresolvedUndoIds: description.gateSnapshot.kind === "close"
-                ? description.gateSnapshot.unresolvedUndoIds
-                : [],
-            unresolvedDeferredIds: description.gateSnapshot.kind === "close"
-                ? description.gateSnapshot.unresolvedDeferredIds
-                : [],
-            blockedConstraintIds: description.gateSnapshot.kind === "close"
-                ? description.gateSnapshot.blockedConstraintIds
-                : []
-        };
+        return buildCloseGateResult(snapshot, input.versionId, input.residualAudit, this.deps.clock.now());
     }
     async summarizeVersionCloseout(input) {
         const snapshot = await requireProject(this.storage, input.projectId);
@@ -2981,6 +3087,12 @@ export class RouteLedgerService {
                 liveLegacyDigest.value === pendingOperation.digest.value;
         if (!liveDigestMatches) {
             throw new ApplicationError("APPROVAL_ARTIFACT_DIGEST_MISMATCH", "live route state 与审批时 digest 不一致", {
+                ...buildStaleProposalRecoveryDetails({
+                    projectId: snapshot.project.id,
+                    pendingOperation,
+                    artifact,
+                    liveGateSnapshot: liveDescription.gateSnapshot
+                }),
                 expectedDigest: pendingOperation.digest.value,
                 actualDigest: liveDescription.digest.value,
                 liveLegacyDigest: liveLegacyDigest.value,
@@ -3496,9 +3608,44 @@ export class RouteLedgerService {
                 blockedConstraintIds: description.gateSnapshot.blockedConstraintIds
             };
         }
-        return this.requestConfirmation(input.projectId, "advance_to_version", input.versionId, input.reason ?? "advance to version requested", input.actor, {
-            fromVersionId: input.fromVersionId
-        }, true);
+        const proposal = await this.proposeL3Operation({
+            projectId: input.projectId,
+            actionType: "advance_to_version",
+            targetId: input.versionId,
+            reason: input.reason ?? "advance to version requested",
+            actor: input.actor,
+            payload: {
+                fromVersionId: input.fromVersionId
+            },
+            requirePassingGate: true
+        });
+        const nextActionInput = {
+            projectId: input.projectId,
+            pendingOperationId: proposal.id
+        };
+        return {
+            status: "confirmation_required",
+            allowed: true,
+            projectId: input.projectId,
+            versionId: input.versionId,
+            fromVersionId: description.payload.fromVersionId,
+            pendingOperationId: proposal.id,
+            digest: proposal.digest.value,
+            humanReviewText: makeHumanReviewText(proposal),
+            recommendedNextActions: [
+                {
+                    action: "approve",
+                    tool: "approve_l3_operation",
+                    input: nextActionInput
+                },
+                {
+                    action: "reject",
+                    tool: "reject_l3_operation",
+                    input: nextActionInput,
+                    requiredInputs: ["reason"]
+                }
+            ]
+        };
     }
     async createVersion(input) {
         return this.requestConfirmation(input.projectId, "create_version", this.deps.idGenerator.nextId(), input.reason ?? "create version requested", input.actor, {
