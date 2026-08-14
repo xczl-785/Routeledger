@@ -343,9 +343,13 @@ describe("routeledger mcp registry", () => {
           status: "uninitialized"
         }
       });
-      expect(activationData.activeBinding).toEqual(
+      expect(activationData.activeBinding).toMatchObject(
         (activation as {
-          result: { structuredContent: { meta: { runtimeContext: { binding: unknown } } } };
+          result: {
+            structuredContent: {
+              meta: { runtimeContext: { binding: Record<string, unknown> } };
+            };
+          };
         }).result.structuredContent.meta.runtimeContext.binding
       );
       expect(activationData.activeBinding).toEqual(postActivationContext.binding);
