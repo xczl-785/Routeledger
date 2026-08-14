@@ -1,6 +1,7 @@
 # NF1 recovery and storage-boundary decision
 
-Status: accepted for NF1 planning on 2026-08-13.
+Status: accepted decision. The persisted commit-owner recovery gap remains
+open; the NF1 storage-boundary refactor remains deferred.
 
 This decision separates recovery-policy work from the non-functional refactor.
 It does not authorize a production behavior, schema, or storage-contract change.

@@ -1,6 +1,7 @@
 # Exact-only authorization contract
 
-Status: frozen EA0 target contract (runtime adoption starts in EA1)
+Status: implemented contract. Runtime adoption completed through EA1-EA5 and
+the exact-only chain is part of the published 0.8.x baseline.
 
 ## Complete target
 
