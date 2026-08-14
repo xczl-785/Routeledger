@@ -5,7 +5,7 @@ const tsParser = require("@typescript-eslint/parser");
 
 module.exports = [
   {
-    ignores: ["node_modules", "dist", "coverage", "packages/*/tsconfig.tsbuildinfo"]
+    ignores: ["node_modules", "**/dist/**", "coverage", "packages/*/tsconfig.tsbuildinfo"]
   },
   {
     files: ["eslint.config.js"],
@@ -52,6 +52,15 @@ module.exports = [
     },
     rules: {
       "no-undef": "off"
+    }
+  },
+  {
+    files: ["prototypes/**/*.{js,mjs}"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.browser
+      }
     }
   }
 ];

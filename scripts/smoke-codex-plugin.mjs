@@ -1,4 +1,4 @@
-/* global Buffer, console, process */
+/* global Buffer, console, process, setTimeout */
 
 import fs from "node:fs/promises";
 import os from "node:os";
