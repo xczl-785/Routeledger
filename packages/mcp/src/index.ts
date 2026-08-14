@@ -451,20 +451,24 @@ const buildRuntimeContext = (options: {
         : activeProject;
 
   return {
-    binding: summarizeRuntimeBinding(options.binding),
-    dataRoot: options.binding.dataRoot,
-    routeledgerDir: options.binding.routeledgerDir,
-    workspaceConfigPath: options.binding.workspaceConfigPath,
-    jsonProjectPath: options.binding.jsonProjectPath,
-    sqliteDbPath: options.binding.sqliteDbPath,
+    binding: {
+      status: options.binding.status,
+      workspaceRoot: options.binding.workspaceRoot,
+      workspaceRootConfidence: options.binding.workspaceRootConfidence,
+      routeledgerRoot: options.binding.routeledgerRoot
+    },
     projectId: project?.id ?? null,
     projectName: project?.name ?? null,
     ...(activeProject === undefined ? {} : { activeProject }),
     hostProfile: options.hostProfile,
-    runtimeIdentity: options.runtimeIdentity,
-    serverWorkspaceRoot: options.binding.workspaceRoot,
-    serverRouteLedgerRoot: options.binding.routeledgerRoot,
-    processCwd: options.binding.processCwd
+    runtime: {
+      runtimePackageVersion: options.runtimeIdentity.runtimePackageVersion,
+      runtimeProfile: options.runtimeIdentity.runtimeProfile,
+      artifactKind: options.runtimeIdentity.artifactKind,
+      pluginVersion: options.runtimeIdentity.pluginVersion,
+      releaseTag: options.runtimeIdentity.releaseTag,
+      runtimePayloadDigest: options.runtimeIdentity.runtimePayloadDigest
+    }
   };
 };
 
@@ -496,23 +500,243 @@ const withRuntimeContextMeta = (options: {
     runtimeIdentity: options.runtimeIdentity,
     data: options.data,
     activeProject: options.activeProject
-  }),
-  runtimeIdentity: options.runtimeIdentity
+  })
 });
 
-const toToolError = (error: unknown): ToolResponse => {
+interface ToolErrorContext {
+  toolName: string;
+  input: Record<string, unknown>;
+}
+
+interface ToolErrorRecoveryAction {
+  type: string;
+  tool: string;
+  description: string;
+  toolInput?: Record<string, unknown>;
+  requiredInputs?: string[];
+}
+
+interface ToolErrorRecovery {
+  recoveryState: string;
+  currentState: string;
+  expectedState: string;
+  blockedReason: string;
+  safeToRetry: boolean;
+  writesPerformed: boolean;
+  artifactConsumed: boolean;
+  recommendedNextActions: ToolErrorRecoveryAction[];
+}
+
+const STALE_PROPOSAL_ACTION_DESCRIPTIONS: Record<string, string> = {
+  reject_stale_proposal: "Reject the stale proposal before creating a replacement.",
+  refresh_context: "Refresh the current route and work context.",
+  resolve_live_blocker: "Resolve the live blocker recorded in the gate difference.",
+  recheck_close_gate: "Recheck the close gate against live state.",
+  propose_replacement: "Create a replacement proposal only after the live gate passes."
+};
+
+const buildToolErrorRecovery = (
+  error: ApplicationError | DomainError | InvalidToolInputError | JsonFirstStorageError,
+  context: ToolErrorContext | undefined
+): ToolErrorRecovery | null => {
+  if (
+    error.code === "APPROVAL_ARTIFACT_DIGEST_MISMATCH" &&
+    error.details?.staleProposal === true &&
+    Array.isArray(error.details.recommendedNextActions)
+  ) {
+    const recommendedNextActions = error.details.recommendedNextActions.flatMap((candidate) => {
+      if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+        return [];
+      }
+      const action = candidate as Record<string, unknown>;
+      if (typeof action.action !== "string" || typeof action.tool !== "string") {
+        return [];
+      }
+      return [
+        {
+          type: action.action,
+          tool: action.tool,
+          description:
+            STALE_PROPOSAL_ACTION_DESCRIPTIONS[action.action] ??
+            "Follow the structured stale-proposal recovery step.",
+          ...(action.input !== null &&
+          typeof action.input === "object" &&
+          !Array.isArray(action.input)
+            ? { toolInput: action.input as Record<string, unknown> }
+            : {}),
+          ...(Array.isArray(action.requiredInputs) &&
+          action.requiredInputs.every((value) => typeof value === "string")
+            ? { requiredInputs: action.requiredInputs as string[] }
+            : {})
+        }
+      ];
+    });
+    return {
+      recoveryState: "stale_proposal",
+      currentState: "stale_proposal",
+      expectedState: "live_gate_match",
+      blockedReason: error.code,
+      safeToRetry: false,
+      writesPerformed: false,
+      artifactConsumed: false,
+      recommendedNextActions
+    };
+  }
+
+  if (
+    error.code === "INVALID_TODO_TRANSITION" &&
+    context?.toolName === "close_todo" &&
+    error.details?.status === "closed"
+  ) {
+    return {
+      recoveryState: "already_applied",
+      currentState: "closed",
+      expectedState: "wait_or_running",
+      blockedReason: error.code,
+      safeToRetry: false,
+      writesPerformed: false,
+      artifactConsumed: false,
+      recommendedNextActions: [
+        {
+          type: "continue_route",
+          tool: "next_action",
+          description: "The Todo is already closed; do not retry the write and continue with the route.",
+          toolInput:
+            typeof context.input.projectId === "string"
+              ? { projectId: context.input.projectId }
+              : undefined
+        }
+      ]
+    };
+  }
+
+  if (error.code.startsWith("DEFERRED_ROUTE_TARGET_") && context !== undefined) {
+    const eligibleTargetVersions = Array.isArray(error.details?.eligibleTargetVersions)
+      ? error.details.eligibleTargetVersions.filter(
+          (candidate): candidate is Record<string, unknown> =>
+            candidate !== null && typeof candidate === "object" && !Array.isArray(candidate)
+        )
+      : [];
+    const retryActions = eligibleTargetVersions.flatMap((candidate) =>
+      typeof candidate.id === "string"
+        ? [
+            {
+              type: "choose_legal_deferred_target",
+              tool: context.toolName,
+              description:
+                "Retry the Deferred operation with this eligible downstream Version.",
+              toolInput: {
+                ...context.input,
+                targetReviewVersionId: candidate.id
+              }
+            }
+          ]
+        : []
+    );
+    return {
+      recoveryState: "retry_with_legal_target",
+      currentState: "invalid_target",
+      expectedState: "downstream_version",
+      blockedReason: error.code,
+      safeToRetry: true,
+      writesPerformed: false,
+      artifactConsumed: false,
+      recommendedNextActions:
+        retryActions.length > 0
+          ? retryActions
+          : [
+              {
+                type: "choose_legal_deferred_target",
+                tool: context.toolName,
+                description:
+                  "Choose one of eligibleTargetVersions and retry the Deferred operation with that Version ID.",
+                toolInput: { ...context.input },
+                requiredInputs: ["targetReviewVersionId"]
+              }
+            ]
+    };
+  }
+
+  const isCreateVersionFailure =
+    error.code === "INVALID_VERSION_TRANSITION" &&
+    (context?.toolName === "create_version" ||
+      (context?.toolName === "execute_l3_operation" &&
+        context.input.actionType === "create_version"));
+  if (isCreateVersionFailure) {
+    const projectId = context?.input.projectId;
+    const targetId = context?.input.targetId;
+    const payload =
+      context?.input.payload !== null &&
+      typeof context?.input.payload === "object" &&
+      !Array.isArray(context.input.payload)
+        ? (context.input.payload as Record<string, unknown>)
+        : {};
+    const title = context?.input.title ?? payload.title;
+    const description = context?.input.description ?? payload.description;
+    const createVersionInput = {
+      ...(typeof projectId === "string" ? { projectId } : {}),
+      ...(typeof title === "string" ? { title } : {}),
+      ...(typeof description === "string" ? { description } : {})
+    };
+    return {
+      recoveryState: "inspect_current_route",
+      currentState: "stale_route_target",
+      expectedState: "current_route_tail",
+      blockedReason: error.code,
+      safeToRetry: true,
+      writesPerformed: false,
+      artifactConsumed: false,
+      recommendedNextActions: [
+        {
+          type: "inspect_version_structure",
+          tool: "get_version_structure",
+          description: "Inspect the current tail and legal route operations before retrying.",
+          toolInput:
+            typeof projectId === "string" && typeof targetId === "string"
+              ? { projectId, versionId: targetId }
+              : typeof projectId === "string"
+                ? { projectId }
+                : undefined,
+          requiredInputs: typeof targetId === "string" ? undefined : ["versionId"]
+        },
+        {
+          type: "retry_create_version",
+          tool: "create_version",
+          description:
+            "Retry create_version against the current route; do not reuse a stale tail ID as the new target.",
+          toolInput: createVersionInput,
+          requiredInputs: typeof title === "string" ? undefined : ["title"]
+        }
+      ]
+    };
+  }
+
+  return null;
+};
+
+export const toToolError = (
+  error: unknown,
+  context?: ToolErrorContext
+): ToolResponse => {
   if (
     error instanceof ApplicationError ||
     error instanceof DomainError ||
     error instanceof InvalidToolInputError ||
     error instanceof JsonFirstStorageError
   ) {
+    const recovery = buildToolErrorRecovery(error, context);
     return {
       ok: false,
       error: {
         code: error.code,
         message: error.message,
-        details: error.details
+        details:
+          recovery === null
+            ? error.details
+            : {
+                ...(error.details ?? {}),
+                ...recovery
+              }
       }
     };
   }
@@ -1146,7 +1370,7 @@ export const createRouteLedgerMcpRegistry = (
           toolName
         );
       } catch (error) {
-        const response = toToolError(error);
+        const response = toToolError(error, { toolName, input: input ?? {} });
         await appendDebugLog(toolName, {
           type: "tool.failure",
           projectId: readStringField(input, "projectId"),

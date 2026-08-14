@@ -394,6 +394,7 @@ describe("route ledger service", () => {
         ]
       });
 
+      expect(result.data.status).toBe("partial");
       expect(result.data.routeTruth.currentVersion).toMatchObject({
         id: nextVersionId,
         title: "Version Closeout Plan"
@@ -485,7 +486,7 @@ describe("route ledger service", () => {
         `Current version: Version Closeout Plan (${nextVersionId}).`
       );
       expect(result.data.summaryText).toContain(
-        "Found 2 warnings and 1 unreadable files."
+        "Found 3 warnings and 1 unreadable files."
       );
       expect(result.data.summaryText).toContain("Coverage is partial:");
     } finally {
@@ -596,6 +597,7 @@ describe("route ledger service", () => {
         entryFiles: ["README.md"]
       });
 
+      expect(aligned.data.status).toBe("completed");
       expect(aligned.data.warnings).toEqual([]);
       expect(aligned.data.checkedAssertions).toEqual(
         expect.arrayContaining([
@@ -612,6 +614,51 @@ describe("route ledger service", () => {
         notDetectedAssertionCount: 0
       });
       expect(aligned.data.summaryText).toContain("Coverage is partial:");
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("checkDocDrift reports not_completed with blocking warnings when every entry file is unreadable", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      projectRoot,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "RouteLedger",
+        firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
+        actor: TEST_ACTOR
+      });
+
+      const result = await service.checkDocDrift({
+        projectId: created.project.id,
+        entryFiles: ["README.md", "AGENTS.md"]
+      });
+
+      expect(result.data.status).toBe("not_completed");
+      expect(result.data.coverage.level).toBe("none");
+      expect(result.data.checkedFiles).toEqual([]);
+      expect(result.data.unreadableFiles).toHaveLength(2);
+      expect(result.data.warnings).toEqual([
+        expect.objectContaining({
+          code: "UNREADABLE_ENTRY_FILE",
+          severity: "blocking",
+          file: "README.md"
+        }),
+        expect.objectContaining({
+          code: "UNREADABLE_ENTRY_FILE",
+          severity: "blocking",
+          file: "AGENTS.md"
+        })
+      ]);
+      expect(result.data.summaryText).toContain("Check status: not_completed.");
+      expect(result.data.summaryText).toContain("Coverage is none:");
     } finally {
       cleanupProjectRoot(projectRoot);
     }
@@ -984,7 +1031,15 @@ describe("route ledger service", () => {
       });
 
       expect(result.data.checkedFiles).toEqual([]);
-      expect(result.data.warnings).toEqual([]);
+      expect(result.data.status).toBe("not_completed");
+      expect(result.data.coverage.level).toBe("none");
+      expect(result.data.warnings).toEqual([
+        expect.objectContaining({
+          code: "UNREADABLE_ENTRY_FILE",
+          severity: "blocking",
+          file: "README.md"
+        })
+      ]);
       expect(result.data.unreadableFiles).toEqual([
         expect.objectContaining({
           path: "README.md",

@@ -5,6 +5,80 @@ import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, FailOnSaveStorageAdapter, LossyPendingOperationStorageAdapter, MissingPendingOperationStorageAdapter, legacyStartDigestValue, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, expectConfirmationRequired } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
+  it("markVersionComplete reports the remaining close blockers without rejecting completion", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    const todo = await service.createTodo({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      title: "Still open at completion",
+      actor: TEST_ACTOR
+    });
+
+    const completed = await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+
+    expect(completed).toMatchObject({
+      version: { state: "complete" },
+      closeReadiness: {
+        allowed: false,
+        unresolvedTodoIds: [todo.todo.id],
+        blockers: expect.arrayContaining([
+          expect.objectContaining({ code: "OPEN_TODOS" }),
+          expect.objectContaining({ code: "MISSING_RESIDUAL_AUDIT" })
+        ])
+      },
+      warnings: [
+        expect.objectContaining({
+          code: "VERSION_COMPLETE_CLOSE_BLOCKED",
+          recommendedTool: "check_close_gate"
+        })
+      ]
+    });
+  });
+
+  it("markVersionComplete derives close readiness without reloading after the write", async () => {
+    class FailOnSecondLoadStorageAdapter extends MemoryStorageAdapter {
+      private armed = false;
+      private loadCount = 0;
+
+      arm(): void {
+        this.armed = true;
+        this.loadCount = 0;
+      }
+
+      override async loadProjectAggregate(projectId: string) {
+        if (this.armed && this.loadCount++ > 0) {
+          throw new Error("unexpected aggregate reload after completion write");
+        }
+
+        return super.loadProjectAggregate(projectId);
+      }
+    }
+
+    const storage = new FailOnSecondLoadStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const prepared = await createPreparedProject(service, storage);
+    await startPreparedVersion(service, prepared.projectId, prepared.versionId);
+    storage.arm();
+
+    const completed = await service.markVersionComplete({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId,
+      actor: TEST_ACTOR
+    });
+
+    expect(completed).toMatchObject({
+      version: { state: "complete" },
+      closeReadiness: { allowed: false }
+    });
+  });
+
   it("initProject can atomically create an explicit first Version and its initial Todos", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
@@ -256,28 +330,63 @@ describe("route ledger service", () => {
     });
     await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
 
-    const details = await expectConfirmationRequired(
-      service.advanceToVersion({
-        projectId: prepared.projectId,
-        fromVersionId: prepared.versionId,
-        versionId: targetVersionId,
-        reason: "continue the approved route",
-        actor: TEST_ACTOR
-      })
+    const workflow = await service.advanceToVersion({
+      projectId: prepared.projectId,
+      fromVersionId: prepared.versionId,
+      versionId: targetVersionId,
+      reason: "continue the approved route",
+      actor: TEST_ACTOR
+    });
+    expect(workflow).toMatchObject({
+      status: "confirmation_required",
+      allowed: true,
+      projectId: prepared.projectId,
+      versionId: targetVersionId,
+      fromVersionId: prepared.versionId,
+      pendingOperationId: expect.any(String),
+      digest: expect.any(String),
+      humanReviewText: expect.any(String),
+      recommendedNextActions: [
+        {
+          action: "approve",
+          tool: "approve_l3_operation",
+          input: {
+            projectId: prepared.projectId,
+            pendingOperationId: expect.any(String)
+          }
+        },
+        {
+          action: "reject",
+          tool: "reject_l3_operation",
+          input: {
+            projectId: prepared.projectId,
+            pendingOperationId: expect.any(String)
+          },
+          requiredInputs: ["reason"]
+        }
+      ]
+    });
+    if (workflow.status !== "confirmation_required") {
+      throw new Error("expected advance confirmation workflow");
+    }
+    const proposal = await service.getL3Proposal(
+      prepared.projectId,
+      workflow.pendingOperationId
     );
-    expect(details.proposal).toMatchObject({
+    expect(proposal).toMatchObject({
       actionType: "advance_to_version",
       targetId: targetVersionId,
       payload: { fromVersionId: prepared.versionId }
     });
+    expect(workflow.digest).toBe(proposal.digest.value);
     const artifact = await createApprovedArtifact(
       service,
       prepared.projectId,
-      details.pendingOperationId
+      workflow.pendingOperationId
     );
     const committed = await service.commitL3Operation({
       projectId: prepared.projectId,
-      pendingOperationId: details.pendingOperationId,
+      pendingOperationId: workflow.pendingOperationId,
       approvalArtifactId: artifact.id,
       actor: TEST_ACTOR
     });
@@ -307,7 +416,7 @@ describe("route ledger service", () => {
     await expect(
       service.commitL3Operation({
         projectId: prepared.projectId,
-        pendingOperationId: details.pendingOperationId,
+        pendingOperationId: workflow.pendingOperationId,
         approvalArtifactId: artifact.id,
         actor: TEST_ACTOR
       })
@@ -335,14 +444,15 @@ describe("route ledger service", () => {
       actor: TEST_ACTOR
     });
     await closeVersionThroughL3(service, prepared.projectId, prepared.versionId);
-    const details = await expectConfirmationRequired(
-      service.advanceToVersion({
-        projectId: prepared.projectId,
-        fromVersionId: prepared.versionId,
-        versionId: targetVersionId,
-        actor: TEST_ACTOR
-      })
-    );
+    const details = await service.advanceToVersion({
+      projectId: prepared.projectId,
+      fromVersionId: prepared.versionId,
+      versionId: targetVersionId,
+      actor: TEST_ACTOR
+    });
+    if (details.status !== "confirmation_required") {
+      throw new Error("expected advance confirmation workflow");
+    }
     const artifact = await createApprovedArtifact(
       service,
       prepared.projectId,

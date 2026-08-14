@@ -264,6 +264,7 @@ export interface VersionWindowSummary {
 export type CurrentContextNextActionType =
   | "review_pending_proposal"
   | "review_deferred"
+  | "review_residual_audit"
   | "work_todo"
   | "close_todo"
   | "close_version"
@@ -276,6 +277,8 @@ export type CurrentContextNextActionType =
 
 export interface CurrentContextNextAction {
   actionType: CurrentContextNextActionType;
+  recommendedTool?: string;
+  toolInput?: Record<string, unknown>;
   summary: string;
   reason: string;
   targetId: string | null;

@@ -137,6 +137,15 @@ describe("routeledger mcp registry", () => {
           }
         }
       });
+      expect(registryContextResponse.meta).not.toHaveProperty("runtimeIdentity");
+      expect(registryContextResponse.meta).not.toHaveProperty(
+        "runtimeContext.runtimeIdentity"
+      );
+      expect(registryContextResponse.meta).not.toHaveProperty("runtimeContext.processCwd");
+      expect(registryContextResponse.meta).not.toHaveProperty("runtimeContext.jsonProjectPath");
+      expect(registryContextResponse.meta).toHaveProperty(
+        "runtimeContext.runtime.runtimePackageVersion"
+      );
 
       expect(Object.keys(registryWindowResponse).sort()).toEqual(["data", "meta", "ok"]);
       expect(registryWindowResponse).toEqual({

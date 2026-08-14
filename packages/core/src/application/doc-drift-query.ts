@@ -30,7 +30,12 @@ export interface CheckDocDriftUnreadableFile {
 }
 
 export interface CheckDocDriftWarning {
-  code: "STALE_CURRENT_VERSION" | "STALE_TRUTH_SOURCE" | "MISSING_EXPECTED_POINTER" | string;
+  code:
+    | "STALE_CURRENT_VERSION"
+    | "STALE_TRUTH_SOURCE"
+    | "MISSING_EXPECTED_POINTER"
+    | "UNREADABLE_ENTRY_FILE"
+    | string;
   severity: "info" | "warning" | "blocking";
   file: string | null;
   summary: string;
@@ -63,7 +68,7 @@ export interface CheckDocDriftCheckedAssertion {
 }
 
 export interface CheckDocDriftCoverage {
-  level: "partial";
+  level: "none" | "partial";
   assertionKinds: CheckDocDriftAssertionKind[];
   checkedFileCount: number;
   recognizedAssertionCount: number;
@@ -79,6 +84,7 @@ export interface CheckDocDriftCoverage {
 }
 
 export interface CheckDocDriftResult {
+  status: "completed" | "partial" | "not_completed";
   project: {
     id: string;
     name: string;
@@ -467,6 +473,8 @@ const buildDocDriftSuggestedTodos = (
 };
 
 const buildDocDriftSummaryText = (options: {
+  status: CheckDocDriftResult["status"];
+  coverageLevel: CheckDocDriftCoverage["level"];
   projectName: string;
   currentVersion: { id: string; title: string } | null;
   openTodoCount: number;
@@ -484,11 +492,12 @@ const buildDocDriftSummaryText = (options: {
       : `Current version: ${options.currentVersion.title} (${options.currentVersion.id}).`;
 
   return [
+    `Check status: ${options.status}.`,
     `Checked ${options.checkedFileCount} entry files for project ${options.projectName}.`,
     currentVersionText,
     `Route truth shows ${options.openTodoCount} open todos, ${options.openUndoCount} open undos, and ${options.pendingProposalCount} pending proposals on the current route.`,
     `Found ${options.warningCount} warnings and ${options.unreadableFileCount} unreadable files.`,
-    `Coverage is partial: recognized ${options.recognizedAssertionCount} explicit current-Version assertions; ${options.notDetectedAssertionCount} assertion fields were not detected.`
+    `Coverage is ${options.coverageLevel}: recognized ${options.recognizedAssertionCount} explicit current-Version assertions; ${options.notDetectedAssertionCount} assertion fields were not detected.`
   ].join(" ");
 };
 
@@ -626,6 +635,14 @@ export const runDocDriftCheck = async (options: {
         code: nodeError.code ?? "READ_FAILED",
         message: nodeError.message
       });
+      warnings.push({
+        code: "UNREADABLE_ENTRY_FILE",
+        severity: "blocking",
+        file: entryFile,
+        summary: `${entryFile} 无法读取，未完成该入口文档的漂移检查。`,
+        expected: "A readable entry file.",
+        actual: `${nodeError.code ?? "READ_FAILED"}: ${nodeError.message}`
+      });
     }
   }
 
@@ -660,8 +677,14 @@ export const runDocDriftCheck = async (options: {
   const notDetectedAssertions = checkedAssertions.filter(
     (assertion) => assertion.status === "not_detected"
   );
+  const status: CheckDocDriftResult["status"] =
+    checkedFiles.length === 0
+      ? "not_completed"
+      : unreadableFiles.length > 0
+        ? "partial"
+        : "completed";
   const coverage: CheckDocDriftCoverage = {
-    level: "partial",
+    level: checkedFiles.length === 0 ? "none" : "partial",
     assertionKinds: CURRENT_VERSION_ASSERTION_KINDS,
     checkedFileCount: checkedFiles.length,
     recognizedAssertionCount: recognizedAssertions.length,
@@ -694,6 +717,7 @@ export const runDocDriftCheck = async (options: {
   };
 
   return {
+    status,
     project: {
       id: project.id,
       name: project.name,
@@ -720,6 +744,8 @@ export const runDocDriftCheck = async (options: {
     warnings,
     suggestedTodos: buildDocDriftSuggestedTodos(warnings),
     summaryText: buildDocDriftSummaryText({
+      status,
+      coverageLevel: coverage.level,
       projectName: project.name,
       currentVersion:
         currentVersion === null

@@ -3,7 +3,7 @@ import { expect, it, describe } from "vitest";
 import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry } from "../index.js";
 import { createRouteLedgerStdioServer, type JsonRpcResponse } from "../stdio-server.js";
 
-import { createTempProjectRoot, getDefaultCanonicalJsonRoot, getDefaultSqliteDbPath, createRegistry, createServer, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, runTranscript, type ToolListResult } from "./mcp-test-helpers.js";
+import { createTempProjectRoot, createRegistry, createServer, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, runTranscript, type ToolListResult } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
   it("init_project requires a concrete contentLocale and localizes human-readable errors", async () => {
     const projectRoot = createTempProjectRoot();
@@ -655,9 +655,7 @@ describe("routeledger mcp registry", () => {
                 binding: {
                   workspaceRoot: projectRoot,
                   routeledgerRoot: projectRoot
-                },
-                routeledgerDir: getDefaultCanonicalJsonRoot(projectRoot),
-                sqliteDbPath: getDefaultSqliteDbPath(projectRoot)
+                }
               }
             }
           }
@@ -686,9 +684,7 @@ describe("routeledger mcp registry", () => {
                 binding: {
                   workspaceRoot: projectRoot,
                   routeledgerRoot: projectRoot
-                },
-                routeledgerDir: getDefaultCanonicalJsonRoot(projectRoot),
-                sqliteDbPath: getDefaultSqliteDbPath(projectRoot)
+                }
               }
             }
           }
@@ -727,9 +723,7 @@ describe("routeledger mcp registry", () => {
                 binding: {
                   workspaceRoot: projectRoot,
                   routeledgerRoot: projectRoot
-                },
-                routeledgerDir: getDefaultCanonicalJsonRoot(projectRoot),
-                sqliteDbPath: getDefaultSqliteDbPath(projectRoot)
+                }
               }
             }
           }
@@ -765,9 +759,7 @@ describe("routeledger mcp registry", () => {
                 binding: {
                   workspaceRoot: projectRoot,
                   routeledgerRoot: projectRoot
-                },
-                routeledgerDir: getDefaultCanonicalJsonRoot(projectRoot),
-                sqliteDbPath: getDefaultSqliteDbPath(projectRoot)
+                }
               }
             }
           }
@@ -800,9 +792,7 @@ describe("routeledger mcp registry", () => {
                 binding: {
                   workspaceRoot: projectRoot,
                   routeledgerRoot: projectRoot
-                },
-                routeledgerDir: getDefaultCanonicalJsonRoot(projectRoot),
-                sqliteDbPath: getDefaultSqliteDbPath(projectRoot)
+                }
               }
             }
           }
