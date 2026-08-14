@@ -1,35 +1,68 @@
 # RouteLedger documentation
 
-This directory documents the behavior that is implemented in this repository.
-It is not a release record and does not replace a bound project's canonical
-`.routeledger/` documents.
+This directory contains the durable documentation for behavior implemented in
+this repository. It is not a task tracker, test-run notebook, release-candidate
+workspace, or replacement for a bound project's canonical `.routeledger/`
+documents.
+
+## Directory map
+
+| Directory | Purpose | Accepted content |
+| --- | --- | --- |
+| `architecture/` | Long-lived architecture contracts and accepted decisions that still constrain implementation. | Security boundaries, compatibility decisions, and unresolved design constraints. |
+| `capabilities/` | Current externally observable product behavior, mapped to source and tests. | One canonical page per capability plus the capability index. |
+| `guides/` | Repeatable procedures for users, hosts, and maintainers. | Installation, integration, operation, and extension instructions. |
+| `release/` | Durable release policy and immutable published history. | Release procedure, distribution/tag rules, and final release notes. |
+| `specification/` | Governance and evidence for the language-agnostic Core Specification. | Specification charter, evidence matrix, and future normative specification. |
+
+New top-level directories require an update to this table and explicit
+maintainer review.
 
 ## Entry points
 
-- [Core Specification charter](specification/core-specification-charter.md) defines the scope, evidence rules, normative language, conformance profiles, and change control for a future language-agnostic RouteLedger Core Specification.
-- [Core-contract evidence matrix](specification/core-contract-evidence-matrix.md) maps the five NF1 contract areas to current documentation, schemas, implementation symbols, executable tests, compatibility records, and known gaps.
-- [NF1 characterization-test plan](testing/nf1-characterization-plan.md) inventories existing protection and orders the minimal contract-test slices required before MCP registry and application-service extraction.
-- [NF1 MCP registry extraction plan](architecture/nf1-mcp-registry-extraction-plan.md) defines the internal registry layers, capability order, first two reversible slices, invariants, generated-runtime policy, and gates for NF1-06.
-- [NF1 non-functional refactor and core-contract audit roadmap](roadmaps/nf1-non-functional-refactor-roadmap.md) records the planning boundary, audit findings, contract-first sequence, separate recovery tracks, and acceptance gates. It does not authorize production refactoring.
-- [L3 decision protocol implementation roadmap](roadmaps/l3-decision-protocol-roadmap.md) is the active traditional-document execution record while RouteLedger MCP access is unavailable. It tracks L3-D1 through L3-D6 states, gates, evidence, residuals, and the exact condition for restoring canonical lifecycle tracking.
-- [L3 decision protocol and host-adapter handoff](handoffs/l3-authorization-local-route-handoff.md) is the single portable continuation entry, including the accepted L3-D1 through L3-D6 route, current authorization blocker, cleanup inventory, and exact next action.
-- [L3 route-transition decision protocol](guides/l3-route-transition-decision-protocol.md) is the accepted post-0.6.0 product and architecture baseline: permission modes automate decision resolution while the complete L3 transition pipeline still runs.
-- [L3 decision protocol implementation assessment](guides/l3-decision-protocol-implementation-assessment.md) records the current-code gap, interface/state-machine/adapter migration plan, and effort estimate before implementation begins.
 - [Capability index](capabilities/capability-index.md) maps product rules to source and tests.
+- [Exact authorization contract](architecture/exact-authorization-contract.md) defines the authorization identity, admission, claim, finalize, and replay boundary.
+- [NF1 recovery and storage decision](architecture/nf1-recovery-and-storage-decision.md) records the retained commit-owner recovery gap and storage boundary decision.
 - [Agent-host integration](guides/agent-host-integration.md) describes the one-server, one-binding runtime contract.
-- [L3 authorization V3 host authority broker](guides/l3-authorization-v3-host-broker.md) defines the local three-mode trust boundary, broker contract, and acceptance gates.
-- [Codex plugin installation](guides/codex-plugin-installation.md) describes the published Git marketplace installation and runtime boundary.
-- [New MCP tool checklist](guides/new-tool-checklist.md) lists the registry, contract, doc, and release steps for adding a tool.
-- [Plugin release](release/plugin-release.md), the [release policy](release/release-policy.md), and the published [0.8.1 release note](release/release-notes/0.8.1.md) record the current Git marketplace baseline and release procedure; Git plugin publication does not publish `@routeledger/mcp` to npm.
-- [Distribution and tag conventions](release/distribution-and-tags.md) defines per-artifact versions and tag namespaces on the single `main` release trunk.
+- [L3 route-transition decision protocol](guides/l3-route-transition-decision-protocol.md) defines the accepted end-to-end L3 transition pipeline.
+- [L3 authorization V3 host authority broker](guides/l3-authorization-v3-host-broker.md) defines the local three-mode trust boundary and broker contract.
+- [Codex plugin installation](guides/codex-plugin-installation.md) describes Git marketplace installation and the runtime boundary.
+- [New MCP tool checklist](guides/new-tool-checklist.md) lists the registry, contract, documentation, and release steps for adding a tool.
+- [Core Specification charter](specification/core-specification-charter.md) defines scope, evidence rules, normative language, conformance profiles, and change control.
+- [Core-contract evidence matrix](specification/core-contract-evidence-matrix.md) maps contract areas to documentation, schemas, implementation symbols, tests, compatibility records, and known gaps.
+- [Plugin release](release/plugin-release.md), [release policy](release/release-policy.md), and [distribution and tag conventions](release/distribution-and-tags.md) define the release workflow. Published history lives in [release notes](release/release-notes/).
 
-## Documentation boundary
+## Admission rules
 
-Code, tests, generated plugin metadata, and the current Git state are the
-source of truth for implementation and release verification. Guides use
-placeholder paths such as `/ABS/PATH/TO/ROUTELEDGER_REPO_ROOT`; they never
-identify a maintainer workstation or a managed project.
+Prefer updating an existing canonical document over adding a new file. A new
+document is accepted only when it:
 
-When RouteLedger MCP access is unavailable, the active roadmap may temporarily
-record implementation progress. It must not be treated as an approval artifact
-or used to justify direct edits to canonical `.routeledger` data.
+1. has a durable audience and purpose covered by the directory map;
+2. identifies its source of truth and does not duplicate another document;
+3. states its status and, when not permanent, its removal or replacement trigger;
+4. links implementation and executable evidence for behavioral claims;
+5. is added to this README or the owning directory's index; and
+6. contains no maintainer-machine paths, temporary branch tips, transient test
+   counts, generated reports, or bound-project data.
+
+Do not add task handoffs, implementation roadmaps, scratch analysis, one-off
+test findings, release-candidate audits, screenshots, or generated output to
+`docs/`. Keep them in the issue or change that owns the work, in an explicitly
+temporary workspace location, or in the relevant automated test. Git history
+is the archive for completed implementation plans and superseded decisions.
+
+## Lifecycle rules
+
+- A topic has one canonical durable document. Merge overlapping material
+  instead of creating parallel summaries.
+- Completed or superseded execution documents are removed in the same release
+  closeout that makes them obsolete.
+- Capability changes update the capability page and
+  [capability index](capabilities/capability-index.md) in the same change.
+- Published release notes are immutable historical records; candidate audits
+  are not release notes and do not remain in `docs/`.
+- Documentation review checks links, status language, implementation evidence,
+  and conflicts with the current release before merge.
+
+Code, tests, generated plugin metadata, immutable tags, and the current Git
+state remain the sources of truth for implementation and release verification.
