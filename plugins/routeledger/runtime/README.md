@@ -7,7 +7,7 @@ Local json-only artifact for the RouteLedger MCP stdio server.
 - This artifact is generated locally from the RouteLedger workspace.
 - It is not a published npm package and should not be documented as registry-ready.
 - Internal RouteLedger workspace packages are compiled into the dist artifact.
-- This JSON-only artifact has no `better-sqlite3` dependency and carries neither SQLite nor UI runtime bundles. It must be started with `--sqlite-read-model disabled`; its entry rejects a missing or different value.
+- This JSON-only artifact has no `better-sqlite3` dependency. It carries the read-only RouteLedger UI Hub and must be started with `--sqlite-read-model disabled`; its MCP entry rejects a missing or different value.
 
 ## Build
 

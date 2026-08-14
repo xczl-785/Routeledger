@@ -13,7 +13,7 @@ const objectSchema = (properties) => ({
     additionalProperties: false
 });
 export const createMissionControlTools = (dependencies) => [
-    defineTool("open_mission_control", { what: "Open or reuse source-mode Mission Control." }, objectSchema({
+    defineTool("open_mission_control", { what: "Open or reuse the local RouteLedger UI Hub for the bound project." }, objectSchema({
         workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
         routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot."),
         devBuild: booleanSchema("When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server.")
@@ -21,7 +21,7 @@ export const createMissionControlTools = (dependencies) => [
         title: "Open Mission Control",
         riskLevel: "read-only",
         toolKind: "diagnostic",
-        visibility: "source-only"
+        visibility: "default"
     }, async (input) => {
         const roots = dependencies.resolveRoots(input, dependencies.readBinding());
         const missionControlSource = await dependencies.loadSourceModule();
@@ -40,14 +40,14 @@ export const createMissionControlTools = (dependencies) => [
             })
         };
     }),
-    defineTool("get_mission_control_status", { what: "Inspect source-mode Mission Control health." }, objectSchema({
+    defineTool("get_mission_control_status", { what: "Inspect the local RouteLedger UI Hub and registered projects." }, objectSchema({
         workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
         routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot.")
     }), {
         title: "Get Mission Control Status",
         riskLevel: "read-only",
         toolKind: "diagnostic",
-        visibility: "source-only"
+        visibility: "default"
     }, async (input) => {
         const roots = dependencies.resolveRoots(input, dependencies.readBinding());
         const missionControlSource = await dependencies.loadSourceModule();

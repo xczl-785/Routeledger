@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Actor, ProjectAggregateSnapshot } from "@routeledger/core";
 
-import { CurrentVersionColumn, RouteRail, VersionHorizon } from "../App.js";
+import { CurrentVersionColumn, ProjectContext, RouteRail, VersionHorizon } from "../App.js";
 import { buildMissionControlViewModel } from "../server/mission-control-vm.js";
 import type {
   MissionControlBindingSummary,
@@ -493,5 +493,29 @@ describe("Mission Control deferred semantics", () => {
     expect(pageMarkup).toContain('role="dialog"');
     expect(pageMarkup).toContain('aria-modal="true"');
     expect(pageMarkup).toContain("inert");
+  });
+
+  it("uses dialog semantics for the mixed-content project switcher", () => {
+    const markup = renderToStaticMarkup(
+      <ProjectContext
+        projects={[
+          { id: "project-a", projectId: "a", projectName: "Project A", available: true, lastOpenedAt: timestamp },
+          { id: "project-b", projectId: "b", projectName: "Project B", available: false, lastOpenedAt: timestamp }
+        ]}
+        selectedProjectId="project-a"
+        projectName="Project A"
+        onSelect={() => undefined}
+        onStop={() => undefined}
+        defaultOpen
+      />
+    );
+
+    expect(markup).toContain('aria-haspopup="dialog"');
+    expect(markup).toContain('aria-controls="project-switcher"');
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).not.toContain('role="menu"');
+    expect(markup).not.toContain('role="menuitemradio"');
+    expect(markup).toContain("这里只切换只读视图");
   });
 });

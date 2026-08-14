@@ -112,9 +112,13 @@ Git marketplace release does not publish `@routeledger/mcp` to npm.
 
 ## Runtime expectations
 
-The installed runtime is JSON-only and has no SQLite or UI bundle. It expects
+The installed runtime is JSON-only and has no SQLite bundle. It includes the
+read-only multi-project UI Hub used by `open_mission_control`, expects
 `--sqlite-read-model disabled`, writes canonical JSON through its bound MCP
-root, and must not create a SQLite database. Start any write session by
+root, and must not create a SQLite database. The UI process is independent of
+the MCP process: it reads only explicitly registered canonical JSON projects,
+reuses one per-machine Hub, and exits after 30 idle minutes or an explicit UI
+exit. Start any write session by
 calling `get_runtime_context` and checking the returned binding. If that
 binding is low confidence, provide an explicit host workspace to
 `activate_routeledger_binding`; do not initialize at a plugin-cache cwd.

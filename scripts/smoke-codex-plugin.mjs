@@ -147,6 +147,7 @@ const runPluginStdioSmoke = async () => {
   const routeledgerConfigDir = path.join(testWorkspaceRoot, ".routeledger");
   const cachedRouteledgerConfigDir = path.join(cachedPluginRoot, ".routeledger");
   const cachedSqlitePath = path.join(cachedRouteledgerConfigDir, "db", "routeledger.sqlite3");
+  const uiStateRoot = path.join(temporaryRoot, "ui-state");
   await fs.cp(pluginRoot, cachedPluginRoot, { recursive: true });
   await fs.mkdir(testRouteledgerRoot, { recursive: true });
   await fs.mkdir(routeledgerConfigDir, { recursive: true });
@@ -158,7 +159,7 @@ const runPluginStdioSmoke = async () => {
 
   const child = spawn(process.execPath, ["./runtime/bin.js", "--profile", "codex", "--sqlite-read-model", "disabled"], {
     cwd: cachedPluginRoot,
-    env: { ...process.env, CODEX_PERMISSION_PROFILE: ":danger-full-access" },
+    env: { ...process.env, CODEX_PERMISSION_PROFILE: ":danger-full-access", XDG_STATE_HOME: uiStateRoot },
     stdio: ["pipe", "pipe", "pipe"]
   });
   const stdoutChunks = [];
@@ -244,6 +245,18 @@ const runPluginStdioSmoke = async () => {
     method: "tools/call",
     params: { name: "get_l3_authorization_status", arguments: {} }
   });
+  write({
+    jsonrpc: "2.0",
+    id: "open-mission-control",
+    method: "tools/call",
+    params: { name: "open_mission_control", arguments: {} }
+  });
+  write({
+    jsonrpc: "2.0",
+    id: "mission-control-status",
+    method: "tools/call",
+    params: { name: "get_mission_control_status", arguments: {} }
+  });
   child.stdin.end();
 
   const exitCode = await new Promise((resolve, reject) => {
@@ -259,7 +272,7 @@ const runPluginStdioSmoke = async () => {
     .map((line) => JSON.parse(line));
 
   try {
-    if (exitCode !== 0 || stderr !== "" || responses.length !== 10) {
+    if (exitCode !== 0 || stderr !== "" || responses.length !== 12) {
       throw new Error(`Bundled plugin stdio smoke failed (exit=${exitCode}, responses=${responses.length}): ${stderr}`);
     }
     if (responses[0]?.result?.protocolVersion !== "2025-11-25") {
@@ -293,9 +306,9 @@ const runPluginStdioSmoke = async () => {
       throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
     }
     const bundledToolNames = responses[1].result.tools.map((tool) => tool.name);
-    for (const sourceOnlyTool of ["open_mission_control", "get_mission_control_status"]) {
-      if (bundledToolNames.includes(sourceOnlyTool)) {
-        throw new Error(`Bundled JSON-only runtime unexpectedly exposed ${sourceOnlyTool}.`);
+    for (const portableUiTool of ["open_mission_control", "get_mission_control_status"]) {
+      if (!bundledToolNames.includes(portableUiTool)) {
+        throw new Error(`Bundled JSON-only runtime did not expose ${portableUiTool}.`);
       }
     }
     if (
@@ -304,6 +317,33 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime still exposes removed legacy Undo write tools.");
     }
+    const openedUi = responses[10]?.result?.structuredContent?.data;
+    const uiStatus = responses[11]?.result?.structuredContent?.data;
+    if (
+      typeof openedUi?.url !== "string" ||
+      !openedUi.url.startsWith("http://127.0.0.1:") ||
+      openedUi.reused !== false ||
+      typeof openedUi.projectKey !== "string" ||
+      uiStatus?.healthy !== true ||
+      uiStatus?.hub?.pid !== openedUi.pid
+    ) {
+      throw new Error(`Bundled plugin did not launch its portable UI Hub: ${JSON.stringify({ openedUi, uiStatus })}`);
+    }
+    const uiOrigin = new globalThis.URL(openedUi.url).origin;
+    const uiStateResponse = await globalThis.fetch(`${uiOrigin}/api/state?project=${encodeURIComponent(openedUi.projectKey)}`);
+    const uiState = await uiStateResponse.json();
+    if (!uiStateResponse.ok || uiState?.identity?.projectName !== "Codex Plugin Smoke") {
+      throw new Error("Bundled plugin UI Hub did not read the initialized canonical project.");
+    }
+    const uiPageResponse = await globalThis.fetch(openedUi.url);
+    if (!uiPageResponse.ok || !(await uiPageResponse.text()).includes("RouteLedger Mission Control")) {
+      throw new Error("Bundled plugin UI Hub did not serve its packaged web interface.");
+    }
+    const stopResponse = await globalThis.fetch(`${uiOrigin}/api/shutdown`, {
+      method: "POST",
+      headers: { "x-routeledger-ui-client": "1" }
+    });
+    if (!stopResponse.ok) throw new Error("Bundled plugin UI Hub did not accept an explicit stop request.");
     const unboundRuntimeContext = responses[3]?.result?.structuredContent?.data;
     const expectedCacheRoot = await normalizeRealPathForComparison(cachedPluginRoot);
     const runtimeProcessCwd = unboundRuntimeContext?.processCwd;

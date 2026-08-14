@@ -21,8 +21,8 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   activate_routeledger_binding: "a611c1cab06c442358e39f042afcf95c6b724c99e0d63bf1557110b6630af5a4",
   render_host_binding_config: "0416054f0f4f0f4d76258b293be5c0c52d7fc7f9efc266ad55c22bce00fc72d9",
   write_host_binding_config: "b18fb6267a005ac2419708e0e9cc6678a08bc554183775f3132d96fc5b207d0c",
-  open_mission_control: "d4d1b709978dbfe5700ab639855c0fd976e9c720f87a9a2397d01e647a0b8323",
-  get_mission_control_status: "a8c46a986dba5e6edd4953427a29a01843ee4b0acfcda531c2ea6658e4f5286d",
+  open_mission_control: "25c14d35211ab6e9ca33a623220966fa2147a40aeadecc3afbd6b61c4dac1ccb",
+  get_mission_control_status: "2492089957b2e36211d64a6b36e3041ec2f86b32633fc978a11a406bde526632",
   init_project: "7e38acb9d746569b0fc140911488b150f8014922ef759d9e82549fdbfea487e3",
   set_project_content_locale: "779bb39842ff4de414d9610107aef073a8bd05aab5692b2bc5e18ab50ef1654c",
   get_current_context: "237d3945f6093cf1a95b18c37b49619b0958b303b01b212a96f0dba6d01f356b",
@@ -62,11 +62,6 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   commit_l3_operation: "fcbb42557fb8ea8812012b2c8e6a3fa71e687bcbbe62aa61b75567ea1f782244",
   reject_l3_operation: "9d4a51cb4510c7a41a13159216f0d8d75004f616c9652bcd82e7c87ffe0bcdfc"
 } as const;
-
-const JSON_ONLY_HIDDEN_TOOLS = new Set([
-  "open_mission_control",
-  "get_mission_control_status"
-]);
 
 const sortKeys = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(sortKeys);
@@ -108,11 +103,7 @@ describe("MCP tool description contract", () => {
   it("freezes every tool contract and runtime-profile visibility", () => {
     const fullContracts = captureToolContracts("full");
     const jsonOnlyContracts = captureToolContracts("json-only");
-    const expectedJsonOnlyContracts = Object.fromEntries(
-      Object.entries(EXPECTED_TOOL_CONTRACT_DIGESTS).filter(
-        ([name]) => !JSON_ONLY_HIDDEN_TOOLS.has(name)
-      )
-    );
+    const expectedJsonOnlyContracts = EXPECTED_TOOL_CONTRACT_DIGESTS;
 
     expect(Object.keys(fullContracts)).toEqual(Object.keys(EXPECTED_TOOL_CONTRACT_DIGESTS));
     expect(fullContracts).toEqual(EXPECTED_TOOL_CONTRACT_DIGESTS);

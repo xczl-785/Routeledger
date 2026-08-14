@@ -2,6 +2,7 @@ import { defineTool, type ToolRegistration } from "../registry/tool-contract.js"
 
 export type MissionControlOpenResult = {
   url: string;
+  projectKey?: string;
   projectId: string | null;
   pid: number;
   port: number;
@@ -13,12 +14,11 @@ export type MissionControlOpenResult = {
 
 export type MissionControlStatusResult = {
   registryPath: string;
-  workspaceRoot: string;
-  routeledgerRoot: string;
   projectId: string | null;
-  matchingInstance: unknown;
-  healthyInstances: unknown[];
-  staleEntries: unknown[];
+  hub: unknown;
+  healthy: boolean;
+  projects: unknown[];
+  matchingProject: unknown;
 };
 
 export type MissionControlSourceModule = {
@@ -67,7 +67,7 @@ export const createMissionControlTools = <TBinding>(
 ): ToolRegistration[] => [
   defineTool(
     "open_mission_control",
-    { what: "Open or reuse source-mode Mission Control." },
+    { what: "Open or reuse the local RouteLedger UI Hub for the bound project." },
     objectSchema({
       workspaceRoot: stringSchema(
         "Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."
@@ -83,7 +83,7 @@ export const createMissionControlTools = <TBinding>(
       title: "Open Mission Control",
       riskLevel: "read-only",
       toolKind: "diagnostic",
-      visibility: "source-only"
+      visibility: "default"
     },
     async (input) => {
       const roots = dependencies.resolveRoots(input, dependencies.readBinding());
@@ -107,7 +107,7 @@ export const createMissionControlTools = <TBinding>(
   ),
   defineTool(
     "get_mission_control_status",
-    { what: "Inspect source-mode Mission Control health." },
+    { what: "Inspect the local RouteLedger UI Hub and registered projects." },
     objectSchema({
       workspaceRoot: stringSchema(
         "Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."
@@ -120,7 +120,7 @@ export const createMissionControlTools = <TBinding>(
       title: "Get Mission Control Status",
       riskLevel: "read-only",
       toolKind: "diagnostic",
-      visibility: "source-only"
+      visibility: "default"
     },
     async (input) => {
       const roots = dependencies.resolveRoots(input, dependencies.readBinding());

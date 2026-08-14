@@ -182,7 +182,7 @@ describe("routeledger mcp registry", () => {
     }
   });
 
-  it("json-only runtime profile does not register Mission Control source tools", async () => {
+  it("json-only runtime profile registers portable Mission Control UI Hub tools", async () => {
     const projectRoot = createTempProjectRoot();
 
     try {
@@ -196,9 +196,9 @@ describe("routeledger mcp registry", () => {
       const tools = (response as ToolListResult).result.tools;
       const toolNames = tools.map((tool) => tool.name);
 
-      expect(tools).toHaveLength(46);
-      expect(toolNames).not.toContain("open_mission_control");
-      expect(toolNames).not.toContain("get_mission_control_status");
+      expect(tools).toHaveLength(48);
+      expect(toolNames).toContain("open_mission_control");
+      expect(toolNames).toContain("get_mission_control_status");
       expect(toolNames).toContain("get_runtime_context");
       expect(toolNames).toContain("write_host_binding_config");
 
@@ -207,13 +207,7 @@ describe("routeledger mcp registry", () => {
         routeledgerRoot: projectRoot,
         runtimeProfile: "json-only"
       });
-      const directInvoke = await registry.invoke("open_mission_control", {});
-      expect(directInvoke).toMatchObject({
-        ok: false,
-        error: {
-          code: "ACTION_NOT_IMPLEMENTED"
-        }
-      });
+      expect(registry.getTool("open_mission_control")).toBeDefined();
 
       registry.close();
       server.close();

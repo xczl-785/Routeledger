@@ -92,14 +92,14 @@ codex plugin add routeledger@routeledger-team --json
 
 ## Mission Control（只读看板）
 
-Mission Control 是仓库自带的本地 Web 看板，展示总览、路线树和当前版本面板。当前为只读，写操作请走 Codex 插件 / MCP / CLI。
+Mission Control 是仓库自带的本地只读 Web 看板。每台机器只运行一个 UI Hub；多个已明确登记的工程共享这个进程，但页面一次只展示一个工程。切换工程只改变看板读取目标，不会改变 MCP 绑定，也不会写入 RouteLedger 数据。
 
 ```bash
 pnpm build:ui
-pnpm launch:ui -- --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT --routeledger-root /ABS/PATH/TO/ROUTELEDGER_ROOT
+pnpm open:ui -- --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT --routeledger-root /ABS/PATH/TO/ROUTELEDGER_ROOT
 ```
 
-启动后终端会打印访问地址（`http://127.0.0.1:<动态端口>`），用浏览器打开即可。该方式需要本地克隆仓库，适合开发者预览。
+重复执行 `open:ui` 会复用现有 Hub，并把新工程加入顶部工程切换器。Hub 只监听 `127.0.0.1`；页面关闭且连续 30 分钟没有活动时自动退出，也可以执行 `pnpm stop:ui` 主动关闭。`pnpm status:ui` 查看状态，`pnpm add:ui-project` 只登记工程、不打开新进程。Codex 插件内的 `open_mission_control` 提供同一套 Hub，无需本地克隆源码。
 
 ## 开发与验证
 
