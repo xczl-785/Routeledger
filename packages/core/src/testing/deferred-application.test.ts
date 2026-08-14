@@ -205,7 +205,16 @@ describe("RouteLedgerService Deferred and Constraint application commands", () =
         targetReviewVersionId: "version-1"
       })
     ).rejects.toMatchObject({
-      code: "DEFERRED_ROUTE_TARGET_NOT_DOWNSTREAM"
+      code: "DEFERRED_ROUTE_TARGET_NOT_DOWNSTREAM",
+      details: {
+        eligibleTargetVersions: [
+          expect.objectContaining({
+            id: "version-3",
+            state: "wait",
+            order: 3
+          })
+        ]
+      }
     });
     expect(invalid.storage.saveCalls).toBe(0);
 
@@ -989,7 +998,7 @@ describe("RouteLedgerService Deferred and Constraint application commands", () =
           }
         },
         nextAction: {
-          actionType: "review_context"
+          actionType: "review_residual_audit"
         }
       }
     });

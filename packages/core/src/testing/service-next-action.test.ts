@@ -727,4 +727,119 @@ describe("route ledger service", () => {
     });
   });
 
+  it("complete current version without a reviewed residual audit recommends an executable close-gate check", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const currentVersion = createVersionFixture({
+      id: "version-complete",
+      title: "V1.0",
+      state: "complete",
+      isCurrent: true,
+      order: 1
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ id: "project-1", currentVersionId: currentVersion.id }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const nextAction = await service.getNextAction({ projectId: "project-1" });
+
+    expect(nextAction.data).toMatchObject({
+      nextAction: {
+        actionType: "review_residual_audit",
+        recommendedTool: "check_close_gate",
+        targetId: currentVersion.id,
+        requiresL3Approval: false,
+        toolInput: {
+          projectId: "project-1",
+          versionId: currentVersion.id,
+          residualAudit: { status: "reviewed", items: [] }
+        }
+      }
+    });
+  });
+
+  it("ordinary closed top-level tail recommends appending one successor from the tail anchor", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const currentVersion = createVersionFixture({
+      id: "version-closed-tail",
+      title: "V1.0",
+      state: "close",
+      isCurrent: true,
+      order: 1,
+      closedAt: "2026-08-10T00:00:00.000Z",
+      stateReason: "ordinary close"
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ id: "project-1", currentVersionId: currentVersion.id }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const nextAction = await service.getNextAction({ projectId: "project-1" });
+
+    expect(nextAction.data).toMatchObject({
+      nextAction: {
+        actionType: "create_version",
+        recommendedTool: "create_version",
+        targetId: currentVersion.id,
+        recordIds: [currentVersion.id]
+      }
+    });
+  });
+
+  it("shutdown closed tail does not recommend automatic successor creation", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const currentVersion = createVersionFixture({
+      id: "version-shutdown-tail",
+      title: "V1.0",
+      state: "close",
+      isCurrent: true,
+      order: 1,
+      closedAt: "2026-08-10T00:00:00.000Z",
+      stateReason: "shutdown:operator aborted"
+    });
+
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ id: "project-1", currentVersionId: currentVersion.id }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const nextAction = await service.getNextAction({ projectId: "project-1" });
+    const data = nextAction.data as { nextAction: { actionType: string } };
+
+    expect(data.nextAction.actionType).toBe("review_context");
+    expect(data.nextAction.actionType).not.toBe("create_version");
+  });
+
 });

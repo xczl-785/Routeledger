@@ -130,10 +130,20 @@ describe("routeledger mcp registry", () => {
         versionId: successorVersionId
       });
       expect(advance).toMatchObject({
-        ok: false,
-        error: { code: "CONFIRMATION_REQUIRED" }
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          allowed: true,
+          pendingOperationId: expect.any(String),
+          digest: expect.any(String),
+          humanReviewText: expect.any(String),
+          recommendedNextActions: [
+            expect.objectContaining({ action: "approve", tool: "approve_l3_operation" }),
+            expect.objectContaining({ action: "reject", tool: "reject_l3_operation" })
+          ]
+        }
       });
-      const advanceDetails = advance.error!.details as {
+      const advanceDetails = advance.data as {
         pendingOperationId: string;
       };
       const advanceApproval = await registry.invoke("approve_l3_operation", {
@@ -165,9 +175,24 @@ describe("routeledger mcp registry", () => {
         (context.data as { pendingL3Proposals: unknown[] }).pendingL3Proposals
       ).toEqual([]);
 
-      await registry.invoke("mark_version_complete", {
+      const successorCompletion = await registry.invoke("mark_version_complete", {
         projectId,
         versionId: successorVersionId
+      });
+      expect(successorCompletion).toMatchObject({
+        ok: true,
+        data: {
+          warnings: [
+            expect.objectContaining({
+              recommendedTool: "check_close_gate",
+              toolInput: {
+                projectId,
+                versionId: successorVersionId,
+                residualAudit: { status: "reviewed", items: [] }
+              }
+            })
+          ]
+        }
       });
       const closeSuccessor = await registry.invoke("close_version", {
         projectId,
@@ -186,6 +211,21 @@ describe("routeledger mcp registry", () => {
         projectId,
         pendingOperationId: closeSuccessorProposalId,
         approvalArtifactId: (closeSuccessorApproval.data as { id: string }).id
+      });
+
+      const closedTailNextAction = await registry.invoke("next_action", {
+        projectId,
+        responseLocale: "en"
+      });
+      expect(closedTailNextAction).toMatchObject({
+        ok: true,
+        data: {
+          nextAction: {
+            actionType: "create_version",
+            targetId: successorVersionId,
+            summary: "Append one successor Version after the closed top-level tail."
+          }
+        }
       });
 
       const appendThird = await registry.invoke("create_version", {
@@ -232,6 +272,35 @@ describe("routeledger mcp registry", () => {
         isCurrent: false,
         previousVersionId: successorVersionId,
         nextVersionId: null
+      });
+
+      const invalidDeferred = await registry.invoke("defer_work", {
+        mode: "new",
+        projectId,
+        currentVersionId: successorVersionId,
+        targetReviewVersionId: firstVersionId,
+        title: "Retry on the legal successor",
+        reason: "Exercise the MCP recovery contract"
+      });
+      expect(invalidDeferred).toMatchObject({
+        ok: false,
+        error: {
+          code: "DEFERRED_ROUTE_TARGET_NOT_DOWNSTREAM",
+          details: {
+            recoveryState: "retry_with_legal_target",
+            safeToRetry: true,
+            writesPerformed: false,
+            artifactConsumed: false,
+            recommendedNextActions: [
+              expect.objectContaining({
+                tool: "defer_work",
+                toolInput: expect.objectContaining({
+                  targetReviewVersionId: appendThirdDetails.proposal.targetId
+                })
+              })
+            ]
+          }
+        }
       });
       expect(snapshot?.events).toContainEqual(
         expect.objectContaining({
