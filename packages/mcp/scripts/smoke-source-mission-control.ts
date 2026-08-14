@@ -51,18 +51,29 @@ const main = async (): Promise<void> => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-ui-source-smoke-"));
   const workspaceRoot = path.join(tmpRoot, "workspace");
   const routeledgerRoot = path.join(workspaceRoot, "project");
+  const secondWorkspaceRoot = path.join(tmpRoot, "workspace-two");
+  const secondRouteledgerRoot = path.join(secondWorkspaceRoot, "project-two");
   const stateRoot = path.join(tmpRoot, "state");
 
   process.env.XDG_STATE_HOME = stateRoot;
+  process.env.ROUTELEDGER_UI_IDLE_TIMEOUT_MS = "750";
 
-  await fs.mkdir(routeledgerRoot, { recursive: true });
+  await Promise.all([
+    fs.mkdir(routeledgerRoot, { recursive: true }),
+    fs.mkdir(secondRouteledgerRoot, { recursive: true })
+  ]);
 
   const registry = createRouteLedgerMcpRegistry({
     workspaceRoot,
     routeledgerRoot
   });
+  const secondRegistry = createRouteLedgerMcpRegistry({
+    workspaceRoot: secondWorkspaceRoot,
+    routeledgerRoot: secondRouteledgerRoot
+  });
 
   let launchedPid: number | null = null;
+  let idleExitError: Error | null = null;
 
   try {
     const initProject = await registry.invoke("init_project", {
@@ -72,22 +83,37 @@ const main = async (): Promise<void> => {
     });
     const initialized = expectOk(initProject, "init_project");
     const projectId = initialized.project.id as string;
+    const secondInit = expectOk(await secondRegistry.invoke("init_project", {
+      name: "Mission Control Second Project",
+      contentLocale: "en",
+      expectedRouteLedgerRoot: secondRouteledgerRoot
+    }), "second init_project");
+    const secondProjectId = secondInit.project.id as string;
 
     const statusBeforeResponse = await registry.invoke("get_mission_control_status", {});
     const statusBefore = expectOk(statusBeforeResponse, "get_mission_control_status before open");
-    assert(statusBefore.matchingInstance === null, "status before open should not find a running instance");
+    assert(statusBefore.hub === null, "status before open should not find a running UI Hub");
     assert(
       typeof statusBefore.registryPath === "string" &&
         statusBefore.registryPath.startsWith(stateRoot),
       "status should use the temp XDG registry path"
     );
 
-    const firstOpenResponse = await registry.invoke("open_mission_control", {});
+    const [firstOpenResponse, crossProjectResponse] = await Promise.all([
+      registry.invoke("open_mission_control", {}),
+      secondRegistry.invoke("open_mission_control", {})
+    ]);
     const firstOpen = expectOk(firstOpenResponse, "open_mission_control first");
+    const crossProjectOpen = expectOk(crossProjectResponse, "open_mission_control concurrent second project");
     launchedPid = firstOpen.pid as number;
 
-    assert(firstOpen.reused === false, "first open_mission_control call should launch a new instance");
+    assert(
+      [firstOpen.reused, crossProjectOpen.reused].filter((value) => value === false).length === 1,
+      "concurrent opens should elect exactly one UI Hub launcher"
+    );
+    assert(firstOpen.pid === crossProjectOpen.pid, "concurrent opens should return one shared UI Hub pid");
     assert(firstOpen.projectId === projectId, "open_mission_control should return the initialized projectId");
+    assert(typeof firstOpen.projectKey === "string", "open_mission_control should return a stable project key");
     assert(typeof firstOpen.url === "string" && firstOpen.url.startsWith("http://127.0.0.1:"), "open_mission_control should return a localhost URL");
     assert(Number.isInteger(firstOpen.port) && firstOpen.port > 0, "open_mission_control should return a listen(0) port");
     assert(
@@ -102,16 +128,17 @@ const main = async (): Promise<void> => {
     const resolvedWorkspaceRoot = firstOpen.workspaceRoot;
     const resolvedRouteLedgerRoot = firstOpen.routeledgerRoot;
 
-    const healthResponse = await fetch(`${firstOpen.url}/api/health`, {
+    const hubUrl = new URL(firstOpen.url as string).origin;
+    const healthResponse = await fetch(`${hubUrl}/api/health`, {
       headers: {
         accept: "application/json"
       }
     });
     assert(healthResponse.ok, "Mission Control /api/health should return 200");
     const healthPayload = (await healthResponse.json()) as Record<string, any>;
-    assert(healthPayload.projectId === projectId, "Mission Control health should report the active projectId");
+    assert(healthPayload.projectCount === 2, "Mission Control health should report both concurrently registered projects");
 
-    const stateResponse = await fetch(`${firstOpen.url}/api/state`, {
+    const stateResponse = await fetch(`${hubUrl}/api/state?project=${encodeURIComponent(firstOpen.projectKey as string)}`, {
       headers: {
         accept: "application/json"
       }
@@ -143,21 +170,34 @@ const main = async (): Promise<void> => {
     const secondOpenResponse = await registry.invoke("open_mission_control", {});
     const secondOpen = expectOk(secondOpenResponse, "open_mission_control second");
     assert(secondOpen.reused === true, "second open_mission_control call should reuse the running instance");
-    assert(secondOpen.url === firstOpen.url, "reused Mission Control instance should keep the same URL");
+    assert(new URL(secondOpen.url as string).origin === hubUrl, "reused Mission Control Hub should keep the same origin");
     assert(secondOpen.port === firstOpen.port, "reused Mission Control instance should keep the same port");
+
+    assert(crossProjectOpen.pid === firstOpen.pid, "second project should share the elected UI Hub process");
+    assert(new URL(crossProjectOpen.url as string).origin === hubUrl, "second project should reuse the same UI Hub origin");
+    assert(crossProjectOpen.projectId === secondProjectId, "second project should retain its own identity");
+    assert(crossProjectOpen.projectKey !== firstOpen.projectKey, "registered projects should have distinct project keys");
+
+    const projectsResponse = await fetch(`${hubUrl}/api/projects`);
+    const projectsPayload = (await projectsResponse.json()) as { projects: Array<Record<string, any>> };
+    assert(projectsPayload.projects.length === 2, "one UI Hub should expose both explicitly registered projects");
+    const secondStateResponse = await fetch(
+      `${hubUrl}/api/state?project=${encodeURIComponent(crossProjectOpen.projectKey as string)}`
+    );
+    const secondState = (await secondStateResponse.json()) as Record<string, any>;
+    assert(secondState.identity?.projectId === secondProjectId, "project selection should return the second canonical snapshot");
 
     const statusAfterResponse = await registry.invoke("get_mission_control_status", {});
     const statusAfter = expectOk(statusAfterResponse, "get_mission_control_status after open");
     assert(
-      statusAfter.matchingInstance?.url === firstOpen.url,
-      "status after open should report the healthy matching Mission Control instance"
+      statusAfter.hub?.url === hubUrl,
+      "status after open should report the healthy UI Hub"
     );
     assert(
-      Array.isArray(statusAfter.healthyInstances) &&
-        statusAfter.healthyInstances.some(
-          (entry: Record<string, any>) => entry.url === firstOpen.url && entry.projectId === projectId
-        ),
-      "status after open should include the healthy instance"
+      Array.isArray(statusAfter.projects) && statusAfter.projects.some(
+        (entry: Record<string, any>) => entry.projectId === projectId
+      ),
+      "status after open should include the registered project"
     );
 
     console.log(
@@ -165,28 +205,28 @@ const main = async (): Promise<void> => {
     );
   } finally {
     registry.close();
+    secondRegistry.close();
 
     if (launchedPid !== null) {
       try {
+        await waitFor(async () => {
+          try {
+            process.kill(launchedPid!, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        }, 5000, 100);
+      } catch (error) {
         process.kill(launchedPid, "SIGTERM");
-      } catch {
-        launchedPid = null;
+        idleExitError = new Error(`UI Hub did not exit after its configured idle timeout: ${String(error)}`);
       }
-    }
-
-    if (launchedPid !== null) {
-      await waitFor(async () => {
-        try {
-          process.kill(launchedPid!, 0);
-          return false;
-        } catch {
-          return true;
-        }
-      }, 5000, 100);
     }
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   }
+
+  if (idleExitError !== null) throw idleExitError;
 };
 
 await main();

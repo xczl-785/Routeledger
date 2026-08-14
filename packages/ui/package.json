@@ -6,6 +6,10 @@
   "scripts": {
     "build": "pnpm -C ../.. exec tsc -p packages/ui/tsconfig.json --pretty false && pnpm exec vite build",
     "launch": "pnpm exec tsx src/server/cli.ts",
+    "open": "pnpm exec tsx src/server/cli.ts open",
+    "add": "pnpm exec tsx src/server/cli.ts add",
+    "status": "pnpm exec tsx src/server/cli.ts status",
+    "stop": "pnpm exec tsx src/server/cli.ts stop",
     "test": "pnpm -C ../.. exec vitest run --config packages/ui/vitest.config.ts"
   },
   "dependencies": {

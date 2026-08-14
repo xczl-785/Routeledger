@@ -1,7 +1,5 @@
 import path from "node:path";
 
-import Database from "better-sqlite3";
-
 import {
   RouteLedgerService,
   type ApprovalArtifact,
@@ -150,44 +148,9 @@ const createBindingSummary = (input: LauncherBindingInput): MissionControlBindin
   };
 };
 
-const inspectSqlite = (routeledgerRoot: string): MissionControlSqliteSummary => {
+const describeUnusedSqliteReadModel = (routeledgerRoot: string): MissionControlSqliteSummary => {
   const dbPath = path.join(routeledgerRoot, ".routeledger", "db", "routeledger.sqlite3");
-
-  try {
-    const database = new Database(dbPath, {
-      readonly: true,
-      fileMustExist: true
-    });
-
-    try {
-      database.prepare("SELECT name FROM sqlite_master LIMIT 1").get();
-    } finally {
-      database.close();
-    }
-
-    return {
-      status: "ready",
-      dbPath,
-      error: null
-    };
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "SQLite 检查失败，无法读取 read model。";
-
-    if (message.includes("unable to open database file") || message.includes("no such file")) {
-      return {
-        status: "absent",
-        dbPath,
-        error: null
-      };
-    }
-
-    return {
-      status: "degraded",
-      dbPath,
-      error: message
-    };
-  }
+  return { status: "absent", dbPath, error: null };
 };
 
 const buildStorageSummary = (options: {
@@ -638,7 +601,7 @@ export const buildMissionControlResponse = async (
           dbPath: "",
           error: null
         }
-      : inspectSqlite(binding.routeledgerRoot);
+      : describeUnusedSqliteReadModel(binding.routeledgerRoot);
 
   if (
     binding.status === "unbound" ||
@@ -662,7 +625,7 @@ export const buildMissionControlResponse = async (
     const routeIsEmpty = loaded.snapshot.versions.length === 0;
     const screen: MissionControlScreen = loaded.snapshot.project.currentVersionId === null ? "current_closed" : "ready";
     const storage = buildStorageSummary({
-      mode: sqlite.status === "ready" ? "json+sqlite" : sqlite.status === "degraded" ? "json+sqlite-degraded" : "json",
+      mode: "json",
       binding,
       canonicalStatus: "ready",
       sqlite

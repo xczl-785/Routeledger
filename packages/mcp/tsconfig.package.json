@@ -15,13 +15,16 @@
     "../codex/src/**/*.ts",
     "../core/src/**/*.ts",
     "../json/src/**/*.ts",
-    "../sqlite/src/**/*.ts"
+    "../sqlite/src/**/*.ts",
+    "../ui/src/server/**/*.ts",
+    "../ui/src/shared/**/*.ts"
   ],
   "exclude": [
     "src/testing/**/*.ts",
     "../codex/src/testing/**/*.ts",
     "../core/src/testing/**/*.ts",
     "../json/src/testing/**/*.ts",
-    "../sqlite/src/testing/**/*.ts"
+    "../sqlite/src/testing/**/*.ts",
+    "../ui/src/testing/**/*.ts"
   ]
 }

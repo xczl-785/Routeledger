@@ -29,7 +29,7 @@ const buildProfiles = {
       "RouteLedger MCP stdio server JSON-only plugin runtime artifact. Start with --sqlite-read-model disabled.",
     includeSqliteRuntime: false,
     sqliteReadModel: "disabled",
-    runtimeDirectories: ["codex", "core", "json", "mcp"]
+    runtimeDirectories: ["codex", "core", "json", "mcp", "ui"]
   }
 };
 
@@ -113,7 +113,7 @@ Local ${profileName} artifact for the RouteLedger MCP stdio server.
 ${
   profile.includeSqliteRuntime
     ? "- `better-sqlite3` remains an external runtime dependency and still needs clean-machine validation on macOS, Windows, and Linux before any real release."
-    : "- This JSON-only artifact has no `better-sqlite3` dependency and carries neither SQLite nor UI runtime bundles. It must be started with `--sqlite-read-model disabled`; its entry rejects a missing or different value."
+    : "- This JSON-only artifact has no `better-sqlite3` dependency. It carries the read-only RouteLedger UI Hub and must be started with `--sqlite-read-model disabled`; its MCP entry rejects a missing or different value."
 }
 
 ## Build
@@ -297,6 +297,14 @@ const main = async () => {
 
   await fs.rm(outDir, { recursive: true, force: true });
 
+  if (profile.runtimeDirectories.includes("ui")) {
+    execFileSync(
+      process.execPath,
+      [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js"), "build"],
+      { cwd: path.join(repoRoot, "packages", "ui"), stdio: "inherit" }
+    );
+  }
+
   execFileSync(
     process.execPath,
     [
@@ -333,6 +341,12 @@ const main = async () => {
   );
 
   await pruneArtifactToRuntimeAllowlist(outDir, profile.runtimeDirectories);
+  if (profile.runtimeDirectories.includes("ui")) {
+    await fs.cp(path.join(repoRoot, "packages", "ui", "dist"), path.join(outDir, "ui", "dist"), {
+      recursive: true,
+      force: true
+    });
+  }
 
   const jsFiles = await collectJsFiles(outDir);
   await Promise.all(jsFiles.map((filePath) => rewriteWorkspaceImports(filePath, outDir)));
@@ -371,6 +385,7 @@ const main = async () => {
       "core/",
       "json/",
       "mcp/",
+      "ui/",
       "README.md"
     ],
     routeledgerRuntime: {
@@ -381,7 +396,7 @@ const main = async () => {
   };
 
   if (profile.includeSqliteRuntime) {
-    distPackage.files.splice(distPackage.files.indexOf("README.md"), 0, "sqlite/", "ui/");
+    distPackage.files.splice(distPackage.files.indexOf("README.md"), 0, "sqlite/");
     distPackage.dependencies = {
       "better-sqlite3": rootPackage.devDependencies["better-sqlite3"]
     };

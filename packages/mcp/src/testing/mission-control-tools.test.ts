@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createMissionControlTools } from "../capabilities/mission-control-tools.js";
 
 describe("Mission Control tool registrations", () => {
-  it("keeps both tools source-only and delegates through the supplied runtime seam", async () => {
+  it("exposes portable UI Hub tools and delegates through the runtime seam", async () => {
     const readBinding = vi.fn(() => ({ marker: "binding" }));
     const resolveRoots = vi.fn(() => ({
       workspaceRoot: "C:/workspace",
@@ -11,6 +11,7 @@ describe("Mission Control tool registrations", () => {
     }));
     const openMissionControlSource = vi.fn(async () => ({
       url: "http://127.0.0.1:3210",
+      projectKey: "project-key-1",
       projectId: "project-1",
       pid: 123,
       port: 3210,
@@ -21,12 +22,11 @@ describe("Mission Control tool registrations", () => {
     }));
     const getMissionControlStatus = vi.fn(async () => ({
       registryPath: "C:/registry.json",
-      workspaceRoot: "C:/workspace",
-      routeledgerRoot: "C:/workspace/ledger",
       projectId: null,
-      matchingInstance: null,
-      healthyInstances: [],
-      staleEntries: []
+      hub: null,
+      healthy: false,
+      projects: [],
+      matchingProject: null
     }));
     const loadSourceModule = vi.fn(async () => ({
       openMissionControlSource,
@@ -47,7 +47,7 @@ describe("Mission Control tool registrations", () => {
       "open_mission_control",
       "get_mission_control_status"
     ]);
-    expect(tools.every((tool) => tool.visibility === "source-only")).toBe(true);
+    expect(tools.every((tool) => tool.visibility === "default")).toBe(true);
 
     const open = await tools[0]!.handler({ devBuild: true });
     expect(openMissionControlSource).toHaveBeenCalledWith({

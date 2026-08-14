@@ -23,10 +23,10 @@ changing the detached-proof model.
    distribution bytes and therefore subject to the SemVer/release-metadata
    contract.
 4. The bundled runtime is JSON-only: it starts with `--profile codex
-   --sqlite-read-model disabled`, contains neither `sqlite/` nor `ui/`, and
-   does not declare `better-sqlite3`. Its runtime profile omits source-only
-   Mission Control tools from discovery and invocation; the full/source MCP
-   profile continues to expose them.
+   --sqlite-read-model disabled`, contains no `sqlite/`, and does not declare
+   `better-sqlite3`. It carries the built read-only UI Hub and exposes Mission
+   Control in the same tool surface as the full/source profile. The UI Hub has
+   its own per-machine lifecycle and never changes the MCP project binding.
 5. Plugin binding comes from MCP Roots and the managed project's
    `.routeledger/config.json`; the plugin directory and process `cwd` do not
    select a managed project. When a host sends no Roots/rootUri, the prompted,

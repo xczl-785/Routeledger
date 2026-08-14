@@ -169,7 +169,7 @@ const assertPortableRuntime = async (runtimeRoot) => {
       throw new Error(`Plugin runtime contains undeclared top-level entry: ${entry.name}`);
     }
   }
-  for (const forbiddenDirectory of ["sqlite", "ui"]) {
+  for (const forbiddenDirectory of ["sqlite"]) {
     if (await fs.stat(path.join(runtimeRoot, forbiddenDirectory)).catch(() => null)) {
       throw new Error(`Plugin runtime contains forbidden ${forbiddenDirectory}/ bundle.`);
     }

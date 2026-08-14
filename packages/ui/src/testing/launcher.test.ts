@@ -48,23 +48,52 @@ describe("@routeledger/ui launcher", () => {
 
   it("round-trips an empty registry and tolerates malformed files", async () => {
     const root = createTempDir();
-    const registryPath = path.join(root, "instances.json");
+    const registryPath = path.join(root, "hub.json");
 
     expect(await readRegistry(registryPath)).toEqual({
-      schemaVersion: 1,
-      instances: []
+      schemaVersion: 2,
+      hub: null,
+      projects: []
     });
 
     await writeRegistry(registryPath, []);
     expect(await readRegistry(registryPath)).toEqual({
-      schemaVersion: 1,
-      instances: []
+      schemaVersion: 2,
+      hub: null,
+      projects: []
     });
 
     fs.writeFileSync(registryPath, "{not-json", "utf8");
     expect(await readRegistry(registryPath)).toEqual({
+      schemaVersion: 2,
+      hub: null,
+      projects: []
+    });
+  });
+
+  it("migrates legacy per-project instances into the shared Hub registry", async () => {
+    const root = createTempDir();
+    const registryPath = path.join(root, "hub.json");
+    fs.writeFileSync(registryPath, JSON.stringify({
       schemaVersion: 1,
-      instances: []
+      instances: [
+        {
+          projectId: "project-a",
+          workspaceRoot: path.join(root, "workspace-a"),
+          routeledgerRoot: path.join(root, "workspace-a"),
+          updatedAt: "2026-08-14T00:00:00.000Z"
+        }
+      ]
+    }), "utf8");
+
+    const migrated = await readRegistry(registryPath);
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.hub).toBeNull();
+    expect(migrated.projects).toHaveLength(1);
+    expect(migrated.projects[0]).toMatchObject({
+      projectId: "project-a",
+      projectName: "workspace-a",
+      lastOpenedAt: "2026-08-14T00:00:00.000Z"
     });
   });
 
@@ -74,7 +103,7 @@ describe("@routeledger/ui launcher", () => {
     try {
       delete process.env.XDG_STATE_HOME;
       expect(getRegistryPath()).toBe(
-        path.join(os.homedir(), ".routeledger", "ui", "instances.json")
+        path.join(os.homedir(), ".routeledger", "ui", "hub.json")
       );
     } finally {
       if (originalStateHome === undefined) {

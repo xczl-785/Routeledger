@@ -123,7 +123,7 @@ const assertJsonOnlyArtifactTree = async (artifactDir) => {
     }
   }
 
-  for (const forbiddenDirectory of ["ui", "sqlite"]) {
+  for (const forbiddenDirectory of ["sqlite"]) {
     if (await fs.stat(path.join(artifactDir, forbiddenDirectory)).catch(() => null)) {
       throw new Error(`JSON-only artifact unexpectedly contains ${forbiddenDirectory}/ runtime bundle.`);
     }
@@ -191,29 +191,19 @@ const assertDirectImportProfile = async ({
     const missionControlTools = ["open_mission_control", "get_mission_control_status"];
     for (const toolName of missionControlTools) {
       const exposed = registry.getTool(toolName) !== undefined;
-      if (profileName === "json-only" && exposed) {
-        throw new Error(`Direct JSON-only package import unexpectedly exposed ${toolName}.`);
-      }
-      if (profileName === "full" && !exposed) {
-        throw new Error(`Direct full package import did not expose ${toolName}.`);
+      if (!exposed) {
+        throw new Error(`Direct ${profileName} package import did not expose ${toolName}.`);
       }
     }
 
-    if (profileName === "json-only") {
-      const unavailable = await registry.invoke("get_mission_control_status", {});
-      if (unavailable.ok || unavailable.error?.code !== "ACTION_NOT_IMPLEMENTED") {
-        throw new Error("Direct JSON-only package import allowed Mission Control invocation.");
-      }
-    } else {
-      const status = await registry.invoke("get_mission_control_status", {
-        workspaceRoot,
-        routeledgerRoot
-      });
-      if (!status.ok) {
-        throw new Error(
-          `Direct full package import could not invoke Mission Control: ${JSON.stringify(status.error)}`
-        );
-      }
+    const status = await registry.invoke("get_mission_control_status", {
+      workspaceRoot,
+      routeledgerRoot
+    });
+    if (!status.ok) {
+      throw new Error(
+        `Direct ${profileName} package import could not invoke Mission Control: ${JSON.stringify(status.error)}`
+      );
     }
   } finally {
     registry.close();
@@ -344,11 +334,8 @@ const runStdioSmoke = async ({
   const listedToolNames = stdoutLines[1].result.tools.map((tool) => tool.name);
   const missionControlToolNames = ["open_mission_control", "get_mission_control_status"];
   for (const toolName of missionControlToolNames) {
-    if (profileName === "json-only" && listedToolNames.includes(toolName)) {
-      throw new Error(`JSON-only tools/list unexpectedly exposed ${toolName}.`);
-    }
-    if (profileName === "full" && !listedToolNames.includes(toolName)) {
-      throw new Error(`Full tools/list did not expose ${toolName}.`);
+    if (!listedToolNames.includes(toolName)) {
+      throw new Error(`${profileName} tools/list did not expose ${toolName}.`);
     }
   }
 

@@ -27,6 +27,18 @@ export type MissionControlVersionState =
   | "complete"
   | "close";
 
+export interface MissionControlProjectSummary {
+  id: string;
+  projectId: string | null;
+  projectName: string;
+  available: boolean;
+  lastOpenedAt: string;
+}
+
+export interface MissionControlProjectsResponse {
+  projects: MissionControlProjectSummary[];
+}
+
 export interface MissionControlBindingSummary {
   status: MissionControlBindingStatus;
   workspaceRoot: string | null;

@@ -35,6 +35,6 @@ checklist for every new tool.
    `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
    `pnpm check:codex-plugin-release`, and add a release note under
    `docs/release/release-notes/`.
-8. Verify the json-only runtime exposes the expected tool count (full 48,
-   json-only 46, difference is exactly `open_mission_control` and
-   `get_mission_control_status`).
+8. Verify the full and json-only runtimes both expose the expected 48-tool
+   surface, including `open_mission_control` and
+   `get_mission_control_status`.

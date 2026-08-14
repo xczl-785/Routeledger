@@ -17,7 +17,13 @@ import { GitBranch } from "@phosphor-icons/react/GitBranch";
 import { LockSimple } from "@phosphor-icons/react/LockSimple";
 import { X } from "@phosphor-icons/react/X";
 
-import { fetchMissionControlState } from "./api.js";
+import {
+  fetchMissionControlProjects,
+  fetchMissionControlState,
+  heartbeatMissionControl,
+  registerMissionControlProject,
+  stopMissionControl
+} from "./api.js";
 import type {
   MissionControlApprovalArtifact,
   MissionControlAuditEvent,
@@ -25,6 +31,7 @@ import type {
   MissionControlDeferredItem,
   MissionControlLegacyAudit,
   MissionControlProposal,
+  MissionControlProjectSummary,
   MissionControlResponse,
   MissionControlRoadmapItem,
   MissionControlTodoItem,
@@ -34,7 +41,8 @@ import type {
 type AppLoadState =
   | { status: "loading"; data: null; error: null; refreshing: boolean }
   | { status: "ready"; data: MissionControlResponse; error: null; refreshing: boolean }
-  | { status: "failed"; data: MissionControlResponse | null; error: string; refreshing: boolean };
+  | { status: "failed"; data: MissionControlResponse | null; error: string; refreshing: boolean }
+  | { status: "stopped"; data: null; error: null; refreshing: false };
 
 const classNames = (...parts: Array<string | false | null | undefined>): string =>
   parts.filter(Boolean).join(" ");
@@ -122,9 +130,23 @@ const StatusMark = ({ state, label }: { state: MissionControlVersionState | null
   </span>
 );
 
-const ProjectContext = ({ projectName }: { projectName: string }): ReactNode => {
-  const [open, setOpen] = useState(false);
+export const ProjectContext = ({ projects, selectedProjectId, projectName, onSelect, onAdd, onStop, defaultOpen = false }: {
+  projects: MissionControlProjectSummary[];
+  selectedProjectId: string | null;
+  projectName: string;
+  onSelect: (projectId: string) => void;
+  onAdd?: (projectRoot: string) => Promise<void>;
+  onStop: () => void;
+  defaultOpen?: boolean;
+}): ReactNode => {
+  const [open, setOpen] = useState(defaultOpen);
+  const [adding, setAdding] = useState(false);
+  const [projectRoot, setProjectRoot] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addBusy, setAddBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const selectedOption = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const close = (event: PointerEvent): void => {
@@ -134,15 +156,69 @@ const ProjectContext = ({ projectName }: { projectName: string }): ReactNode => 
     return () => window.removeEventListener("pointerdown", close);
   }, []);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    window.requestAnimationFrame(() => selectedOption.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      window.requestAnimationFrame(() => trigger.current?.focus());
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
+
   return (
     <div className="project-context" ref={root}>
-      <button className="project-trigger" onClick={() => setOpen((value) => !value)} type="button" aria-expanded={open}>
+      <button ref={trigger} className="project-trigger" onClick={() => setOpen((value) => !value)} type="button" aria-expanded={open} aria-haspopup="dialog" aria-controls="project-switcher">
         <span>{projectName}</span><CaretDown size={15} weight="bold" />
       </button>
       {open ? (
-        <div className="project-popover">
-          <div className="project-current"><span>{projectName}</span><CheckCircle size={17} weight="fill" /></div>
-          <p>当前 Mission Control 实例只展示它所绑定的一个项目。</p>
+        <div id="project-switcher" className="project-popover" role="dialog" aria-label="切换 RouteLedger 项目">
+          <div className="project-list">
+            {projects.map((project) => (
+              <button
+                className={classNames("project-option", project.id === selectedProjectId && "is-selected")}
+                disabled={!project.available}
+                key={project.id}
+                onClick={() => {
+                  onSelect(project.id);
+                  setOpen(false);
+                  window.requestAnimationFrame(() => trigger.current?.focus());
+                }}
+                ref={project.id === selectedProjectId ? selectedOption : undefined}
+                aria-pressed={project.id === selectedProjectId}
+                type="button"
+              >
+                <span><strong>{project.projectName}</strong>{!project.available ? <small>项目暂不可用</small> : null}</span>
+                {project.id === selectedProjectId ? <CheckCircle size={17} weight="fill" /> : null}
+              </button>
+            ))}
+          </div>
+          <div className="project-popover-footer">
+            <p>这里只切换只读视图，不会改变 Codex 或 MCP 的当前绑定。</p>
+            {adding ? (
+              <form className="project-add-form" onSubmit={(event) => {
+                event.preventDefault();
+                if (projectRoot.trim().length === 0 || onAdd === undefined) return;
+                setAddBusy(true);
+                setAddError(null);
+                void onAdd(projectRoot.trim()).then(() => {
+                  setProjectRoot("");
+                  setAdding(false);
+                  setOpen(false);
+                }).catch((error: unknown) => {
+                  setAddError(error instanceof Error ? error.message : "无法添加工程。");
+                }).finally(() => setAddBusy(false));
+              }}>
+                <label htmlFor="project-root-input">工程目录</label>
+                <input id="project-root-input" value={projectRoot} onChange={(event) => setProjectRoot(event.target.value)} placeholder="输入工程的绝对路径" autoFocus />
+                {addError !== null ? <small>{addError}</small> : null}
+                <div><button disabled={addBusy} type="submit">{addBusy ? "添加中…" : "添加"}</button><button onClick={() => setAdding(false)} type="button">取消</button></div>
+              </form>
+            ) : <button className="add-project" onClick={() => setAdding(true)} type="button">添加工程</button>}
+            <button className="stop-ui" onClick={onStop} type="button">退出 RouteLedger UI</button>
+          </div>
         </div>
       ) : null}
     </div>
@@ -510,10 +586,15 @@ const HistorySection = ({
   </div>
 );
 
-export const VersionHorizon = ({ response, refreshing, onRefresh }: {
+export const VersionHorizon = ({ response, projects, selectedProjectId, refreshing, onRefresh, onSelectProject, onAddProject, onStop }: {
   response: MissionControlResponse;
+  projects?: MissionControlProjectSummary[];
+  selectedProjectId?: string | null;
   refreshing: boolean;
   onRefresh: () => void;
+  onSelectProject?: (projectId: string) => void;
+  onAddProject?: (projectRoot: string) => Promise<void>;
+  onStop?: () => void;
 }): ReactNode => {
   const [historyVisible, setHistoryVisible] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -564,7 +645,14 @@ export const VersionHorizon = ({ response, refreshing, onRefresh }: {
       <header className="topbar">
         <div className="brand"><GitBranch size={25} weight="fill" /><span>RouteLedger</span></div>
         <div className="project-area">
-          <ProjectContext projectName={response.identity?.projectName ?? "未初始化项目"} />
+          <ProjectContext
+            projects={projects ?? []}
+            selectedProjectId={selectedProjectId ?? null}
+            projectName={response.identity?.projectName ?? "未初始化项目"}
+            onSelect={onSelectProject ?? (() => undefined)}
+            onAdd={onAddProject}
+            onStop={onStop ?? (() => undefined)}
+          />
           <span className="readonly"><LockSimple size={15} />只读</span>
         </div>
         <button ref={historyButton} className="history-button" onClick={() => setHistoryOpen(true)} type="button" aria-expanded={historyOpen} aria-controls="history-drawer">
@@ -625,11 +713,26 @@ export const VersionHorizon = ({ response, refreshing, onRefresh }: {
 
 export const App = (): ReactNode => {
   const [loadState, setLoadState] = useState<AppLoadState>({ status: "loading", data: null, error: null, refreshing: false });
+  const [projects, setProjects] = useState<MissionControlProjectSummary[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("project"));
 
-  const refresh = async (): Promise<void> => {
-    startTransition(() => setLoadState((previous) => ({ ...previous, refreshing: true })));
+  const refresh = async (projectOverride?: string | null): Promise<void> => {
+    const requestedProjectId = projectOverride === undefined ? selectedProjectId : projectOverride;
+    startTransition(() => setLoadState((previous) =>
+      previous.status === "stopped" ? previous : { ...previous, refreshing: true }
+    ));
     try {
-      const data = await fetchMissionControlState();
+      const projectResponse = await fetchMissionControlProjects();
+      const resolvedProjectId = requestedProjectId !== null && projectResponse.projects.some((project) => project.id === requestedProjectId && project.available)
+        ? requestedProjectId
+        : projectResponse.projects.find((project) => project.available)?.id ?? null;
+      const data = await fetchMissionControlState(resolvedProjectId);
+      setProjects(projectResponse.projects);
+      setSelectedProjectId(resolvedProjectId);
+      const nextUrl = new URL(window.location.href);
+      if (resolvedProjectId === null) nextUrl.searchParams.delete("project");
+      else nextUrl.searchParams.set("project", resolvedProjectId);
+      window.history.replaceState(null, "", nextUrl);
       startTransition(() => setLoadState({ status: "ready", data, error: null, refreshing: false }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "读取 Mission Control 状态失败。";
@@ -639,6 +742,25 @@ export const App = (): ReactNode => {
 
   useEffect(() => { void refresh(); }, []);
 
+  useEffect(() => {
+    if (loadState.status === "stopped") return undefined;
+    const heartbeat = (): void => {
+      void heartbeatMissionControl().catch(() => undefined);
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 15_000);
+    return () => window.clearInterval(timer);
+  }, [loadState.status]);
+
+  const stop = async (): Promise<void> => {
+    await stopMissionControl();
+    setLoadState({ status: "stopped", data: null, error: null, refreshing: false });
+  };
+
+  if (loadState.status === "stopped") {
+    return <main className="mission-control centered-state"><GitBranch size={28} weight="fill" /><strong>RouteLedger UI 已退出</strong><p>项目数据和 MCP 运行不受影响。需要时可从 Codex 或命令行再次打开。</p></main>;
+  }
+
   if (loadState.status === "loading") {
     return <main className="mission-control centered-state"><div className="loading-mark"><GitBranch size={28} weight="fill" /></div><strong>正在读取项目路线…</strong><p>RouteLedger 正在加载 canonical JSON。</p></main>;
   }
@@ -647,5 +769,19 @@ export const App = (): ReactNode => {
     return <main className="mission-control centered-state"><strong>无法读取项目路线</strong><p>{loadState.error ?? "当前没有可展示的数据。"}</p><button onClick={() => void refresh()} type="button">重新读取</button></main>;
   }
 
-  return <VersionHorizon response={loadState.data} refreshing={loadState.refreshing} onRefresh={() => void refresh()} />;
+  return (
+    <VersionHorizon
+      response={loadState.data}
+      projects={projects}
+      selectedProjectId={selectedProjectId}
+      refreshing={loadState.refreshing}
+      onRefresh={() => void refresh()}
+      onSelectProject={(projectId) => void refresh(projectId)}
+      onAddProject={async (projectRoot) => {
+        const result = await registerMissionControlProject(projectRoot);
+        await refresh(result.project.id);
+      }}
+      onStop={() => void stop()}
+    />
+  );
 };
