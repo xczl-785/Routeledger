@@ -92,9 +92,20 @@ export const validateDeferredRouteTarget = (sourceVersion, targetReviewVersionId
 export const assertDeferredRouteTarget = (sourceVersion, targetReviewVersionId, knownVersions) => {
     const failure = validateDeferredRouteTarget(sourceVersion, targetReviewVersionId, knownVersions);
     if (failure !== null) {
+        const eligibleTargetVersions = (knownVersions ?? [])
+            .filter((candidate) => candidate.projectId === sourceVersion.projectId &&
+            candidate.order > sourceVersion.order)
+            .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+            .map((candidate) => ({
+            id: candidate.id,
+            title: candidate.title,
+            state: candidate.state,
+            order: candidate.order
+        }));
         throw new DomainError(failure.code, failure.message, {
             sourceVersionId: sourceVersion.id,
-            targetReviewVersionId: targetReviewVersionId ?? null
+            targetReviewVersionId: targetReviewVersionId ?? null,
+            eligibleTargetVersions
         });
     }
 };

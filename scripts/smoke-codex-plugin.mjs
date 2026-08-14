@@ -46,6 +46,21 @@ const normalizeRealPathForComparison = async (filePath) => {
   return process.platform === "win32" ? normalizedPath.toLowerCase() : normalizedPath;
 };
 
+const waitForUiHubShutdown = async (uiOrigin, timeoutMs = 5_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    try {
+      await globalThis.fetch(`${uiOrigin}/api/health`, {
+        signal: globalThis.AbortSignal.timeout(500)
+      });
+    } catch {
+      return;
+    }
+  }
+  throw new Error("Bundled plugin UI Hub accepted shutdown but did not release its listener.");
+};
+
 const assertPluginFiles = async () => {
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   const mcpManifest = JSON.parse(await fs.readFile(mcpManifestPath, "utf8"));
@@ -344,6 +359,7 @@ const runPluginStdioSmoke = async () => {
       headers: { "x-routeledger-ui-client": "1" }
     });
     if (!stopResponse.ok) throw new Error("Bundled plugin UI Hub did not accept an explicit stop request.");
+    await waitForUiHubShutdown(uiOrigin);
     const unboundRuntimeContext = responses[3]?.result?.structuredContent?.data;
     const expectedCacheRoot = await normalizeRealPathForComparison(cachedPluginRoot);
     const runtimeProcessCwd = unboundRuntimeContext?.processCwd;

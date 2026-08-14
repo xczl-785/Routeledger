@@ -73,6 +73,7 @@ const ZH_CODE_MESSAGES = {
     START_GATE_FAILED: "Version start gate 未通过。",
     INVALID_TOOL_INPUT: "工具输入无效。",
     INVALID_VERSION_TRANSITION: "当前 Version 状态不允许该操作。",
+    INVALID_TODO_TRANSITION: "当前 Todo 状态不允许该操作。",
     TARGET_ALREADY_CURRENT: "目标 Version 已经是 current。",
     VERSION_ALREADY_CLOSED: "目标 Version 已经关闭。",
     PROJECT_NOT_FOUND: "未找到指定 Project。",
@@ -92,6 +93,7 @@ const EN_CODE_MESSAGES = {
     TARGET_VERSION_NOT_NEXT: "The target Version is not the current Version's direct successor.",
     START_GATE_FAILED: "The Version start gate did not pass.",
     INVALID_VERSION_TRANSITION: "The current Version state does not allow this operation.",
+    INVALID_TODO_TRANSITION: "The current Todo state does not allow this operation.",
     TARGET_ALREADY_CURRENT: "The target Version is already current.",
     VERSION_ALREADY_CLOSED: "The target Version is already closed.",
     TARGET_VERSION_NOT_COMPLETE: "Only a Version in the `complete` state can be closed.",
@@ -113,11 +115,29 @@ const ZH_ACTION_DESCRIPTIONS = {
     render_codex_config: "为已选定的 RouteLedger 根生成 Codex binding 配置。",
     retry_with_assertion: "使用当前绑定的 routeledgerRoot 作为断言后重试。",
     ask_user_for_binding_root: "发现多个 RouteLedger 根；请用户选择正确目标。",
-    initialize_at_workspace_root: "先规划 workspaceRoot binding，再创建 RouteLedger 项目。"
+    initialize_at_workspace_root: "先规划 workspaceRoot binding，再创建 RouteLedger 项目。",
+    continue_route: "Todo 已关闭；不要重试写入，继续读取下一步路线动作。",
+    choose_legal_deferred_target: "从 eligibleTargetVersions 中选择合法下游 Version 后重试 Deferred 操作。",
+    inspect_version_structure: "读取当前 Version 结构和合法操作后再重试。",
+    retry_create_version: "使用当前路线状态重试 create_version，不要把旧尾节点 ID 当作新目标。",
+    reject_stale_proposal: "先拒绝陈旧 proposal，再创建替代 proposal。",
+    refresh_context: "重新读取当前路线和工作上下文。",
+    resolve_live_blocker: "处理 gate 差异中新增的实时 blocker。",
+    recheck_close_gate: "基于实时状态重新检查 close gate。",
+    propose_replacement: "仅在实时 gate 通过后创建替代 proposal。"
 };
 const EN_ACTION_DESCRIPTIONS = {
     confirm_content_locale: "Confirm a concrete content_locale with the user before initialization or further writes.",
-    set_project_content_locale: "Set the existing project to the concrete content_locale confirmed by the user."
+    set_project_content_locale: "Set the existing project to the concrete content_locale confirmed by the user.",
+    continue_route: "The Todo is already closed; do not retry the write and continue with the route.",
+    choose_legal_deferred_target: "Choose a legal downstream Version from eligibleTargetVersions and retry the Deferred operation.",
+    inspect_version_structure: "Inspect the current Version structure and legal operations before retrying.",
+    retry_create_version: "Retry create_version against the current route; do not reuse a stale tail ID as the new target.",
+    reject_stale_proposal: "Reject the stale proposal before creating a replacement.",
+    refresh_context: "Refresh the current route and work context.",
+    resolve_live_blocker: "Resolve the live blocker recorded in the gate difference.",
+    recheck_close_gate: "Recheck the close gate against live state.",
+    propose_replacement: "Create a replacement proposal only after the live gate passes."
 };
 const ZH_NEXT_ACTIONS = {
     advance_to_version: {
@@ -700,6 +720,18 @@ const localizeSystemValue = (value, locale, valuePath, toolName) => {
         typeof record.message === "string") {
         record.message = localizedCodeMessage(record.code, locale);
     }
+    if (record.code === "INVALID_TODO_TRANSITION" &&
+        record.details !== null &&
+        typeof record.details === "object" &&
+        !Array.isArray(record.details) &&
+        (record.details.status === "closed" ||
+            record.details.recoveryState === "already_applied") &&
+        typeof record.message === "string") {
+        record.message =
+            locale === "zh-CN"
+                ? "Todo 已关闭，无需重试；请继续处理后续路线。"
+                : "The Todo is already closed; do not retry it and continue with the route.";
+    }
     if (isCodedPresentationPath(toolName, valuePath) &&
         typeof record.code === "string" &&
         typeof record.summary === "string") {
@@ -718,8 +750,20 @@ const localizeSystemValue = (value, locale, valuePath, toolName) => {
         const catalog = locale === "zh-CN" ? ZH_NEXT_ACTIONS : EN_NEXT_ACTIONS;
         const localized = catalog[record.actionType];
         if (localized !== undefined) {
-            record.summary = localized.summary;
-            record.reason = localized.reason;
+            if (record.actionType === "create_version" && typeof record.targetId === "string") {
+                record.summary =
+                    locale === "zh-CN"
+                        ? "在已关闭的顶层尾节点后追加一个后继 Version。"
+                        : "Append one successor Version after the closed top-level tail.";
+                record.reason =
+                    locale === "zh-CN"
+                        ? "当前路线以普通 close 的顶层 Version 结束，可通过追加真实后继继续路线。"
+                        : "The route ends at an ordinarily closed top-level Version and can continue with a real successor.";
+            }
+            else {
+                record.summary = localized.summary;
+                record.reason = localized.reason;
+            }
         }
     }
     if (toolName === "get_version_structure" && valuePath.at(-1) === "legalOperations") {
@@ -745,7 +789,18 @@ export const localizeToolResponse = (response, locale, toolName) => ({
             error: (() => {
                 const localized = localizeSystemValue(response.error, locale.resolved, ["error"], toolName);
                 if (typeof localized.code === "string" && typeof localized.message === "string") {
-                    localized.message = localizedCodeMessage(localized.code, locale.resolved);
+                    const details = localized.details !== null &&
+                        typeof localized.details === "object" &&
+                        !Array.isArray(localized.details)
+                        ? localized.details
+                        : null;
+                    localized.message =
+                        localized.code === "INVALID_TODO_TRANSITION" &&
+                            (details?.status === "closed" || details?.recoveryState === "already_applied")
+                            ? locale.resolved === "zh-CN"
+                                ? "Todo 已关闭，无需重试；请继续处理后续路线。"
+                                : "The Todo is already closed; do not retry it and continue with the route."
+                            : localizedCodeMessage(localized.code, locale.resolved);
                 }
                 return localized;
             })()
