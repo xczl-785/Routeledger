@@ -18,14 +18,16 @@ export const createWorkTools = (dependencies) => {
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Owning version ID."),
             title: stringSchema("Todo title."),
-            description: stringSchema("Optional todo description.")
-        }, ["projectId", "versionId", "title"]), { title: "Create Todo", riskLevel: "write" }, async (input) => ({
+            description: stringSchema("Optional todo description."),
+            idempotencyKey: stringSchema("Caller-stable key for persistent create_todo retry across response loss and restart.")
+        }, ["projectId", "versionId", "title", "idempotencyKey"]), { title: "Create Todo", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.createTodo({
                 projectId: input.projectId,
                 versionId: input.versionId,
                 title: input.title,
                 description: input.description,
+                idempotencyKey: input.idempotencyKey,
                 actor
             })
         })),
@@ -33,14 +35,16 @@ export const createWorkTools = (dependencies) => {
             projectId: stringSchema("RouteLedger project ID."),
             todoId: stringSchema("Todo ID."),
             reason: stringSchema("Close reason."),
-            note: stringSchema("Close note.")
-        }, ["projectId", "todoId", "reason", "note"]), { title: "Close Todo", riskLevel: "write", destructive: true }, async (input) => ({
+            note: stringSchema("Close note."),
+            idempotencyKey: stringSchema("Caller-stable key for persistent close_todo retry.")
+        }, ["projectId", "todoId", "reason", "note", "idempotencyKey"]), { title: "Close Todo", riskLevel: "write", destructive: true }, async (input) => ({
             ok: true,
             data: await service.closeTodo({
                 projectId: input.projectId,
                 todoId: input.todoId,
                 reason: input.reason,
                 note: input.note,
+                idempotencyKey: input.idempotencyKey,
                 actor
             })
         })),
@@ -61,8 +65,9 @@ export const createWorkTools = (dependencies) => {
             todoId: stringSchema("Required for mode=todo. Existing Todo ID."),
             reason: stringSchema("Why the work is being deferred."),
             note: stringSchema("Required for mode=todo. Operator note explaining the Todo transition."),
-            reviewTrigger: stringSchema("Optional condition or evidence that should trigger review.")
-        }, ["mode", "projectId", "targetReviewVersionId", "reason"]), { title: "Defer Work", riskLevel: "write" }, withInputAdapter(adaptDeferWorkInput, async (input) => {
+            reviewTrigger: stringSchema("Optional condition or evidence that should trigger review."),
+            idempotencyKey: stringSchema("Caller-stable key for persistent defer_work retry.")
+        }, ["mode", "projectId", "targetReviewVersionId", "reason", "idempotencyKey"]), { title: "Defer Work", riskLevel: "write" }, withInputAdapter(adaptDeferWorkInput, async (input) => {
             const result = input.mode === "new"
                 ? await service.deferWork({
                     mode: "new",
@@ -73,6 +78,7 @@ export const createWorkTools = (dependencies) => {
                     description: input.description,
                     reason: input.reason,
                     reviewTrigger: input.reviewTrigger,
+                    idempotencyKey: input.idempotencyKey,
                     actor
                 })
                 : await service.deferWork({
@@ -83,31 +89,35 @@ export const createWorkTools = (dependencies) => {
                     reason: input.reason,
                     note: input.note,
                     reviewTrigger: input.reviewTrigger,
+                    idempotencyKey: input.idempotencyKey,
                     actor
                 });
-            await appendDebugLog("defer_work", {
-                type: "deferred.created",
-                projectId: input.projectId,
-                versionId: result.deferred.targetReviewVersionId,
-                deferredId: result.deferred.id,
-                payload: {
-                    mode: result.mode,
+            if (!result.idempotency?.replayed)
+                await appendDebugLog("defer_work", {
+                    type: "deferred.created",
+                    projectId: input.projectId,
+                    versionId: result.deferred.targetReviewVersionId,
                     deferredId: result.deferred.id,
-                    status: result.deferred.status,
-                    targetReviewVersionId: result.deferred.targetReviewVersionId
-                }
-            });
+                    payload: {
+                        mode: result.mode,
+                        deferredId: result.deferred.id,
+                        status: result.deferred.status,
+                        targetReviewVersionId: result.deferred.targetReviewVersionId
+                    }
+                });
             return {
                 ok: true,
                 data: result.mode === "todo"
                     ? {
                         mode: result.mode,
                         todo: summarizeTodoForAgent(result.todo),
-                        deferred: summarizeDeferredForAgent(result.deferred)
+                        deferred: summarizeDeferredForAgent(result.deferred),
+                        idempotency: result.idempotency
                     }
                     : {
                         mode: result.mode,
-                        deferred: summarizeDeferredForAgent(result.deferred)
+                        deferred: summarizeDeferredForAgent(result.deferred),
+                        idempotency: result.idempotency
                     }
             };
         })),
@@ -132,36 +142,40 @@ export const createWorkTools = (dependencies) => {
             reason: stringSchema("Reason for this review decision."),
             note: stringSchema("Optional operator note."),
             reviewTrigger: stringSchema("Optional updated review trigger for defer_again."),
-            decisionRef: stringSchema("Decision reference. Required by the service for rejected and out_of_scope outcomes.")
-        }, ["projectId", "deferredId", "action", "reason"]), { title: "Review Deferred", riskLevel: "write", destructive: true }, withInputAdapter(adaptReviewDeferredInput, async (input) => {
+            decisionRef: stringSchema("Decision reference. Required by the service for rejected and out_of_scope outcomes."),
+            idempotencyKey: stringSchema("Caller-stable key for persistent review_deferred retry.")
+        }, ["projectId", "deferredId", "action", "reason", "idempotencyKey"]), { title: "Review Deferred", riskLevel: "write", destructive: true }, withInputAdapter(adaptReviewDeferredInput, async (input) => {
             const result = input.action === "activate"
                 ? await service.reviewDeferred({ ...input, actor })
                 : input.action === "defer_again"
                     ? await service.reviewDeferred({ ...input, actor })
                     : await service.reviewDeferred({ ...input, actor });
-            await appendDebugLog("review_deferred", {
-                type: `deferred.${input.action}`,
-                projectId: input.projectId,
-                deferredId: input.deferredId,
-                payload: {
-                    action: input.action,
+            if (!result.idempotency?.replayed)
+                await appendDebugLog("review_deferred", {
+                    type: `deferred.${input.action}`,
+                    projectId: input.projectId,
                     deferredId: input.deferredId,
-                    status: result.deferred.status,
-                    resolutionOutcome: result.deferred.resolutionOutcome,
-                    targetReviewVersionId: result.deferred.targetReviewVersionId
-                }
-            });
+                    payload: {
+                        action: input.action,
+                        deferredId: input.deferredId,
+                        status: result.deferred.status,
+                        resolutionOutcome: result.deferred.resolutionOutcome,
+                        targetReviewVersionId: result.deferred.targetReviewVersionId
+                    }
+                });
             return {
                 ok: true,
                 data: result.action === "activate"
                     ? {
                         action: result.action,
                         deferred: summarizeDeferredForAgent(result.deferred),
-                        todo: summarizeTodoForAgent(result.todo)
+                        todo: summarizeTodoForAgent(result.todo),
+                        idempotency: result.idempotency
                     }
                     : {
                         action: result.action,
-                        deferred: summarizeDeferredForAgent(result.deferred)
+                        deferred: summarizeDeferredForAgent(result.deferred),
+                        idempotency: result.idempotency
                     }
             };
         })),
@@ -177,8 +191,9 @@ export const createWorkTools = (dependencies) => {
                 enum: ["project", "version"],
                 description: "project applies everywhere; version applies only to versionId."
             },
-            versionId: stringSchema("Required when scopeType=version.")
-        }, ["projectId", "rule", "rationale", "scopeType"]), { title: "Record Constraint", riskLevel: "write" }, withInputAdapter(adaptRecordConstraintInput, async (input) => {
+            versionId: stringSchema("Required when scopeType=version."),
+            idempotencyKey: stringSchema("Caller-stable key for persistent record_constraint retry.")
+        }, ["projectId", "rule", "rationale", "scopeType", "idempotencyKey"]), { title: "Record Constraint", riskLevel: "write" }, withInputAdapter(adaptRecordConstraintInput, async (input) => {
             const result = await service.recordConstraint({
                 projectId: input.projectId,
                 rule: input.rule,
@@ -186,40 +201,50 @@ export const createWorkTools = (dependencies) => {
                 scope: input.scopeType === "project"
                     ? { type: "project" }
                     : { type: "version", versionId: input.versionId },
+                idempotencyKey: input.idempotencyKey,
                 actor
             });
-            await appendDebugLog("record_constraint", {
-                type: "constraint.recorded",
-                projectId: input.projectId,
-                versionId: input.scopeType === "version" ? input.versionId : undefined,
-                constraintId: result.constraint.id,
-                payload: {
+            if (!result.idempotency?.replayed)
+                await appendDebugLog("record_constraint", {
+                    type: "constraint.recorded",
+                    projectId: input.projectId,
+                    versionId: input.scopeType === "version" ? input.versionId : undefined,
                     constraintId: result.constraint.id,
-                    status: result.constraint.status,
-                    scope: result.constraint.scope
-                }
-            });
+                    payload: {
+                        constraintId: result.constraint.id,
+                        status: result.constraint.status,
+                        scope: result.constraint.scope
+                    }
+                });
             return {
                 ok: true,
-                data: { constraint: summarizeConstraintForAgent(result.constraint) }
+                data: {
+                    constraint: summarizeConstraintForAgent(result.constraint),
+                    idempotency: result.idempotency
+                }
             };
         })),
         defineTool("retire_constraint", { what: "Retire an obsolete constraint." }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             constraintId: stringSchema("Constraint ID."),
             reason: stringSchema("Why this constraint no longer applies."),
-            note: stringSchema("Operator note for the retirement audit.")
-        }, ["projectId", "constraintId", "reason", "note"]), { title: "Retire Constraint", riskLevel: "write", destructive: true }, withInputAdapter(adaptRetireConstraintInput, async (input) => {
+            note: stringSchema("Operator note for the retirement audit."),
+            idempotencyKey: stringSchema("Caller-stable key for persistent retire_constraint retry.")
+        }, ["projectId", "constraintId", "reason", "note", "idempotencyKey"]), { title: "Retire Constraint", riskLevel: "write", destructive: true }, withInputAdapter(adaptRetireConstraintInput, async (input) => {
             const result = await service.retireConstraint({ ...input, actor });
-            await appendDebugLog("retire_constraint", {
-                type: "constraint.retired",
-                projectId: input.projectId,
-                constraintId: input.constraintId,
-                payload: { constraintId: result.constraint.id, status: result.constraint.status }
-            });
+            if (!result.idempotency?.replayed)
+                await appendDebugLog("retire_constraint", {
+                    type: "constraint.retired",
+                    projectId: input.projectId,
+                    constraintId: input.constraintId,
+                    payload: { constraintId: result.constraint.id, status: result.constraint.status }
+                });
             return {
                 ok: true,
-                data: { constraint: summarizeConstraintForAgent(result.constraint) }
+                data: {
+                    constraint: summarizeConstraintForAgent(result.constraint),
+                    idempotency: result.idempotency
+                }
             };
         }))
     ];

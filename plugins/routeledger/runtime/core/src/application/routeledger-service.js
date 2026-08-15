@@ -1922,6 +1922,87 @@ export class RouteLedgerService {
         }
         await this.storage.saveProjectAggregate(snapshot);
     }
+    async executeOrdinaryWrite(input) {
+        const snapshot = await requireProject(this.storage, input.projectId);
+        const idempotencyKey = input.idempotencyKey?.trim();
+        if (input.idempotencyKey !== undefined && idempotencyKey === "") {
+            throw new ApplicationError("MISSING_REQUIRED_FIELD", "idempotencyKey must be a non-empty string", { commandName: input.commandName });
+        }
+        const inputDigest = idempotencyKey === undefined
+            ? null
+            : `sha256:${crypto
+                .createHash("sha256")
+                .update(stableStringify({
+                actor: input.actor,
+                commandName: input.commandName,
+                commandPayload: input.commandPayload,
+                projectId: input.projectId
+            }))
+                .digest("hex")}`;
+        const findReceipt = (candidate) => (candidate.ordinaryWriteReceipts ?? []).find((receipt) => receipt.commandName === input.commandName &&
+            receipt.idempotencyKey === idempotencyKey);
+        const replayReceipt = (receipt) => {
+            if (receipt.inputDigest !== inputDigest) {
+                throw new ApplicationError("IDEMPOTENCY_KEY_REUSE_MISMATCH", `idempotencyKey is already bound to a different ${input.commandName} command`, {
+                    commandName: input.commandName,
+                    idempotencyKey,
+                    receiptId: receipt.id
+                });
+            }
+            return {
+                ...structuredClone(receipt.result),
+                idempotency: {
+                    protected: true,
+                    receiptId: receipt.id,
+                    replayed: true
+                }
+            };
+        };
+        const existingReceipt = findReceipt(snapshot);
+        if (existingReceipt !== undefined)
+            return replayReceipt(existingReceipt);
+        const result = input.mutate(snapshot);
+        let receipt;
+        if (idempotencyKey !== undefined && inputDigest !== null) {
+            receipt = {
+                id: this.deps.idGenerator.nextId(),
+                projectId: input.projectId,
+                commandName: input.commandName,
+                idempotencyKey,
+                inputDigest,
+                resultSchemaVersion: 1,
+                result: structuredClone(result),
+                actor: input.actor,
+                committedAt: this.deps.clock.now()
+            };
+            snapshot.ordinaryWriteReceipts = (snapshot.ordinaryWriteReceipts ?? []).concat(receipt);
+        }
+        try {
+            await this.saveProjectAggregate(snapshot);
+        }
+        catch (error) {
+            const errorCode = error !== null && typeof error === "object" && "code" in error
+                ? error.code
+                : undefined;
+            if (receipt === undefined || errorCode !== "STALE_SNAPSHOT")
+                throw error;
+            const refreshed = await requireProject(this.storage, input.projectId);
+            const committedReceipt = findReceipt(refreshed);
+            if (committedReceipt === undefined)
+                throw error;
+            return replayReceipt(committedReceipt);
+        }
+        return receipt === undefined
+            ? result
+            : {
+                ...result,
+                idempotency: {
+                    protected: true,
+                    receiptId: receipt.id,
+                    replayed: false
+                }
+            };
+    }
     async initProject(input) {
         const created = createProject({
             name: input.name,
@@ -1942,7 +2023,8 @@ export class RouteLedgerService {
             assets: [],
             events: created.events,
             pendingOperations: [],
-            approvalArtifacts: []
+            approvalArtifacts: [],
+            ordinaryWriteReceipts: []
         };
         if (created.firstVersion !== null) {
             for (const title of input.firstVersion?.initialTodos ?? []) {
@@ -2031,205 +2113,287 @@ export class RouteLedgerService {
         };
     }
     async createTodo(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        requireVersion(snapshot, input.versionId);
-        const created = createTodoDomain({
+        return this.executeOrdinaryWrite({
             projectId: input.projectId,
-            versionId: input.versionId,
-            title: input.title,
-            description: input.description,
+            commandName: "create_todo",
+            idempotencyKey: input.idempotencyKey,
             actor: input.actor,
-            deps: this.deps
+            commandPayload: {
+                versionId: input.versionId,
+                title: input.title,
+                description: input.description ?? ""
+            },
+            mutate: (snapshot) => {
+                requireVersion(snapshot, input.versionId);
+                const created = createTodoDomain({
+                    projectId: input.projectId,
+                    versionId: input.versionId,
+                    title: input.title,
+                    description: input.description,
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                snapshot.workItems = snapshot.workItems.concat(created.workItem);
+                snapshot.todos = snapshot.todos.concat(created.todo);
+                snapshot.events = snapshot.events.concat(created.events);
+                return created;
+            }
         });
-        snapshot.workItems = snapshot.workItems.concat(created.workItem);
-        snapshot.todos = snapshot.todos.concat(created.todo);
-        snapshot.events = snapshot.events.concat(created.events);
-        await this.saveProjectAggregate(snapshot);
-        return created;
     }
     async closeTodo(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        const todo = requireTodo(snapshot, input.todoId);
-        const workItem = requireWorkItem(snapshot, todo.workItemId);
-        const closed = closeTodoDomain({
-            todo,
-            workItem,
-            reason: input.reason,
-            note: input.note,
+        return this.executeOrdinaryWrite({
+            projectId: input.projectId,
+            commandName: "close_todo",
+            idempotencyKey: input.idempotencyKey,
             actor: input.actor,
-            deps: this.deps
+            commandPayload: {
+                todoId: input.todoId,
+                reason: input.reason,
+                note: input.note
+            },
+            mutate: (snapshot) => {
+                const todo = requireTodo(snapshot, input.todoId);
+                const workItem = requireWorkItem(snapshot, todo.workItemId);
+                const closed = closeTodoDomain({
+                    todo,
+                    workItem,
+                    reason: input.reason,
+                    note: input.note,
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                snapshot.todos = replaceRecord(snapshot.todos, closed.todo);
+                snapshot.workItems = replaceRecord(snapshot.workItems, closed.workItem);
+                snapshot.events = snapshot.events.concat(closed.events);
+                return closed;
+            }
         });
-        snapshot.todos = replaceRecord(snapshot.todos, closed.todo);
-        snapshot.workItems = replaceRecord(snapshot.workItems, closed.workItem);
-        snapshot.events = snapshot.events.concat(closed.events);
-        await this.saveProjectAggregate(snapshot);
-        return closed;
     }
     async deferWork(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        if (input.mode === "new") {
-            const originVersionId = input.originVersionId ?? snapshot.project.currentVersionId;
-            if (originVersionId === null) {
-                throw new ApplicationError("VERSION_NOT_FOUND", "new deferred work 需要 current 或 origin version", {
-                    projectId: input.projectId
-                });
-            }
-            const originVersion = requireVersion(snapshot, originVersionId);
-            assertDeferredRouteTarget(originVersion, input.targetReviewVersionId, snapshot.versions);
-            const deferred = deferWorkWorkflow({
-                mode: "new",
-                projectId: input.projectId,
-                currentVersionId: originVersion.id,
-                targetReviewVersionId: input.targetReviewVersionId,
-                title: input.title,
-                description: input.description,
-                reason: input.reason,
-                reviewTrigger: input.reviewTrigger,
-                actor: input.actor,
-                deps: this.deps
-            });
-            snapshot.workItems = appendRecord(snapshot.workItems, deferred.workItem);
-            snapshot.deferredItems = appendRecord(snapshot.deferredItems, deferred.deferred);
-            snapshot.events = snapshot.events.concat(deferred.events);
-            await this.saveProjectAggregate(snapshot);
-            return deferred;
-        }
-        const todo = requireTodo(snapshot, input.todoId);
-        const workItem = requireWorkItem(snapshot, todo.workItemId);
-        const originVersion = requireVersion(snapshot, todo.versionId);
-        assertDeferredRouteTarget(originVersion, input.targetReviewVersionId, snapshot.versions);
-        const deferred = deferWorkWorkflow({
-            mode: "todo",
-            resolvedRecords: {
-                todo,
-                workItem
-            },
-            targetReviewVersionId: input.targetReviewVersionId,
-            reason: input.reason,
-            note: input.note,
-            reviewTrigger: input.reviewTrigger,
+        return this.executeOrdinaryWrite({
+            projectId: input.projectId,
+            commandName: "defer_work",
+            idempotencyKey: input.idempotencyKey,
             actor: input.actor,
-            deps: this.deps
+            commandPayload: input.mode === "new"
+                ? {
+                    mode: input.mode,
+                    originVersionId: input.originVersionId,
+                    targetReviewVersionId: input.targetReviewVersionId,
+                    title: input.title,
+                    description: input.description,
+                    reason: input.reason,
+                    reviewTrigger: input.reviewTrigger
+                }
+                : {
+                    mode: input.mode,
+                    todoId: input.todoId,
+                    targetReviewVersionId: input.targetReviewVersionId,
+                    reason: input.reason,
+                    note: input.note,
+                    reviewTrigger: input.reviewTrigger
+                },
+            mutate: (snapshot) => {
+                if (input.mode === "new") {
+                    const originVersionId = input.originVersionId ?? snapshot.project.currentVersionId;
+                    if (originVersionId === null) {
+                        throw new ApplicationError("VERSION_NOT_FOUND", "new deferred work 需要 current 或 origin version", { projectId: input.projectId });
+                    }
+                    const originVersion = requireVersion(snapshot, originVersionId);
+                    assertDeferredRouteTarget(originVersion, input.targetReviewVersionId, snapshot.versions);
+                    const deferred = deferWorkWorkflow({
+                        mode: "new",
+                        projectId: input.projectId,
+                        currentVersionId: originVersion.id,
+                        targetReviewVersionId: input.targetReviewVersionId,
+                        title: input.title,
+                        description: input.description,
+                        reason: input.reason,
+                        reviewTrigger: input.reviewTrigger,
+                        actor: input.actor,
+                        deps: this.deps
+                    });
+                    snapshot.workItems = appendRecord(snapshot.workItems, deferred.workItem);
+                    snapshot.deferredItems = appendRecord(snapshot.deferredItems, deferred.deferred);
+                    snapshot.events = snapshot.events.concat(deferred.events);
+                    return deferred;
+                }
+                const todo = requireTodo(snapshot, input.todoId);
+                const workItem = requireWorkItem(snapshot, todo.workItemId);
+                const originVersion = requireVersion(snapshot, todo.versionId);
+                assertDeferredRouteTarget(originVersion, input.targetReviewVersionId, snapshot.versions);
+                const deferred = deferWorkWorkflow({
+                    mode: "todo",
+                    resolvedRecords: { todo, workItem },
+                    targetReviewVersionId: input.targetReviewVersionId,
+                    reason: input.reason,
+                    note: input.note,
+                    reviewTrigger: input.reviewTrigger,
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                if (deferred.mode !== "todo") {
+                    throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "todo defer workflow 返回了错误 mode");
+                }
+                snapshot.todos = replaceRecord(snapshot.todos, deferred.todo);
+                snapshot.workItems = replaceRecord(snapshot.workItems, deferred.workItem);
+                snapshot.deferredItems = appendRecord(snapshot.deferredItems, deferred.deferred);
+                snapshot.events = snapshot.events.concat(deferred.events);
+                return deferred;
+            }
         });
-        if (deferred.mode !== "todo") {
-            throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "todo defer workflow 返回了错误 mode");
-        }
-        snapshot.todos = replaceRecord(snapshot.todos, deferred.todo);
-        snapshot.workItems = replaceRecord(snapshot.workItems, deferred.workItem);
-        snapshot.deferredItems = appendRecord(snapshot.deferredItems, deferred.deferred);
-        snapshot.events = snapshot.events.concat(deferred.events);
-        await this.saveProjectAggregate(snapshot);
-        return deferred;
     }
     async reviewDeferred(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        const deferred = requireDeferred(snapshot, input.deferredId);
-        const workItem = requireDeferredActiveWorkItem(snapshot, deferred);
-        if (input.action === "activate") {
-            if (input.targetVersionId !== deferred.targetReviewVersionId) {
-                throw new ApplicationError("DEFERRED_ACTIVATE_TARGET_MISMATCH", "activate 必须使用 Deferred 当前 target review Version；换目标请先 defer_again", {
-                    projectId: input.projectId,
-                    deferredId: deferred.id,
-                    expectedTargetVersionId: deferred.targetReviewVersionId,
-                    actualTargetVersionId: input.targetVersionId
-                });
-            }
-            const targetVersion = requireVersion(snapshot, input.targetVersionId);
-            const reviewed = reviewDeferredWorkflow({
-                action: "activate",
-                resolvedRecords: {
-                    deferred,
-                    workItem
-                },
-                targetVersionId: targetVersion.id,
-                reason: input.reason,
-                note: input.note,
-                actor: input.actor,
-                deps: this.deps
-            });
-            if (reviewed.action !== "activate") {
-                throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "activate deferred workflow 返回了错误 action");
-            }
-            snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
-            snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
-            snapshot.todos = appendRecord(snapshot.todos, reviewed.todo);
-            snapshot.events = snapshot.events.concat(reviewed.events);
-            await this.saveProjectAggregate(snapshot);
-            return reviewed;
-        }
-        if (input.action === "defer_again") {
-            const currentReviewVersion = requireVersion(snapshot, deferred.targetReviewVersionId);
-            assertDeferredRouteTarget(currentReviewVersion, input.targetReviewVersionId, snapshot.versions);
-            const reviewed = reviewDeferredWorkflow({
-                action: "defer_again",
-                resolvedRecords: {
-                    deferred,
-                    workItem
-                },
-                targetReviewVersionId: input.targetReviewVersionId,
-                reason: input.reason,
-                note: input.note,
-                reviewTrigger: input.reviewTrigger,
-                actor: input.actor,
-                deps: this.deps
-            });
-            snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
-            snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
-            snapshot.events = snapshot.events.concat(reviewed.events);
-            await this.saveProjectAggregate(snapshot);
-            return reviewed;
-        }
-        const reviewed = reviewDeferredWorkflow({
-            action: "resolve",
-            resolvedRecords: {
-                deferred,
-                workItem
-            },
-            outcome: input.outcome,
-            reason: input.reason,
-            note: input.note,
-            decisionRef: input.decisionRef,
+        return this.executeOrdinaryWrite({
+            projectId: input.projectId,
+            commandName: "review_deferred",
+            idempotencyKey: input.idempotencyKey,
             actor: input.actor,
-            deps: this.deps
+            commandPayload: input.action === "activate"
+                ? {
+                    action: input.action,
+                    deferredId: input.deferredId,
+                    targetVersionId: input.targetVersionId,
+                    reason: input.reason,
+                    note: input.note
+                }
+                : input.action === "defer_again"
+                    ? {
+                        action: input.action,
+                        deferredId: input.deferredId,
+                        targetReviewVersionId: input.targetReviewVersionId,
+                        reason: input.reason,
+                        note: input.note,
+                        reviewTrigger: input.reviewTrigger
+                    }
+                    : {
+                        action: input.action,
+                        deferredId: input.deferredId,
+                        outcome: input.outcome,
+                        reason: input.reason,
+                        note: input.note,
+                        decisionRef: input.decisionRef
+                    },
+            mutate: (snapshot) => {
+                const deferred = requireDeferred(snapshot, input.deferredId);
+                const workItem = requireDeferredActiveWorkItem(snapshot, deferred);
+                if (input.action === "activate") {
+                    if (input.targetVersionId !== deferred.targetReviewVersionId) {
+                        throw new ApplicationError("DEFERRED_ACTIVATE_TARGET_MISMATCH", "activate 必须使用 Deferred 当前 target review Version；换目标请先 defer_again", {
+                            projectId: input.projectId,
+                            deferredId: deferred.id,
+                            expectedTargetVersionId: deferred.targetReviewVersionId,
+                            actualTargetVersionId: input.targetVersionId
+                        });
+                    }
+                    const targetVersion = requireVersion(snapshot, input.targetVersionId);
+                    const reviewed = reviewDeferredWorkflow({
+                        action: "activate",
+                        resolvedRecords: { deferred, workItem },
+                        targetVersionId: targetVersion.id,
+                        reason: input.reason,
+                        note: input.note,
+                        actor: input.actor,
+                        deps: this.deps
+                    });
+                    if (reviewed.action !== "activate") {
+                        throw new ApplicationError("ACTION_NOT_IMPLEMENTED", "activate deferred workflow 返回了错误 action");
+                    }
+                    snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
+                    snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
+                    snapshot.todos = appendRecord(snapshot.todos, reviewed.todo);
+                    snapshot.events = snapshot.events.concat(reviewed.events);
+                    return reviewed;
+                }
+                if (input.action === "defer_again") {
+                    const currentReviewVersion = requireVersion(snapshot, deferred.targetReviewVersionId);
+                    assertDeferredRouteTarget(currentReviewVersion, input.targetReviewVersionId, snapshot.versions);
+                    const reviewed = reviewDeferredWorkflow({
+                        action: "defer_again",
+                        resolvedRecords: { deferred, workItem },
+                        targetReviewVersionId: input.targetReviewVersionId,
+                        reason: input.reason,
+                        note: input.note,
+                        reviewTrigger: input.reviewTrigger,
+                        actor: input.actor,
+                        deps: this.deps
+                    });
+                    snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
+                    snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
+                    snapshot.events = snapshot.events.concat(reviewed.events);
+                    return reviewed;
+                }
+                const reviewed = reviewDeferredWorkflow({
+                    action: "resolve",
+                    resolvedRecords: { deferred, workItem },
+                    outcome: input.outcome,
+                    reason: input.reason,
+                    note: input.note,
+                    decisionRef: input.decisionRef,
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
+                snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
+                snapshot.events = snapshot.events.concat(reviewed.events);
+                return reviewed;
+            }
         });
-        snapshot.deferredItems = replaceRecord(snapshot.deferredItems, reviewed.deferred);
-        snapshot.workItems = replaceRecord(snapshot.workItems, reviewed.workItem);
-        snapshot.events = snapshot.events.concat(reviewed.events);
-        await this.saveProjectAggregate(snapshot);
-        return reviewed;
     }
     async recordConstraint(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        if (input.scope.type === "version") {
-            requireVersion(snapshot, input.scope.versionId);
-        }
-        const recorded = recordConstraintWorkflow({
+        return this.executeOrdinaryWrite({
             projectId: input.projectId,
-            rule: input.rule,
-            rationale: input.rationale,
-            scope: input.scope,
+            commandName: "record_constraint",
+            idempotencyKey: input.idempotencyKey,
             actor: input.actor,
-            deps: this.deps
+            commandPayload: {
+                rule: input.rule,
+                rationale: input.rationale,
+                scope: input.scope
+            },
+            mutate: (snapshot) => {
+                if (input.scope.type === "version") {
+                    requireVersion(snapshot, input.scope.versionId);
+                }
+                const recorded = recordConstraintWorkflow({
+                    projectId: input.projectId,
+                    rule: input.rule,
+                    rationale: input.rationale,
+                    scope: input.scope,
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                snapshot.constraints = appendRecord(snapshot.constraints, recorded.constraint);
+                snapshot.events = snapshot.events.concat(recorded.events);
+                return recorded;
+            }
         });
-        snapshot.constraints = appendRecord(snapshot.constraints, recorded.constraint);
-        snapshot.events = snapshot.events.concat(recorded.events);
-        await this.saveProjectAggregate(snapshot);
-        return recorded;
     }
     async retireConstraint(input) {
-        const snapshot = await requireProject(this.storage, input.projectId);
-        const constraint = requireConstraint(snapshot, input.constraintId);
-        const retired = retireRecordedConstraint({
-            constraint,
-            reason: input.reason,
-            note: input.note,
+        return this.executeOrdinaryWrite({
+            projectId: input.projectId,
+            commandName: "retire_constraint",
+            idempotencyKey: input.idempotencyKey,
             actor: input.actor,
-            deps: this.deps
+            commandPayload: {
+                constraintId: input.constraintId,
+                reason: input.reason,
+                note: input.note
+            },
+            mutate: (snapshot) => {
+                const constraint = requireConstraint(snapshot, input.constraintId);
+                const retired = retireRecordedConstraint({
+                    constraint,
+                    reason: input.reason,
+                    note: input.note,
+                    actor: input.actor,
+                    deps: this.deps
+                });
+                snapshot.constraints = replaceRecord(snapshot.constraints, retired.constraint);
+                snapshot.events = snapshot.events.concat(retired.events);
+                return retired;
+            }
         });
-        snapshot.constraints = replaceRecord(snapshot.constraints, retired.constraint);
-        snapshot.events = snapshot.events.concat(retired.events);
-        await this.saveProjectAggregate(snapshot);
-        return retired;
     }
     async transitionVersion(input) {
         const mode = assertRouteOperationWorkflowMode(input.mode);
