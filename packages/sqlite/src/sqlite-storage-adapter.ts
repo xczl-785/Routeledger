@@ -7,6 +7,7 @@ import type {
   AssetPathHistoryEntry,
   Constraint,
   DeferredItem,
+  OrdinaryWriteReceipt,
   PendingOperation,
   Project,
   ProjectAggregateSnapshot,
@@ -722,6 +723,20 @@ interface ApprovalArtifactRow {
   authorization_record_json: string | null;
 }
 
+interface OrdinaryWriteReceiptRow {
+  id: string;
+  project_id: string;
+  command_name: OrdinaryWriteReceipt["commandName"];
+  idempotency_key: string;
+  input_digest: string;
+  result_schema_version: 1;
+  result_json: string;
+  actor_id: string;
+  actor_type: Actor["type"];
+  actor_display_name: string | null;
+  committed_at: string;
+}
+
 type ApprovalArtifactAuthorizationProvenance = Pick<
   ApprovalArtifact,
   | "authorizationId"
@@ -1345,6 +1360,43 @@ export class SQLiteStorageAdapter implements StoragePort {
         })
       );
 
+    const ordinaryWriteReceipts = this.db
+      .prepare<string[], OrdinaryWriteReceiptRow>(
+        `SELECT
+          id,
+          project_id,
+          command_name,
+          idempotency_key,
+          input_digest,
+          result_schema_version,
+          result_json,
+          actor_id,
+          actor_type,
+          actor_display_name,
+          committed_at
+        FROM ordinary_write_receipts
+        WHERE project_id = ?
+        ORDER BY committed_at ASC, id ASC`
+      )
+      .all(projectId)
+      .map(
+        (row): OrdinaryWriteReceipt => ({
+          id: row.id,
+          projectId: row.project_id,
+          commandName: row.command_name,
+          idempotencyKey: row.idempotency_key,
+          inputDigest: row.input_digest,
+          resultSchemaVersion: row.result_schema_version,
+          result: parseJson<Record<string, unknown>>(row.result_json),
+          actor: {
+            id: row.actor_id,
+            type: row.actor_type,
+            displayName: row.actor_display_name ?? undefined
+          },
+          committedAt: row.committed_at
+        })
+      );
+
     const snapshot: ProjectAggregateSnapshot = {
       project,
       versions,
@@ -1356,7 +1408,8 @@ export class SQLiteStorageAdapter implements StoragePort {
       assets,
       events,
       pendingOperations,
-      approvalArtifacts
+      approvalArtifacts,
+      ordinaryWriteReceipts
     };
 
     assertCompleteAggregateSnapshot(snapshot, null);
@@ -1432,6 +1485,9 @@ export class SQLiteStorageAdapter implements StoragePort {
     );
     const deleteApprovalArtifacts = this.db.prepare(
       "DELETE FROM approval_artifacts WHERE project_id = ?"
+    );
+    const deleteOrdinaryWriteReceipts = this.db.prepare(
+      "DELETE FROM ordinary_write_receipts WHERE project_id = ?"
     );
 
     const insertVersion = this.db.prepare(`
@@ -1850,6 +1906,36 @@ export class SQLiteStorageAdapter implements StoragePort {
       )
     `);
 
+    const insertOrdinaryWriteReceipt = this.db.prepare(`
+      INSERT INTO ordinary_write_receipts (
+        id,
+        schema_version,
+        project_id,
+        command_name,
+        idempotency_key,
+        input_digest,
+        result_schema_version,
+        result_json,
+        actor_id,
+        actor_type,
+        actor_display_name,
+        committed_at
+      ) VALUES (
+        @id,
+        @schema_version,
+        @project_id,
+        @command_name,
+        @idempotency_key,
+        @input_digest,
+        @result_schema_version,
+        @result_json,
+        @actor_id,
+        @actor_type,
+        @actor_display_name,
+        @committed_at
+      )
+    `);
+
     // D1 keeps saveProjectAggregate as a full-project replace inside one transaction.
     // Callers must pass the complete aggregate snapshot instead of a partial patch.
     const persistCompleteAggregate = this.db.transaction((aggregate: ProjectAggregateSnapshot) => {
@@ -1880,6 +1966,7 @@ export class SQLiteStorageAdapter implements StoragePort {
       deleteVersions.run(aggregate.project.id);
       deleteApprovalArtifacts.run(aggregate.project.id);
       deletePendingOperations.run(aggregate.project.id);
+      deleteOrdinaryWriteReceipts.run(aggregate.project.id);
 
       for (const version of aggregate.versions) {
         insertVersion.run({
@@ -2112,6 +2199,23 @@ export class SQLiteStorageAdapter implements StoragePort {
             getApprovalArtifactAuthorizationProvenance(approvalArtifact) === null
               ? null
               : serializeJson(getApprovalArtifactAuthorizationProvenance(approvalArtifact))
+        });
+      }
+
+      for (const receipt of aggregate.ordinaryWriteReceipts ?? []) {
+        insertOrdinaryWriteReceipt.run({
+          id: receipt.id,
+          schema_version: SCHEMA_VERSION,
+          project_id: receipt.projectId,
+          command_name: receipt.commandName,
+          idempotency_key: receipt.idempotencyKey,
+          input_digest: receipt.inputDigest,
+          result_schema_version: receipt.resultSchemaVersion,
+          result_json: serializeJson(receipt.result),
+          actor_id: receipt.actor.id,
+          actor_type: receipt.actor.type,
+          actor_display_name: receipt.actor.displayName ?? null,
+          committed_at: receipt.committedAt
         });
       }
     });

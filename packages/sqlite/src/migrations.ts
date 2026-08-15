@@ -986,6 +986,27 @@ SET authorization_record_json = json_object(
 WHERE authorization_record_json IS NOT NULL;
 `;
 
+const ORDINARY_WRITE_RECEIPTS_SQL = `
+CREATE TABLE ordinary_write_receipts (
+  id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  command_name TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  input_digest TEXT NOT NULL,
+  result_schema_version INTEGER NOT NULL,
+  result_json TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_display_name TEXT,
+  committed_at TEXT NOT NULL,
+  UNIQUE(project_id, command_name, idempotency_key)
+);
+
+CREATE INDEX idx_ordinary_write_receipts_project_committed
+  ON ordinary_write_receipts(project_id, committed_at, id);
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -1018,6 +1039,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0008_exact_authorization_record",
     sql: EXACT_AUTHORIZATION_RECORD_SQL
+  },
+  {
+    id: "0009_ordinary_write_receipts",
+    sql: ORDINARY_WRITE_RECEIPTS_SQL
   }
 ];
 

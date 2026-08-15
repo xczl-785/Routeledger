@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import type { Actor } from "../domain/actor.js";
+import type {
+  IdempotencyResultMetadata,
+  OrdinaryWriteReceipt
+} from "./ordinary-write-idempotency.js";
 import type { Constraint, ConstraintScope } from "../domain/constraint.js";
 import type { DeferredItem } from "../domain/deferred-item.js";
 import {
@@ -280,7 +284,16 @@ export interface CreateTodoCommandInput {
   versionId: string;
   title: string;
   description?: string;
+  /** W1 protected path. MCP makes this mandatory for all ordinary writes in W2. */
+  idempotencyKey?: string;
   actor: Actor;
+}
+
+export interface CreateTodoCommandResult {
+  todo: Todo;
+  workItem: WorkItem;
+  events: TransitionEvent[];
+  idempotency?: IdempotencyResultMetadata;
 }
 
 export interface CloseTodoCommandInput {
@@ -3461,7 +3474,8 @@ export class RouteLedgerService {
       assets: [],
       events: created.events,
       pendingOperations: [],
-      approvalArtifacts: []
+      approvalArtifacts: [],
+      ordinaryWriteReceipts: []
     };
 
     if (created.firstVersion !== null) {
@@ -3576,9 +3590,61 @@ export class RouteLedgerService {
     };
   }
 
-  async createTodo(input: CreateTodoCommandInput) {
+  async createTodo(input: CreateTodoCommandInput): Promise<CreateTodoCommandResult> {
     const snapshot = await requireProject(this.storage, input.projectId);
     requireVersion(snapshot, input.versionId);
+    const idempotencyKey = input.idempotencyKey?.trim();
+    if (input.idempotencyKey !== undefined && idempotencyKey === "") {
+      throw new ApplicationError(
+        "MISSING_REQUIRED_FIELD",
+        "idempotencyKey must be a non-empty string",
+        { commandName: "create_todo" }
+      );
+    }
+    const inputDigest =
+      idempotencyKey === undefined
+        ? null
+        : `sha256:${crypto
+            .createHash("sha256")
+            .update(
+              stableStringify({
+                actor: input.actor,
+                description: input.description ?? "",
+                projectId: input.projectId,
+                title: input.title,
+                versionId: input.versionId
+              })
+            )
+            .digest("hex")}`;
+    const existingReceipt = (snapshot.ordinaryWriteReceipts ?? []).find(
+      (receipt) =>
+        receipt.commandName === "create_todo" &&
+        receipt.idempotencyKey === idempotencyKey
+    );
+    if (existingReceipt !== undefined) {
+      if (existingReceipt.inputDigest !== inputDigest) {
+        throw new ApplicationError(
+          "IDEMPOTENCY_KEY_REUSE_MISMATCH",
+          "idempotencyKey is already bound to a different create_todo command",
+          {
+            commandName: "create_todo",
+            idempotencyKey,
+            receiptId: existingReceipt.id
+          }
+        );
+      }
+      return {
+        ...(structuredClone(existingReceipt.result) as Omit<
+          CreateTodoCommandResult,
+          "idempotency"
+        >),
+        idempotency: {
+          protected: true,
+          receiptId: existingReceipt.id,
+          replayed: true
+        }
+      };
+    }
     const created = createTodoDomain({
       projectId: input.projectId,
       versionId: input.versionId,
@@ -3591,9 +3657,73 @@ export class RouteLedgerService {
     snapshot.workItems = snapshot.workItems.concat(created.workItem);
     snapshot.todos = snapshot.todos.concat(created.todo);
     snapshot.events = snapshot.events.concat(created.events);
-    await this.saveProjectAggregate(snapshot);
+    let receipt: OrdinaryWriteReceipt | undefined;
+    if (idempotencyKey !== undefined && inputDigest !== null) {
+      receipt = {
+        id: this.deps.idGenerator.nextId(),
+        projectId: input.projectId,
+        commandName: "create_todo",
+        idempotencyKey,
+        inputDigest,
+        resultSchemaVersion: 1,
+        result: structuredClone(created) as unknown as Record<string, unknown>,
+        actor: input.actor,
+        committedAt: this.deps.clock.now()
+      };
+      snapshot.ordinaryWriteReceipts = (snapshot.ordinaryWriteReceipts ?? []).concat(
+        receipt
+      );
+    }
+    try {
+      await this.saveProjectAggregate(snapshot);
+    } catch (error) {
+      const errorCode =
+        error !== null && typeof error === "object" && "code" in error
+          ? (error as { code?: unknown }).code
+          : undefined;
+      if (receipt === undefined || errorCode !== "STALE_SNAPSHOT") throw error;
 
-    return created;
+      const refreshed = await requireProject(this.storage, input.projectId);
+      const committedReceipt = (refreshed.ordinaryWriteReceipts ?? []).find(
+        (candidate) =>
+          candidate.commandName === "create_todo" &&
+          candidate.idempotencyKey === idempotencyKey
+      );
+      if (committedReceipt === undefined) throw error;
+      if (committedReceipt.inputDigest !== inputDigest) {
+        throw new ApplicationError(
+          "IDEMPOTENCY_KEY_REUSE_MISMATCH",
+          "idempotencyKey was concurrently committed for a different create_todo command",
+          {
+            commandName: "create_todo",
+            idempotencyKey,
+            receiptId: committedReceipt.id
+          }
+        );
+      }
+      return {
+        ...(structuredClone(committedReceipt.result) as Omit<
+          CreateTodoCommandResult,
+          "idempotency"
+        >),
+        idempotency: {
+          protected: true,
+          receiptId: committedReceipt.id,
+          replayed: true
+        }
+      };
+    }
+
+    return receipt === undefined
+      ? created
+      : {
+          ...created,
+          idempotency: {
+            protected: true,
+            receiptId: receipt.id,
+            replayed: false
+          }
+        };
   }
 
   async closeTodo(input: CloseTodoCommandInput) {

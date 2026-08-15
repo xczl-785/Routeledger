@@ -55,7 +55,17 @@ const asCurrentSchemaDocuments = (
   documents: RouteLedgerJsonDocument[]
 ): RouteLedgerJsonDocument[] => documents.map((document) => {
   const value = JSON.parse(document.content) as Record<string, unknown>;
-  if (typeof value.schema_version === "number") value.schema_version = 2;
+  if (typeof value.schema_version === "number") value.schema_version = 3;
+  if (
+    document.path === ".routeledger/schema/routeledger.schema.json" &&
+    Array.isArray(value.documents)
+  ) {
+    value.documents.push({
+      kind: "ordinary_write_receipt",
+      path_pattern:
+        ".routeledger/ordinary_write_receipts/<id-prefix>/<id>.json"
+    });
+  }
   return { ...document, content: `${JSON.stringify(value, null, 2)}\n` };
 });
 
@@ -74,7 +84,7 @@ const collectObjectKeysDeep = (value: unknown): string[] => {
   return [];
 };
 
-const normalizeSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregateSnapshot => ({
+const normalizeSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregateSnapshot => JSON.parse(JSON.stringify({
   ...snapshot,
   versions: [...snapshot.versions].sort((left, right) => left.id.localeCompare(right.id, "en")),
   workItems: [...snapshot.workItems].sort((left, right) => left.id.localeCompare(right.id, "en")),
@@ -93,8 +103,11 @@ const normalizeSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregate
   ),
   approvalArtifacts: [...snapshot.approvalArtifacts].sort((left, right) =>
     left.id.localeCompare(right.id, "en")
+  ),
+  ordinaryWriteReceipts: [...(snapshot.ordinaryWriteReceipts ?? [])].sort((left, right) =>
+    left.id.localeCompare(right.id, "en")
   )
-});
+})) as ProjectAggregateSnapshot;
 
 class MemoryStorageAdapter implements StoragePort {
   private snapshots = new Map<string, ProjectAggregateSnapshot>();

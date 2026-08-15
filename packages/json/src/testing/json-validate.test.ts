@@ -146,6 +146,50 @@ const createSiblingGroupingEdgeCaseDocuments = (): RouteLedgerJsonDocument[] =>
   });
 
 describe("@routeledger/json validate", () => {
+  it("validates ordinary write receipt shape, project scope, and key uniqueness", () => {
+    const snapshot = createJsonCodecSnapshot();
+    const receipt = {
+      id: "ordinary-receipt-1",
+      projectId: snapshot.project.id,
+      commandName: "create_todo" as const,
+      idempotencyKey: "create-once",
+      inputDigest: "sha256:digest-1",
+      resultSchemaVersion: 1 as const,
+      result: { todo: { id: "todo-1" } },
+      actor: snapshot.project.createdBy,
+      committedAt: "2026-06-27T01:20:00.000Z"
+    };
+    snapshot.ordinaryWriteReceipts = [receipt];
+
+    expect(validateProjectAggregateSnapshot(snapshot).issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ORDINARY_WRITE_RECEIPT_INVALID" }),
+        expect.objectContaining({ code: "ORDINARY_WRITE_RECEIPT_KEY_DUPLICATE" })
+      ])
+    );
+
+    snapshot.ordinaryWriteReceipts.push({
+      ...receipt,
+      id: "ordinary-receipt-2"
+    });
+    expect(validateProjectAggregateSnapshot(snapshot).issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ORDINARY_WRITE_RECEIPT_KEY_DUPLICATE" })
+      ])
+    );
+
+    snapshot.ordinaryWriteReceipts = [
+      { ...receipt, inputDigest: "" },
+      { ...receipt, id: "ordinary-receipt-foreign", projectId: "foreign-project" }
+    ];
+    expect(validateProjectAggregateSnapshot(snapshot).issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ORDINARY_WRITE_RECEIPT_INVALID" }),
+        expect.objectContaining({ code: "PROJECT_SCOPE_ID_MISMATCH" })
+      ])
+    );
+  });
+
   it("rejects partial trusted authorization provenance while preserving legacy absence", () => {
     const snapshot = createJsonCodecSnapshot();
     expect(validateProjectAggregateSnapshot(snapshot).issues).not.toEqual(

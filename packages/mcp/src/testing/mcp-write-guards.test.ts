@@ -7,6 +7,69 @@ import { createRouteLedgerMcpRegistry } from "../index.js";
 
 import { createTempProjectRoot, getDefaultDataRoot, getDefaultJsonProjectPath, createMismatchedExpectedRouteLedgerRoot, createRegistry, cleanupProjectRoot, expectRouteLedgerRootGuardError, createApprovedVersionProposal } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
+  it("create_todo persistently replays through a restarted JSON-only MCP registry", async () => {
+    const projectRoot = createTempProjectRoot();
+    let registry = createRegistry(projectRoot, { runtimeProfile: "json-only" });
+
+    try {
+      const initialized = await registry.invoke("init_project", {
+        name: "Persistent MCP idempotency",
+        contentLocale: "en",
+        firstVersion: {
+          title: "Initial Version",
+          description: "",
+          initialTodos: []
+        },
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(initialized.ok).toBe(true);
+      const data = initialized.data as {
+        project: { id: string };
+        firstVersion: { id: string };
+      };
+      const input = {
+        projectId: data.project.id,
+        versionId: data.firstVersion.id,
+        title: "Create once through MCP",
+        idempotencyKey: "mcp-create-todo-response-loss",
+        expectedRouteLedgerRoot: projectRoot
+      };
+      const first = await registry.invoke("create_todo", input);
+      expect(first).toMatchObject({
+        ok: true,
+        data: { idempotency: { protected: true, replayed: false } }
+      });
+      registry.close();
+
+      registry = createRegistry(projectRoot, { runtimeProfile: "json-only" });
+      const replay = await registry.invoke("create_todo", input);
+      expect(replay, JSON.stringify(replay, null, 2)).toMatchObject({
+        ok: true,
+        data: {
+          todo: { id: (first.data as { todo: { id: string } }).todo.id },
+          idempotency: {
+            protected: true,
+            receiptId: (first.data as { idempotency: { receiptId: string } })
+              .idempotency.receiptId,
+            replayed: true
+          }
+        }
+      });
+
+      const conflict = await registry.invoke("create_todo", {
+        ...input,
+        title: "Different input"
+      });
+      expect(conflict).toMatchObject({
+        ok: false,
+        error: { code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("write tools reject invalid relative expectedRouteLedgerRoot before mutating state", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);

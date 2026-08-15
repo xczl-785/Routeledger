@@ -20,6 +20,7 @@ import type {
   GateSnapshot,
   L3ActionType,
   OperationDigest,
+  OrdinaryWriteReceipt,
   PendingOperation,
   PendingOperationPayload,
   PendingOperationStatus,
@@ -423,6 +424,20 @@ interface JsonApprovalArtifact {
   authorization_record?: JsonApprovalAuthorizationRecord;
 }
 
+interface JsonOrdinaryWriteReceipt {
+  schema_version: number;
+  kind: "ordinary_write_receipt";
+  id: string;
+  project_id: string;
+  command_name: OrdinaryWriteReceipt["commandName"];
+  idempotency_key: string;
+  input_digest: string;
+  result_schema_version: 1;
+  result: Record<string, JsonValue>;
+  actor: JsonActor;
+  committed_at: string;
+}
+
 type JsonApprovalAuthorizationRecord =
   | {
       kind: "exact_v2";
@@ -470,7 +485,8 @@ type JsonDocumentPayload =
   | JsonAsset
   | JsonTransitionEvent
   | JsonPendingOperation
-  | JsonApprovalArtifact;
+  | JsonApprovalArtifact
+  | JsonOrdinaryWriteReceipt;
 
 const compareByString = (left: string, right: string): number => left.localeCompare(right, "en");
 
@@ -1134,6 +1150,9 @@ const getPendingOperationDocumentPath = (id: string): string =>
 const getApprovalArtifactDocumentPath = (id: string): string =>
   `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
 
+const getOrdinaryWriteReceiptDocumentPath = (id: string): string =>
+  `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
+
 const getEventDocumentPath = (event: Pick<TransitionEvent, "id" | "createdAt">): string => {
   const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
 
@@ -1635,6 +1654,38 @@ const decodeTransitionEvent = (event: JsonTransitionEvent): TransitionEvent => (
   metadata: decodeMetadataPayload(event.metadata)
 });
 
+const encodeOrdinaryWriteReceipt = (
+  receipt: OrdinaryWriteReceipt
+): JsonOrdinaryWriteReceipt => ({
+  schema_version: ROUTELEDGER_SCHEMA_VERSION,
+  kind: "ordinary_write_receipt",
+  id: receipt.id,
+  project_id: receipt.projectId,
+  command_name: receipt.commandName,
+  idempotency_key: receipt.idempotencyKey,
+  input_digest: receipt.inputDigest,
+  result_schema_version: receipt.resultSchemaVersion,
+  // The result is an opaque, versioned application snapshot. Preserve its keys
+  // exactly instead of applying the metadata snake/camel-case transform.
+  result: sortJsonValue(receipt.result) as Record<string, JsonValue>,
+  actor: encodeActor(receipt.actor),
+  committed_at: receipt.committedAt
+});
+
+const decodeOrdinaryWriteReceipt = (
+  receipt: JsonOrdinaryWriteReceipt
+): OrdinaryWriteReceipt => ({
+  id: receipt.id,
+  projectId: receipt.project_id,
+  commandName: receipt.command_name,
+  idempotencyKey: receipt.idempotency_key,
+  inputDigest: receipt.input_digest,
+  resultSchemaVersion: receipt.result_schema_version,
+  result: structuredClone(receipt.result) as Record<string, unknown>,
+  actor: decodeActor(receipt.actor),
+  committedAt: receipt.committed_at
+});
+
 const encodePendingOperation = (operation: PendingOperation): JsonPendingOperation => ({
   schema_version: ROUTELEDGER_SCHEMA_VERSION,
   kind: "pending_operation",
@@ -1917,6 +1968,20 @@ export const encodeProjectAggregateToJsonDocuments = (
     );
   }
 
+  for (const receipt of [...(snapshot.ordinaryWriteReceipts ?? [])].sort((left, right) =>
+    compareByString(
+      getOrdinaryWriteReceiptDocumentPath(left.id),
+      getOrdinaryWriteReceiptDocumentPath(right.id)
+    )
+  )) {
+    documents.push(
+      createDocument(
+        getOrdinaryWriteReceiptDocumentPath(receipt.id),
+        encodeOrdinaryWriteReceipt(receipt)
+      )
+    );
+  }
+
   return documents.sort((left, right) => compareByString(left.path, right.path));
 };
 
@@ -1962,6 +2027,7 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (
   const events: TransitionEvent[] = [];
   const pendingOperations: PendingOperation[] = [];
   const approvalArtifacts: ApprovalArtifact[] = [];
+  const ordinaryWriteReceipts: OrdinaryWriteReceipt[] = [];
 
   for (const document of [...documentMap.values()].sort((left, right) =>
     compareByString(left.path, right.path)
@@ -2028,6 +2094,13 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (
       continue;
     }
 
+    if (document.path.startsWith(`${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`)) {
+      ordinaryWriteReceipts.push(
+        decodeOrdinaryWriteReceipt(parseDocument<JsonOrdinaryWriteReceipt>(document))
+      );
+      continue;
+    }
+
     throw new Error(`unsupported RouteLedger JSON document: ${document.path}`);
   }
 
@@ -2068,7 +2141,8 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (
     assets,
     events,
     pendingOperations,
-    approvalArtifacts
+    approvalArtifacts,
+    ordinaryWriteReceipts
   };
 };
 

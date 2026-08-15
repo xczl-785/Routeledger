@@ -275,7 +275,7 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-        expect(migrationCount.count).toBe(8);
+      expect(migrationCount.count).toBe(9);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
@@ -285,7 +285,7 @@ describe("sqlite storage adapter", () => {
     }
   });
 
-  it("upgrades every real migration prefix through 0008 and rejects future histories", () => {
+  it("upgrades every real migration prefix through 0009 and rejects future histories", () => {
     for (let prefixLength = 0; prefixLength <= SQLITE_MIGRATIONS.length; prefixLength += 1) {
       const db = new BetterSqlite3(":memory:");
       try {
@@ -591,7 +591,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(8);
+      ).toBe(9);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -932,6 +932,57 @@ describe("sqlite storage adapter", () => {
         todos: []
       });
       expect(loaded?.events.map((event) => event.eventType)).toEqual(["project.created"]);
+      adapter.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("ordinary write receipt survives a real SQLite service restart", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      let adapter = new SQLiteStorageAdapter({ projectRoot });
+      let service = new RouteLedgerService({
+        storage: adapter,
+        deps: createTestDependencies()
+      });
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "SQLite idempotency",
+        firstVersion: {
+          title: "Initial Version",
+          description: "",
+          initialTodos: []
+        },
+        actor: TEST_ACTOR
+      });
+      const command = {
+        projectId: created.project.id,
+        versionId: created.firstVersion!.id,
+        title: "Create once in SQLite",
+        idempotencyKey: "sqlite-create-todo-restart",
+        actor: TEST_ACTOR
+      };
+      const first = await service.createTodo(command);
+      adapter.close();
+
+      adapter = new SQLiteStorageAdapter({ projectRoot });
+      service = new RouteLedgerService({
+        storage: adapter,
+        deps: createTestDependencies()
+      });
+      const replay = await service.createTodo(command);
+      const loaded = await adapter.loadProjectAggregate(created.project.id);
+
+      expect(replay.todo).toEqual(first.todo);
+      expect(replay.idempotency).toEqual({
+        protected: true,
+        receiptId: first.idempotency!.receiptId,
+        replayed: true
+      });
+      expect(loaded?.todos).toHaveLength(1);
+      expect(loaded?.ordinaryWriteReceipts).toHaveLength(1);
       adapter.close();
     } finally {
       cleanupProjectRoot(projectRoot);
