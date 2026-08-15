@@ -139,6 +139,28 @@ const EN_ACTION_DESCRIPTIONS = {
     recheck_close_gate: "Recheck the close gate against live state.",
     propose_replacement: "Create a replacement proposal only after the live gate passes."
 };
+const MISSION_CONTROL_NOTICE_MESSAGES = {
+    MISSION_CONTROL_RUNNING: {
+        en: (accessUrl) => `RouteLedger Mission Control is running. Open it at: ${accessUrl ?? "the reported local address"}`,
+        "zh-CN": (accessUrl) => `RouteLedger Mission Control 已启动，可通过以下地址访问：${accessUrl ?? "返回的本地地址"}`
+    },
+    MISSION_CONTROL_STOPPED: {
+        en: () => "RouteLedger Mission Control is not running. Would you like to start it and open the current project?",
+        "zh-CN": () => "RouteLedger Mission Control 尚未启动，是否现在启动并打开当前项目？"
+    },
+    MISSION_CONTROL_PROJECT_UNREGISTERED: {
+        en: () => "RouteLedger Mission Control is running, but the current project is not registered. Would you like to add and open it?",
+        "zh-CN": () => "RouteLedger Mission Control 已启动，但当前项目尚未加入。是否将当前项目加入并打开？"
+    },
+    MISSION_CONTROL_INCOMPATIBLE: {
+        en: () => "An incompatible RouteLedger Mission Control is running. Would you like to replace it with the current runtime and open the current project?",
+        "zh-CN": () => "当前运行的 RouteLedger Mission Control 与本插件版本不兼容，是否使用当前 runtime 替换并打开当前项目？"
+    },
+    MISSION_CONTROL_STATUS_ERROR: {
+        en: () => "RouteLedger could not inspect Mission Control status. Route work can continue.",
+        "zh-CN": () => "RouteLedger 无法检查 Mission Control 状态，但可以继续处理路线工作。"
+    }
+};
 const ZH_NEXT_ACTIONS = {
     advance_to_version: {
         summary: "原子切换并启动下一个 Version。",
@@ -715,6 +737,15 @@ const localizeSystemValue = (value, locale, valuePath, toolName) => {
             ? localizeHumanReviewText(child, locale)
             : localizeSystemValue(child, locale, [...valuePath, key], toolName)
     ]));
+    if (toolName === "get_runtime_context" &&
+        valuePath.at(-1) === "notice" &&
+        typeof record.code === "string" &&
+        typeof record.message === "string") {
+        const localized = MISSION_CONTROL_NOTICE_MESSAGES[record.code];
+        if (localized !== undefined) {
+            record.message = localized[locale](typeof record.accessUrl === "string" ? record.accessUrl : null);
+        }
+    }
     if (isCodedPresentationPath(toolName, valuePath) &&
         typeof record.code === "string" &&
         typeof record.message === "string") {

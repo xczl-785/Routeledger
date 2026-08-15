@@ -55,6 +55,9 @@ import {
   type ToolResponse
 } from "./registry/tool-contract.js";
 import {
+  buildMissionControlRuntimeContext,
+  buildMissionControlRuntimeContextError,
+  buildUnavailableMissionControlRuntimeContext,
   createMissionControlTools,
   type MissionControlSourceModule
 } from "./capabilities/mission-control-tools.js";
@@ -134,6 +137,8 @@ export interface RouteLedgerMcpRegistryOptions {
     enabled?: boolean;
   };
   defaultResponseLocale?: string;
+  /** Optional loader seam for host integration and deterministic runtime-context tests. */
+  missionControlSourceLoader?: () => Promise<MissionControlSourceModule>;
   hostPermissionContext?:
     | {
         status: "resolved";
@@ -330,6 +335,7 @@ const createInstructions = (options: {
   return [
     "RouteLedger exposes project state and route transitions through MCP tools.",
     "Before route operations, call get_runtime_context to verify workspaceRoot and routeledgerRoot.",
+    "On the first RouteLedger interaction in a task, inspect get_runtime_context.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling the recommended open_mission_control action; declining UI must never block route work.",
     "If binding is missing, invalid, or low-confidence, pass the host project absolute workspaceRoot to activate_routeledger_binding before route operations; never treat the MCP process cwd as an initialization target. When MCP Roots/rootUri are provided they remain the preferred binding source. Use discover_routeledger_roots and plan_routeledger_binding with explicit workspaceRoot only for read-only inspection/planning.",
     "Use read-only tools first to inspect current context, versions, gates, and pending L3 proposals.",
     "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
@@ -898,6 +904,8 @@ export const createRouteLedgerMcpRegistry = (
     // let a stale injected identity misreport it after a direct registry call.
     runtimeProfile
   };
+  const missionControlSourceLoader =
+    options.missionControlSourceLoader ?? loadMissionControlSourceModule;
   const usesCodexNativeToolAdmission =
     hostProfile === "codex" &&
     options.hostPermissionContext !== undefined &&
@@ -1040,6 +1048,27 @@ export const createRouteLedgerMcpRegistry = (
                 requiresUserDecision: true
               }
             ];
+    const missionControl = await (async () => {
+      if (binding.routeledgerRoot === null || binding.workspaceRoot === null) {
+        return buildUnavailableMissionControlRuntimeContext("binding_unavailable");
+      }
+      if (activeProject === null) {
+        return buildUnavailableMissionControlRuntimeContext("project_uninitialized");
+      }
+
+      try {
+        const roots = resolveMissionControlRoots({}, binding);
+        const source = await missionControlSourceLoader();
+        const status = await source.getMissionControlStatus({
+          workspaceRoot: roots.workspaceRoot,
+          routeledgerRoot: roots.routeledgerRoot,
+          expectedRuntimeIdentity: runtimeIdentity
+        });
+        return buildMissionControlRuntimeContext(status);
+      } catch (error) {
+        return buildMissionControlRuntimeContextError(error);
+      }
+    })();
 
     return {
       binding: summarizeRuntimeBinding(binding),
@@ -1074,6 +1103,7 @@ export const createRouteLedgerMcpRegistry = (
       },
       activeProject,
       contentLocale,
+      missionControl,
       blockedTools: [...new Set([...getBlockedTools(binding), ...localeBlockedTools])],
       recommendedNextActions
     };
@@ -1176,7 +1206,7 @@ export const createRouteLedgerMcpRegistry = (
     ...createMissionControlTools({
       readBinding,
       resolveRoots: resolveMissionControlRoots,
-      loadSourceModule: loadMissionControlSourceModule,
+      loadSourceModule: missionControlSourceLoader,
       runtimeIdentity,
       withCurrentRuntimeContextMeta
     }),

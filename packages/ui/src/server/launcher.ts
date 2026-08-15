@@ -92,6 +92,8 @@ export type MissionControlStatusResult = {
   projectId: string | null;
   hub: Omit<LauncherHubRecord, "accessToken"> | null;
   healthy: boolean;
+  runtimeCompatible: boolean | null;
+  accessUrl: string | null;
   projects: LauncherProjectRecord[];
   matchingProject: LauncherProjectRecord | null;
 };
@@ -702,6 +704,7 @@ export const getMissionControlStatus = async (options: {
   workspaceRoot?: string;
   routeledgerRoot?: string;
   registryPath?: string;
+  expectedRuntimeIdentity?: MissionControlRuntimeIdentity;
 } = {}): Promise<MissionControlStatusResult> => {
   const registryPath = options.registryPath ?? getRegistryPath();
   const registry = await reconcileHub(registryPath);
@@ -727,11 +730,22 @@ export const getMissionControlStatus = async (options: {
     protocolVersion: registry.hub.protocolVersion,
     runtimeIdentity: registry.hub.runtimeIdentity
   };
+  const runtimeCompatible = registry.hub === null
+    ? null
+    : options.expectedRuntimeIdentity === undefined
+      ? true
+      : runtimeIdentityMatches(registry.hub.runtimeIdentity, options.expectedRuntimeIdentity);
+  const accessUrl =
+    registry.hub !== null && matchingProject !== null && runtimeCompatible
+      ? `${registry.hub.url}/?project=${encodeURIComponent(matchingProject.id)}#token=${encodeURIComponent(registry.hub.accessToken)}`
+      : null;
   return {
     registryPath,
     projectId: matchingProject?.projectId ?? null,
     hub: publicHub,
     healthy: registry.hub !== null,
+    runtimeCompatible,
+    accessUrl,
     projects: registry.projects,
     matchingProject
   };

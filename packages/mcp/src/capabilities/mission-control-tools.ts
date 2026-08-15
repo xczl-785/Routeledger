@@ -28,8 +28,33 @@ export type MissionControlStatusResult = {
   projectId: string | null;
   hub: unknown;
   healthy: boolean;
+  runtimeCompatible: boolean | null;
+  accessUrl: string | null;
   projects: unknown[];
   matchingProject: unknown;
+};
+
+export type MissionControlRuntimeContext = {
+  status: "running" | "running_project_unregistered" | "stopped" | "incompatible" | "unavailable" | "error";
+  healthy: boolean;
+  runtimeCompatible: boolean | null;
+  currentProjectRegistered: boolean;
+  projectCount: number;
+  accessUrl: string | null;
+  notice: {
+    code: string;
+    message: string;
+    requiresUserDecision: boolean;
+    accessUrl: string | null;
+  } | null;
+  recommendedAction: {
+    type: "open_mission_control";
+    tool: "open_mission_control";
+    arguments: Record<string, never>;
+    requiresUserDecision: true;
+  } | null;
+  unavailableReason?: "binding_unavailable" | "project_uninitialized";
+  diagnostic?: string;
 };
 
 export type MissionControlSourceModule = {
@@ -43,6 +68,7 @@ export type MissionControlSourceModule = {
   getMissionControlStatus: (options: {
     workspaceRoot: string;
     routeledgerRoot: string;
+    expectedRuntimeIdentity?: MissionControlRuntimeIdentity;
   }) => Promise<MissionControlStatusResult>;
   stopMissionControlHub: () => Promise<{
     registryPath: string;
@@ -64,6 +90,121 @@ export interface MissionControlToolDependencies<TBinding> {
     data: unknown;
   }) => Record<string, unknown>;
 }
+
+const openMissionControlAction = (): NonNullable<MissionControlRuntimeContext["recommendedAction"]> => ({
+  type: "open_mission_control",
+  tool: "open_mission_control",
+  arguments: {},
+  requiresUserDecision: true
+});
+
+const notice = (
+  code: string,
+  message: string,
+  requiresUserDecision: boolean,
+  accessUrl: string | null = null
+): NonNullable<MissionControlRuntimeContext["notice"]> => ({
+  code,
+  message,
+  requiresUserDecision,
+  accessUrl
+});
+
+export const buildMissionControlRuntimeContext = (
+  status: MissionControlStatusResult
+): MissionControlRuntimeContext => {
+  const currentProjectRegistered = status.matchingProject !== null;
+  const shared = {
+    healthy: status.healthy,
+    runtimeCompatible: status.runtimeCompatible,
+    currentProjectRegistered,
+    projectCount: status.projects.length,
+    accessUrl: status.accessUrl
+  };
+
+  if (!status.healthy || status.hub === null) {
+    return {
+      status: "stopped",
+      ...shared,
+      notice: notice(
+        "MISSION_CONTROL_STOPPED",
+        "RouteLedger Mission Control is not running. Would you like to start it and open the current project?",
+        true
+      ),
+      recommendedAction: openMissionControlAction()
+    };
+  }
+
+  if (status.runtimeCompatible === false) {
+    return {
+      status: "incompatible",
+      ...shared,
+      accessUrl: null,
+      notice: notice(
+        "MISSION_CONTROL_INCOMPATIBLE",
+        "An incompatible RouteLedger Mission Control is running. Would you like to replace it with the current runtime and open the current project?",
+        true
+      ),
+      recommendedAction: openMissionControlAction()
+    };
+  }
+
+  if (!currentProjectRegistered) {
+    return {
+      status: "running_project_unregistered",
+      ...shared,
+      accessUrl: null,
+      notice: notice(
+        "MISSION_CONTROL_PROJECT_UNREGISTERED",
+        "RouteLedger Mission Control is running, but the current project is not registered. Would you like to add and open it?",
+        true
+      ),
+      recommendedAction: openMissionControlAction()
+    };
+  }
+
+  return {
+    status: "running",
+    ...shared,
+    notice: notice(
+      "MISSION_CONTROL_RUNNING",
+      `RouteLedger Mission Control is running. Open it at: ${status.accessUrl}`,
+      false,
+      status.accessUrl
+    ),
+    recommendedAction: null
+  };
+};
+
+export const buildUnavailableMissionControlRuntimeContext = (
+  unavailableReason: "binding_unavailable" | "project_uninitialized"
+): MissionControlRuntimeContext => ({
+  status: "unavailable",
+  healthy: false,
+  runtimeCompatible: null,
+  currentProjectRegistered: false,
+  projectCount: 0,
+  accessUrl: null,
+  notice: null,
+  recommendedAction: null,
+  unavailableReason
+});
+
+export const buildMissionControlRuntimeContextError = (error: unknown): MissionControlRuntimeContext => ({
+  status: "error",
+  healthy: false,
+  runtimeCompatible: null,
+  currentProjectRegistered: false,
+  projectCount: 0,
+  accessUrl: null,
+  notice: notice(
+    "MISSION_CONTROL_STATUS_ERROR",
+    "RouteLedger could not inspect Mission Control status. Route work can continue.",
+    false
+  ),
+  recommendedAction: null,
+  diagnostic: error instanceof Error ? error.message : String(error)
+});
 
 const stringSchema = (description: string): Record<string, unknown> => ({
   type: "string",
@@ -151,7 +292,8 @@ export const createMissionControlTools = <TBinding>(
       const missionControlSource = await dependencies.loadSourceModule();
       const status = await missionControlSource.getMissionControlStatus({
         workspaceRoot: roots.workspaceRoot,
-        routeledgerRoot: roots.routeledgerRoot
+        routeledgerRoot: roots.routeledgerRoot,
+        expectedRuntimeIdentity: dependencies.runtimeIdentity
       });
 
       return {

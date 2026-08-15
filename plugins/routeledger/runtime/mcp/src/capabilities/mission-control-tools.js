@@ -1,4 +1,80 @@
 import { defineTool } from "../registry/tool-contract.js";
+const openMissionControlAction = () => ({
+    type: "open_mission_control",
+    tool: "open_mission_control",
+    arguments: {},
+    requiresUserDecision: true
+});
+const notice = (code, message, requiresUserDecision, accessUrl = null) => ({
+    code,
+    message,
+    requiresUserDecision,
+    accessUrl
+});
+export const buildMissionControlRuntimeContext = (status) => {
+    const currentProjectRegistered = status.matchingProject !== null;
+    const shared = {
+        healthy: status.healthy,
+        runtimeCompatible: status.runtimeCompatible,
+        currentProjectRegistered,
+        projectCount: status.projects.length,
+        accessUrl: status.accessUrl
+    };
+    if (!status.healthy || status.hub === null) {
+        return {
+            status: "stopped",
+            ...shared,
+            notice: notice("MISSION_CONTROL_STOPPED", "RouteLedger Mission Control is not running. Would you like to start it and open the current project?", true),
+            recommendedAction: openMissionControlAction()
+        };
+    }
+    if (status.runtimeCompatible === false) {
+        return {
+            status: "incompatible",
+            ...shared,
+            accessUrl: null,
+            notice: notice("MISSION_CONTROL_INCOMPATIBLE", "An incompatible RouteLedger Mission Control is running. Would you like to replace it with the current runtime and open the current project?", true),
+            recommendedAction: openMissionControlAction()
+        };
+    }
+    if (!currentProjectRegistered) {
+        return {
+            status: "running_project_unregistered",
+            ...shared,
+            accessUrl: null,
+            notice: notice("MISSION_CONTROL_PROJECT_UNREGISTERED", "RouteLedger Mission Control is running, but the current project is not registered. Would you like to add and open it?", true),
+            recommendedAction: openMissionControlAction()
+        };
+    }
+    return {
+        status: "running",
+        ...shared,
+        notice: notice("MISSION_CONTROL_RUNNING", `RouteLedger Mission Control is running. Open it at: ${status.accessUrl}`, false, status.accessUrl),
+        recommendedAction: null
+    };
+};
+export const buildUnavailableMissionControlRuntimeContext = (unavailableReason) => ({
+    status: "unavailable",
+    healthy: false,
+    runtimeCompatible: null,
+    currentProjectRegistered: false,
+    projectCount: 0,
+    accessUrl: null,
+    notice: null,
+    recommendedAction: null,
+    unavailableReason
+});
+export const buildMissionControlRuntimeContextError = (error) => ({
+    status: "error",
+    healthy: false,
+    runtimeCompatible: null,
+    currentProjectRegistered: false,
+    projectCount: 0,
+    accessUrl: null,
+    notice: notice("MISSION_CONTROL_STATUS_ERROR", "RouteLedger could not inspect Mission Control status. Route work can continue.", false),
+    recommendedAction: null,
+    diagnostic: error instanceof Error ? error.message : String(error)
+});
 const stringSchema = (description) => ({
     type: "string",
     description
@@ -56,7 +132,8 @@ export const createMissionControlTools = (dependencies) => [
         const missionControlSource = await dependencies.loadSourceModule();
         const status = await missionControlSource.getMissionControlStatus({
             workspaceRoot: roots.workspaceRoot,
-            routeledgerRoot: roots.routeledgerRoot
+            routeledgerRoot: roots.routeledgerRoot,
+            expectedRuntimeIdentity: dependencies.runtimeIdentity
         });
         return {
             ok: true,

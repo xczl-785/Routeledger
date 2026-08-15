@@ -13,7 +13,7 @@
     "runtimeProfile": "json-only",
     "pluginVersion": "0.9.2",
     "releaseTag": "routeledger-plugin-v0.9.2",
-    "sourceTreeState": "clean",
+    "sourceTreeState": "dirty",
     "provenanceStatus": "external_attestation_required",
     "attestation": {
       "strategy": "git-tag-external",
@@ -24,7 +24,7 @@
     },
     "buildCommit": null,
     "artifactDigest": null,
-    "runtimePayloadDigest": "e2df30543857cb41e196614ba1fafeadd81e3179196d32e6aa643754e0594870",
+    "runtimePayloadDigest": "39c91b6dcc57bab69e74b38642a647724871631bf4b8b736f089f3affbc7eb5b",
     "runtimePayloadCoverage": "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
   },
   "attestation": {
@@ -40,8 +40,8 @@
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "39fb836ff3313822ec6e7f610e0d857c575b0095bf5cd9fb005abce4173eed98",
-    "runtimeSha256": "6daf60dff7e1b907518b8dec27c8c4b8457f96cde950b61ee8c97e4b5046b014",
+    "pluginDistributionSha256": "f4fc0451f82460ecf8e718852816d016e206f4c45611949ef44a80bda1c32589",
+    "runtimeSha256": "0493a46493bc2b643bec6082cdf0e5c5a0de0656e3a412a020172bc47f3c15e0",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }

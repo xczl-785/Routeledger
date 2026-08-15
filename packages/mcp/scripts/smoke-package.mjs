@@ -361,6 +361,15 @@ const runStdioSmoke = async ({
     throw new Error(`get_runtime_context did not report runtimeProfile=${profileName}.`);
   }
   if (
+    runtimeContext?.missionControl?.status !== "stopped" ||
+    runtimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
+    runtimeContext?.missionControl?.recommendedAction?.tool !== "open_mission_control"
+  ) {
+    throw new Error(
+      `get_runtime_context did not report executable Mission Control startup guidance: ${JSON.stringify(runtimeContext?.missionControl)}`
+    );
+  }
+  if (
     runtimeContext?.runtimeIdentity?.runtimePackageVersion !== "0.0.0-package-prep" ||
     runtimeContext?.runtimeIdentity?.runtimeProfile !== profileName ||
     runtimeContext?.runtimeIdentity?.artifactKind !== "package" ||

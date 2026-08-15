@@ -118,7 +118,9 @@ const assertPluginFiles = async () => {
     "never infer it from the plugin cache or MCP process `cwd`",
     "standing policy or delegated authority mint an independent exact decision for the current proposal",
     "approve-only structured elicitation",
-    "There is no consumable or reusable preauthorization"
+    "There is no consumable or reusable preauthorization",
+    "surface its localized `notice.message` once",
+    "UI never blocks RouteLedger work"
   ]) {
     if (!operatorSkill.includes(requiredGuidance)) {
       throw new Error(`RouteLedger operator Skill is missing required unbound-binding guidance: ${requiredGuidance}`);
@@ -423,6 +425,15 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime context did not preserve the explicit rebound binding before initialization.");
     }
+    if (
+      runtimeContext?.missionControl?.status !== "unavailable" ||
+      runtimeContext?.missionControl?.unavailableReason !== "project_uninitialized" ||
+      runtimeContext?.missionControl?.notice !== null
+    ) {
+      throw new Error(
+        `Bundled runtime did not report Mission Control as unavailable before project initialization: ${JSON.stringify(runtimeContext?.missionControl)}`
+      );
+    }
     if (responses[7]?.result?.structuredContent?.ok !== true) {
       throw new Error("Bundled runtime init_project did not report a successful canonical JSON write after session rebound.");
     }
@@ -435,6 +446,13 @@ const runPluginStdioSmoke = async () => {
       initializedRuntimeContext?.storage?.mode !== "json"
     ) {
       throw new Error("Bundled runtime did not initialize JSON-only storage after the explicit session rebound.");
+    }
+    if (
+      initializedRuntimeContext?.missionControl?.status !== "stopped" ||
+      initializedRuntimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
+      initializedRuntimeContext?.missionControl?.recommendedAction?.tool !== "open_mission_control"
+    ) {
+      throw new Error("Bundled runtime did not expose executable Mission Control startup guidance.");
     }
     if (JSON.stringify(initializedRuntimeContext?.runtimeIdentity) !== JSON.stringify(initializeIdentity)) {
       throw new Error("Bundled runtime initialize and get_runtime_context reported different identities.");
