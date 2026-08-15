@@ -43,6 +43,7 @@ export const AUTO_APPROVAL_TOOLS = [
     "get_l3_proposal",
     "open_mission_control",
     "get_mission_control_status",
+    "stop_mission_control",
     "check_doc_drift",
     "summarize_version_closeout",
     "plan_version_closeout",

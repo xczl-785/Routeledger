@@ -36,7 +36,8 @@ button:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 55%, tr
 .project-trigger:hover { border-color: var(--line-strong); background: var(--surface-soft); }
 .project-popover { position: absolute; z-index: 30; top: 49px; left: 50%; width: 310px; transform: translateX(-50%); padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 16px 40px rgba(15, 23, 42, .13); }
 .project-list { max-height: 270px; overflow-y: auto; overscroll-behavior: contain; }
-.project-option { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px; border-radius: 7px; text-align: left; }
+.project-option-row { display: flex; align-items: center; gap: 4px; }
+.project-option { min-width: 0; flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px; border-radius: 7px; text-align: left; }
 .project-option:hover { background: var(--surface-soft); }
 .project-option.is-selected { background: #f2f6fb; }
 .project-option:disabled { cursor: default; opacity: .55; }
@@ -44,8 +45,12 @@ button:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 55%, tr
 .project-option strong { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .project-option small { color: var(--text-tertiary); font-size: 10px; }
 .project-option svg { flex: 0 0 auto; color: var(--blue); }
+.remove-project { flex: 0 0 auto; padding: 7px 6px; color: var(--text-tertiary); font-size: 10px; }
+.remove-project:hover { color: #b33f35; }
+.remove-project:disabled { cursor: wait; opacity: .55; }
 .project-popover-footer { margin-top: 6px; padding: 9px 10px 6px; border-top: 1px solid var(--line); }
 .project-popover-footer p { margin: 0 0 10px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.project-action-error { display: block; margin: -3px 0 9px; color: #a13f37; font-size: 10px; line-height: 1.4; }
 .add-project, .stop-ui { display: inline-flex; margin-right: 14px; font-size: 11px; }
 .add-project { color: var(--blue); }
 .project-add-form { display: grid; gap: 7px; margin: 0 0 11px; }

@@ -188,7 +188,7 @@ const assertDirectImportProfile = async ({
       );
     }
 
-    const missionControlTools = ["open_mission_control", "get_mission_control_status"];
+    const missionControlTools = ["open_mission_control", "get_mission_control_status", "stop_mission_control"];
     for (const toolName of missionControlTools) {
       const exposed = registry.getTool(toolName) !== undefined;
       if (!exposed) {
@@ -332,7 +332,7 @@ const runStdioSmoke = async ({
     throw new Error("tools/list response did not include RouteLedger tools.");
   }
   const listedToolNames = stdoutLines[1].result.tools.map((tool) => tool.name);
-  const missionControlToolNames = ["open_mission_control", "get_mission_control_status"];
+  const missionControlToolNames = ["open_mission_control", "get_mission_control_status", "stop_mission_control"];
   for (const toolName of missionControlToolNames) {
     if (!listedToolNames.includes(toolName)) {
       throw new Error(`${profileName} tools/list did not expose ${toolName}.`);

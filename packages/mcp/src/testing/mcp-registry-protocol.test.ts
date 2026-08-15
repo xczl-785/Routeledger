@@ -111,7 +111,7 @@ describe("routeledger mcp registry", () => {
       const highRiskTools = tools.filter(
         (tool) => tool._meta.routeledger.riskLevel === "high-risk"
       );
-      expect(tools).toHaveLength(48);
+      expect(tools).toHaveLength(49);
       const runtimeContextTool = tools.find((tool) => tool.name === "get_runtime_context");
       const openMissionControlTool = tools.find((tool) => tool.name === "open_mission_control");
       const writeHostBindingConfigTool = tools.find(
@@ -120,6 +120,7 @@ describe("routeledger mcp registry", () => {
       const missionControlStatusTool = tools.find(
         (tool) => tool.name === "get_mission_control_status"
       );
+      const stopMissionControlTool = tools.find((tool) => tool.name === "stop_mission_control");
       const contextTool = tools.find((tool) => tool.name === "get_current_context");
       const nextActionTool = tools.find((tool) => tool.name === "next_action");
       const checkDocDriftTool = tools.find((tool) => tool.name === "check_doc_drift");
@@ -161,6 +162,8 @@ describe("routeledger mcp registry", () => {
         workspaceRoot: expect.objectContaining({ type: "string" }),
         routeledgerRoot: expect.objectContaining({ type: "string" })
       });
+      expect(stopMissionControlTool?.annotations.readOnlyHint).toBe(true);
+      expect(stopMissionControlTool?._meta.routeledger.riskLevel).toBe("read-only");
       expect(contextTool?.annotations.readOnlyHint).toBe(true);
       expect(contextTool?.annotations.idempotentHint).toBe(true);
       expect(writeHostBindingConfigTool?.annotations.readOnlyHint).toBe(false);

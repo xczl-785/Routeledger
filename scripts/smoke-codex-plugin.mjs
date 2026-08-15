@@ -264,7 +264,7 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "open-mission-control",
     method: "tools/call",
-    params: { name: "open_mission_control", arguments: {} }
+    params: { name: "open_mission_control", arguments: { openBrowser: false } }
   });
   write({
     jsonrpc: "2.0",
@@ -321,7 +321,7 @@ const runPluginStdioSmoke = async () => {
       throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
     }
     const bundledToolNames = responses[1].result.tools.map((tool) => tool.name);
-    for (const portableUiTool of ["open_mission_control", "get_mission_control_status"]) {
+    for (const portableUiTool of ["open_mission_control", "get_mission_control_status", "stop_mission_control"]) {
       if (!bundledToolNames.includes(portableUiTool)) {
         throw new Error(`Bundled JSON-only runtime did not expose ${portableUiTool}.`);
       }
@@ -344,8 +344,16 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error(`Bundled plugin did not launch its portable UI Hub: ${JSON.stringify({ openedUi, uiStatus })}`);
     }
-    const uiOrigin = new globalThis.URL(openedUi.url).origin;
-    const uiStateResponse = await globalThis.fetch(`${uiOrigin}/api/state?project=${encodeURIComponent(openedUi.projectKey)}`);
+    const openedUiUrl = new globalThis.URL(openedUi.url);
+    const uiOrigin = openedUiUrl.origin;
+    const uiAccessToken = new globalThis.URLSearchParams(openedUiUrl.hash.slice(1)).get("token");
+    if (typeof uiAccessToken !== "string" || uiAccessToken.length < 32) {
+      throw new Error("Bundled plugin UI Hub did not return its fragment-scoped access token.");
+    }
+    const uiApiHeaders = { "x-routeledger-ui-token": uiAccessToken };
+    const uiStateResponse = await globalThis.fetch(`${uiOrigin}/api/state?project=${encodeURIComponent(openedUi.projectKey)}`, {
+      headers: uiApiHeaders
+    });
     const uiState = await uiStateResponse.json();
     if (!uiStateResponse.ok || uiState?.identity?.projectName !== "Codex Plugin Smoke") {
       throw new Error("Bundled plugin UI Hub did not read the initialized canonical project.");
@@ -356,7 +364,7 @@ const runPluginStdioSmoke = async () => {
     }
     const stopResponse = await globalThis.fetch(`${uiOrigin}/api/shutdown`, {
       method: "POST",
-      headers: { "x-routeledger-ui-client": "1" }
+      headers: { "x-routeledger-ui-client": "1", ...uiApiHeaders }
     });
     if (!stopResponse.ok) throw new Error("Bundled plugin UI Hub did not accept an explicit stop request.");
     await waitForUiHubShutdown(uiOrigin);

@@ -1177,6 +1177,7 @@ export const createRouteLedgerMcpRegistry = (
       readBinding,
       resolveRoots: resolveMissionControlRoots,
       loadSourceModule: loadMissionControlSourceModule,
+      runtimeIdentity,
       withCurrentRuntimeContextMeta
     }),
     ...createProjectBootstrapTools({ service, actor }),

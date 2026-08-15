@@ -4,6 +4,13 @@ import { createMissionControlTools } from "../capabilities/mission-control-tools
 
 describe("Mission Control tool registrations", () => {
   it("exposes portable UI Hub tools and delegates through the runtime seam", async () => {
+    const runtimeIdentity = {
+      runtimePackageVersion: "0.10.0",
+      runtimeProfile: "json-only",
+      artifactKind: "plugin",
+      pluginVersion: "0.10.0",
+      runtimePayloadDigest: "digest-1"
+    };
     const readBinding = vi.fn(() => ({ marker: "binding" }));
     const resolveRoots = vi.fn(() => ({
       workspaceRoot: "C:/workspace",
@@ -18,7 +25,10 @@ describe("Mission Control tool registrations", () => {
       reused: false,
       registryPath: "C:/registry.json",
       workspaceRoot: "C:/workspace",
-      routeledgerRoot: "C:/workspace/ledger"
+      routeledgerRoot: "C:/workspace/ledger",
+      browserOpened: true,
+      browserError: null,
+      runtimeIdentity
     }));
     const getMissionControlStatus = vi.fn(async () => ({
       registryPath: "C:/registry.json",
@@ -28,9 +38,15 @@ describe("Mission Control tool registrations", () => {
       projects: [],
       matchingProject: null
     }));
+    const stopMissionControlHub = vi.fn(async () => ({
+      registryPath: "C:/registry.json",
+      stopped: true,
+      pid: 123
+    }));
     const loadSourceModule = vi.fn(async () => ({
       openMissionControlSource,
-      getMissionControlStatus
+      getMissionControlStatus,
+      stopMissionControlHub
     }));
     const withCurrentRuntimeContextMeta = vi.fn(({ data }) => ({
       runtimeContext: data
@@ -40,12 +56,14 @@ describe("Mission Control tool registrations", () => {
       readBinding,
       resolveRoots,
       loadSourceModule,
+      runtimeIdentity,
       withCurrentRuntimeContextMeta
     });
 
     expect(tools.map((tool) => tool.definition.name)).toEqual([
       "open_mission_control",
-      "get_mission_control_status"
+      "get_mission_control_status",
+      "stop_mission_control"
     ]);
     expect(tools.every((tool) => tool.visibility === "default")).toBe(true);
 
@@ -53,7 +71,9 @@ describe("Mission Control tool registrations", () => {
     expect(openMissionControlSource).toHaveBeenCalledWith({
       workspaceRoot: "C:/workspace",
       routeledgerRoot: "C:/workspace/ledger",
-      devBuild: true
+      devBuild: true,
+      openBrowser: true,
+      runtimeIdentity
     });
     expect(open.meta).toEqual({ runtimeContext: { project: { id: "project-1" } } });
 
@@ -63,8 +83,11 @@ describe("Mission Control tool registrations", () => {
       routeledgerRoot: "C:/workspace/ledger"
     });
     expect(status.meta).toEqual({ runtimeContext: { project: null } });
+    const stop = await tools[2]!.handler({});
+    expect(stopMissionControlHub).toHaveBeenCalledTimes(1);
+    expect(stop.meta).toEqual({ runtimeContext: null });
     expect(readBinding).toHaveBeenCalledTimes(2);
     expect(resolveRoots).toHaveBeenCalledTimes(2);
-    expect(loadSourceModule).toHaveBeenCalledTimes(2);
+    expect(loadSourceModule).toHaveBeenCalledTimes(3);
   });
 });

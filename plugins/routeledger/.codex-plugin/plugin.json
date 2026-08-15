@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Codex-native L3 tool admission with exact RouteLedger authorizations and MCP 2025/2026 compatibility.",
   "author": {
     "name": "RouteLedger"

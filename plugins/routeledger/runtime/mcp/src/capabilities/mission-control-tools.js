@@ -16,7 +16,8 @@ export const createMissionControlTools = (dependencies) => [
     defineTool("open_mission_control", { what: "Open or reuse the local RouteLedger UI Hub for the bound project." }, objectSchema({
         workspaceRoot: stringSchema("Optional absolute workspaceRoot override. Defaults to the current MCP binding workspaceRoot."),
         routeledgerRoot: stringSchema("Optional absolute routeledgerRoot override. Defaults to the current MCP binding routeledgerRoot."),
-        devBuild: booleanSchema("When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server.")
+        devBuild: booleanSchema("When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server."),
+        openBrowser: booleanSchema("Open the Mission Control URL in the default browser. Defaults to true. Set false for automation.")
     }), {
         title: "Open Mission Control",
         riskLevel: "read-only",
@@ -28,7 +29,9 @@ export const createMissionControlTools = (dependencies) => [
         const result = await missionControlSource.openMissionControlSource({
             workspaceRoot: roots.workspaceRoot,
             routeledgerRoot: roots.routeledgerRoot,
-            devBuild: input.devBuild === true
+            devBuild: input.devBuild === true,
+            openBrowser: input.openBrowser !== false,
+            runtimeIdentity: dependencies.runtimeIdentity
         });
         return {
             ok: true,
@@ -63,6 +66,20 @@ export const createMissionControlTools = (dependencies) => [
                     project: status.projectId === null ? null : { id: status.projectId }
                 }
             })
+        };
+    }),
+    defineTool("stop_mission_control", { what: "Stop the local RouteLedger UI Hub while preserving MCP and the UI project catalog." }, objectSchema({}), {
+        title: "Stop Mission Control",
+        riskLevel: "read-only",
+        toolKind: "diagnostic",
+        visibility: "default"
+    }, async () => {
+        const missionControlSource = await dependencies.loadSourceModule();
+        const result = await missionControlSource.stopMissionControlHub();
+        return {
+            ok: true,
+            data: result,
+            meta: dependencies.withCurrentRuntimeContextMeta({ data: null })
         };
     })
 ];
