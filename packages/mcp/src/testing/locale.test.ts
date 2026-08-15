@@ -334,4 +334,59 @@ describe("MCP response locale", () => {
       ]
     });
   });
+
+  it("localizes every Mission Control runtime notice without changing its semantic code", () => {
+    const cases = [
+      [
+        "MISSION_CONTROL_STOPPED",
+        null,
+        "RouteLedger Mission Control 尚未启动，是否现在启动并打开当前项目？"
+      ],
+      [
+        "MISSION_CONTROL_PROJECT_UNREGISTERED",
+        null,
+        "RouteLedger Mission Control 已启动，但当前项目尚未加入。是否将当前项目加入并打开？"
+      ],
+      [
+        "MISSION_CONTROL_INCOMPATIBLE",
+        null,
+        "当前运行的 RouteLedger Mission Control 与本插件版本不兼容，是否使用当前 runtime 替换并打开当前项目？"
+      ],
+      [
+        "MISSION_CONTROL_STATUS_ERROR",
+        null,
+        "RouteLedger 无法检查 Mission Control 状态，但可以继续处理路线工作。"
+      ],
+      [
+        "MISSION_CONTROL_RUNNING",
+        "http://127.0.0.1:3210/#token=secret",
+        "RouteLedger Mission Control 已启动，可通过以下地址访问：http://127.0.0.1:3210/#token=secret"
+      ]
+    ] as const;
+
+    for (const [code, accessUrl, expectedMessage] of cases) {
+      const response = localizeToolResponse(
+        {
+          ok: true,
+          data: {
+            missionControl: {
+              notice: {
+                code,
+                message: "English placeholder",
+                accessUrl
+              }
+            }
+          }
+        },
+        resolveResponseLocale("zh-CN"),
+        "get_runtime_context"
+      );
+
+      expect(response.data.missionControl.notice).toEqual({
+        code,
+        message: expectedMessage,
+        accessUrl
+      });
+    }
+  });
 });

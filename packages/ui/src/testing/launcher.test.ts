@@ -2,10 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getRegistryPath,
+  getMissionControlStatus,
   parseLauncherArgs,
   readRegistry,
   removeMissionControlProject,
@@ -23,6 +24,7 @@ const createTempDir = (): string => {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of tempRoots.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -163,6 +165,92 @@ describe("@routeledger/ui launcher", () => {
     await expect(removeMissionControlProject("project-a", registryPath)).resolves.toMatchObject({ removed: true });
     expect((await readRegistry(registryPath)).projects).toEqual([]);
     await expect(removeMissionControlProject("project-a", registryPath)).resolves.toMatchObject({ removed: false });
+  });
+
+  it("reports physical project registration, runtime compatibility, and an authenticated access URL", async () => {
+    const root = createTempDir();
+    const registryPath = path.join(root, "hub.json");
+    const runtimeIdentity = {
+      runtimePackageVersion: "0.9.2",
+      runtimeProfile: "json-only",
+      artifactKind: "plugin",
+      pluginVersion: "0.9.2",
+      runtimePayloadDigest: "payload-1"
+    };
+    const hub = {
+      id: "hub-1",
+      pid: 123,
+      port: 3210,
+      url: "http://127.0.0.1:3210",
+      startedAt: "2026-08-15T00:00:00.000Z",
+      updatedAt: "2026-08-15T00:00:00.000Z",
+      protocolVersion: 1,
+      runtimeIdentity,
+      accessToken: "secret-token"
+    };
+    await writeRegistry(registryPath, {
+      schemaVersion: 3,
+      hub,
+      projects: [{
+        id: "project-a",
+        projectId: "canonical-a",
+        projectName: "Project A",
+        workspaceRoot: root,
+        routeledgerRoot: root,
+        addedAt: "2026-08-15T00:00:00.000Z",
+        lastOpenedAt: "2026-08-15T00:00:00.000Z"
+      }]
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({
+        ok: true,
+        instanceId: hub.id,
+        pid: hub.pid,
+        projectCount: 1,
+        startedAt: hub.startedAt,
+        lastActivityAt: hub.updatedAt,
+        protocolVersion: hub.protocolVersion,
+        runtimeIdentity
+      }), { status: 200 }));
+
+    const status = await getMissionControlStatus({
+      workspaceRoot: root,
+      routeledgerRoot: root,
+      registryPath,
+      expectedRuntimeIdentity: runtimeIdentity
+    });
+    expect(status).toMatchObject({
+      healthy: true,
+      runtimeCompatible: true,
+      projectId: "canonical-a",
+      matchingProject: { id: "project-a" },
+      accessUrl: "http://127.0.0.1:3210/?project=project-a#token=secret-token"
+    });
+    expect(status.hub).not.toHaveProperty("accessToken");
+
+    const unregisteredRoot = createTempDir();
+    await expect(getMissionControlStatus({
+      workspaceRoot: unregisteredRoot,
+      routeledgerRoot: unregisteredRoot,
+      registryPath,
+      expectedRuntimeIdentity: runtimeIdentity
+    })).resolves.toMatchObject({
+      healthy: true,
+      runtimeCompatible: true,
+      projectId: null,
+      matchingProject: null,
+      accessUrl: null
+    });
+
+    await expect(getMissionControlStatus({
+      workspaceRoot: root,
+      routeledgerRoot: root,
+      registryPath,
+      expectedRuntimeIdentity: { ...runtimeIdentity, runtimePayloadDigest: "payload-2" }
+    })).resolves.toMatchObject({
+      healthy: true,
+      runtimeCompatible: false,
+      accessUrl: null
+    });
   });
 
   it("uses native browser launch commands without shell interpolation", () => {

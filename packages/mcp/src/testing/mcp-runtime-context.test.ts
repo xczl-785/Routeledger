@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, it, describe } from "vitest";
+import { expect, it, describe, vi } from "vitest";
 
 import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments, replaceRouteLedgerJsonDocuments } from "../../../json/src/index.js";
 import { createRouteLedgerMcpRegistry } from "../index.js";
@@ -617,6 +617,102 @@ describe("routeledger mcp registry", () => {
             ]
           }
         }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("get_runtime_context returns localized Mission Control notices and executable guidance", async () => {
+    const projectRoot = createTempProjectRoot();
+    const getMissionControlStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        registryPath: "/tmp/hub.json",
+        projectId: null,
+        hub: null,
+        healthy: false,
+        runtimeCompatible: null,
+        accessUrl: null,
+        projects: [],
+        matchingProject: null
+      })
+      .mockResolvedValueOnce({
+        registryPath: "/tmp/hub.json",
+        projectId: "project-1",
+        hub: { pid: 123 },
+        healthy: true,
+        runtimeCompatible: true,
+        accessUrl: "http://127.0.0.1:3210/?project=project-key#token=secret",
+        projects: [{ id: "project-key" }],
+        matchingProject: { id: "project-key" }
+      });
+    const registry = createRegistry(projectRoot, {
+      missionControlSourceLoader: async () => ({
+        openMissionControlSource: vi.fn(),
+        getMissionControlStatus,
+        stopMissionControlHub: vi.fn()
+      })
+    });
+
+    try {
+      const initResponse = await registry.invoke("init_project", {
+        name: "Mission Control Context",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(initResponse.ok).toBe(true);
+
+      const stopped = await registry.invoke("get_runtime_context", {
+        responseLocale: "zh-CN"
+      });
+      expect(stopped).toMatchObject({
+        ok: true,
+        data: {
+          missionControl: {
+            status: "stopped",
+            healthy: false,
+            currentProjectRegistered: false,
+            notice: {
+              code: "MISSION_CONTROL_STOPPED",
+              message: "RouteLedger Mission Control 尚未启动，是否现在启动并打开当前项目？",
+              requiresUserDecision: true
+            },
+            recommendedAction: {
+              type: "open_mission_control",
+              tool: "open_mission_control",
+              arguments: {},
+              requiresUserDecision: true
+            }
+          }
+        }
+      });
+
+      const running = await registry.invoke("get_runtime_context", {
+        responseLocale: "en"
+      });
+      expect(running).toMatchObject({
+        ok: true,
+        data: {
+          missionControl: {
+            status: "running",
+            healthy: true,
+            currentProjectRegistered: true,
+            accessUrl: "http://127.0.0.1:3210/?project=project-key#token=secret",
+            notice: {
+              code: "MISSION_CONTROL_RUNNING",
+              message:
+                "RouteLedger Mission Control is running. Open it at: http://127.0.0.1:3210/?project=project-key#token=secret",
+              requiresUserDecision: false
+            },
+            recommendedAction: null
+          }
+        }
+      });
+      expect(getMissionControlStatus).toHaveBeenCalledWith({
+        workspaceRoot: fs.realpathSync.native(projectRoot),
+        routeledgerRoot: fs.realpathSync.native(projectRoot),
+        expectedRuntimeIdentity: registry.runtimeIdentity
       });
     } finally {
       registry.close();

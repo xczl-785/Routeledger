@@ -532,11 +532,21 @@ export const getMissionControlStatus = async (options = {}) => {
         protocolVersion: registry.hub.protocolVersion,
         runtimeIdentity: registry.hub.runtimeIdentity
     };
+    const runtimeCompatible = registry.hub === null
+        ? null
+        : options.expectedRuntimeIdentity === undefined
+            ? true
+            : runtimeIdentityMatches(registry.hub.runtimeIdentity, options.expectedRuntimeIdentity);
+    const accessUrl = registry.hub !== null && matchingProject !== null && runtimeCompatible
+        ? `${registry.hub.url}/?project=${encodeURIComponent(matchingProject.id)}#token=${encodeURIComponent(registry.hub.accessToken)}`
+        : null;
     return {
         registryPath,
         projectId: matchingProject?.projectId ?? null,
         hub: publicHub,
         healthy: registry.hub !== null,
+        runtimeCompatible,
+        accessUrl,
         projects: registry.projects,
         matchingProject
     };

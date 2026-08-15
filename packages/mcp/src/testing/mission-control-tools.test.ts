@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createMissionControlTools } from "../capabilities/mission-control-tools.js";
+import {
+  buildMissionControlRuntimeContext,
+  createMissionControlTools
+} from "../capabilities/mission-control-tools.js";
 
 describe("Mission Control tool registrations", () => {
   it("exposes portable UI Hub tools and delegates through the runtime seam", async () => {
@@ -35,6 +38,8 @@ describe("Mission Control tool registrations", () => {
       projectId: null,
       hub: null,
       healthy: false,
+      runtimeCompatible: null,
+      accessUrl: null,
       projects: [],
       matchingProject: null
     }));
@@ -80,7 +85,8 @@ describe("Mission Control tool registrations", () => {
     const status = await tools[1]!.handler({});
     expect(getMissionControlStatus).toHaveBeenCalledWith({
       workspaceRoot: "C:/workspace",
-      routeledgerRoot: "C:/workspace/ledger"
+      routeledgerRoot: "C:/workspace/ledger",
+      expectedRuntimeIdentity: runtimeIdentity
     });
     expect(status.meta).toEqual({ runtimeContext: { project: null } });
     const stop = await tools[2]!.handler({});
@@ -89,5 +95,80 @@ describe("Mission Control tool registrations", () => {
     expect(readBinding).toHaveBeenCalledTimes(2);
     expect(resolveRoots).toHaveBeenCalledTimes(2);
     expect(loadSourceModule).toHaveBeenCalledTimes(3);
+  });
+
+  it("derives stopped, unregistered, incompatible, and running agent guidance", () => {
+    const base = {
+      registryPath: "/tmp/hub.json",
+      projectId: null,
+      projects: [],
+      matchingProject: null
+    };
+
+    expect(buildMissionControlRuntimeContext({
+      ...base,
+      hub: null,
+      healthy: false,
+      runtimeCompatible: null,
+      accessUrl: null
+    })).toMatchObject({
+      status: "stopped",
+      currentProjectRegistered: false,
+      notice: {
+        code: "MISSION_CONTROL_STOPPED",
+        requiresUserDecision: true
+      },
+      recommendedAction: {
+        tool: "open_mission_control",
+        arguments: {},
+        requiresUserDecision: true
+      }
+    });
+
+    expect(buildMissionControlRuntimeContext({
+      ...base,
+      hub: { pid: 123 },
+      healthy: true,
+      runtimeCompatible: true,
+      accessUrl: null
+    })).toMatchObject({
+      status: "running_project_unregistered",
+      currentProjectRegistered: false,
+      notice: { code: "MISSION_CONTROL_PROJECT_UNREGISTERED" }
+    });
+
+    expect(buildMissionControlRuntimeContext({
+      ...base,
+      hub: { pid: 123 },
+      healthy: true,
+      runtimeCompatible: false,
+      accessUrl: null
+    })).toMatchObject({
+      status: "incompatible",
+      accessUrl: null,
+      notice: { code: "MISSION_CONTROL_INCOMPATIBLE" }
+    });
+
+    const accessUrl = "http://127.0.0.1:3210/?project=project-key#token=secret";
+    expect(buildMissionControlRuntimeContext({
+      ...base,
+      projectId: "project-1",
+      hub: { pid: 123 },
+      healthy: true,
+      runtimeCompatible: true,
+      accessUrl,
+      projects: [{ id: "project-key" }],
+      matchingProject: { id: "project-key" }
+    })).toMatchObject({
+      status: "running",
+      currentProjectRegistered: true,
+      accessUrl,
+      notice: {
+        code: "MISSION_CONTROL_RUNNING",
+        accessUrl,
+        requiresUserDecision: false
+      },
+      recommendedAction: null
+    });
   });
 });
