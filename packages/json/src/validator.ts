@@ -17,6 +17,7 @@ import {
   canonicalizeLocale,
   collectConstraintInvariantViolations,
   collectDeferredItemInvariantViolations,
+  ORDINARY_WRITE_COMMAND_NAMES,
   validateWorkItemActive
 } from "@routeledger/core";
 
@@ -67,7 +68,8 @@ const KNOWN_DOCUMENT_PREFIXES = [
   `${ROUTELEDGER_JSON_ROOT}/assets/`,
   `${ROUTELEDGER_JSON_ROOT}/events/`,
   `${ROUTELEDGER_JSON_ROOT}/pending_operations/`,
-  `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`
+  `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`,
+  `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`
 ] as const;
 
 const getDocumentContract = (documentPath: string): RouteLedgerJsonDocumentContract | undefined => {
@@ -157,6 +159,13 @@ const getDocumentContract = (documentPath: string): RouteLedgerJsonDocumentContr
   if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`)) {
     return {
       kind: "approval_artifact",
+      requireSchemaVersion: true
+    };
+  }
+
+  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`)) {
+    return {
+      kind: "ordinary_write_receipt",
       requireSchemaVersion: true
     };
   }
@@ -274,6 +283,9 @@ const getPendingOperationPath = (id: string): string =>
 
 const getApprovalArtifactPath = (id: string): string =>
   `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
+
+const getOrdinaryWriteReceiptPath = (id: string): string =>
+  `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
 
 const getEventPath = (event: Pick<TransitionEvent, "id" | "createdAt">): string => {
   const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
@@ -1020,7 +1032,8 @@ export const validateProjectAggregateSnapshot = (
     ["assets", snapshot.assets],
     ["events", snapshot.events],
     ["pendingOperations", snapshot.pendingOperations],
-    ["approvalArtifacts", snapshot.approvalArtifacts]
+    ["approvalArtifacts", snapshot.approvalArtifacts],
+    ["ordinaryWriteReceipts", snapshot.ordinaryWriteReceipts ?? []]
   ] as const;
 
   for (const [collectionName, entities] of legacyEntityCollections) {
@@ -1099,6 +1112,50 @@ export const validateProjectAggregateSnapshot = (
   const approvalArtifactsById = new Map(
     snapshot.approvalArtifacts.map((artifact) => [artifact.id, artifact])
   );
+  const ordinaryWriteReceiptKeys = new Map<string, string>();
+  for (const receipt of snapshot.ordinaryWriteReceipts ?? []) {
+    const path = getOrdinaryWriteReceiptPath(getSafePathId(receipt.id));
+    if (
+      !ORDINARY_WRITE_COMMAND_NAMES.includes(receipt.commandName) ||
+      !isNonBlankString(receipt.idempotencyKey) ||
+      !isNonBlankString(receipt.inputDigest) ||
+      receipt.resultSchemaVersion !== 1 ||
+      !isRecord(receipt.result) ||
+      !hasValidJsonActorShape({
+        id: receipt.actor?.id,
+        type: receipt.actor?.type,
+        display_name: receipt.actor?.displayName
+      }) ||
+      !isNonBlankString(receipt.committedAt)
+    ) {
+      issues.push(
+        createIssue(
+          "error",
+          "ORDINARY_WRITE_RECEIPT_INVALID",
+          "ordinary_write_receipt 必须包含完整的 command/key/digest/result/actor/commit 字段",
+          { path, details: { receiptId: receipt.id } }
+        )
+      );
+      continue;
+    }
+    const namespace = `${receipt.commandName}::${receipt.idempotencyKey}`;
+    const previousId = ordinaryWriteReceiptKeys.get(namespace);
+    if (previousId !== undefined) {
+      issues.push(
+        createIssue(
+          "error",
+          "ORDINARY_WRITE_RECEIPT_KEY_DUPLICATE",
+          "同一 project + command + idempotencyKey 只能存在一份回执",
+          {
+            path,
+            details: { receiptId: receipt.id, previousReceiptId: previousId }
+          }
+        )
+      );
+    } else {
+      ordinaryWriteReceiptKeys.set(namespace, receipt.id);
+    }
+  }
 
   if (project.currentVersionId === null && snapshot.versions.length > 0) {
     issues.push(
@@ -1885,6 +1942,12 @@ export const validateProjectAggregateSnapshot = (
         id: artifact.id,
         projectId: artifact.projectId,
         path: getApprovalArtifactPath(artifact.id)
+      })),
+      ...(snapshot.ordinaryWriteReceipts ?? []).map((receipt) => ({
+        kind: "ordinary_write_receipt",
+        id: receipt.id,
+        projectId: receipt.projectId,
+        path: getOrdinaryWriteReceiptPath(receipt.id)
       }))
     ]
   );

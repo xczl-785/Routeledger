@@ -160,6 +160,82 @@ const createJsonFirstService = (
 };
 
 describe("JsonFirstStorageAdapter", () => {
+  it("replays a committed create_todo from canonical JSON after restart", async () => {
+    const projectRoot = createTempProjectRoot();
+    const actor = { id: "idempotent-agent", type: "agent" as const };
+    const storage = new JsonFirstStorageAdapter({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      sqliteReadModel: "disabled"
+    });
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "Persistent ordinary-write idempotency",
+        firstVersion: {
+          title: "Initial Version",
+          description: "",
+          initialTodos: []
+        },
+        actor
+      });
+      const command = {
+        projectId: created.project.id,
+        versionId: created.firstVersion!.id,
+        title: "Create exactly once",
+        description: "Replay the committed result",
+        idempotencyKey: "create-todo-after-response-loss",
+        actor
+      };
+      const first = await service.createTodo(command);
+      storage.close();
+
+      const reloadedStorage = new JsonFirstStorageAdapter({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot,
+        sqliteReadModel: "disabled"
+      });
+      const reloadedService = new RouteLedgerService({
+        storage: reloadedStorage,
+        deps: createTestDependencies()
+      });
+      const replay = await reloadedService.createTodo(command);
+      const snapshot = await reloadedStorage.loadProjectAggregate(created.project.id);
+
+      expect(first.idempotency).toMatchObject({ protected: true, replayed: false });
+      expect(replay).toEqual({
+        todo: first.todo,
+        workItem: first.workItem,
+        events: first.events,
+        idempotency: {
+          protected: true,
+          receiptId: first.idempotency!.receiptId,
+          replayed: true
+        }
+      });
+      expect(snapshot?.todos).toHaveLength(1);
+      expect(snapshot?.workItems).toHaveLength(1);
+      expect(snapshot?.ordinaryWriteReceipts).toHaveLength(1);
+
+      await expect(
+        reloadedService.createTodo({ ...command, title: "Different command" })
+      ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" });
+      const afterConflict = await reloadedStorage.loadProjectAggregate(
+        created.project.id
+      );
+      expect(afterConflict?.todos).toHaveLength(1);
+      expect(afterConflict?.ordinaryWriteReceipts).toHaveLength(1);
+      reloadedStorage.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("rejects forged trusted provenance added to a true legacy canonical JSON artifact", async () => {
     const projectRoot = createTempProjectRoot();
     const { storage, service } = createJsonFirstService(projectRoot);

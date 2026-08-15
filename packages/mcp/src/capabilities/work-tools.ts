@@ -92,7 +92,10 @@ export const createWorkTools = (
           projectId: stringSchema("RouteLedger project ID."),
           versionId: stringSchema("Owning version ID."),
           title: stringSchema("Todo title."),
-          description: stringSchema("Optional todo description.")
+          description: stringSchema("Optional todo description."),
+          idempotencyKey: stringSchema(
+            "Caller-stable key for persistent create_todo retry across response loss and restart."
+          )
         },
         ["projectId", "versionId", "title"]
       ),
@@ -104,6 +107,7 @@ export const createWorkTools = (
           versionId: input.versionId,
           title: input.title,
           description: input.description,
+          idempotencyKey: input.idempotencyKey,
           actor
         })
       })

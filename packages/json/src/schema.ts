@@ -63,6 +63,10 @@ const schemaEntries: SchemaManifestEntry[] = [
   {
     kind: "approval_artifact",
     path_pattern: `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/<id-prefix>/<id>.json`
+  },
+  {
+    kind: "ordinary_write_receipt",
+    path_pattern: `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/<id-prefix>/<id>.json`
   }
 ];
 

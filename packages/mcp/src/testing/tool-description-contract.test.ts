@@ -45,7 +45,7 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   advance_to_version: "e1452462673afd76fbbb58c3bff562a245c1ef343cd25fad56754cba2930b947",
   close_version: "f20a5ecdc38118df5b5cc4c201fee6cb139b7fa4f50a1b2eb3a2b0fdfbf56e8e",
   shutdown_version: "d94d76b1a65dc9a4790ba42400713ef58e55b3efdcacf813d9c710f69bb55c47",
-  create_todo: "764a2d9995a91ea4002d6447d99e9bfd6cb150292f6b09dd3c2ad9f65175a3c8",
+  create_todo: "53c7c142f39cdf6406e46c322e3a00520e82618c1dcd8cca1038b5402b9bfcc0",
   close_todo: "9b75194736a9e2a129ace7baffda6059ee2d663b8fa721c85abef2c1c6d79105",
   defer_work: "26a7f058a60744506767821d8556fe289ab29dc715f81483f77cd4b416095f11",
   review_deferred: "08a8a3c00cabcd72cd802233e4da9fb11bc8e762666c1581f975c37332d2a478",

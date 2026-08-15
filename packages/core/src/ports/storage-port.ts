@@ -8,6 +8,7 @@ import type { Undo } from "../domain/undo.js";
 import type { Version } from "../domain/version.js";
 import type { WorkItem } from "../domain/work-item.js";
 import type { ApprovalArtifact, PendingOperation } from "../application/types.js";
+import type { OrdinaryWriteReceipt } from "../application/ordinary-write-idempotency.js";
 
 export interface ProjectAggregateSnapshot {
   project: Project;
@@ -21,6 +22,8 @@ export interface ProjectAggregateSnapshot {
   events: TransitionEvent[];
   pendingOperations: PendingOperation[];
   approvalArtifacts: ApprovalArtifact[];
+  /** Absent only on in-memory/legacy snapshots created before persistent ordinary-write idempotency. */
+  ordinaryWriteReceipts?: OrdinaryWriteReceipt[];
 }
 
 const SNAPSHOT_HEAD_REVISION = Symbol("routeledger.snapshotHeadRevision");
