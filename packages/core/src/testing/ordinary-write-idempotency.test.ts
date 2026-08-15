@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RouteLedgerService } from "../index.js";
 import { TEST_ACTOR, createTestDependencies } from "./builders.js";
 import {
+  createCommittedVersion,
   FailOnSaveStorageAdapter,
   MemoryStorageAdapter
 } from "./routeledger-service-test-helpers.js";
@@ -120,5 +121,128 @@ describe("ordinary write idempotency", () => {
     const snapshot = await storage.loadProjectAggregate(ids.projectId);
     expect(snapshot?.todos).toHaveLength(1);
     expect(snapshot?.ordinaryWriteReceipts).toHaveLength(1);
+  });
+
+  it("protects every ordinary write and replays destructive results after state changes", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const ids = await createProject(service);
+    const downstreamVersionId = await createCommittedVersion(
+      service,
+      ids.projectId,
+      "Deferred review"
+    );
+
+    const closeCandidate = await service.createTodo({
+      ...ids,
+      title: "Close exactly once",
+      idempotencyKey: "setup-close",
+      actor: TEST_ACTOR
+    });
+    const closeCommand = {
+      projectId: ids.projectId,
+      todoId: closeCandidate.todo.id,
+      reason: "done",
+      note: "completed once",
+      idempotencyKey: "ordinary-shared-key",
+      actor: TEST_ACTOR
+    };
+    const closed = await service.closeTodo(closeCommand);
+    const closedReplay = await service.closeTodo(closeCommand);
+    expect(closedReplay.todo).toEqual(closed.todo);
+    expect(closedReplay.idempotency).toMatchObject({ replayed: true });
+    await expect(
+      service.closeTodo({ ...closeCommand, note: "different" })
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" });
+
+    const deferCandidate = await service.createTodo({
+      ...ids,
+      title: "Defer exactly once",
+      idempotencyKey: "setup-defer",
+      actor: TEST_ACTOR
+    });
+    const deferCommand = {
+      mode: "todo" as const,
+      projectId: ids.projectId,
+      todoId: deferCandidate.todo.id,
+      targetReviewVersionId: downstreamVersionId,
+      reason: "later",
+      note: "converted once",
+      idempotencyKey: "ordinary-shared-key",
+      actor: TEST_ACTOR
+    };
+    const deferred = await service.deferWork(deferCommand);
+    const deferredReplay = await service.deferWork(deferCommand);
+    expect(deferredReplay.deferred).toEqual(deferred.deferred);
+    expect(deferredReplay.idempotency).toMatchObject({ replayed: true });
+    await expect(
+      service.deferWork({ ...deferCommand, note: "different" })
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" });
+
+    const reviewSource = await service.deferWork({
+      mode: "new",
+      projectId: ids.projectId,
+      originVersionId: ids.versionId,
+      targetReviewVersionId: downstreamVersionId,
+      title: "Review exactly once",
+      reason: "review downstream",
+      idempotencyKey: "setup-review",
+      actor: TEST_ACTOR
+    });
+    const reviewCommand = {
+      action: "activate" as const,
+      projectId: ids.projectId,
+      deferredId: reviewSource.deferred.id,
+      targetVersionId: downstreamVersionId,
+      reason: "activate",
+      note: "activated once",
+      idempotencyKey: "ordinary-shared-key",
+      actor: TEST_ACTOR
+    };
+    const reviewed = await service.reviewDeferred(reviewCommand);
+    const reviewedReplay = await service.reviewDeferred(reviewCommand);
+    expect(reviewedReplay.deferred).toEqual(reviewed.deferred);
+    expect(reviewedReplay.idempotency).toMatchObject({ replayed: true });
+    await expect(
+      service.reviewDeferred({ ...reviewCommand, note: "different" })
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" });
+
+    const recordCommand = {
+      projectId: ids.projectId,
+      rule: "Keep the default path idempotent",
+      rationale: "response loss must be safe",
+      scope: { type: "project" as const },
+      idempotencyKey: "ordinary-shared-key",
+      actor: TEST_ACTOR
+    };
+    const recorded = await service.recordConstraint(recordCommand);
+    const recordedReplay = await service.recordConstraint(recordCommand);
+    expect(recordedReplay.constraint).toEqual(recorded.constraint);
+    expect(recordedReplay.idempotency).toMatchObject({ replayed: true });
+    await expect(
+      service.recordConstraint({ ...recordCommand, rationale: "different" })
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" });
+
+    const retireCommand = {
+      projectId: ids.projectId,
+      constraintId: recorded.constraint.id,
+      reason: "superseded",
+      note: "retired once",
+      idempotencyKey: "ordinary-shared-key",
+      actor: TEST_ACTOR
+    };
+    const retired = await service.retireConstraint(retireCommand);
+    const retiredReplay = await service.retireConstraint(retireCommand);
+    expect(retiredReplay.constraint).toEqual(retired.constraint);
+    expect(retiredReplay.idempotency).toMatchObject({ replayed: true });
+    await expect(
+      service.retireConstraint({ ...retireCommand, note: "different" })
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSE_MISMATCH" });
+
+    const snapshot = await storage.loadProjectAggregate(ids.projectId);
+    expect(snapshot?.ordinaryWriteReceipts).toHaveLength(8);
   });
 });

@@ -103,6 +103,7 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id,
         versionId: initData.firstVersion!.id,
         title: "blocked by root mismatch",
+        idempotencyKey: "split-root-mismatched-todo",
         expectedRouteLedgerRoot: workspaceRoot
       });
       expectRouteLedgerRootGuardError(
@@ -117,6 +118,7 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id,
         versionId: initData.firstVersion!.id,
         title: "docs follow routeledger root",
+        idempotencyKey: "split-root-matched-todo",
         expectedRouteLedgerRoot: routeledgerRoot
       });
       expect(createTodoResponse).toMatchObject({
@@ -366,6 +368,7 @@ describe("routeledger mcp registry", () => {
           projectId: initialized.project.id,
           versionId: initialized.firstVersion!.id,
           title: "session binding proof",
+          idempotencyKey: "activated-session-create",
           expectedRouteLedgerRoot: workspaceRoot
         })
       );
@@ -375,6 +378,7 @@ describe("routeledger mcp registry", () => {
           todoId: todo.todo.id,
           reason: "verified",
           note: "session rebind uses the new service",
+          idempotencyKey: "activated-session-close",
           expectedRouteLedgerRoot: workspaceRoot
         })
       )).toBeTruthy();
@@ -1348,7 +1352,8 @@ describe("routeledger mcp registry", () => {
       const blockedWrite = await unboundRegistry.invoke("create_todo", {
         projectId: "project-1",
         versionId: "version-1",
-        title: "todo"
+        title: "todo",
+        idempotencyKey: "blocked-unbound-create"
       });
       expect(blockedWrite).toMatchObject({
         ok: false,

@@ -777,6 +777,7 @@ describe("routeledger mcp registry", () => {
           projectId: initializedData.project.id,
           versionId: initializedData.firstVersion!.id,
           title: "应被阻止",
+          idempotencyKey: "blocked-locale-create",
           expectedRouteLedgerRoot: projectRoot
         });
         expect(blockedWrite).toMatchObject({

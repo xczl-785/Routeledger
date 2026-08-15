@@ -226,6 +226,7 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id,
         versionId: initData.firstVersion!.id,
         title: "write docs",
+        idempotencyKey: "mismatched-root-create",
         expectedRouteLedgerRoot: mismatchedProjectRoot
       });
 

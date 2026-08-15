@@ -395,7 +395,8 @@ describe("routeledger mcp registry", () => {
       const preflightError = await registry.invoke("create_todo", {
         projectId: "untrusted-request-project",
         versionId: "untrusted-request-version",
-        title: "must not write"
+        title: "must not write",
+        idempotencyKey: "untrusted-request-create"
       });
       const applicationError = await registry.invoke("list_versions", {
         projectId: "untrusted-request-project"

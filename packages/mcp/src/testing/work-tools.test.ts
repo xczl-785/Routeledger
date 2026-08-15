@@ -29,5 +29,11 @@ describe("work tool registrations", () => {
         .filter((tool) => tool.definition.annotations.destructiveHint)
         .map((tool) => tool.definition.name)
     ).toEqual(["close_todo", "review_deferred", "retire_constraint"]);
+    for (const tool of tools) {
+      expect(
+        (tool.definition.inputSchema as { required?: string[] }).required,
+        tool.definition.name
+      ).toContain("idempotencyKey");
+    }
   });
 });

@@ -280,7 +280,8 @@ describe("routeledger mcp registry", () => {
         currentVersionId: successorVersionId,
         targetReviewVersionId: firstVersionId,
         title: "Retry on the legal successor",
-        reason: "Exercise the MCP recovery contract"
+        reason: "Exercise the MCP recovery contract",
+        idempotencyKey: "invalid-upstream-defer"
       });
       expect(invalidDeferred).toMatchObject({
         ok: false,
@@ -1748,7 +1749,8 @@ describe("routeledger mcp registry", () => {
         await callTool(server, "create-running-todo", "create_todo", {
           projectId: initData.project.id,
           versionId: initData.firstVersion!.id,
-          title: "execute current work"
+          title: "execute current work",
+          idempotencyKey: "running-guide-create"
         })
       ).todo;
       const runningContext = getStructuredData<{
@@ -1785,7 +1787,8 @@ describe("routeledger mcp registry", () => {
         projectId: initData.project.id,
         todoId: runningTodo.id,
         reason: "completed",
-        note: "covered by lifecycle regression"
+        note: "covered by lifecycle regression",
+        idempotencyKey: "running-guide-close"
       });
 
       await callTool(server, "complete-current", "mark_version_complete", {
@@ -2069,7 +2072,8 @@ describe("routeledger mcp registry", () => {
         projectId,
         currentVersionId: initData.firstVersion!.id,
         targetReviewVersionId: downstreamVersionId,
-        reason: "missing title"
+        reason: "missing title",
+        idempotencyKey: "bad-defer-missing-title"
       });
       expect(badDefer).toMatchObject({
         ok: false,
@@ -2084,7 +2088,8 @@ describe("routeledger mcp registry", () => {
       const todoResponse = await callTool(server, "agent-todo", "create_todo", {
         projectId,
         versionId: initData.firstVersion!.id,
-        title: "Existing work to defer"
+        title: "Existing work to defer",
+        idempotencyKey: "agent-todo-create"
       });
       const todoId = getStructuredData<{ todo: { id: string } }>(todoResponse).todo.id;
       const deferredTodoResponse = await callTool(
@@ -2097,7 +2102,8 @@ describe("routeledger mcp registry", () => {
           todoId,
           targetReviewVersionId: downstreamVersionId,
           reason: "Not needed in the current version",
-          note: "Route this Todo to future review"
+          note: "Route this Todo to future review",
+          idempotencyKey: "agent-defer-todo"
         }
       );
       const deferredTodoData = getStructuredData<Record<string, any>>(
@@ -2125,7 +2131,8 @@ describe("routeledger mcp registry", () => {
           action: "resolve",
           outcome: "superseded",
           reason: "A newer product path replaced it",
-          note: "No longer needs activation"
+          note: "No longer needs activation",
+          idempotencyKey: "agent-resolve-todo-deferred"
         }
       );
       expect(
@@ -2145,7 +2152,8 @@ describe("routeledger mcp registry", () => {
           targetReviewVersionId: downstreamVersionId,
           title: "Review product boundary",
           description: "Keep this visible without internal records.",
-          reason: "Review after the first delivery"
+          reason: "Review after the first delivery",
+          idempotencyKey: "agent-defer-new"
         }
       );
       const deferredData = getStructuredData<{
@@ -2167,7 +2175,8 @@ describe("routeledger mcp registry", () => {
         deferredId: deferredData.deferred.id,
         action: "resolve",
         outcome: "rejected",
-        reason: "No decision reference"
+        reason: "No decision reference",
+        idempotencyKey: "rejected-without-decision"
       });
       expect(rejectedWithoutDecision).toMatchObject({
         ok: false,
@@ -2184,7 +2193,8 @@ describe("routeledger mcp registry", () => {
           projectId,
           rule: "Do not mutate real project data during feature development.",
           rationale: "Migration requires an explicit stop-write window.",
-          scopeType: "project"
+          scopeType: "project",
+          idempotencyKey: "agent-project-constraint"
         }
       );
       const constraintData = getStructuredData<{
@@ -2195,7 +2205,8 @@ describe("routeledger mcp registry", () => {
         projectId,
         rule: "Version-only rule",
         rationale: "Missing version ID must fail",
-        scopeType: "version"
+        scopeType: "version",
+        idempotencyKey: "bad-version-constraint"
       });
       expect(badVersionConstraint).toMatchObject({
         ok: false,
@@ -2244,7 +2255,8 @@ describe("routeledger mcp registry", () => {
           projectId,
           rule: "Keep a deliberately large audit rationale within the context budget.",
           rationale: "evidence ".repeat(2_000),
-          scopeType: "project"
+          scopeType: "project",
+          idempotencyKey: "agent-large-constraint"
         }
       );
       const budgetedContextResponse = await callTool(
@@ -2288,7 +2300,8 @@ describe("routeledger mcp registry", () => {
           targetReviewVersionId: laterVersionId,
           reason: "Needs one more version of evidence",
           note: "reviewed and routed later",
-          reviewTrigger: "Later version reaches ready"
+          reviewTrigger: "Later version reaches ready",
+          idempotencyKey: "agent-defer-again"
         }
       );
       expect(
@@ -2307,7 +2320,8 @@ describe("routeledger mcp registry", () => {
           action: "activate",
           targetVersionId: laterVersionId,
           reason: "Evidence is available",
-          note: "activate as current work"
+          note: "activate as current work",
+          idempotencyKey: "agent-activate-deferred"
         }
       );
       const activatedData = getStructuredData<Record<string, any>>(activatedResponse);
@@ -2330,7 +2344,8 @@ describe("routeledger mcp registry", () => {
           projectId,
           constraintId: constraintData.constraint.id,
           reason: "Feature window ended",
-          note: "Retired after the relevant delivery"
+          note: "Retired after the relevant delivery",
+          idempotencyKey: "agent-retire-constraint"
         }
       );
       expect(
@@ -2360,6 +2375,7 @@ describe("routeledger mcp registry", () => {
         rule: "blocked",
         rationale: "wrong root",
         scopeType: "project",
+        idempotencyKey: "mismatched-root-constraint",
         expectedRouteLedgerRoot: createMismatchedExpectedRouteLedgerRoot(projectRoot)
       });
       expect(mismatchResponse).toMatchObject({
@@ -2892,7 +2908,8 @@ describe("routeledger mcp registry", () => {
       await callTool(server, "create-open-todo", "create_todo", {
         projectId: initData.project.id,
         versionId: initData.firstVersion!.id,
-        title: "still open"
+        title: "still open",
+        idempotencyKey: "shutdown-open-todo"
       });
 
       const shutdownProposal = await callTool(server, "shutdown-proposal", "shutdown_version", {
