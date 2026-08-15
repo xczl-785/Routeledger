@@ -43,6 +43,7 @@ export type DeferWorkToolInput =
   | {
       mode: "new";
       projectId: string;
+      idempotencyKey: string;
       currentVersionId: string;
       targetReviewVersionId: string;
       title: string;
@@ -53,6 +54,7 @@ export type DeferWorkToolInput =
   | {
       mode: "todo";
       projectId: string;
+      idempotencyKey: string;
       todoId: string;
       targetReviewVersionId: string;
       reason: string;
@@ -64,6 +66,7 @@ export type ReviewDeferredToolInput =
   | {
       action: "activate";
       projectId: string;
+      idempotencyKey: string;
       deferredId: string;
       targetVersionId: string;
       reason: string;
@@ -72,6 +75,7 @@ export type ReviewDeferredToolInput =
   | {
       action: "defer_again";
       projectId: string;
+      idempotencyKey: string;
       deferredId: string;
       targetReviewVersionId: string;
       reason: string;
@@ -81,6 +85,7 @@ export type ReviewDeferredToolInput =
   | {
       action: "resolve";
       projectId: string;
+      idempotencyKey: string;
       deferredId: string;
       outcome: "superseded" | "rejected" | "out_of_scope";
       reason: string;
@@ -91,12 +96,14 @@ export type ReviewDeferredToolInput =
 export type RecordConstraintToolInput =
   | {
       projectId: string;
+      idempotencyKey: string;
       rule: string;
       rationale: string;
       scopeType: "project";
     }
   | {
       projectId: string;
+      idempotencyKey: string;
       rule: string;
       rationale: string;
       scopeType: "version";
@@ -105,6 +112,7 @@ export type RecordConstraintToolInput =
 
 export interface RetireConstraintToolInput {
   projectId: string;
+  idempotencyKey: string;
   constraintId: string;
   reason: string;
   note: string;
@@ -414,6 +422,7 @@ export const adaptDeferWorkInput = (
   const mode = requireEnumString(normalized, "defer_work", "mode", ["new", "todo"]);
   const base = {
     projectId: requireString(normalized, "defer_work", "projectId"),
+    idempotencyKey: requireString(normalized, "defer_work", "idempotencyKey"),
     targetReviewVersionId: requireString(
       normalized,
       "defer_work",
@@ -464,6 +473,11 @@ export const adaptReviewDeferredInput = (
   );
   const base = {
     projectId: requireString(normalized, "review_deferred", "projectId"),
+    idempotencyKey: requireString(
+      normalized,
+      "review_deferred",
+      "idempotencyKey"
+    ),
     deferredId: requireString(normalized, "review_deferred", "deferredId"),
     reason: requireString(normalized, "review_deferred", "reason")
   };
@@ -532,6 +546,11 @@ export const adaptRecordConstraintInput = (
   );
   const base = {
     projectId: requireString(normalized, "record_constraint", "projectId"),
+    idempotencyKey: requireString(
+      normalized,
+      "record_constraint",
+      "idempotencyKey"
+    ),
     rule: requireString(normalized, "record_constraint", "rule"),
     rationale: requireString(normalized, "record_constraint", "rationale")
   };
@@ -555,6 +574,11 @@ export const adaptRetireConstraintInput = (
   const normalized = expectInputObject("retire_constraint", input);
   return {
     projectId: requireString(normalized, "retire_constraint", "projectId"),
+    idempotencyKey: requireString(
+      normalized,
+      "retire_constraint",
+      "idempotencyKey"
+    ),
     constraintId: requireString(
       normalized,
       "retire_constraint",

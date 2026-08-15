@@ -97,7 +97,7 @@ export const createWorkTools = (
             "Caller-stable key for persistent create_todo retry across response loss and restart."
           )
         },
-        ["projectId", "versionId", "title"]
+        ["projectId", "versionId", "title", "idempotencyKey"]
       ),
       { title: "Create Todo", riskLevel: "write" },
       async (input) => ({
@@ -120,9 +120,12 @@ export const createWorkTools = (
           projectId: stringSchema("RouteLedger project ID."),
           todoId: stringSchema("Todo ID."),
           reason: stringSchema("Close reason."),
-          note: stringSchema("Close note.")
+          note: stringSchema("Close note."),
+          idempotencyKey: stringSchema(
+            "Caller-stable key for persistent close_todo retry."
+          )
         },
-        ["projectId", "todoId", "reason", "note"]
+        ["projectId", "todoId", "reason", "note", "idempotencyKey"]
       ),
       { title: "Close Todo", riskLevel: "write", destructive: true },
       async (input) => ({
@@ -132,6 +135,7 @@ export const createWorkTools = (
           todoId: input.todoId,
           reason: input.reason,
           note: input.note,
+          idempotencyKey: input.idempotencyKey,
           actor
         })
       })
@@ -166,9 +170,12 @@ export const createWorkTools = (
           ),
           reviewTrigger: stringSchema(
             "Optional condition or evidence that should trigger review."
+          ),
+          idempotencyKey: stringSchema(
+            "Caller-stable key for persistent defer_work retry."
           )
         },
-        ["mode", "projectId", "targetReviewVersionId", "reason"]
+        ["mode", "projectId", "targetReviewVersionId", "reason", "idempotencyKey"]
       ),
       { title: "Defer Work", riskLevel: "write" },
       withInputAdapter<DeferWorkToolInput>(adaptDeferWorkInput, async (input) => {
@@ -183,6 +190,7 @@ export const createWorkTools = (
                 description: input.description,
                 reason: input.reason,
                 reviewTrigger: input.reviewTrigger,
+                idempotencyKey: input.idempotencyKey,
                 actor
               })
             : await service.deferWork({
@@ -193,9 +201,10 @@ export const createWorkTools = (
                 reason: input.reason,
                 note: input.note,
                 reviewTrigger: input.reviewTrigger,
+                idempotencyKey: input.idempotencyKey,
                 actor
               });
-        await appendDebugLog("defer_work", {
+        if (!result.idempotency?.replayed) await appendDebugLog("defer_work", {
           type: "deferred.created",
           projectId: input.projectId,
           versionId: result.deferred.targetReviewVersionId,
@@ -214,11 +223,13 @@ export const createWorkTools = (
               ? {
                   mode: result.mode,
                   todo: summarizeTodoForAgent(result.todo),
-                  deferred: summarizeDeferredForAgent(result.deferred)
+                  deferred: summarizeDeferredForAgent(result.deferred),
+                  idempotency: result.idempotency
                 }
               : {
                   mode: result.mode,
-                  deferred: summarizeDeferredForAgent(result.deferred)
+                  deferred: summarizeDeferredForAgent(result.deferred),
+                  idempotency: result.idempotency
                 }
         };
       })
@@ -254,9 +265,12 @@ export const createWorkTools = (
           reviewTrigger: stringSchema("Optional updated review trigger for defer_again."),
           decisionRef: stringSchema(
             "Decision reference. Required by the service for rejected and out_of_scope outcomes."
+          ),
+          idempotencyKey: stringSchema(
+            "Caller-stable key for persistent review_deferred retry."
           )
         },
-        ["projectId", "deferredId", "action", "reason"]
+        ["projectId", "deferredId", "action", "reason", "idempotencyKey"]
       ),
       { title: "Review Deferred", riskLevel: "write", destructive: true },
       withInputAdapter<ReviewDeferredToolInput>(adaptReviewDeferredInput, async (input) => {
@@ -266,7 +280,7 @@ export const createWorkTools = (
             : input.action === "defer_again"
               ? await service.reviewDeferred({ ...input, actor })
               : await service.reviewDeferred({ ...input, actor });
-        await appendDebugLog("review_deferred", {
+        if (!result.idempotency?.replayed) await appendDebugLog("review_deferred", {
           type: `deferred.${input.action}`,
           projectId: input.projectId,
           deferredId: input.deferredId,
@@ -285,11 +299,13 @@ export const createWorkTools = (
               ? {
                   action: result.action,
                   deferred: summarizeDeferredForAgent(result.deferred),
-                  todo: summarizeTodoForAgent(result.todo)
+                  todo: summarizeTodoForAgent(result.todo),
+                  idempotency: result.idempotency
                 }
               : {
                   action: result.action,
-                  deferred: summarizeDeferredForAgent(result.deferred)
+                  deferred: summarizeDeferredForAgent(result.deferred),
+                  idempotency: result.idempotency
                 }
         };
       })
@@ -310,9 +326,12 @@ export const createWorkTools = (
             enum: ["project", "version"],
             description: "project applies everywhere; version applies only to versionId."
           },
-          versionId: stringSchema("Required when scopeType=version.")
+          versionId: stringSchema("Required when scopeType=version."),
+          idempotencyKey: stringSchema(
+            "Caller-stable key for persistent record_constraint retry."
+          )
         },
-        ["projectId", "rule", "rationale", "scopeType"]
+        ["projectId", "rule", "rationale", "scopeType", "idempotencyKey"]
       ),
       { title: "Record Constraint", riskLevel: "write" },
       withInputAdapter<RecordConstraintToolInput>(adaptRecordConstraintInput, async (input) => {
@@ -324,9 +343,10 @@ export const createWorkTools = (
             input.scopeType === "project"
               ? { type: "project" }
               : { type: "version", versionId: input.versionId },
+          idempotencyKey: input.idempotencyKey,
           actor
         });
-        await appendDebugLog("record_constraint", {
+        if (!result.idempotency?.replayed) await appendDebugLog("record_constraint", {
           type: "constraint.recorded",
           projectId: input.projectId,
           versionId: input.scopeType === "version" ? input.versionId : undefined,
@@ -339,7 +359,10 @@ export const createWorkTools = (
         });
         return {
           ok: true,
-          data: { constraint: summarizeConstraintForAgent(result.constraint) }
+          data: {
+            constraint: summarizeConstraintForAgent(result.constraint),
+            idempotency: result.idempotency
+          }
         };
       })
     ),
@@ -351,14 +374,17 @@ export const createWorkTools = (
           projectId: stringSchema("RouteLedger project ID."),
           constraintId: stringSchema("Constraint ID."),
           reason: stringSchema("Why this constraint no longer applies."),
-          note: stringSchema("Operator note for the retirement audit.")
+          note: stringSchema("Operator note for the retirement audit."),
+          idempotencyKey: stringSchema(
+            "Caller-stable key for persistent retire_constraint retry."
+          )
         },
-        ["projectId", "constraintId", "reason", "note"]
+        ["projectId", "constraintId", "reason", "note", "idempotencyKey"]
       ),
       { title: "Retire Constraint", riskLevel: "write", destructive: true },
       withInputAdapter<RetireConstraintToolInput>(adaptRetireConstraintInput, async (input) => {
         const result = await service.retireConstraint({ ...input, actor });
-        await appendDebugLog("retire_constraint", {
+        if (!result.idempotency?.replayed) await appendDebugLog("retire_constraint", {
           type: "constraint.retired",
           projectId: input.projectId,
           constraintId: input.constraintId,
@@ -366,7 +392,10 @@ export const createWorkTools = (
         });
         return {
           ok: true,
-          data: { constraint: summarizeConstraintForAgent(result.constraint) }
+          data: {
+            constraint: summarizeConstraintForAgent(result.constraint),
+            idempotency: result.idempotency
+          }
         };
       })
     )
