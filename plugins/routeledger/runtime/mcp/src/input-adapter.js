@@ -210,6 +210,7 @@ export const adaptDeferWorkInput = (input) => {
     const mode = requireEnumString(normalized, "defer_work", "mode", ["new", "todo"]);
     const base = {
         projectId: requireString(normalized, "defer_work", "projectId"),
+        idempotencyKey: requireString(normalized, "defer_work", "idempotencyKey"),
         targetReviewVersionId: requireString(normalized, "defer_work", "targetReviewVersionId"),
         reason: requireString(normalized, "defer_work", "reason")
     };
@@ -238,6 +239,7 @@ export const adaptReviewDeferredInput = (input) => {
     const action = requireEnumString(normalized, "review_deferred", "action", ["activate", "defer_again", "resolve"]);
     const base = {
         projectId: requireString(normalized, "review_deferred", "projectId"),
+        idempotencyKey: requireString(normalized, "review_deferred", "idempotencyKey"),
         deferredId: requireString(normalized, "review_deferred", "deferredId"),
         reason: requireString(normalized, "review_deferred", "reason")
     };
@@ -274,6 +276,7 @@ export const adaptRecordConstraintInput = (input) => {
     const scopeType = requireEnumString(normalized, "record_constraint", "scopeType", ["project", "version"]);
     const base = {
         projectId: requireString(normalized, "record_constraint", "projectId"),
+        idempotencyKey: requireString(normalized, "record_constraint", "idempotencyKey"),
         rule: requireString(normalized, "record_constraint", "rule"),
         rationale: requireString(normalized, "record_constraint", "rationale")
     };
@@ -289,6 +292,7 @@ export const adaptRetireConstraintInput = (input) => {
     const normalized = expectInputObject("retire_constraint", input);
     return {
         projectId: requireString(normalized, "retire_constraint", "projectId"),
+        idempotencyKey: requireString(normalized, "retire_constraint", "idempotencyKey"),
         constraintId: requireString(normalized, "retire_constraint", "constraintId"),
         reason: requireString(normalized, "retire_constraint", "reason"),
         note: requireString(normalized, "retire_constraint", "note")

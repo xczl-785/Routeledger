@@ -38,7 +38,8 @@ export const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
     /^\.routeledger\/assets\/[^/]+\/[^/]+\.json$/,
     /^\.routeledger\/events\/\d{4}\/\d{2}\/[^/]+\.json$/,
     /^\.routeledger\/pending_operations\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/approval_artifacts\/[^/]+\/[^/]+\.json$/
+    /^\.routeledger\/approval_artifacts\/[^/]+\/[^/]+\.json$/,
+    /^\.routeledger\/ordinary_write_receipts\/[^/]+\/[^/]+\.json$/
 ];
 const ROUTELEDGER_CANONICAL_TOP_LEVEL_ENTRIES = [
     "project.json",
@@ -53,7 +54,8 @@ const ROUTELEDGER_CANONICAL_TOP_LEVEL_ENTRIES = [
     "assets",
     "events",
     "pending_operations",
-    "approval_artifacts"
+    "approval_artifacts",
+    "ordinary_write_receipts"
 ];
 const REPLACEMENT_DIRECTORY_NAME = ".canonical-replace";
 const REPLACEMENT_MANIFEST_FILENAME = "manifest.json";

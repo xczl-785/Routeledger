@@ -490,6 +490,7 @@ const getConstraintDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/constraints/
 const getAssetDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/assets/${getIdPrefix(id)}/${id}.json`;
 const getPendingOperationDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/pending_operations/${getIdPrefix(id)}/${id}.json`;
 const getApprovalArtifactDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
+const getOrdinaryWriteReceiptDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
 const getEventDocumentPath = (event) => {
     const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
     if (match === null) {
@@ -927,6 +928,32 @@ const decodeTransitionEvent = (event) => ({
     createdAt: event.created_at,
     metadata: decodeMetadataPayload(event.metadata)
 });
+const encodeOrdinaryWriteReceipt = (receipt) => ({
+    schema_version: ROUTELEDGER_SCHEMA_VERSION,
+    kind: "ordinary_write_receipt",
+    id: receipt.id,
+    project_id: receipt.projectId,
+    command_name: receipt.commandName,
+    idempotency_key: receipt.idempotencyKey,
+    input_digest: receipt.inputDigest,
+    result_schema_version: receipt.resultSchemaVersion,
+    // The result is an opaque, versioned application snapshot. Preserve its keys
+    // exactly instead of applying the metadata snake/camel-case transform.
+    result: sortJsonValue(receipt.result),
+    actor: encodeActor(receipt.actor),
+    committed_at: receipt.committedAt
+});
+const decodeOrdinaryWriteReceipt = (receipt) => ({
+    id: receipt.id,
+    projectId: receipt.project_id,
+    commandName: receipt.command_name,
+    idempotencyKey: receipt.idempotency_key,
+    inputDigest: receipt.input_digest,
+    resultSchemaVersion: receipt.result_schema_version,
+    result: structuredClone(receipt.result),
+    actor: decodeActor(receipt.actor),
+    committedAt: receipt.committed_at
+});
 const encodePendingOperation = (operation) => ({
     schema_version: ROUTELEDGER_SCHEMA_VERSION,
     kind: "pending_operation",
@@ -1146,6 +1173,9 @@ export const encodeProjectAggregateToJsonDocuments = (snapshot) => {
     for (const artifact of [...snapshot.approvalArtifacts].sort((left, right) => compareByString(getApprovalArtifactDocumentPath(left.id), getApprovalArtifactDocumentPath(right.id)))) {
         documents.push(createDocument(getApprovalArtifactDocumentPath(artifact.id), encodeApprovalArtifact(artifact)));
     }
+    for (const receipt of [...(snapshot.ordinaryWriteReceipts ?? [])].sort((left, right) => compareByString(getOrdinaryWriteReceiptDocumentPath(left.id), getOrdinaryWriteReceiptDocumentPath(right.id)))) {
+        documents.push(createDocument(getOrdinaryWriteReceiptDocumentPath(receipt.id), encodeOrdinaryWriteReceipt(receipt)));
+    }
     return documents.sort((left, right) => compareByString(left.path, right.path));
 };
 const decodeProjectAggregateFromJsonDocumentsInternal = (documents, validateLifecycle) => {
@@ -1179,6 +1209,7 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (documents, validateLife
     const events = [];
     const pendingOperations = [];
     const approvalArtifacts = [];
+    const ordinaryWriteReceipts = [];
     for (const document of [...documentMap.values()].sort((left, right) => compareByString(left.path, right.path))) {
         if (document.path === PROJECT_DOCUMENT_PATH || document.path === CURRENT_REF_DOCUMENT_PATH) {
             continue;
@@ -1226,6 +1257,10 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (documents, validateLife
             approvalArtifacts.push(decodeApprovalArtifact(parseDocument(document)));
             continue;
         }
+        if (document.path.startsWith(`${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`)) {
+            ordinaryWriteReceipts.push(decodeOrdinaryWriteReceipt(parseDocument(document)));
+            continue;
+        }
         throw new Error(`unsupported RouteLedger JSON document: ${document.path}`);
     }
     if (validateLifecycle) {
@@ -1257,7 +1292,8 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (documents, validateLife
         assets,
         events,
         pendingOperations,
-        approvalArtifacts
+        approvalArtifacts,
+        ordinaryWriteReceipts
     };
 };
 export const decodeProjectAggregateFromJsonDocuments = (documents) => decodeProjectAggregateFromJsonDocumentsInternal(documents, true);

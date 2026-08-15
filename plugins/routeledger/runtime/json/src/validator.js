@@ -1,5 +1,5 @@
 import path from "node:path";
-import { canonicalizeLocale, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, validateWorkItemActive } from "../../core/src/index.js";
+import { canonicalizeLocale, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, ORDINARY_WRITE_COMMAND_NAMES, validateWorkItemActive } from "../../core/src/index.js";
 import { decodeProjectAggregateFromJsonDocumentsForValidation } from "./codec.js";
 import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, ROUTELEDGER_READABLE_SCHEMA_VERSIONS, SCHEMA_DOCUMENT_PATH } from "./constants.js";
 const KNOWN_DOCUMENT_PREFIXES = [
@@ -12,7 +12,8 @@ const KNOWN_DOCUMENT_PREFIXES = [
     `${ROUTELEDGER_JSON_ROOT}/assets/`,
     `${ROUTELEDGER_JSON_ROOT}/events/`,
     `${ROUTELEDGER_JSON_ROOT}/pending_operations/`,
-    `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`
+    `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`,
+    `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`
 ];
 const getDocumentContract = (documentPath) => {
     if (documentPath === PROJECT_DOCUMENT_PATH) {
@@ -92,6 +93,12 @@ const getDocumentContract = (documentPath) => {
             requireSchemaVersion: true
         };
     }
+    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`)) {
+        return {
+            kind: "ordinary_write_receipt",
+            requireSchemaVersion: true
+        };
+    }
     return undefined;
 };
 const compareByString = (left, right) => left.localeCompare(right, "en");
@@ -150,6 +157,7 @@ const getConstraintPath = (id) => `${ROUTELEDGER_JSON_ROOT}/constraints/${getIdP
 const getAssetPath = (id) => `${ROUTELEDGER_JSON_ROOT}/assets/${getIdPrefix(id)}/${id}.json`;
 const getPendingOperationPath = (id) => `${ROUTELEDGER_JSON_ROOT}/pending_operations/${getIdPrefix(id)}/${id}.json`;
 const getApprovalArtifactPath = (id) => `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
+const getOrdinaryWriteReceiptPath = (id) => `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
 const getEventPath = (event) => {
     const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
     if (match === null) {
@@ -609,7 +617,8 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
         ["assets", snapshot.assets],
         ["events", snapshot.events],
         ["pendingOperations", snapshot.pendingOperations],
-        ["approvalArtifacts", snapshot.approvalArtifacts]
+        ["approvalArtifacts", snapshot.approvalArtifacts],
+        ["ordinaryWriteReceipts", snapshot.ordinaryWriteReceipts ?? []]
     ];
     for (const [collectionName, entities] of legacyEntityCollections) {
         for (const entity of entities) {
@@ -656,6 +665,35 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
     const assetsById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
     const pendingOperationsById = new Map(snapshot.pendingOperations.map((operation) => [operation.id, operation]));
     const approvalArtifactsById = new Map(snapshot.approvalArtifacts.map((artifact) => [artifact.id, artifact]));
+    const ordinaryWriteReceiptKeys = new Map();
+    for (const receipt of snapshot.ordinaryWriteReceipts ?? []) {
+        const path = getOrdinaryWriteReceiptPath(getSafePathId(receipt.id));
+        if (!ORDINARY_WRITE_COMMAND_NAMES.includes(receipt.commandName) ||
+            !isNonBlankString(receipt.idempotencyKey) ||
+            !isNonBlankString(receipt.inputDigest) ||
+            receipt.resultSchemaVersion !== 1 ||
+            !isRecord(receipt.result) ||
+            !hasValidJsonActorShape({
+                id: receipt.actor?.id,
+                type: receipt.actor?.type,
+                display_name: receipt.actor?.displayName
+            }) ||
+            !isNonBlankString(receipt.committedAt)) {
+            issues.push(createIssue("error", "ORDINARY_WRITE_RECEIPT_INVALID", "ordinary_write_receipt 必须包含完整的 command/key/digest/result/actor/commit 字段", { path, details: { receiptId: receipt.id } }));
+            continue;
+        }
+        const namespace = `${receipt.commandName}::${receipt.idempotencyKey}`;
+        const previousId = ordinaryWriteReceiptKeys.get(namespace);
+        if (previousId !== undefined) {
+            issues.push(createIssue("error", "ORDINARY_WRITE_RECEIPT_KEY_DUPLICATE", "同一 project + command + idempotencyKey 只能存在一份回执", {
+                path,
+                details: { receiptId: receipt.id, previousReceiptId: previousId }
+            }));
+        }
+        else {
+            ordinaryWriteReceiptKeys.set(namespace, receipt.id);
+        }
+    }
     if (project.currentVersionId === null && snapshot.versions.length > 0) {
         issues.push(createIssue("error", "PROJECT_CURRENT_VERSION_MISSING", "Project.current_version_id 不能为空", {
             path: PROJECT_DOCUMENT_PATH,
@@ -1116,6 +1154,12 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
             id: artifact.id,
             projectId: artifact.projectId,
             path: getApprovalArtifactPath(artifact.id)
+        })),
+        ...(snapshot.ordinaryWriteReceipts ?? []).map((receipt) => ({
+            kind: "ordinary_write_receipt",
+            id: receipt.id,
+            projectId: receipt.projectId,
+            path: getOrdinaryWriteReceiptPath(receipt.id)
         }))
     ]);
     return {

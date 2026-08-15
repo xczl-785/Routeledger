@@ -210,6 +210,99 @@ const assertDirectImportProfile = async ({
   }
 };
 
+const assertPackagedIdempotencyRestart = async ({
+  installDir,
+  workspaceRoot,
+  routeledgerRoot,
+  sqliteReadModel,
+  initialized
+}) => {
+  const packageEntry = path.join(installDir, "node_modules/@routeledger/mcp/index.js");
+  const imported = await import(
+    `${pathToFileURL(packageEntry).href}?idempotency-smoke=${Date.now()}`
+  );
+  const createRegistry = () =>
+    imported.createRouteLedgerMcpRegistry({
+      workspaceRoot,
+      routeledgerRoot,
+      sqliteReadModel
+    });
+  const createInput = {
+    projectId: initialized.project.id,
+    versionId: initialized.firstVersion.id,
+    title: "Packaged idempotency restart",
+    idempotencyKey: "package-smoke-create-restart",
+    expectedRouteLedgerRoot: routeledgerRoot
+  };
+  let registry = createRegistry();
+  let firstCreate;
+  let firstClose;
+
+  try {
+    firstCreate = await registry.invoke("create_todo", createInput);
+    if (!firstCreate.ok || firstCreate.data?.idempotency?.replayed !== false) {
+      throw new Error(
+        `Packaged create_todo did not commit an idempotency receipt: ${JSON.stringify(firstCreate)}`
+      );
+    }
+    firstClose = await registry.invoke("close_todo", {
+      projectId: initialized.project.id,
+      todoId: firstCreate.data.todo.id,
+      reason: "package smoke complete",
+      note: "close exactly once",
+      idempotencyKey: "package-smoke-close-restart",
+      expectedRouteLedgerRoot: routeledgerRoot
+    });
+    if (!firstClose.ok || firstClose.data?.idempotency?.replayed !== false) {
+      throw new Error(
+        `Packaged close_todo did not commit an idempotency receipt: ${JSON.stringify(firstClose)}`
+      );
+    }
+  } finally {
+    registry.close();
+  }
+
+  registry = createRegistry();
+  try {
+    const replayedCreate = await registry.invoke("create_todo", createInput);
+    const replayedClose = await registry.invoke("close_todo", {
+      projectId: initialized.project.id,
+      todoId: firstCreate.data.todo.id,
+      reason: "package smoke complete",
+      note: "close exactly once",
+      idempotencyKey: "package-smoke-close-restart",
+      expectedRouteLedgerRoot: routeledgerRoot
+    });
+    if (
+      !replayedCreate.ok ||
+      replayedCreate.data?.todo?.id !== firstCreate.data.todo.id ||
+      replayedCreate.data?.idempotency?.replayed !== true ||
+      !replayedClose.ok ||
+      replayedClose.data?.todo?.id !== firstClose.data.todo.id ||
+      replayedClose.data?.idempotency?.replayed !== true
+    ) {
+      throw new Error(
+        `Packaged ordinary writes did not replay after registry restart: ${JSON.stringify({ replayedCreate, replayedClose })}`
+      );
+    }
+    const conflict = await registry.invoke("close_todo", {
+      projectId: initialized.project.id,
+      todoId: firstCreate.data.todo.id,
+      reason: "package smoke complete",
+      note: "different input",
+      idempotencyKey: "package-smoke-close-restart",
+      expectedRouteLedgerRoot: routeledgerRoot
+    });
+    if (conflict.ok || conflict.error?.code !== "IDEMPOTENCY_KEY_REUSE_MISMATCH") {
+      throw new Error(
+        `Packaged idempotency key reuse did not fail closed: ${JSON.stringify(conflict)}`
+      );
+    }
+  } finally {
+    registry.close();
+  }
+};
+
 const runStdioSmoke = async ({
   installDir,
   workspaceRoot,
@@ -279,6 +372,11 @@ const runStdioSmoke = async ({
         arguments: {
           name: "Packaged MCP Runtime Smoke",
           contentLocale: "en",
+          firstVersion: {
+            title: "Packaged idempotency smoke",
+            description: "",
+            initialTodos: []
+          },
           expectedRouteLedgerRoot: routeledgerRoot
         }
       }
@@ -391,7 +489,10 @@ const runStdioSmoke = async ({
     throw new Error("initialize serverInfo and get_runtime_context reported different runtime identities.");
   }
 
-  return runtimeContext;
+  return {
+    runtimeContext,
+    initialized: stdoutLines[2]?.result?.structuredContent?.data
+  };
 };
 
 const main = async () => {
@@ -407,6 +508,8 @@ const main = async () => {
   }
 
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "routeledger-mcp-pack-smoke-"));
+  const previousXdgStateHome = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = path.join(tmpRoot, "ui-state");
   const packArgs = ["pack", "--json"];
   let tarballDirectory = artifactDir;
 
@@ -488,12 +591,19 @@ const main = async () => {
       profileName
     });
 
-    const runtimeContext = await runStdioSmoke({
+    const { runtimeContext, initialized } = await runStdioSmoke({
       installDir,
       workspaceRoot,
       routeledgerRoot,
       sqliteReadModel,
       profileName
+    });
+    await assertPackagedIdempotencyRestart({
+      installDir,
+      workspaceRoot,
+      routeledgerRoot,
+      sqliteReadModel,
+      initialized
     });
 
     if (profileName === "json-only") {
@@ -515,6 +625,11 @@ const main = async () => {
       `Packaged ${profileName} MCP tarball smoke passed: artifact=${artifactDir} tarball=${tarballPath}`
     );
   } finally {
+    if (previousXdgStateHome === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = previousXdgStateHome;
+    }
     await fs.rm(tmpRoot, { recursive: true, force: true });
   }
 };
