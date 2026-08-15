@@ -10,6 +10,17 @@ export type MissionControlOpenResult = {
   registryPath: string;
   workspaceRoot: string;
   routeledgerRoot: string;
+  browserOpened: boolean;
+  browserError: string | null;
+  runtimeIdentity: MissionControlRuntimeIdentity;
+};
+
+export type MissionControlRuntimeIdentity = {
+  runtimePackageVersion: string;
+  runtimeProfile: string;
+  artifactKind: string;
+  pluginVersion: string | null;
+  runtimePayloadDigest: string | null;
 };
 
 export type MissionControlStatusResult = {
@@ -26,11 +37,18 @@ export type MissionControlSourceModule = {
     workspaceRoot: string;
     routeledgerRoot: string;
     devBuild?: boolean;
+    openBrowser?: boolean;
+    runtimeIdentity?: MissionControlRuntimeIdentity;
   }) => Promise<MissionControlOpenResult>;
   getMissionControlStatus: (options: {
     workspaceRoot: string;
     routeledgerRoot: string;
   }) => Promise<MissionControlStatusResult>;
+  stopMissionControlHub: () => Promise<{
+    registryPath: string;
+    stopped: boolean;
+    pid: number | null;
+  }>;
 };
 
 export interface MissionControlToolDependencies<TBinding> {
@@ -40,6 +58,7 @@ export interface MissionControlToolDependencies<TBinding> {
     binding: TBinding
   ) => { workspaceRoot: string; routeledgerRoot: string };
   loadSourceModule: () => Promise<MissionControlSourceModule>;
+  runtimeIdentity: MissionControlRuntimeIdentity;
   withCurrentRuntimeContextMeta: (options: {
     meta?: Record<string, unknown>;
     data: unknown;
@@ -77,6 +96,9 @@ export const createMissionControlTools = <TBinding>(
       ),
       devBuild: booleanSchema(
         "When true, auto-build the UI dist if it is missing before launching the source-mode Mission Control server."
+      ),
+      openBrowser: booleanSchema(
+        "Open the Mission Control URL in the default browser. Defaults to true. Set false for automation."
       )
     }),
     {
@@ -91,7 +113,9 @@ export const createMissionControlTools = <TBinding>(
       const result = await missionControlSource.openMissionControlSource({
         workspaceRoot: roots.workspaceRoot,
         routeledgerRoot: roots.routeledgerRoot,
-        devBuild: input.devBuild === true
+        devBuild: input.devBuild === true,
+        openBrowser: input.openBrowser !== false,
+        runtimeIdentity: dependencies.runtimeIdentity
       });
 
       return {
@@ -138,6 +162,26 @@ export const createMissionControlTools = <TBinding>(
             project: status.projectId === null ? null : { id: status.projectId }
           }
         })
+      };
+    }
+  ),
+  defineTool(
+    "stop_mission_control",
+    { what: "Stop the local RouteLedger UI Hub while preserving MCP and the UI project catalog." },
+    objectSchema({}),
+    {
+      title: "Stop Mission Control",
+      riskLevel: "read-only",
+      toolKind: "diagnostic",
+      visibility: "default"
+    },
+    async () => {
+      const missionControlSource = await dependencies.loadSourceModule();
+      const result = await missionControlSource.stopMissionControlHub();
+      return {
+        ok: true,
+        data: result,
+        meta: dependencies.withCurrentRuntimeContextMeta({ data: null })
       };
     }
   )

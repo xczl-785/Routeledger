@@ -499,8 +499,8 @@ describe("Mission Control deferred semantics", () => {
     const markup = renderToStaticMarkup(
       <ProjectContext
         projects={[
-          { id: "project-a", projectId: "a", projectName: "Project A", available: true, lastOpenedAt: timestamp },
-          { id: "project-b", projectId: "b", projectName: "Project B", available: false, lastOpenedAt: timestamp }
+          { id: "project-a", projectId: "a", projectName: "Project A", available: true, availabilityReason: null, lastOpenedAt: timestamp },
+          { id: "project-b", projectId: "b", projectName: "Project B", available: false, availabilityReason: "项目目录已移动。", lastOpenedAt: timestamp }
         ]}
         selectedProjectId="project-a"
         projectName="Project A"

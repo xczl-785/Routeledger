@@ -21,8 +21,9 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   activate_routeledger_binding: "a611c1cab06c442358e39f042afcf95c6b724c99e0d63bf1557110b6630af5a4",
   render_host_binding_config: "0416054f0f4f0f4d76258b293be5c0c52d7fc7f9efc266ad55c22bce00fc72d9",
   write_host_binding_config: "b18fb6267a005ac2419708e0e9cc6678a08bc554183775f3132d96fc5b207d0c",
-  open_mission_control: "25c14d35211ab6e9ca33a623220966fa2147a40aeadecc3afbd6b61c4dac1ccb",
+  open_mission_control: "7417f9b7283f5212afa3aadf335e03ded414f9ab26d76e508209167f21212f01",
   get_mission_control_status: "2492089957b2e36211d64a6b36e3041ec2f86b32633fc978a11a406bde526632",
+  stop_mission_control: "dd2463e3515783427e8a8f97a9f73a7a7409e3eca556c12096bdd208c41be974",
   init_project: "7e38acb9d746569b0fc140911488b150f8014922ef759d9e82549fdbfea487e3",
   set_project_content_locale: "779bb39842ff4de414d9610107aef073a8bd05aab5692b2bc5e18ab50ef1654c",
   get_current_context: "237d3945f6093cf1a95b18c37b49619b0958b303b01b212a96f0dba6d01f356b",
@@ -120,8 +121,8 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(48);
-      expect(readOnly).toHaveLength(22);
+      expect(tools).toHaveLength(49);
+      expect(readOnly).toHaveLength(23);
       expect(writes).toHaveLength(21);
       expect(highRisk).toHaveLength(5);
       expect(writes.concat(highRisk)).toHaveLength(26);
@@ -158,7 +159,7 @@ describe("MCP tool description contract", () => {
 
     try {
       const descriptions = registry.tools.map((tool) => tool.description);
-      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3400);
+      expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3500);
       for (const description of descriptions) {
         expect(description.length).toBeLessThanOrEqual(150);
       }

@@ -32,6 +32,7 @@ export interface MissionControlProjectSummary {
   projectId: string | null;
   projectName: string;
   available: boolean;
+  availabilityReason: string | null;
   lastOpenedAt: string;
 }
 

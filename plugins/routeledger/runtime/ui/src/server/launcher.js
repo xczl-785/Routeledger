@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -18,6 +18,15 @@ const defaultIdleTimeoutMs = 30 * 60 * 1000;
 const defaultLockTimeoutMs = 15_000;
 const staleLockAgeMs = 30_000;
 const clientHeaderName = "x-routeledger-ui-client";
+const accessTokenHeaderName = "x-routeledger-ui-token";
+const missionControlProtocolVersion = 1;
+const sourceRuntimeIdentity = {
+    runtimePackageVersion: "source",
+    runtimeProfile: "source",
+    artifactKind: "source",
+    pluginVersion: null,
+    runtimePayloadDigest: null
+};
 const staticMimeTypes = new Map([
     [".css", "text/css; charset=utf-8"],
     [".html", "text/html; charset=utf-8"],
@@ -28,7 +37,7 @@ const staticMimeTypes = new Map([
     [".png", "image/png"],
     [".svg", "image/svg+xml; charset=utf-8"]
 ]);
-const usageText = "Usage: routeledger-ui <open|add|status|stop|serve> [--workspace-root <abs> --routeledger-root <abs>] [--dev-build]";
+const usageText = "Usage: routeledger-ui <open|add|remove|status|stop|serve> [--workspace-root <abs> --routeledger-root <abs>] [--dev-build]";
 const toJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const delay = async (ms) => new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -37,16 +46,118 @@ const resolveRootInputs = (options) => ({
     workspaceRoot: path.resolve(options.workspaceRoot),
     routeledgerRoot: path.resolve(options.routeledgerRoot)
 });
+const comparablePhysicalPath = (value) => {
+    const physical = fsSync.realpathSync.native(value);
+    return process.platform === "win32" ? physical.toLocaleLowerCase("en-US") : physical;
+};
+const arePhysicalPathsEqual = (left, right) => comparablePhysicalPath(left) === comparablePhysicalPath(right);
+const isPhysicalPathContainedWithin = (root, candidate) => {
+    const relative = path.relative(comparablePhysicalPath(root), comparablePhysicalPath(candidate));
+    return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
+};
+const normalizeProjectInputPath = (inputPath) => {
+    if (!path.isAbsolute(inputPath))
+        throw new Error("工程目录必须是绝对路径。");
+    const resolved = path.resolve(inputPath);
+    if (path.basename(resolved) === "project.json" && path.basename(path.dirname(resolved)) === ".routeledger") {
+        return path.dirname(path.dirname(resolved));
+    }
+    return resolved;
+};
+const resolveWorkspaceDataRoot = (workspaceRoot) => {
+    const configPath = path.join(workspaceRoot, ".routeledger", "config.json");
+    let parsed;
+    try {
+        parsed = JSON.parse(fsSync.readFileSync(configPath, "utf8"));
+    }
+    catch (error) {
+        throw new Error(`无法读取 workspace 配置 ${configPath}：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(`${configPath} 必须包含 JSON 对象。`);
+    }
+    const config = parsed;
+    if (config.version !== 1 || typeof config.dataDir !== "string" || config.dataDir.trim().length === 0) {
+        throw new Error(`${configPath} 必须包含 version=1 和非空 dataDir。`);
+    }
+    if (path.isAbsolute(config.dataDir))
+        throw new Error(`${configPath} 的 dataDir 必须是 workspace 相对路径。`);
+    const dataRoot = path.resolve(workspaceRoot, config.dataDir);
+    if (!fsSync.existsSync(dataRoot) || !fsSync.statSync(dataRoot).isDirectory()) {
+        throw new Error(`RouteLedger dataDir 不存在或不是目录：${dataRoot}`);
+    }
+    if (!isPhysicalPathContainedWithin(workspaceRoot, dataRoot)) {
+        throw new Error(`${configPath} 的 dataDir 越出了 workspace。`);
+    }
+    return dataRoot;
+};
+export const resolveMissionControlProjectPath = (inputPath) => {
+    const candidate = normalizeProjectInputPath(inputPath);
+    if (!fsSync.existsSync(candidate) || !fsSync.statSync(candidate).isDirectory()) {
+        throw new Error(`工程目录不存在或不是目录：${candidate}`);
+    }
+    const candidateConfig = path.join(candidate, ".routeledger", "config.json");
+    if (fsSync.existsSync(candidateConfig)) {
+        const routeledgerRoot = resolveWorkspaceDataRoot(candidate);
+        const projectPath = path.join(routeledgerRoot, ".routeledger", "project.json");
+        if (!fsSync.existsSync(projectPath))
+            throw new Error(`未找到 canonical RouteLedger 项目：${projectPath}`);
+        return {
+            workspaceRoot: comparablePhysicalPath(candidate),
+            routeledgerRoot: comparablePhysicalPath(routeledgerRoot)
+        };
+    }
+    const candidateProject = path.join(candidate, ".routeledger", "project.json");
+    if (!fsSync.existsSync(candidateProject)) {
+        throw new Error(`未找到 .routeledger/config.json 或 .routeledger/project.json：${candidate}`);
+    }
+    let current = candidate;
+    while (true) {
+        const configPath = path.join(current, ".routeledger", "config.json");
+        if (fsSync.existsSync(configPath)) {
+            const dataRoot = resolveWorkspaceDataRoot(current);
+            if (arePhysicalPathsEqual(dataRoot, candidate)) {
+                return {
+                    workspaceRoot: comparablePhysicalPath(current),
+                    routeledgerRoot: comparablePhysicalPath(dataRoot)
+                };
+            }
+        }
+        const parent = path.dirname(current);
+        if (parent === current)
+            break;
+        current = parent;
+    }
+    throw new Error("找到了 canonical 项目，但无法证明它与 workspace config 的绑定关系。");
+};
+const parseRuntimeIdentityFromEnvironment = () => {
+    const raw = process.env.ROUTELEDGER_UI_RUNTIME_IDENTITY;
+    if (typeof raw !== "string" || raw.length === 0)
+        return sourceRuntimeIdentity;
+    try {
+        const value = JSON.parse(raw);
+        if (typeof value.runtimePackageVersion !== "string" || typeof value.runtimeProfile !== "string" || typeof value.artifactKind !== "string") {
+            throw new Error("invalid runtime identity");
+        }
+        return value;
+    }
+    catch (error) {
+        throw new Error(`ROUTELEDGER_UI_RUNTIME_IDENTITY 无效：${error instanceof Error ? error.message : String(error)}`);
+    }
+};
 const projectKeyFor = (options) => createHash("sha256")
     .update(`${options.projectId ?? "uninitialized"}\0${options.workspaceRoot}\0${options.routeledgerRoot}`)
     .digest("hex")
     .slice(0, 24);
 const emptyRegistry = () => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     hub: null,
     projects: []
 });
 const migrateLegacyRegistry = (legacy) => {
+    if (legacy.schemaVersion === 2 && Array.isArray(legacy.projects)) {
+        return { schemaVersion: 3, hub: legacy.hub ?? null, projects: legacy.projects };
+    }
     const projects = new Map();
     for (const entry of legacy.instances ?? []) {
         if (typeof entry.workspaceRoot !== "string" || typeof entry.routeledgerRoot !== "string")
@@ -65,7 +176,7 @@ const migrateLegacyRegistry = (legacy) => {
         });
     }
     return {
-        schemaVersion: 2,
+        schemaVersion: 3,
         hub: null,
         projects: [...projects.values()]
     };
@@ -94,7 +205,8 @@ export const parseLauncherArgs = (argv) => {
     }
     return {
         ...resolveRootInputs({ workspaceRoot, routeledgerRoot }),
-        devBuild: args.get("dev-build") === true
+        devBuild: args.get("dev-build") === true,
+        runtimeIdentity: parseRuntimeIdentityFromEnvironment()
     };
 };
 export const getRegistryPath = () => {
@@ -104,28 +216,72 @@ export const getRegistryPath = () => {
         ? path.join(os.homedir(), ".routeledger", "ui", "hub.json")
         : path.join(stateRoot, "routeledger", "ui", "hub.json");
 };
-export const readRegistry = async (registryPath) => {
+export const getProjectRegistryPath = (hubRegistryPath = getRegistryPath()) => path.join(path.dirname(hubRegistryPath), "projects.json");
+const readOptionalJson = async (filePath) => {
     try {
-        const parsed = JSON.parse(await fs.readFile(registryPath, "utf8"));
-        if (parsed.schemaVersion === 2 && Array.isArray(parsed.projects)) {
-            return parsed;
+        return JSON.parse(await fs.readFile(filePath, "utf8"));
+    }
+    catch (error) {
+        if (error.code === "ENOENT")
+            return null;
+        throw new Error(`RouteLedger UI 状态文件无效，已保留原文件：${filePath}（${error instanceof Error ? error.message : String(error)}）`);
+    }
+};
+export const readRegistry = async (registryPath) => {
+    const projectRegistryPath = getProjectRegistryPath(registryPath);
+    const [hubValue, projectValue] = await Promise.all([
+        readOptionalJson(registryPath),
+        readOptionalJson(projectRegistryPath)
+    ]);
+    let legacy = null;
+    let hub = null;
+    if (hubValue !== null) {
+        if (typeof hubValue !== "object" || Array.isArray(hubValue)) {
+            throw new Error(`RouteLedger UI Hub 状态格式无效：${registryPath}`);
         }
-        if (parsed.schemaVersion === 1)
-            return migrateLegacyRegistry(parsed);
-        return emptyRegistry();
+        const hubRecord = hubValue;
+        if (hubRecord.schemaVersion === 3 && Object.prototype.hasOwnProperty.call(hubRecord, "hub")) {
+            hub = hubRecord.hub ?? null;
+        }
+        else if (hubRecord.schemaVersion === 1 || hubRecord.schemaVersion === 2) {
+            legacy = migrateLegacyRegistry(hubRecord);
+            hub = legacy.hub;
+        }
+        else {
+            throw new Error(`RouteLedger UI Hub 状态版本不受支持：${registryPath}`);
+        }
     }
-    catch {
-        return emptyRegistry();
+    let projects = legacy?.projects ?? [];
+    if (projectValue !== null) {
+        if (typeof projectValue !== "object" || Array.isArray(projectValue)) {
+            throw new Error(`RouteLedger UI 项目目录格式无效：${projectRegistryPath}`);
+        }
+        const projectRecord = projectValue;
+        if (projectRecord.schemaVersion !== 1 || !Array.isArray(projectRecord.projects)) {
+            throw new Error(`RouteLedger UI 项目目录版本不受支持：${projectRegistryPath}`);
+        }
+        projects = projectRecord.projects;
     }
+    return { schemaVersion: 3, hub, projects };
+};
+const writeJsonAtomic = async (filePath, value) => {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+    await fs.writeFile(temporaryPath, toJson(value), { encoding: "utf8", mode: 0o600 });
+    await fs.rename(temporaryPath, filePath);
 };
 export const writeRegistry = async (registryPath, registryOrProjects) => {
     const registry = Array.isArray(registryOrProjects)
         ? { ...emptyRegistry(), projects: registryOrProjects }
         : registryOrProjects;
-    await fs.mkdir(path.dirname(registryPath), { recursive: true });
-    const temporaryPath = `${registryPath}.${process.pid}.${randomUUID()}.tmp`;
-    await fs.writeFile(temporaryPath, toJson(registry), "utf8");
-    await fs.rename(temporaryPath, registryPath);
+    await writeJsonAtomic(getProjectRegistryPath(registryPath), {
+        schemaVersion: 1,
+        projects: registry.projects
+    });
+    await writeJsonAtomic(registryPath, {
+        schemaVersion: 3,
+        hub: registry.hub
+    });
 };
 const withFileLock = async (lockPath, task) => {
     const startedAt = Date.now();
@@ -220,24 +376,58 @@ export const registerMissionControlProject = async (options) => {
     const registryPath = options.registryPath ?? getRegistryPath();
     return withRegistryLock(registryPath, () => registerMissionControlProjectUnlocked({ ...options, registryPath }));
 };
+export const registerMissionControlProjectPath = async (inputPath, registryPath = getRegistryPath()) => {
+    const roots = resolveMissionControlProjectPath(inputPath);
+    const state = await readProjectState(roots);
+    if (state.identity === null) {
+        throw new Error(state.message || "该目录不是可读取的 canonical RouteLedger 项目。");
+    }
+    return registerMissionControlProject({ ...roots, registryPath });
+};
+export const removeMissionControlProject = async (projectKey, registryPath = getRegistryPath()) => withRegistryLock(registryPath, async () => {
+    const registry = await readRegistry(registryPath);
+    const projects = registry.projects.filter((project) => project.id !== projectKey);
+    const removed = projects.length !== registry.projects.length;
+    if (removed)
+        await writeRegistry(registryPath, { ...registry, projects });
+    return { registryPath, removed, projectKey };
+});
+const runtimeIdentityMatches = (left, right) => left.runtimePackageVersion === right.runtimePackageVersion &&
+    left.runtimeProfile === right.runtimeProfile &&
+    left.artifactKind === right.artifactKind &&
+    left.pluginVersion === right.pluginVersion &&
+    left.runtimePayloadDigest === right.runtimePayloadDigest;
 export const healthCheckHub = async (hub) => {
     try {
-        const response = await fetch(`${hub.url}/api/health`, { headers: { accept: "application/json" } });
+        const response = await fetch(`${hub.url}/api/health`, { headers: {
+                accept: "application/json",
+                [accessTokenHeaderName]: hub.accessToken
+            } });
         if (!response.ok)
             return null;
         const health = (await response.json());
-        return health.ok && health.instanceId === hub.id ? health : null;
+        return health.ok &&
+            health.instanceId === hub.id &&
+            health.protocolVersion === hub.protocolVersion &&
+            runtimeIdentityMatches(health.runtimeIdentity, hub.runtimeIdentity)
+            ? health
+            : null;
     }
     catch {
         return null;
     }
 };
-const reconcileHub = async (registryPath) => {
+const reconcileHub = async (registryPath, expectedRuntimeIdentity) => {
     const registry = await readRegistry(registryPath);
     if (registry.hub === null)
         return registry;
-    if ((await healthCheckHub(registry.hub)) !== null)
+    const health = await healthCheckHub(registry.hub);
+    if (health !== null &&
+        (expectedRuntimeIdentity === undefined || runtimeIdentityMatches(health.runtimeIdentity, expectedRuntimeIdentity)))
         return registry;
+    if (health !== null && expectedRuntimeIdentity !== undefined) {
+        await stopMissionControlHub(registryPath, { skipReconcile: true });
+    }
     return withRegistryLock(registryPath, async () => {
         const latest = await readRegistry(registryPath);
         if (latest.hub?.id !== registry.hub?.id)
@@ -247,10 +437,10 @@ const reconcileHub = async (registryPath) => {
         return reconciled;
     });
 };
-const waitForHealthyHub = async (registryPath, timeoutMs) => {
+const waitForHealthyHub = async (registryPath, timeoutMs, expectedRuntimeIdentity) => {
     const startedAt = Date.now();
     while (Date.now() - startedAt <= timeoutMs) {
-        const registry = await reconcileHub(registryPath);
+        const registry = await reconcileHub(registryPath, expectedRuntimeIdentity);
         if (registry.hub !== null)
             return registry.hub;
         await delay(150);
@@ -282,10 +472,40 @@ const spawnMissionControlProcess = (options) => {
         "--routeledger-root",
         options.routeledgerRoot,
         ...(options.devBuild ? ["--dev-build"] : [])
-    ], { cwd: repoRoot, detached: true, env: process.env, stdio: ["ignore", logFd, logFd] });
+    ], {
+        cwd: repoRoot,
+        detached: true,
+        env: {
+            ...process.env,
+            ROUTELEDGER_UI_RUNTIME_IDENTITY: JSON.stringify(options.runtimeIdentity)
+        },
+        stdio: ["ignore", logFd, logFd]
+    });
     fsSync.closeSync(logFd);
     child.unref();
     return { logPath };
+};
+export const resolveBrowserOpenCommand = (url, platform = process.platform) => {
+    if (platform === "darwin")
+        return { command: "open", args: [url] };
+    if (platform === "win32")
+        return { command: "cmd", args: ["/d", "/s", "/c", "start", "", url] };
+    return { command: "xdg-open", args: [url] };
+};
+export const openUrlInBrowser = async (url) => {
+    const invocation = resolveBrowserOpenCommand(url);
+    return new Promise((resolve) => {
+        const child = spawn(invocation.command, invocation.args, {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: true
+        });
+        child.once("error", (error) => resolve({ opened: false, error: error.message }));
+        child.once("spawn", () => {
+            child.unref();
+            resolve({ opened: true, error: null });
+        });
+    });
 };
 export const getMissionControlStatus = async (options = {}) => {
     const registryPath = options.registryPath ?? getRegistryPath();
@@ -293,13 +513,29 @@ export const getMissionControlStatus = async (options = {}) => {
     const matchingProject = typeof options.workspaceRoot === "string" && typeof options.routeledgerRoot === "string"
         ? registry.projects.find((project) => {
             const resolved = resolveRootInputs(options);
-            return project.workspaceRoot === resolved.workspaceRoot && project.routeledgerRoot === resolved.routeledgerRoot;
+            try {
+                return arePhysicalPathsEqual(project.workspaceRoot, resolved.workspaceRoot) &&
+                    arePhysicalPathsEqual(project.routeledgerRoot, resolved.routeledgerRoot);
+            }
+            catch {
+                return project.workspaceRoot === resolved.workspaceRoot && project.routeledgerRoot === resolved.routeledgerRoot;
+            }
         }) ?? null
         : null;
+    const publicHub = registry.hub === null ? null : {
+        id: registry.hub.id,
+        pid: registry.hub.pid,
+        port: registry.hub.port,
+        url: registry.hub.url,
+        startedAt: registry.hub.startedAt,
+        updatedAt: registry.hub.updatedAt,
+        protocolVersion: registry.hub.protocolVersion,
+        runtimeIdentity: registry.hub.runtimeIdentity
+    };
     return {
         registryPath,
         projectId: matchingProject?.projectId ?? null,
-        hub: registry.hub,
+        hub: publicHub,
         healthy: registry.hub !== null,
         projects: registry.projects,
         matchingProject
@@ -307,16 +543,21 @@ export const getMissionControlStatus = async (options = {}) => {
 };
 export const openMissionControlSource = async (options) => {
     const resolved = resolveRootInputs(options);
+    const runtimeIdentity = options.runtimeIdentity ?? sourceRuntimeIdentity;
     const registryPath = getRegistryPath();
     const project = await registerMissionControlProject({ ...resolved, registryPath });
     const startup = await withStartupLock(registryPath, async () => {
-        let registry = await reconcileHub(registryPath);
+        let registry = await reconcileHub(registryPath, runtimeIdentity);
         const reused = registry.hub !== null;
         if (registry.hub === null) {
             await ensureDistReady(options.devBuild === true);
-            const { logPath } = spawnMissionControlProcess({ ...resolved, devBuild: options.devBuild === true });
+            const { logPath } = spawnMissionControlProcess({
+                ...resolved,
+                devBuild: options.devBuild === true,
+                runtimeIdentity
+            });
             try {
-                const hub = await waitForHealthyHub(registryPath, options.timeoutMs ?? 10000);
+                const hub = await waitForHealthyHub(registryPath, options.timeoutMs ?? 10000, runtimeIdentity);
                 if (hub === null) {
                     throw new Error(`Mission Control UI Hub did not become healthy.${await resolveLogTail(logPath)}`);
                 }
@@ -331,26 +572,36 @@ export const openMissionControlSource = async (options) => {
     const { registry, reused } = startup;
     if (registry.hub === null)
         throw new Error("Mission Control UI Hub registration is missing after startup.");
+    const url = `${registry.hub.url}/?project=${encodeURIComponent(project.id)}#token=${encodeURIComponent(registry.hub.accessToken)}`;
+    const browser = options.openBrowser === false
+        ? { opened: false, error: null }
+        : await openUrlInBrowser(url);
     return {
-        url: `${registry.hub.url}/?project=${encodeURIComponent(project.id)}`,
+        url,
         projectKey: project.id,
         projectId: project.projectId,
         pid: registry.hub.pid,
         port: registry.hub.port,
         reused,
         registryPath,
+        browserOpened: browser.opened,
+        browserError: browser.error,
+        runtimeIdentity: registry.hub.runtimeIdentity,
         ...resolved
     };
 };
-export const stopMissionControlHub = async (registryPath = getRegistryPath()) => {
-    const registry = await reconcileHub(registryPath);
+export const stopMissionControlHub = async (registryPath = getRegistryPath(), options = {}) => {
+    const registry = options.skipReconcile === true ? await readRegistry(registryPath) : await reconcileHub(registryPath);
     if (registry.hub === null)
         return { registryPath, stopped: false, pid: null };
     const pid = registry.hub.pid;
     try {
         const response = await fetch(`${registry.hub.url}/api/shutdown`, {
             method: "POST",
-            headers: { [clientHeaderName]: "1" }
+            headers: {
+                [clientHeaderName]: "1",
+                [accessTokenHeaderName]: registry.hub.accessToken
+            }
         });
         if (!response.ok)
             return { registryPath, stopped: false, pid };
@@ -367,7 +618,10 @@ export const stopMissionControlHub = async (registryPath = getRegistryPath()) =>
     }
     return { registryPath, stopped: false, pid };
 };
-const isSameOriginMutation = (request) => {
+const hasAccessToken = (request, accessToken) => request.headers[accessTokenHeaderName] === accessToken;
+const isSameOriginMutation = (request, accessToken) => {
+    if (!hasAccessToken(request, accessToken))
+        return false;
     if (request.headers[clientHeaderName] !== "1")
         return false;
     const origin = request.headers.origin;
@@ -405,12 +659,13 @@ export const runMissionControlServer = async (inputArgs) => {
     await ensureDistReady(args.devBuild);
     const registryPath = getRegistryPath();
     const initialProject = await registerMissionControlProject({ ...args, registryPath });
-    const existingRegistry = await reconcileHub(registryPath);
+    const existingRegistry = await reconcileHub(registryPath, args.runtimeIdentity);
     if (existingRegistry.hub !== null) {
         console.log(`RouteLedger UI Hub already running at ${existingRegistry.hub.url}`);
         return;
     }
     const instanceId = randomUUID();
+    const accessToken = randomBytes(32).toString("base64url");
     const startedAt = new Date().toISOString();
     const idleTimeoutMs = resolveIdleTimeoutMs();
     let lastActivityAt = Date.now();
@@ -422,6 +677,11 @@ export const runMissionControlServer = async (inputArgs) => {
     };
     const server = createServer(async (request, response) => {
         const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+        if (requestUrl.pathname.startsWith("/api/") && !hasAccessToken(request, accessToken)) {
+            response.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+            response.end(toJson({ error: "MISSION_CONTROL_ACCESS_TOKEN_REQUIRED" }));
+            return;
+        }
         if (requestUrl.pathname === "/api/health") {
             const registry = await readRegistry(registryPath);
             response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -431,27 +691,24 @@ export const runMissionControlServer = async (inputArgs) => {
                 pid: process.pid,
                 projectCount: registry.projects.length,
                 startedAt,
-                lastActivityAt: new Date(lastActivityAt).toISOString()
+                lastActivityAt: new Date(lastActivityAt).toISOString(),
+                protocolVersion: missionControlProtocolVersion,
+                runtimeIdentity: args.runtimeIdentity
             }));
             return;
         }
         if (requestUrl.pathname === "/api/projects") {
             if (request.method === "POST") {
-                if (!isSameOriginMutation(request)) {
+                if (!isSameOriginMutation(request, accessToken)) {
                     response.writeHead(403, { "content-type": "application/json; charset=utf-8" });
                     response.end(toJson({ error: "CLIENT_HEADER_REQUIRED" }));
                     return;
                 }
                 try {
                     const input = await readJsonBody(request);
-                    if (typeof input.workspaceRoot !== "string" || typeof input.routeledgerRoot !== "string") {
-                        throw new Error("workspaceRoot and routeledgerRoot are required");
-                    }
-                    const project = await registerMissionControlProject({
-                        workspaceRoot: input.workspaceRoot,
-                        routeledgerRoot: input.routeledgerRoot,
-                        registryPath
-                    });
+                    if (typeof input.path !== "string")
+                        throw new Error("path is required");
+                    const project = await registerMissionControlProjectPath(input.path, registryPath);
                     touch();
                     response.writeHead(201, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
                     response.end(toJson({ project }));
@@ -464,15 +721,44 @@ export const runMissionControlServer = async (inputArgs) => {
             }
             touch();
             const registry = await readRegistry(registryPath);
-            const projects = await Promise.all(registry.projects.map(async (project) => ({
-                id: project.id,
-                projectId: project.projectId,
-                projectName: project.projectName,
-                available: await pathExists(path.join(project.routeledgerRoot, ".routeledger")),
-                lastOpenedAt: project.lastOpenedAt
-            })));
+            const projects = await Promise.all(registry.projects.map(async (project) => {
+                try {
+                    const state = await readProjectState(project);
+                    return {
+                        id: project.id,
+                        projectId: project.projectId,
+                        projectName: project.projectName,
+                        available: state.identity !== null,
+                        availabilityReason: state.identity === null ? state.message : null,
+                        lastOpenedAt: project.lastOpenedAt
+                    };
+                }
+                catch (error) {
+                    return {
+                        id: project.id,
+                        projectId: project.projectId,
+                        projectName: project.projectName,
+                        available: false,
+                        availabilityReason: error instanceof Error ? error.message : "项目暂不可用。",
+                        lastOpenedAt: project.lastOpenedAt
+                    };
+                }
+            }));
             response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
             response.end(toJson({ projects }));
+            return;
+        }
+        if (requestUrl.pathname.startsWith("/api/projects/") && request.method === "DELETE") {
+            if (!isSameOriginMutation(request, accessToken)) {
+                response.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+                response.end(toJson({ error: "MISSION_CONTROL_MUTATION_FORBIDDEN" }));
+                return;
+            }
+            const projectKey = decodeURIComponent(requestUrl.pathname.slice("/api/projects/".length));
+            const result = await removeMissionControlProject(projectKey, registryPath);
+            touch();
+            response.writeHead(result.removed ? 200 : 404, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+            response.end(toJson(result.removed ? result : { error: "PROJECT_NOT_REGISTERED" }));
             return;
         }
         if (requestUrl.pathname === "/api/state") {
@@ -486,6 +772,15 @@ export const runMissionControlServer = async (inputArgs) => {
                 return;
             }
             const state = await readProjectState(project);
+            await withRegistryLock(registryPath, async () => {
+                const latest = await readRegistry(registryPath);
+                await writeRegistry(registryPath, {
+                    ...latest,
+                    projects: latest.projects.map((candidate) => candidate.id === project.id
+                        ? { ...candidate, lastOpenedAt: new Date().toISOString() }
+                        : candidate)
+                });
+            });
             response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
             response.end(toJson(state));
             return;
@@ -497,7 +792,7 @@ export const runMissionControlServer = async (inputArgs) => {
             return;
         }
         if (requestUrl.pathname === "/api/shutdown" && request.method === "POST") {
-            if (!isSameOriginMutation(request)) {
+            if (!isSameOriginMutation(request, accessToken)) {
                 response.writeHead(403, { "content-type": "application/json; charset=utf-8" });
                 response.end(toJson({ error: "CLIENT_HEADER_REQUIRED" }));
                 return;
@@ -549,7 +844,10 @@ export const runMissionControlServer = async (inputArgs) => {
         port: address.port,
         url: `http://127.0.0.1:${address.port}`,
         startedAt,
-        updatedAt: now
+        updatedAt: now,
+        protocolVersion: missionControlProtocolVersion,
+        runtimeIdentity: args.runtimeIdentity,
+        accessToken
     };
     const registry = await withRegistryLock(registryPath, async () => {
         const latest = await readRegistry(registryPath);

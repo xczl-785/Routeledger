@@ -22,6 +22,7 @@ import {
   fetchMissionControlState,
   heartbeatMissionControl,
   registerMissionControlProject,
+  removeMissionControlProject,
   stopMissionControl
 } from "./api.js";
 import type {
@@ -130,12 +131,13 @@ const StatusMark = ({ state, label }: { state: MissionControlVersionState | null
   </span>
 );
 
-export const ProjectContext = ({ projects, selectedProjectId, projectName, onSelect, onAdd, onStop, defaultOpen = false }: {
+export const ProjectContext = ({ projects, selectedProjectId, projectName, onSelect, onAdd, onRemove, onStop, defaultOpen = false }: {
   projects: MissionControlProjectSummary[];
   selectedProjectId: string | null;
   projectName: string;
   onSelect: (projectId: string) => void;
   onAdd?: (projectRoot: string) => Promise<void>;
+  onRemove?: (projectId: string) => Promise<void>;
   onStop: () => void;
   defaultOpen?: boolean;
 }): ReactNode => {
@@ -144,6 +146,8 @@ export const ProjectContext = ({ projects, selectedProjectId, projectName, onSel
   const [projectRoot, setProjectRoot] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
+  const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const selectedOption = useRef<HTMLButtonElement>(null);
@@ -177,26 +181,43 @@ export const ProjectContext = ({ projects, selectedProjectId, projectName, onSel
         <div id="project-switcher" className="project-popover" role="dialog" aria-label="切换 RouteLedger 项目">
           <div className="project-list">
             {projects.map((project) => (
-              <button
-                className={classNames("project-option", project.id === selectedProjectId && "is-selected")}
-                disabled={!project.available}
-                key={project.id}
-                onClick={() => {
-                  onSelect(project.id);
-                  setOpen(false);
-                  window.requestAnimationFrame(() => trigger.current?.focus());
-                }}
-                ref={project.id === selectedProjectId ? selectedOption : undefined}
-                aria-pressed={project.id === selectedProjectId}
-                type="button"
-              >
-                <span><strong>{project.projectName}</strong>{!project.available ? <small>项目暂不可用</small> : null}</span>
-                {project.id === selectedProjectId ? <CheckCircle size={17} weight="fill" /> : null}
-              </button>
+              <div className="project-option-row" key={project.id}>
+                <button
+                  className={classNames("project-option", project.id === selectedProjectId && "is-selected")}
+                  disabled={!project.available}
+                  onClick={() => {
+                    onSelect(project.id);
+                    setOpen(false);
+                    window.requestAnimationFrame(() => trigger.current?.focus());
+                  }}
+                  ref={project.id === selectedProjectId ? selectedOption : undefined}
+                  aria-pressed={project.id === selectedProjectId}
+                  type="button"
+                >
+                  <span><strong>{project.projectName}</strong>{!project.available ? <small>{project.availabilityReason ?? "项目暂不可用"}</small> : null}</span>
+                  {project.id === selectedProjectId ? <CheckCircle size={17} weight="fill" /> : null}
+                </button>
+                {onRemove === undefined ? null : (
+                  <button
+                    className="remove-project"
+                    type="button"
+                    disabled={removingProjectId === project.id}
+                    aria-label={`从 UI 移除 ${project.projectName}`}
+                    onClick={() => {
+                      setRemovingProjectId(project.id);
+                      setRemoveError(null);
+                      void onRemove(project.id)
+                        .catch((error: unknown) => setRemoveError(error instanceof Error ? error.message : "无法移除项目。"))
+                        .finally(() => setRemovingProjectId(null));
+                    }}
+                  >{removingProjectId === project.id ? "移除中…" : "移除"}</button>
+                )}
+              </div>
             ))}
           </div>
           <div className="project-popover-footer">
             <p>这里只切换只读视图，不会改变 Codex 或 MCP 的当前绑定。</p>
+            {removeError === null ? null : <small className="project-action-error">{removeError}</small>}
             {adding ? (
               <form className="project-add-form" onSubmit={(event) => {
                 event.preventDefault();
@@ -586,7 +607,7 @@ const HistorySection = ({
   </div>
 );
 
-export const VersionHorizon = ({ response, projects, selectedProjectId, refreshing, onRefresh, onSelectProject, onAddProject, onStop }: {
+export const VersionHorizon = ({ response, projects, selectedProjectId, refreshing, onRefresh, onSelectProject, onAddProject, onRemoveProject, onStop }: {
   response: MissionControlResponse;
   projects?: MissionControlProjectSummary[];
   selectedProjectId?: string | null;
@@ -594,6 +615,7 @@ export const VersionHorizon = ({ response, projects, selectedProjectId, refreshi
   onRefresh: () => void;
   onSelectProject?: (projectId: string) => void;
   onAddProject?: (projectRoot: string) => Promise<void>;
+  onRemoveProject?: (projectId: string) => Promise<void>;
   onStop?: () => void;
 }): ReactNode => {
   const [historyVisible, setHistoryVisible] = useState(true);
@@ -651,6 +673,7 @@ export const VersionHorizon = ({ response, projects, selectedProjectId, refreshi
             projectName={response.identity?.projectName ?? "未初始化项目"}
             onSelect={onSelectProject ?? (() => undefined)}
             onAdd={onAddProject}
+            onRemove={onRemoveProject}
             onStop={onStop ?? (() => undefined)}
           />
           <span className="readonly"><LockSimple size={15} />只读</span>
@@ -780,6 +803,10 @@ export const App = (): ReactNode => {
       onAddProject={async (projectRoot) => {
         const result = await registerMissionControlProject(projectRoot);
         await refresh(result.project.id);
+      }}
+      onRemoveProject={async (projectId) => {
+        await removeMissionControlProject(projectId);
+        await refresh(projectId === selectedProjectId ? null : selectedProjectId);
       }}
       onStop={() => void stop()}
     />
