@@ -23,7 +23,8 @@
     "build:codex-plugin": "node ./scripts/build-codex-plugin.mjs",
     "smoke:codex-plugin": "node ./scripts/smoke-codex-plugin.mjs",
     "smoke:codex-host-plugin": "node ./scripts/smoke-codex-host-plugin.mjs",
-    "check:codex-plugin-release": "node ./scripts/check-codex-plugin-release.mjs",
+    "check:release-docs": "node ./scripts/check-release-docs.mjs",
+    "check:codex-plugin-release": "node ./scripts/check-codex-plugin-release.mjs && node ./scripts/check-release-docs.mjs",
     "attest:codex-plugin": "node ./scripts/create-codex-plugin-attestation.mjs",
     "smoke:codex-git-marketplace": "node ./scripts/smoke-codex-git-marketplace.mjs",
     "verify:codex-plugin": "pnpm smoke:codex-plugin && pnpm smoke:codex-git-marketplace"

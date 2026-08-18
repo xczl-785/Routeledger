@@ -58,7 +58,7 @@ your-project/
 
 ## 快速开始（安装 Codex 插件）
 
-当前推荐通过 Codex 插件使用 RouteLedger。已发布稳定版为 0.8.1，由不可变标签 `routeledger-plugin-v0.8.1` 固定；它保持 0.8.0 的 exact-only L3 授权契约，并完成非功能性模块化与发布链加固。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
+当前推荐通过 Codex 插件使用 RouteLedger。已发布稳定版为 0.9.4，由不可变标签 `routeledger-plugin-v0.9.4` 固定；它在插件原生 Mission Control 与本地化运行提示的基础上，为普通写入补齐了持久幂等保护。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref main --json
@@ -103,7 +103,9 @@ pnpm open:ui -- --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT --routeledger
 
 ## 开发与验证
 
-环境要求：Node.js ≥ 20.19（建议 22 LTS）、pnpm 11（仓库锁定 `pnpm@11.7.0`，建议 `corepack enable` 后使用）。
+开发与构建本仓库要求 Node.js ≥ 20.19（建议 22 LTS）、pnpm 11（仓库锁定 `pnpm@11.7.0`，建议 `corepack enable` 后使用）。这不是已生成插件 runtime 的最低运行版本；runtime 的独立要求记录在其 `package.json` 与 README 中。
+
+`packages/mcp` 与生成后的 runtime 使用 `0.0.0-package-prep` 作为尚未发布到 npm 的内部包身份；这不是 Codex 插件版本。插件版本与不可变发布标签分别以 `plugins/routeledger/.codex-plugin/plugin.json` 和 `plugins/routeledger/release.json` 为准。当前生成 runtime 的最低运行要求是 Node.js 18，而构建整个源码仓仍按上面的 Node.js 20.19 要求执行。
 
 ```bash
 git clone https://github.com/xczl-785/Routeledger.git
@@ -143,7 +145,7 @@ pnpm smoke:codex-git-marketplace
 ## 当前状态与边界
 
 - 发布干线：`main` 是唯一发布干线，`codex-marketplace` 保留为 0.3.3 历史锚点；Codex 插件与未来的 MCP / npm 包各自使用独立版本号和标签；
-- 安装：当前只通过 Codex 插件（Git marketplace）分发；已发布稳定版为 0.8.1；
+- 安装：当前只通过 Codex 插件（Git marketplace）分发；已发布稳定版为 0.9.4；
 - npm：`@routeledger/mcp` 等包正在支持中（coming soon），暂不提供 npm 安装；
 - 数据：JSON-first，SQLite 仅为查询缓存；
 - 并发：同一项目同一时刻只有一个 current version；当前是单写者模型，多读者可在无活跃写入时使用；
@@ -155,7 +157,7 @@ pnpm smoke:codex-git-marketplace
 - [Capability index](docs/capabilities/capability-index.md) — 已实现能力与源码 / 测试对应关系
 - [Agent-host integration](docs/guides/agent-host-integration.md) — MCP 单绑定运行时契约
 - [Codex plugin installation](docs/guides/codex-plugin-installation.md) — 插件安装与运行边界
-- [Release policy](docs/release/release-policy.md) 与 [0.8.1 release note](docs/release/release-notes/0.8.1.md) — 当前已发布基线与发布流程
+- [Release policy](docs/release/release-policy.md) 与 [0.9.4 release note](docs/release/release-notes/0.9.4.md) — 当前已发布基线与发布流程
 - [Distribution and tag conventions](docs/release/distribution-and-tags.md) — 插件与 MCP / npm 的版本与标签约定
 
 ## License

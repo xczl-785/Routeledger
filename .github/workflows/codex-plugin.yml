@@ -9,6 +9,7 @@ on:
       - "routeledger-plugin-v*"
     paths:
       - "package.json"
+      - "README.md"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "packages/**"
