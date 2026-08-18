@@ -336,6 +336,8 @@ const SYSTEM_CODE_COLLECTION_KEYS = new Set([
 ]);
 
 const HUMAN_REVIEW_TOOLS = new Set([
+  "propose_route_change",
+  "execute_route_change",
   "propose_version_advance",
   "preflight_or_propose_version_batch",
   "preview_or_propose_version_close",

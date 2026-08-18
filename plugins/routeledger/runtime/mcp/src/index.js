@@ -111,24 +111,93 @@ const objectSchema = (properties, required = [], extra = {}) => ({
     ...(required.length > 0 ? { required } : {}),
     ...extra
 });
+const publicToolOutputSchema = {
+    type: "object",
+    properties: {
+        ok: { type: "boolean" },
+        data: {},
+        error: {
+            type: "object",
+            properties: {
+                code: { type: "string" },
+                message: { type: "string" },
+                details: { type: "object", additionalProperties: true }
+            },
+            required: ["code", "message"],
+            additionalProperties: false
+        },
+        meta: { type: "object", additionalProperties: true }
+    },
+    required: ["ok"],
+    additionalProperties: false
+};
+const createCompositeTool = (name, title, what, branches, options) => {
+    const branchByAction = new Map(branches.map((branch) => [branch.action, branch.tool]));
+    const inputSchema = {
+        oneOf: branches.map(({ action, tool }) => {
+            const schema = tool.definition.inputSchema;
+            const properties = schema.properties !== null && typeof schema.properties === "object"
+                ? schema.properties
+                : {};
+            const required = Array.isArray(schema.required)
+                ? schema.required.filter((item) => typeof item === "string")
+                : [];
+            return {
+                ...schema,
+                properties: {
+                    operation: {
+                        type: "string",
+                        const: action,
+                        description: `Select the ${action} workflow.`
+                    },
+                    ...properties
+                },
+                required: ["operation", ...required]
+            };
+        })
+    };
+    return defineTool(name, { what, parameter: "operation and the selected workflow fields" }, inputSchema, { ...options, title, outputSchema: publicToolOutputSchema }, async (input) => {
+        const branch = branchByAction.get(input.operation);
+        if (branch === undefined) {
+            throw new InvalidToolInputError(`Unknown ${name} action`, {
+                toolName: name,
+                path: "$.operation",
+                expected: branches.map((item) => item.action)
+            });
+        }
+        const forwardedInput = { ...input };
+        delete forwardedInput.operation;
+        return localizeToolResponse(await branch.handler(forwardedInput), resolveResponseLocale(input.responseLocale), branch.definition.name);
+    });
+};
+const renameTool = (tool, name, title, description) => ({
+    ...tool,
+    definition: {
+        ...tool.definition,
+        name,
+        title,
+        description,
+        outputSchema: publicToolOutputSchema,
+        annotations: { ...tool.definition.annotations, title }
+    }
+});
 const createInstructions = (options) => {
     const hostLabel = HOST_PROFILE_LABELS[options.hostProfile];
     const actorLabel = options.actor.displayName ?? options.actor.id;
     const approverLabel = options.approver.displayName ?? options.approver.id;
     return [
         "RouteLedger exposes project state and route transitions through MCP tools.",
-        "Before route operations, call get_runtime_context to verify workspaceRoot and routeledgerRoot.",
-        "On the first RouteLedger interaction in a task, inspect get_runtime_context.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling the recommended open_mission_control action; declining UI must never block route work.",
-        "If binding is missing, invalid, or low-confidence, pass the host project absolute workspaceRoot to activate_routeledger_binding before route operations; never treat the MCP process cwd as an initialization target. When MCP Roots/rootUri are provided they remain the preferred binding source. Use discover_routeledger_roots and plan_routeledger_binding with explicit workspaceRoot only for read-only inspection/planning.",
-        "Use read-only tools first to inspect current context, versions, gates, and pending L3 proposals.",
+        "Before route operations, call inspect_runtime with action=runtime to verify workspaceRoot and routeledgerRoot.",
+        "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with action=open; declining UI must never block route work.",
+        "If binding is missing, invalid, or low-confidence, use inspect_runtime to discover and plan the target, then call configure_binding; never treat the MCP process cwd as an initialization target.",
+        "Use inspect_route first to inspect current context, versions, gates, closeout, and pending L3 proposals.",
         "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
-        "Use defer_work to defer new work or an existing Todo, review_deferred to activate, defer again, or resolve Deferred work, record_constraint to record a rule, and retire_constraint when a rule no longer applies.",
-        "Legacy Undo records are audit-only and are not part of default tool discovery. Use get_current_context(includeLegacyUndo=true) only when a legacy blocker requires explicit audit.",
+        "Use manage_todo, manage_deferred, and manage_constraint for current work. Legacy Undo records remain audit-only and are available only through inspect_route when explicitly requested.",
         "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
         "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
-        "L3 route changes are proposal-based: execute_l3_operation performs the proposal, decision, artifact, and commit chain with an idempotency key; the low-level propose, approve, reject, and commit tools remain available. Project files are never authorization authority.",
+        "L3 route changes are proposal-based: execute_route_change preserves the exact proposal, decision, artifact, and commit chain behind one high-risk public entrypoint. Project files are never authorization authority.",
         "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
-        "High-risk tools are preview_or_propose_forced_version_shutdown, execute_l3_operation, approve_l3_operation, reject_l3_operation, and commit_l3_operation. preview_or_propose_forced_version_shutdown is an emergency forced-close preview/proposal path; Codex gates high-risk calls before RouteLedger issues an exact single-use capability, while generic MCP hosts require trusted authority, preauthorization, or elicitation.",
+        "The only public high-risk tool is execute_route_change. Forced shutdown and exact L3 execution remain explicit actions; Codex gates the call before RouteLedger issues an exact single-use capability, while generic MCP hosts require trusted authority, preauthorization, or elicitation.",
         `Current host profile: ${hostLabel}. Default actor: ${actorLabel}. Default approver: ${approverLabel}.`
     ].join(" ");
 };
@@ -251,6 +320,83 @@ const withRuntimeContextMeta = (options) => ({
         activeProject: options.activeProject
     })
 });
+const PUBLIC_TOOL_REFERENCE_MAP = {
+    get_runtime_context: { tool: "inspect_runtime", operation: "runtime" },
+    discover_routeledger_roots: { tool: "inspect_runtime", operation: "discover_roots" },
+    plan_routeledger_binding: { tool: "inspect_runtime", operation: "plan_binding" },
+    get_mission_control_status: { tool: "inspect_runtime", operation: "mission_control_status" },
+    render_host_binding_config: { tool: "inspect_runtime", operation: "plan_binding" },
+    write_host_binding_config: { tool: "inspect_runtime", operation: "plan_binding" },
+    activate_routeledger_binding: { tool: "configure_binding" },
+    init_project: { tool: "configure_project", operation: "initialize" },
+    set_project_content_locale: { tool: "configure_project", operation: "set_content_locale" },
+    open_mission_control: { tool: "manage_mission_control", operation: "open" },
+    stop_mission_control: { tool: "manage_mission_control", operation: "stop" },
+    create_todo: { tool: "manage_todo", operation: "create" },
+    close_todo: { tool: "manage_todo", operation: "close" },
+    defer_work: { tool: "manage_deferred", operation: "defer" },
+    review_deferred: { tool: "manage_deferred", operation: "review" },
+    record_constraint: { tool: "manage_constraint", operation: "record" },
+    retire_constraint: { tool: "manage_constraint", operation: "retire" },
+    prepare_version: { tool: "set_version_state", operation: "prepare" },
+    mark_version_complete: { tool: "set_version_state", operation: "mark_complete" },
+    preflight_or_propose_version_batch: { tool: "propose_route_change", operation: "preflight_or_propose_version_batch" },
+    batch_create_versions: { tool: "propose_route_change", operation: "preflight_or_propose_version_batch" },
+    preview_or_propose_version_transition: { tool: "propose_route_change", operation: "preview_or_propose_version_transition" },
+    transition_version: { tool: "propose_route_change", operation: "preview_or_propose_version_transition" },
+    propose_version_advance: { tool: "propose_route_change", operation: "propose_version_advance" },
+    advance_to_version: { tool: "propose_route_change", operation: "propose_version_advance" },
+    preview_or_propose_version_close: { tool: "propose_route_change", operation: "preview_or_propose_version_close" },
+    close_version: { tool: "propose_route_change", operation: "preview_or_propose_version_close" },
+    propose_version_creation: { tool: "propose_route_change", operation: "propose_version_creation" },
+    create_version: { tool: "propose_route_change", operation: "propose_version_creation" },
+    propose_version_insertion: { tool: "propose_route_change", operation: "propose_version_insertion" },
+    insert_version: { tool: "propose_route_change", operation: "propose_version_insertion" },
+    propose_child_version_creation: { tool: "propose_route_change", operation: "propose_child_version_creation" },
+    create_child_version: { tool: "propose_route_change", operation: "propose_child_version_creation" },
+    propose_version_reorder: { tool: "propose_route_change", operation: "propose_version_reorder" },
+    reorder_versions: { tool: "propose_route_change", operation: "propose_version_reorder" },
+    propose_l3_operation: { tool: "propose_route_change", operation: "propose_l3_operation" },
+    preview_or_propose_forced_version_shutdown: { tool: "execute_route_change", operation: "force_shutdown" },
+    shutdown_version: { tool: "execute_route_change", operation: "force_shutdown" },
+    execute_l3_operation: { tool: "execute_route_change", operation: "execute_l3_operation" },
+    approve_l3_operation: { tool: "execute_route_change", operation: "approve_l3_operation" },
+    commit_l3_operation: { tool: "execute_route_change", operation: "commit_l3_operation" },
+    reject_l3_operation: { tool: "execute_route_change", operation: "reject_l3_operation" }
+};
+for (const tool of [
+    "get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout",
+    "plan_version_closeout", "list_versions_window", "list_versions", "check_start_gate",
+    "check_close_gate", "get_version_structure", "get_version_transition_guide",
+    "get_l3_authorization_status", "recommend_l3_authorization_profile",
+    "recommend_l3_authorization_policy", "list_l3_proposals", "get_l3_proposal"
+]) {
+    PUBLIC_TOOL_REFERENCE_MAP[tool] = { tool: "inspect_route", operation: tool };
+}
+const projectPublicToolReferences = (value) => {
+    if (Array.isArray(value))
+        return value.map(projectPublicToolReferences);
+    if (value === null || typeof value !== "object")
+        return value;
+    const record = Object.fromEntries(Object.entries(value).map(([key, child]) => [
+        key,
+        projectPublicToolReferences(child)
+    ]));
+    const mapped = typeof record.tool === "string" ? PUBLIC_TOOL_REFERENCE_MAP[record.tool] : undefined;
+    if (mapped !== undefined) {
+        record.tool = mapped.tool;
+        if (mapped.operation !== undefined) {
+            const carrierKeys = ["toolInput", "arguments", "input"].filter((key) => record[key] !== null && typeof record[key] === "object" && !Array.isArray(record[key]));
+            for (const key of carrierKeys.length > 0 ? carrierKeys : ["toolInput"]) {
+                record[key] = {
+                    operation: mapped.operation,
+                    ...record[key]
+                };
+            }
+        }
+    }
+    return record;
+};
 const STALE_PROPOSAL_ACTION_DESCRIPTIONS = {
     reject_stale_proposal: "Reject the stale proposal before creating a replacement.",
     refresh_context: "Refresh the current route and work context.",
@@ -300,7 +446,8 @@ const buildToolErrorRecovery = (error, context) => {
         };
     }
     if (error.code === "INVALID_TODO_TRANSITION" &&
-        context?.toolName === "close_todo" &&
+        context?.toolName === "manage_todo" &&
+        context.input.operation === "close" &&
         error.details?.status === "closed") {
         return {
             recoveryState: "already_applied",
@@ -361,8 +508,9 @@ const buildToolErrorRecovery = (error, context) => {
         };
     }
     const isCreateVersionFailure = error.code === "INVALID_VERSION_TRANSITION" &&
-        (context?.toolName === "create_version" ||
-            (context?.toolName === "execute_l3_operation" &&
+        (context?.toolName === "propose_route_change" ||
+            (context?.toolName === "execute_route_change" &&
+                context.input.operation === "execute_l3_operation" &&
                 context.input.actionType === "create_version"));
     if (isCreateVersionFailure) {
         const projectId = context?.input.projectId;
@@ -758,85 +906,137 @@ export const createRouteLedgerMcpRegistry = (options) => {
         digestRouteLedgerRoot,
         appendDebugLog
     };
-    const legacyToolAliases = new Map([
-        ["batch_create_versions", "preflight_or_propose_version_batch"],
-        ["transition_version", "preview_or_propose_version_transition"],
-        ["advance_to_version", "propose_version_advance"],
-        ["close_version", "preview_or_propose_version_close"],
-        ["shutdown_version", "preview_or_propose_forced_version_shutdown"],
-        ["create_version", "propose_version_creation"],
-        ["insert_version", "propose_version_insertion"],
-        ["create_child_version", "propose_child_version_creation"],
-        ["reorder_versions", "propose_version_reorder"]
-    ]);
-    const resolveToolName = (toolName) => legacyToolAliases.get(toolName) ?? toolName;
+    const runtimeContextTool = defineTool("get_runtime_context", { what: "Inspect MCP binding, active project, and storage state." }, objectSchema({}), {
+        title: "Get Runtime Context",
+        riskLevel: "read-only",
+        toolKind: "diagnostic"
+    }, async (input) => {
+        const binding = readBinding();
+        const runtimeContext = await getRuntimeContextData(binding, input.responseLocale);
+        return {
+            ok: true,
+            data: runtimeContext,
+            meta: withRuntimeContextMeta({
+                data: runtimeContext.activeProject === null
+                    ? null
+                    : {
+                        project: {
+                            id: runtimeContext.activeProject.id,
+                            name: runtimeContext.activeProject.name
+                        }
+                    },
+                binding,
+                hostProfile,
+                runtimeIdentity
+            })
+        };
+    });
+    const l3AuthorizationTools = createL3AuthorizationTools(l3ToolDependencies);
+    const bindingTools = createBindingAssistTools({
+        readBinding,
+        hostProfile,
+        withCurrentRuntimeContextMeta,
+        stagePendingSessionRebind: (pending) => {
+            pendingSessionRebind = pending;
+        },
+        operations: {
+            discoverRouteLedgerRoots,
+            planRouteLedgerBinding,
+            renderHostBindingConfig,
+            writeHostBindingConfig
+        }
+    });
+    const missionControlTools = createMissionControlTools({
+        readBinding,
+        resolveRoots: resolveMissionControlRoots,
+        loadSourceModule: missionControlSourceLoader,
+        runtimeIdentity,
+        withCurrentRuntimeContextMeta
+    });
+    const projectBootstrapTools = createProjectBootstrapTools({ service, actor });
+    const contextTools = createContextTools({
+        service,
+        actor,
+        appendDebugLog,
+        withCurrentRuntimeContextMeta
+    });
+    const l3ProposalTools = createL3ProposalTools(l3ToolDependencies);
+    const versionWorkflowTools = createVersionWorkflowTools({ service, actor, appendDebugLog });
+    const workTools = createWorkTools({
+        service,
+        actor,
+        appendDebugLog,
+        summarizeTodoForAgent,
+        summarizeDeferredForAgent,
+        summarizeConstraintForAgent
+    });
+    const versionMutationTools = createVersionMutationTools({ service, actor, appendDebugLog });
+    const l3OperationTools = createL3OperationTools(l3ToolDependencies);
+    const requireTool = (items, name) => {
+        const tool = items.find((item) => item.definition.name === name);
+        if (tool === undefined)
+            throw new Error(`Missing internal tool registration: ${name}`);
+        return tool;
+    };
     const tools = [
-        defineTool("get_runtime_context", { what: "Inspect MCP binding, active project, and storage state." }, objectSchema({}), {
-            title: "Get Runtime Context",
-            riskLevel: "read-only",
-            toolKind: "diagnostic"
-        }, async (input) => {
-            const binding = readBinding();
-            const runtimeContext = await getRuntimeContextData(binding, input.responseLocale);
-            return {
-                ok: true,
-                data: runtimeContext,
-                meta: withRuntimeContextMeta({
-                    data: runtimeContext.activeProject === null
-                        ? null
-                        : {
-                            project: {
-                                id: runtimeContext.activeProject.id,
-                                name: runtimeContext.activeProject.name
-                            }
-                        },
-                    binding,
-                    hostProfile,
-                    runtimeIdentity
-                })
-            };
+        createCompositeTool("inspect_runtime", "Inspect RouteLedger Runtime", "Inspect runtime identity, binding candidates, binding plans, or Mission Control status.", [
+            { action: "runtime", tool: runtimeContextTool },
+            { action: "discover_roots", tool: requireTool(bindingTools, "discover_routeledger_roots") },
+            { action: "plan_binding", tool: requireTool(bindingTools, "plan_routeledger_binding") },
+            { action: "mission_control_status", tool: requireTool(missionControlTools, "get_mission_control_status") }
+        ], { title: "Inspect RouteLedger Runtime", riskLevel: "read-only", toolKind: "diagnostic" }),
+        renameTool(requireTool(bindingTools, "activate_routeledger_binding"), "configure_binding", "Configure RouteLedger Binding", "Activate an explicit RouteLedger project binding. Switching an established binding requires explicit confirmation."),
+        createCompositeTool("configure_project", "Configure RouteLedger Project", "Initialize canonical project data or set its confirmed content locale.", [
+            { action: "initialize", tool: requireTool(projectBootstrapTools, "init_project") },
+            { action: "set_content_locale", tool: requireTool(projectBootstrapTools, "set_project_content_locale") }
+        ], { title: "Configure RouteLedger Project", riskLevel: "write", toolKind: "bootstrap" }),
+        createCompositeTool("inspect_route", "Inspect RouteLedger Route", "Inspect current work, route structure, gates, closeout, proposals, or authorization state.", [
+            ...contextTools.map((tool) => ({ action: tool.definition.name, tool })),
+            ...l3AuthorizationTools.map((tool) => ({ action: tool.definition.name, tool })),
+            ...l3ProposalTools
+                .filter((tool) => tool.definition.annotations.readOnlyHint === true)
+                .map((tool) => ({ action: tool.definition.name, tool }))
+        ], { title: "Inspect RouteLedger Route", riskLevel: "read-only" }),
+        createCompositeTool("manage_todo", "Manage Todo", "Create or close current Version work.", [
+            { action: "create", tool: requireTool(workTools, "create_todo") },
+            { action: "close", tool: requireTool(workTools, "close_todo") }
+        ], { title: "Manage Todo", riskLevel: "write", destructive: true, idempotent: true }),
+        createCompositeTool("manage_deferred", "Manage Deferred Work", "Create, convert, activate, defer again, or resolve Deferred work.", [
+            { action: "defer", tool: requireTool(workTools, "defer_work") },
+            { action: "review", tool: requireTool(workTools, "review_deferred") }
+        ], { title: "Manage Deferred Work", riskLevel: "write", destructive: true, idempotent: true }),
+        createCompositeTool("manage_constraint", "Manage Constraint", "Record or retire a project or Version constraint.", [
+            { action: "record", tool: requireTool(workTools, "record_constraint") },
+            { action: "retire", tool: requireTool(workTools, "retire_constraint") }
+        ], { title: "Manage Constraint", riskLevel: "write", destructive: true, idempotent: true }),
+        createCompositeTool("propose_route_change", "Propose Route Change", "Preflight or propose a normal Version lifecycle or route-structure change.", [
+            ...versionWorkflowTools
+                .filter((tool) => tool.definition.name !== "preview_or_propose_forced_version_shutdown")
+                .map((tool) => ({ action: tool.definition.name, tool })),
+            ...versionMutationTools
+                .filter((tool) => !["prepare_version", "mark_version_complete"].includes(tool.definition.name))
+                .map((tool) => ({ action: tool.definition.name, tool })),
+            { action: "propose_l3_operation", tool: requireTool(l3OperationTools, "propose_l3_operation") }
+        ], { title: "Propose Route Change", riskLevel: "write" }),
+        createCompositeTool("set_version_state", "Set Version State", "Prepare a Version or mark its implementation complete.", [
+            { action: "prepare", tool: requireTool(versionMutationTools, "prepare_version") },
+            { action: "mark_complete", tool: requireTool(versionMutationTools, "mark_version_complete") }
+        ], { title: "Set Version State", riskLevel: "write", destructive: true }),
+        createCompositeTool("execute_route_change", "Execute Route Change", "Execute, resume, decide, commit, reject, or force-close one exact high-risk route change.", [
+            { action: "force_shutdown", tool: requireTool(versionWorkflowTools, "preview_or_propose_forced_version_shutdown") },
+            ...l3OperationTools
+                .filter((tool) => tool.definition.name !== "propose_l3_operation")
+                .map((tool) => ({ action: tool.definition.name, tool }))
+        ], {
+            title: "Execute Route Change",
+            riskLevel: "high-risk",
+            destructive: true,
+            recommendedApprovalMode: "approve"
         }),
-        ...createL3AuthorizationTools(l3ToolDependencies),
-        ...createBindingAssistTools({
-            readBinding,
-            hostProfile,
-            withCurrentRuntimeContextMeta,
-            stagePendingSessionRebind: (pending) => {
-                pendingSessionRebind = pending;
-            },
-            operations: {
-                discoverRouteLedgerRoots,
-                planRouteLedgerBinding,
-                renderHostBindingConfig,
-                writeHostBindingConfig
-            }
-        }),
-        ...createMissionControlTools({
-            readBinding,
-            resolveRoots: resolveMissionControlRoots,
-            loadSourceModule: missionControlSourceLoader,
-            runtimeIdentity,
-            withCurrentRuntimeContextMeta
-        }),
-        ...createProjectBootstrapTools({ service, actor }),
-        ...createContextTools({
-            service,
-            actor,
-            appendDebugLog,
-            withCurrentRuntimeContextMeta
-        }),
-        ...createL3ProposalTools(l3ToolDependencies),
-        ...createVersionWorkflowTools({ service, actor, appendDebugLog }),
-        ...createWorkTools({
-            service,
-            actor,
-            appendDebugLog,
-            summarizeTodoForAgent,
-            summarizeDeferredForAgent,
-            summarizeConstraintForAgent
-        }),
-        ...createVersionMutationTools({ service, actor, appendDebugLog }),
-        ...createL3OperationTools(l3ToolDependencies)
+        createCompositeTool("manage_mission_control", "Manage Mission Control", "Open or stop the local read-only Mission Control Hub.", [
+            { action: "open", tool: requireTool(missionControlTools, "open_mission_control") },
+            { action: "stop", tool: requireTool(missionControlTools, "stop_mission_control") }
+        ], { title: "Manage Mission Control", riskLevel: "write", toolKind: "diagnostic" })
     ];
     guardedTools = tools.map((tool) => {
         return {
@@ -955,38 +1155,36 @@ export const createRouteLedgerMcpRegistry = (options) => {
         runtimeIdentity,
         instructions,
         getTool: (toolName) => {
-            const resolvedToolName = resolveToolName(toolName);
-            return toolDefinitions.find((tool) => tool.name === resolvedToolName);
+            return toolDefinitions.find((tool) => tool.name === toolName);
         },
         invoke: async (toolName, input) => {
             if (reboundRegistry !== null) {
                 return reboundRegistry.invoke(toolName, input);
             }
-            const resolvedToolName = resolveToolName(toolName);
             const responseLocale = resolveResponseLocale(input?.responseLocale, options.defaultResponseLocale);
-            const handler = handlers.get(resolvedToolName);
+            const handler = handlers.get(toolName);
             if (handler === undefined) {
-                return localizeToolResponse(await attachRuntimeContextToError({
+                return localizeToolResponse(projectPublicToolReferences(await attachRuntimeContextToError({
                     ok: false,
                     error: {
                         code: "ACTION_NOT_IMPLEMENTED",
                         message: `unknown tool ${toolName}`
                     }
-                }), responseLocale, resolvedToolName);
+                })), responseLocale, toolName);
             }
             try {
                 const response = await handler(input);
-                const activationResponse = resolvedToolName === "activate_routeledger_binding"
+                const activationResponse = toolName === "configure_binding"
                     ? await activatePendingRebindForDirectRegistry()
                     : null;
-                return localizeToolResponse(await attachRuntimeContextToError(activationResponse ?? response), responseLocale, resolvedToolName);
+                return localizeToolResponse(projectPublicToolReferences(await attachRuntimeContextToError(activationResponse ?? response)), responseLocale, toolName);
             }
             catch (error) {
                 const response = toToolError(error, {
-                    toolName: resolvedToolName,
+                    toolName,
                     input: input ?? {}
                 });
-                await appendDebugLog(resolvedToolName, {
+                await appendDebugLog(toolName, {
                     type: "tool.failure",
                     projectId: readStringField(input, "projectId"),
                     versionId: readDebugVersionId(input),
@@ -996,7 +1194,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
                         inputKeys: Object.keys(input ?? {}).sort()
                     }
                 });
-                return localizeToolResponse(await attachRuntimeContextToError(response), responseLocale, resolvedToolName);
+                return localizeToolResponse(projectPublicToolReferences(await attachRuntimeContextToError(response)), responseLocale, toolName);
             }
         },
         getRuntimeContextMeta,

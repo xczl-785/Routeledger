@@ -45,7 +45,7 @@ export const verifyMcpRequestState = (token, secret, expected) => {
     }
     const state = decoded;
     if (state.schemaVersion !== 2 ||
-        state.toolName !== "execute_l3_operation" ||
+        state.toolName !== "execute_route_change" ||
         state.toolName !== expected.toolName ||
         state.argumentsDigest !== expected.argumentsDigest ||
         state.binding === undefined ||

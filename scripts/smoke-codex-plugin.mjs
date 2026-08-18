@@ -113,12 +113,11 @@ const assertPluginFiles = async () => {
   const operatorSkill = await fs.readFile(path.join(pluginRoot, "skills", "routeledger-operator", "SKILL.md"), "utf8");
   for (const requiredGuidance of [
     "`WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`",
-    "`get_runtime_context` again to confirm the session rebound",
-    "Use `discover_routeledger_roots` and `plan_routeledger_binding` only when the target root is ambiguous",
+    "then read `inspect_runtime(operation=\"runtime\")` again to confirm the session rebound",
+    "Use `inspect_runtime(operation=\"discover_roots\")` and `inspect_runtime(operation=\"plan_binding\")` only when the target root is ambiguous",
     "never infer it from the plugin cache or MCP process `cwd`",
-    "standing policy or delegated authority mint an independent exact decision for the current proposal",
-    "approve-only structured elicitation",
-    "There is no consumable or reusable preauthorization",
+    "Compatibility hosts must provide a trusted exact decision or approve-only structured elicitation",
+    "Project files and chat text are never authorization authority",
     "surface its localized `notice.message` once",
     "UI never blocks RouteLedger work"
   ]) {
@@ -207,15 +206,16 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "runtime-context-unbound",
     method: "tools/call",
-    params: { name: "get_runtime_context", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "runtime" } }
   });
   write({
     jsonrpc: "2.0",
     id: "init-project",
     method: "tools/call",
     params: {
-      name: "init_project",
+      name: "configure_project",
       arguments: {
+        operation: "initialize",
         name: "Codex Plugin Smoke",
         contentLocale: "en",
         expectedRouteLedgerRoot: testRouteledgerRoot
@@ -227,7 +227,7 @@ const runPluginStdioSmoke = async () => {
     id: "activate-binding",
     method: "tools/call",
     params: {
-      name: "activate_routeledger_binding",
+      name: "configure_binding",
       arguments: { workspaceRoot: testWorkspaceRoot, routeledgerRoot: testRouteledgerRoot }
     }
   });
@@ -235,15 +235,16 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "runtime-context-rebound",
     method: "tools/call",
-    params: { name: "get_runtime_context", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "runtime" } }
   });
   write({
     jsonrpc: "2.0",
     id: "init-project-rebound",
     method: "tools/call",
     params: {
-      name: "init_project",
+      name: "configure_project",
       arguments: {
+        operation: "initialize",
         name: "Codex Plugin Smoke",
         contentLocale: "en",
         expectedRouteLedgerRoot: testRouteledgerRoot
@@ -254,25 +255,25 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "runtime-context-initialized",
     method: "tools/call",
-    params: { name: "get_runtime_context", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "runtime" } }
   });
   write({
     jsonrpc: "2.0",
     id: "authorization-status",
     method: "tools/call",
-    params: { name: "get_l3_authorization_status", arguments: {} }
+    params: { name: "inspect_route", arguments: { operation: "get_l3_authorization_status" } }
   });
   write({
     jsonrpc: "2.0",
     id: "open-mission-control",
     method: "tools/call",
-    params: { name: "open_mission_control", arguments: { openBrowser: false } }
+    params: { name: "manage_mission_control", arguments: { operation: "open", openBrowser: false } }
   });
   write({
     jsonrpc: "2.0",
     id: "mission-control-status",
     method: "tools/call",
-    params: { name: "get_mission_control_status", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "mission_control_status" } }
   });
   child.stdin.end();
 
@@ -319,11 +320,11 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime initialize did not expose the plugin artifact identity.");
     }
-    if (!Array.isArray(responses[1]?.result?.tools) || responses[1].result.tools.length === 0) {
+    if (!Array.isArray(responses[1]?.result?.tools) || responses[1].result.tools.length !== 11) {
       throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
     }
     const bundledToolNames = responses[1].result.tools.map((tool) => tool.name);
-    for (const portableUiTool of ["open_mission_control", "get_mission_control_status", "stop_mission_control"]) {
+    for (const portableUiTool of ["manage_mission_control", "inspect_runtime"]) {
       if (!bundledToolNames.includes(portableUiTool)) {
         throw new Error(`Bundled JSON-only runtime did not expose ${portableUiTool}.`);
       }
@@ -401,7 +402,7 @@ const runPluginStdioSmoke = async () => {
       unboundInit?.isError !== true ||
       unboundInit?.structuredContent?.error?.code !== "ROUTELEDGER_BINDING_REQUIRED"
     ) {
-      throw new Error("Bundled runtime allowed init_project before an explicit workspace binding.");
+      throw new Error("Bundled runtime allowed project initialization before an explicit workspace binding.");
     }
     const activation = responses[5]?.result?.structuredContent?.data;
     if (
@@ -435,7 +436,7 @@ const runPluginStdioSmoke = async () => {
       );
     }
     if (responses[7]?.result?.structuredContent?.ok !== true) {
-      throw new Error("Bundled runtime init_project did not report a successful canonical JSON write after session rebound.");
+      throw new Error("Bundled runtime project initialization did not report a successful canonical JSON write after session rebound.");
     }
     const initializedRuntimeContext = responses[8]?.result?.structuredContent?.data;
     if (
@@ -450,12 +451,13 @@ const runPluginStdioSmoke = async () => {
     if (
       initializedRuntimeContext?.missionControl?.status !== "stopped" ||
       initializedRuntimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
-      initializedRuntimeContext?.missionControl?.recommendedAction?.tool !== "open_mission_control"
+      initializedRuntimeContext?.missionControl?.recommendedAction?.tool !== "manage_mission_control" ||
+      initializedRuntimeContext?.missionControl?.recommendedAction?.arguments?.operation !== "open"
     ) {
       throw new Error("Bundled runtime did not expose executable Mission Control startup guidance.");
     }
     if (JSON.stringify(initializedRuntimeContext?.runtimeIdentity) !== JSON.stringify(initializeIdentity)) {
-      throw new Error("Bundled runtime initialize and get_runtime_context reported different identities.");
+      throw new Error("Bundled runtime initialize and inspect_runtime reported different identities.");
     }
     const authorizationStatus = responses[9]?.result?.structuredContent?.data;
     if (

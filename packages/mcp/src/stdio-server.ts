@@ -1323,7 +1323,8 @@ export const createRouteLedgerStdioServer = (
 
             if (
               is2026Request &&
-              toolCall.name === "execute_l3_operation" &&
+              toolCall.name === "execute_route_change" &&
+              toolCall.arguments.operation === "execute_l3_operation" &&
               options.mcpRequestStateSecret === undefined
             ) {
               return successResponse(
@@ -1349,7 +1350,11 @@ export const createRouteLedgerStdioServer = (
                 : validateToolInput(toolDefinition, toolCall.arguments);
             const invocationRegistry = activeRegistry;
             let invocationArguments = toolCall.arguments;
-            if (is2026Request && toolCall.name === "execute_l3_operation") {
+            if (
+              is2026Request &&
+              toolCall.name === "execute_route_change" &&
+              toolCall.arguments.operation === "execute_l3_operation"
+            ) {
               const argumentsDigest = digestMcpToolArguments(toolCall.arguments);
               if (params.requestState !== undefined) {
                 if (typeof params.requestState !== "string") {
@@ -1408,14 +1413,15 @@ export const createRouteLedgerStdioServer = (
               activeMcpRequestContext = null;
             }
             const rebindResponse =
-              validationError === null && toolCall.name === "activate_routeledger_binding"
+              validationError === null && toolCall.name === "configure_binding"
                 ? await activatePendingSessionRebind(invocationRegistry)
                 : null;
 
             const effectiveToolResponse = rebindResponse ?? toolResponse;
             if (
               is2026Request &&
-              toolCall.name === "execute_l3_operation" &&
+              toolCall.name === "execute_route_change" &&
+              toolCall.arguments.operation === "execute_l3_operation" &&
               effectiveToolResponse.ok &&
               isObject(effectiveToolResponse.data) &&
               effectiveToolResponse.data.status === "input_required"
@@ -1478,7 +1484,7 @@ export const createRouteLedgerStdioServer = (
                 requestState: sealMcpRequestState(
                   {
                     schemaVersion: 2,
-                    toolName: "execute_l3_operation",
+                    toolName: "execute_route_change",
                     argumentsDigest: digestMcpToolArguments(toolCall.arguments),
                     binding: {
                       proposalId: requestState.proposalId,

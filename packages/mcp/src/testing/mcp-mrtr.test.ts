@@ -71,7 +71,8 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       mcpRequestStateSecret: SECRET
     });
     try {
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "MRTR conformance",
         contentLocale: "en",
         firstVersion: { title: "Initial", description: "MRTR target", initialTodos: [] },
@@ -80,12 +81,14 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       const initData = structured(initialized);
       const projectId = (initData.data as { project: { id: string } }).project.id;
       const versionId = (initData.data as { firstVersion: { id: string } }).firstVersion.id;
-      await call(server, "prepare", "prepare_version", {
+      await call(server, "prepare", "set_version_state", {
+        operation: "prepare",
         projectId,
         versionId,
         expectedRouteLedgerRoot: root
       });
       const args = {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -93,7 +96,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         idempotencyKey: "mrtr-start",
         expectedRouteLedgerRoot: root
       };
-      const first = await call(server, "execute-1", "execute_l3_operation", args);
+      const first = await call(server, "execute-1", "execute_route_change", args);
       expect(first).toMatchObject({
         result: {
           resultType: "input_required",
@@ -113,7 +116,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         routeledgerRoot: root,
         mcpRequestStateSecret: SECRET
       });
-      const resumed = await call(server, "execute-2", "execute_l3_operation", args, {
+      const resumed = await call(server, "execute-2", "execute_route_change", args, {
         requestState,
         inputResponses: {
           routeledger_l3_decision: {
@@ -131,7 +134,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
           }
         }
       });
-      const duplicateRetry = await call(server, "execute-3", "execute_l3_operation", args, {
+      const duplicateRetry = await call(server, "execute-3", "execute_route_change", args, {
         requestState,
         inputResponses: {
           routeledger_l3_decision: {
@@ -149,7 +152,10 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
           }
         }
       });
-      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      const proposals = await call(server, "list", "inspect_route", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect((structured(proposals).data as unknown[])).toHaveLength(1);
     } finally {
       server.close();
@@ -165,7 +171,8 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       mcpRequestStateSecret: SECRET
     });
     try {
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "MRTR tamper",
         contentLocale: "en",
         firstVersion: { title: "Initial", description: "MRTR target", initialTodos: [] },
@@ -174,12 +181,14 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       const initData = structured(initialized);
       const projectId = (initData.data as { project: { id: string } }).project.id;
       const versionId = (initData.data as { firstVersion: { id: string } }).firstVersion.id;
-      await call(server, "prepare", "prepare_version", {
+      await call(server, "prepare", "set_version_state", {
+        operation: "prepare",
         projectId,
         versionId,
         expectedRouteLedgerRoot: root
       });
       const args = {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -187,7 +196,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         idempotencyKey: "mrtr-tamper",
         expectedRouteLedgerRoot: root
       };
-      const first = await call(server, "execute-1", "execute_l3_operation", args);
+      const first = await call(server, "execute-1", "execute_route_change", args);
       const state = (first as { result: { requestState: string } }).result.requestState;
       const decision = {
         routeledger_l3_decision: {
@@ -195,7 +204,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
           content: { approve: true }
         }
       };
-      const tampered = await call(server, "execute-2", "execute_l3_operation", args, {
+      const tampered = await call(server, "execute-2", "execute_route_change", args, {
         requestState: `${state.slice(0, -1)}x`,
         inputResponses: decision
       });
@@ -203,13 +212,13 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       const mismatched = await call(
         server,
         "execute-3",
-        "execute_l3_operation",
+        "execute_route_change",
         { ...args, reason: "different request" },
         { requestState: state, inputResponses: decision }
       );
       expect(mismatched).toMatchObject({ error: { code: -32602 } });
       const decoded = verifyMcpRequestState(state, SECRET, {
-        toolName: "execute_l3_operation",
+        toolName: "execute_route_change",
         argumentsDigest: digestMcpToolArguments(args)
       });
       const staleLiveBinding = sealMcpRequestState(
@@ -219,7 +228,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         },
         SECRET
       );
-      const stale = await call(server, "execute-stale", "execute_l3_operation", args, {
+      const stale = await call(server, "execute-stale", "execute_route_change", args, {
         requestState: staleLiveBinding,
         inputResponses: decision
       });
@@ -236,14 +245,17 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         id: "execute-4",
         method: "tools/call",
         params: {
-          name: "execute_l3_operation",
+          name: "execute_route_change",
           arguments: args,
           _meta: meta,
           inputResponses: decision
         }
       });
       expect(responseOnly).toMatchObject({ error: { code: -32602 } });
-      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      const proposals = await call(server, "list", "inspect_route", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect((structured(proposals).data as Array<{ status: string }>)).toMatchObject([
         { status: "pending" }
       ]);
@@ -257,7 +269,8 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
     const root = createTempProjectRoot();
     const server = createRouteLedgerStdioServer({ workspaceRoot: root, routeledgerRoot: root });
     try {
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "MRTR config gate",
         contentLocale: "en",
         firstVersion: { title: "Initial", description: "MRTR target", initialTodos: [] },
@@ -266,12 +279,14 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       const initData = structured(initialized);
       const projectId = (initData.data as { project: { id: string } }).project.id;
       const versionId = (initData.data as { firstVersion: { id: string } }).firstVersion.id;
-      await call(server, "prepare", "prepare_version", {
+      await call(server, "prepare", "set_version_state", {
+        operation: "prepare",
         projectId,
         versionId,
         expectedRouteLedgerRoot: root
       });
-      const blocked = await call(server, "execute", "execute_l3_operation", {
+      const blocked = await call(server, "execute", "execute_route_change", {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -288,7 +303,10 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
           }
         }
       });
-      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      const proposals = await call(server, "list", "inspect_route", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect(structured(proposals).data).toEqual([]);
     } finally {
       server.close();

@@ -28,8 +28,21 @@ const buildToolApprovalMap = (): Map<string, string> => {
 
 describe("@routeledger/codex approval list vs MCP registry", () => {
   const approvalByTool = buildToolApprovalMap();
+  const expectedAutoTools = ["inspect_runtime", "inspect_route"];
+  const expectedPromptTools = [
+    "configure_binding",
+    "configure_project",
+    "manage_todo",
+    "manage_deferred",
+    "manage_constraint",
+    "propose_route_change",
+    "set_version_state",
+    "manage_mission_control"
+  ];
+  const expectedApproveTools = ["execute_route_change"];
 
   it("renders auto approval only for read-only MCP tools", () => {
+    expect([...AUTO_APPROVAL_TOOLS]).toEqual(expectedAutoTools);
     for (const toolName of AUTO_APPROVAL_TOOLS) {
       expect(approvalByTool.has(toolName), `unknown tool ${toolName}`).toBe(true);
       expect(approvalByTool.get(toolName), `${toolName} is not auto`).toBe("auto");
@@ -37,6 +50,7 @@ describe("@routeledger/codex approval list vs MCP registry", () => {
   });
 
   it("renders prompt approval only for write MCP tools", () => {
+    expect([...PROMPT_APPROVAL_TOOLS]).toEqual(expectedPromptTools);
     for (const toolName of PROMPT_APPROVAL_TOOLS) {
       expect(approvalByTool.has(toolName), `unknown tool ${toolName}`).toBe(true);
       expect(approvalByTool.get(toolName), `${toolName} is not prompt`).toBe("prompt");
@@ -44,6 +58,7 @@ describe("@routeledger/codex approval list vs MCP registry", () => {
   });
 
   it("renders explicit approve only for high-risk MCP tools", () => {
+    expect([...APPROVE_APPROVAL_TOOLS]).toEqual(expectedApproveTools);
     for (const toolName of APPROVE_APPROVAL_TOOLS) {
       expect(approvalByTool.has(toolName), `unknown tool ${toolName}`).toBe(true);
       expect(approvalByTool.get(toolName), `${toolName} is not approve`).toBe("approve");

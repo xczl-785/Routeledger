@@ -13,7 +13,7 @@ import {
   createTempProjectRoot
 } from "./mcp-test-helpers.js";
 
-describe("execute_l3_operation", () => {
+describe("execute_route_change operation=execute_l3_operation", () => {
   it("completes one automatic external call and replays the exact idempotent request", async () => {
     const projectRoot = createTempProjectRoot();
     let delegatedCalls = 0;
@@ -70,11 +70,21 @@ describe("execute_l3_operation", () => {
     });
 
     try {
-      const initialized = await registry.invoke("init_project", { name: "D3" });
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "D3",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] }
+      });
       const projectId = (initialized.data as { project: { id: string } }).project.id;
       const versionId = (initialized.data as { firstVersion: { id: string } }).firstVersion.id;
-      await registry.invoke("prepare_version", { projectId, versionId });
+      await registry.invoke("set_version_state", {
+        operation: "prepare",
+        projectId,
+        versionId
+      });
       const request = {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -83,10 +93,10 @@ describe("execute_l3_operation", () => {
       };
 
       const [first, duplicate] = await Promise.all([
-        registry.invoke("execute_l3_operation", request),
-        registry.invoke("execute_l3_operation", request)
+        registry.invoke("execute_route_change", request),
+        registry.invoke("execute_route_change", request)
       ]);
-      const retry = await registry.invoke("execute_l3_operation", request);
+      const retry = await registry.invoke("execute_route_change", request);
 
       expect(first).toMatchObject({
         ok: true,
@@ -121,7 +131,10 @@ describe("execute_l3_operation", () => {
         }
       });
 
-      const proposals = await registry.invoke("list_l3_proposals", { projectId });
+      const proposals = await registry.invoke("inspect_route", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect(proposals.data).toHaveLength(1);
       expect(delegatedCalls).toBe(1);
     } finally {
@@ -135,11 +148,21 @@ describe("execute_l3_operation", () => {
     const registry = createRegistry(projectRoot);
 
     try {
-      const initialized = await registry.invoke("init_project", { name: "D3 conflict" });
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "D3 conflict",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] }
+      });
       const projectId = (initialized.data as { project: { id: string } }).project.id;
       const versionId = (initialized.data as { firstVersion: { id: string } }).firstVersion.id;
-      await registry.invoke("prepare_version", { projectId, versionId });
-      await registry.invoke("execute_l3_operation", {
+      await registry.invoke("set_version_state", {
+        operation: "prepare",
+        projectId,
+        versionId
+      });
+      await registry.invoke("execute_route_change", {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -147,7 +170,8 @@ describe("execute_l3_operation", () => {
         idempotencyKey: "fixed-key"
       });
 
-      const conflict = await registry.invoke("execute_l3_operation", {
+      const conflict = await registry.invoke("execute_route_change", {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -162,7 +186,10 @@ describe("execute_l3_operation", () => {
           details: { reason: "IDEMPOTENCY_KEY_REUSE_MISMATCH" }
         }
       });
-      const proposals = await registry.invoke("list_l3_proposals", { projectId });
+      const proposals = await registry.invoke("inspect_route", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect(proposals.data).toHaveLength(1);
     } finally {
       registry.close();
@@ -170,16 +197,32 @@ describe("execute_l3_operation", () => {
     }
   });
 
-  it("keeps the low-level L3 tools registered", () => {
+  it("keeps exact L3 workflows as discriminated composite operations", () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);
     try {
-      expect([
+      expect(registry.getTool("propose_route_change")).toBeDefined();
+      const executeTool = registry.getTool("execute_route_change");
+      expect(executeTool).toBeDefined();
+      const operations = (executeTool!.inputSchema.oneOf as Array<{
+        properties: { operation: { const: string } };
+      }>).map((branch) => branch.properties.operation.const);
+      expect(operations).toEqual([
+        "force_shutdown",
+        "execute_l3_operation",
+        "approve_l3_operation",
+        "commit_l3_operation",
+        "reject_l3_operation"
+      ]);
+      for (const removedName of [
         "propose_l3_operation",
+        "execute_l3_operation",
         "approve_l3_operation",
         "reject_l3_operation",
         "commit_l3_operation"
-      ].every((name) => registry.getTool(name) !== undefined)).toBe(true);
+      ]) {
+        expect(registry.getTool(removedName)).toBeUndefined();
+      }
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);
@@ -198,12 +241,22 @@ describe("execute_l3_operation", () => {
       }
     });
     try {
-      const initialized = await registry.invoke("init_project", { name: "D4 unavailable" });
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "D4 unavailable",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] }
+      });
       const projectId = (initialized.data as { project: { id: string } }).project.id;
       const versionId = (initialized.data as { firstVersion: { id: string } }).firstVersion.id;
-      await registry.invoke("prepare_version", { projectId, versionId });
+      await registry.invoke("set_version_state", {
+        operation: "prepare",
+        projectId,
+        versionId
+      });
 
-      const response = await registry.invoke("execute_l3_operation", {
+      const response = await registry.invoke("execute_route_change", {
+        operation: "execute_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -224,7 +277,10 @@ describe("execute_l3_operation", () => {
           }
         }
       });
-      const status = await registry.invoke("get_l3_authorization_status", { detail: "internal" });
+      const status = await registry.invoke("inspect_route", {
+        operation: "get_l3_authorization_status",
+        detail: "internal"
+      });
       expect(status).toMatchObject({
         ok: true,
         data: {
@@ -240,7 +296,10 @@ describe("execute_l3_operation", () => {
           recommendedNextActions: []
         }
       });
-      const proposals = await registry.invoke("list_l3_proposals", { projectId });
+      const proposals = await registry.invoke("inspect_route", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect(proposals.data).toHaveLength(1);
     } finally {
       registry.close();
@@ -260,19 +319,30 @@ describe("execute_l3_operation", () => {
       }
     });
     try {
-      const initialized = await registry.invoke("init_project", { name: "Codex explicit flow" });
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "Codex explicit flow",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] }
+      });
       const projectId = (initialized.data as { project: { id: string } }).project.id;
       const versionId = (initialized.data as { firstVersion: { id: string } }).firstVersion.id;
-      await registry.invoke("prepare_version", { projectId, versionId });
+      await registry.invoke("set_version_state", {
+        operation: "prepare",
+        projectId,
+        versionId
+      });
 
-      const proposed = await registry.invoke("propose_l3_operation", {
+      const proposed = await registry.invoke("propose_route_change", {
+        operation: "propose_l3_operation",
         projectId,
         actionType: "start_version",
         targetId: versionId,
         reason: "Verify the explicit Windows Desktop flow"
       });
       const pendingOperationId = (proposed.data as { id: string }).id;
-      const approved = await registry.invoke("approve_l3_operation", {
+      const approved = await registry.invoke("execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId
       });
@@ -286,7 +356,8 @@ describe("execute_l3_operation", () => {
         status: "approved"
       });
 
-      const committed = await registry.invoke("commit_l3_operation", {
+      const committed = await registry.invoke("execute_route_change", {
+        operation: "commit_l3_operation",
         projectId,
         pendingOperationId,
         approvalArtifactId: approval.id
@@ -322,8 +393,15 @@ describe("execute_l3_operation", () => {
       }
     });
     try {
-      await registry.invoke("init_project", { name: "Codex status projection" });
-      const response = await registry.invoke("get_l3_authorization_status", {});
+      await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "Codex status projection",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] }
+      });
+      const response = await registry.invoke("inspect_route", {
+        operation: "get_l3_authorization_status"
+      });
       expect(response).toMatchObject({
         ok: true,
         data: {

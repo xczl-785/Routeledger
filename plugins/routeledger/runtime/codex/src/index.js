@@ -26,57 +26,20 @@ const DEFAULT_MCP_PACKAGE_FILTER = "@routeledger/mcp";
 const DEFAULT_MCP_ENTRY_SCRIPT = "src/bin.ts";
 const DEFAULT_FRAGMENT_SUFFIX = ".fragment.toml";
 export const AUTO_APPROVAL_TOOLS = [
-    "get_current_context",
-    "get_runtime_context",
-    "get_l3_authorization_status",
-    "discover_routeledger_roots",
-    "plan_routeledger_binding",
-    "render_host_binding_config",
-    "next_action",
-    "list_versions_window",
-    "list_versions",
-    "check_start_gate",
-    "check_close_gate",
-    "list_l3_proposals",
-    "recommend_l3_authorization_policy",
-    "recommend_l3_authorization_profile",
-    "get_l3_proposal",
-    "get_mission_control_status",
-    "check_doc_drift",
-    "summarize_version_closeout",
-    "plan_version_closeout",
-    "get_version_structure",
-    "get_version_transition_guide"
+    "inspect_runtime",
+    "inspect_route"
 ];
 export const PROMPT_APPROVAL_TOOLS = [
-    "activate_routeledger_binding",
-    "write_host_binding_config",
-    "approve_l3_operation",
-    "reject_l3_operation",
-    "init_project",
-    "set_project_content_locale",
-    "open_mission_control",
-    "stop_mission_control",
-    "preflight_or_propose_version_batch",
-    "preview_or_propose_version_transition",
-    "propose_version_advance",
-    "preview_or_propose_version_close",
-    "preview_or_propose_forced_version_shutdown",
-    "create_todo",
-    "close_todo",
-    "defer_work",
-    "review_deferred",
-    "record_constraint",
-    "retire_constraint",
-    "prepare_version",
-    "mark_version_complete",
-    "propose_version_creation",
-    "propose_version_insertion",
-    "propose_child_version_creation",
-    "propose_version_reorder",
-    "propose_l3_operation"
+    "configure_binding",
+    "configure_project",
+    "manage_todo",
+    "manage_deferred",
+    "manage_constraint",
+    "propose_route_change",
+    "set_version_state",
+    "manage_mission_control"
 ];
-export const APPROVE_APPROVAL_TOOLS = ["execute_l3_operation", "commit_l3_operation"];
+export const APPROVE_APPROVAL_TOOLS = ["execute_route_change"];
 const assertAbsolutePath = (value, fieldName) => {
     if (value.trim().length === 0) {
         throw new CodexProjectConfigError("EMPTY_PATH", `${fieldName} must be a non-empty absolute path.`);

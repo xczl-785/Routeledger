@@ -68,46 +68,77 @@ const getTrustedExactStore = (projectRoot: string): MemoryExactAuthorizationStor
 };
 
 export const WRITE_TOOL_NAMES = new Set([
-  "write_host_binding_config",
-  "init_project",
-  "set_project_content_locale",
-  "preflight_or_propose_version_batch",
-  "preview_or_propose_version_transition",
-  "propose_version_advance",
-  "preview_or_propose_version_close",
-  "preview_or_propose_forced_version_shutdown",
-  "batch_create_versions",
-  "transition_version",
-  "advance_to_version",
-  "close_version",
-  "shutdown_version",
-  "create_todo",
-  "close_todo",
-  "defer_work",
-  "review_deferred",
-  "record_constraint",
-  "retire_constraint",
-  "create_undo",
-  "reassign_undo",
-  "carry_forward_undo",
-  "resolve_undo_as_downstream_input",
-  "close_undo",
-  "prepare_version",
-  "mark_version_complete",
-  "propose_version_creation",
-  "propose_version_insertion",
-  "propose_child_version_creation",
-  "propose_version_reorder",
-  "create_version",
-  "insert_version",
-  "create_child_version",
-  "reorder_versions",
-  "propose_l3_operation",
-  "execute_l3_operation",
-  "approve_l3_operation",
-  "commit_l3_operation",
-  "reject_l3_operation"
+  "configure_binding",
+  "configure_project",
+  "manage_todo",
+  "manage_deferred",
+  "manage_constraint",
+  "propose_route_change",
+  "set_version_state",
+  "execute_route_change",
+  "manage_mission_control"
 ]);
+
+const PUBLIC_TOOL_CALLS: Record<string, { name: string; action?: string }> = {
+  get_runtime_context: { name: "inspect_runtime", action: "runtime" },
+  discover_routeledger_roots: { name: "inspect_runtime", action: "discover_roots" },
+  plan_routeledger_binding: { name: "inspect_runtime", action: "plan_binding" },
+  get_mission_control_status: { name: "inspect_runtime", action: "mission_control_status" },
+  activate_routeledger_binding: { name: "configure_binding" },
+  init_project: { name: "configure_project", action: "initialize" },
+  set_project_content_locale: { name: "configure_project", action: "set_content_locale" },
+  open_mission_control: { name: "manage_mission_control", action: "open" },
+  stop_mission_control: { name: "manage_mission_control", action: "stop" },
+  create_todo: { name: "manage_todo", action: "create" },
+  close_todo: { name: "manage_todo", action: "close" },
+  defer_work: { name: "manage_deferred", action: "defer" },
+  review_deferred: { name: "manage_deferred", action: "review" },
+  record_constraint: { name: "manage_constraint", action: "record" },
+  retire_constraint: { name: "manage_constraint", action: "retire" },
+  prepare_version: { name: "set_version_state", action: "prepare" },
+  mark_version_complete: { name: "set_version_state", action: "mark_complete" },
+  preflight_or_propose_version_batch: { name: "propose_route_change", action: "preflight_or_propose_version_batch" },
+  batch_create_versions: { name: "propose_route_change", action: "preflight_or_propose_version_batch" },
+  preview_or_propose_version_transition: { name: "propose_route_change", action: "preview_or_propose_version_transition" },
+  transition_version: { name: "propose_route_change", action: "preview_or_propose_version_transition" },
+  propose_version_advance: { name: "propose_route_change", action: "propose_version_advance" },
+  advance_to_version: { name: "propose_route_change", action: "propose_version_advance" },
+  preview_or_propose_version_close: { name: "propose_route_change", action: "preview_or_propose_version_close" },
+  close_version: { name: "propose_route_change", action: "preview_or_propose_version_close" },
+  propose_version_creation: { name: "propose_route_change", action: "propose_version_creation" },
+  create_version: { name: "propose_route_change", action: "propose_version_creation" },
+  propose_version_insertion: { name: "propose_route_change", action: "propose_version_insertion" },
+  insert_version: { name: "propose_route_change", action: "propose_version_insertion" },
+  propose_child_version_creation: { name: "propose_route_change", action: "propose_child_version_creation" },
+  create_child_version: { name: "propose_route_change", action: "propose_child_version_creation" },
+  propose_version_reorder: { name: "propose_route_change", action: "propose_version_reorder" },
+  reorder_versions: { name: "propose_route_change", action: "propose_version_reorder" },
+  propose_l3_operation: { name: "propose_route_change", action: "propose_l3_operation" },
+  preview_or_propose_forced_version_shutdown: { name: "execute_route_change", action: "force_shutdown" },
+  shutdown_version: { name: "execute_route_change", action: "force_shutdown" },
+  execute_l3_operation: { name: "execute_route_change", action: "execute_l3_operation" },
+  approve_l3_operation: { name: "execute_route_change", action: "approve_l3_operation" },
+  commit_l3_operation: { name: "execute_route_change", action: "commit_l3_operation" },
+  reject_l3_operation: { name: "execute_route_change", action: "reject_l3_operation" }
+};
+
+for (const name of [
+  "get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout",
+  "plan_version_closeout", "list_versions_window", "list_versions", "check_start_gate",
+  "check_close_gate", "get_version_structure", "get_version_transition_guide",
+  "get_l3_authorization_status", "recommend_l3_authorization_profile",
+  "recommend_l3_authorization_policy", "list_l3_proposals", "get_l3_proposal"
+]) {
+  PUBLIC_TOOL_CALLS[name] = { name: "inspect_route", action: name };
+}
+
+const adaptPublicToolCall = (toolName: string, input: Record<string, unknown>) => {
+  const mapped = PUBLIC_TOOL_CALLS[toolName] ?? { name: toolName };
+  return {
+    name: mapped.name,
+    input: mapped.action === undefined ? input : { operation: mapped.action, ...input }
+  };
+};
 
 export const createTempProjectRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-mcp-"));
 
@@ -166,14 +197,15 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
 
   return {
     ...registry,
-    invoke: (toolName: string, input: Record<string, unknown>) =>
-      originalInvoke(
-        toolName,
+    invoke: (toolName: string, input: Record<string, unknown>) => {
+      const adapted = adaptPublicToolCall(toolName, input ?? {});
+      return originalInvoke(
+        adapted.name,
         typeof routeledgerRoot === "string" &&
-          WRITE_TOOL_NAMES.has(toolName) &&
+          WRITE_TOOL_NAMES.has(adapted.name) &&
           !Object.prototype.hasOwnProperty.call(input ?? {}, "expectedRouteLedgerRoot")
           ? {
-              ...(input ?? {}),
+              ...adapted.input,
               ...(toolName === "init_project" &&
               !Object.prototype.hasOwnProperty.call(input ?? {}, "contentLocale")
                 ? { contentLocale: "en" }
@@ -193,7 +225,7 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
           : toolName === "init_project" &&
               !Object.prototype.hasOwnProperty.call(input ?? {}, "contentLocale")
             ? {
-                ...(input ?? {}),
+                ...adapted.input,
                 contentLocale: "en",
                 firstVersion: {
                   title: "Initial Version",
@@ -201,8 +233,9 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
                   initialTodos: []
                 }
               }
-            : input
-      )
+            : adapted.input
+      );
+    }
   };
 };
 
@@ -488,12 +521,13 @@ export const callTool = async (
   args: Record<string, unknown>
  ) => {
   const routeledgerRoot = (server as unknown as { __routeledgerRoot?: string }).__routeledgerRoot;
+  const adapted = adaptPublicToolCall(name, args);
   const toolArgs =
     routeledgerRoot !== undefined &&
-    WRITE_TOOL_NAMES.has(name) &&
+    WRITE_TOOL_NAMES.has(adapted.name) &&
     !Object.prototype.hasOwnProperty.call(args, "expectedRouteLedgerRoot")
       ? {
-          ...args,
+          ...adapted.input,
           ...(name === "init_project" &&
           !Object.prototype.hasOwnProperty.call(args, "contentLocale")
             ? { contentLocale: "en" }
@@ -513,7 +547,7 @@ export const callTool = async (
       : name === "init_project" &&
           !Object.prototype.hasOwnProperty.call(args, "contentLocale")
         ? {
-            ...args,
+            ...adapted.input,
             contentLocale: "en",
             firstVersion: {
               title: "Initial Version",
@@ -521,14 +555,14 @@ export const callTool = async (
               initialTodos: []
             }
           }
-        : args;
+        : adapted.input;
 
   return (await server.handleMessage({
     jsonrpc: "2.0",
     id,
     method: "tools/call",
     params: {
-      name,
+      name: adapted.name,
       arguments: toolArgs
     }
   })) as JsonRpcResponse;
@@ -589,15 +623,29 @@ export const expectRouteLedgerRootGuardError = (
 ): void => {
   const reportedToolName =
     {
-      batch_create_versions: "preflight_or_propose_version_batch",
-      transition_version: "preview_or_propose_version_transition",
-      advance_to_version: "propose_version_advance",
-      close_version: "preview_or_propose_version_close",
-      shutdown_version: "preview_or_propose_forced_version_shutdown",
-      create_version: "propose_version_creation",
-      insert_version: "propose_version_insertion",
-      create_child_version: "propose_child_version_creation",
-      reorder_versions: "propose_version_reorder"
+      init_project: "configure_project",
+      set_project_content_locale: "configure_project",
+      create_todo: "manage_todo",
+      close_todo: "manage_todo",
+      defer_work: "manage_deferred",
+      review_deferred: "manage_deferred",
+      record_constraint: "manage_constraint",
+      retire_constraint: "manage_constraint",
+      batch_create_versions: "propose_route_change",
+      transition_version: "propose_route_change",
+      advance_to_version: "propose_route_change",
+      close_version: "propose_route_change",
+      create_version: "propose_route_change",
+      insert_version: "propose_route_change",
+      create_child_version: "propose_route_change",
+      reorder_versions: "propose_route_change",
+      prepare_version: "set_version_state",
+      mark_version_complete: "set_version_state",
+      shutdown_version: "execute_route_change",
+      execute_l3_operation: "execute_route_change",
+      approve_l3_operation: "execute_route_change",
+      commit_l3_operation: "execute_route_change",
+      reject_l3_operation: "execute_route_change"
     }[toolName] ?? toolName;
   expect(response).toMatchObject({
     ok: false,

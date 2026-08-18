@@ -13,7 +13,7 @@ checklist for every new tool.
    preflight, and debug hooks still come from the registry.
 2. Update the tool budget assertions in
    `packages/mcp/src/testing/tool-description-contract.test.ts` (currently
-   49 tools: 21 read-only / 23 write / 5 high-risk). The budget is a
+   11 tools: 2 read-only / 8 write / 1 high-risk). The budget is a
    deliberate gate against silent surface growth.
 3. Classify annotations from actual effects, not from apparent product intent.
    `readOnlyHint` is true only when the tool cannot change state;
@@ -22,11 +22,12 @@ checklist for every new tool.
    affecting public/external systems. Set `idempotentHint` only when repeating
    the same arguments has no additional effect. These hints never replace
    server authorization, validation, root assertions, or confirmation.
-4. Declare an exact `outputSchema` for every tool that returns
-   `structuredContent`, and validate representative success and failure
-   results against it. The existing-surface migration currently covers 10
-   priority task-level tools; the remaining legacy tools are migration debt,
-   not examples to copy for new work.
+4. Declare an `outputSchema` for every tool that returns `structuredContent`
+   and validate representative success and failure results against it. The 11
+   public tools currently share a validated response envelope; narrowing each
+   `operation` branch to an exact data schema remains follow-up contract work.
+   Internal capability registrations are not public tools and are not examples
+   to copy for new work.
 5. Add or update the capability-factory test under
    `packages/mcp/src/testing/*-tools.test.ts`; add an MCP integration behavior
    test when wiring, preflight, session state, or response behavior changes.
@@ -47,6 +48,6 @@ checklist for every new tool.
    `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
    `pnpm check:codex-plugin-release`, and add a release note under
    `docs/release/release-notes/`.
-10. Verify the full and json-only runtimes both expose the expected 49-tool
+10. Verify the full and json-only runtimes both expose the expected 11-tool
    surface, including `open_mission_control`,
    `get_mission_control_status`, and `stop_mission_control`.

@@ -115,8 +115,8 @@ const runRuntimeContextSmoke = async (config: string) => {
       id: "runtime-context",
       method: "tools/call",
       params: {
-        name: "get_runtime_context",
-        arguments: {}
+        name: "inspect_runtime",
+        arguments: { operation: "runtime" }
       }
     })}\n`
   );
@@ -180,10 +180,10 @@ describe("@routeledger/codex", () => {
     expect(config).toContain('"codex-local-host"');
     expect(config).not.toContain('cwd = "/projects/alpha"');
     expect(config).toContain(
-      "[mcp_servers.routeledger.tools.get_runtime_context]\napproval_mode = \"auto\""
+      "[mcp_servers.routeledger.tools.inspect_runtime]\napproval_mode = \"auto\""
     );
     expect(config).toContain(
-      "[mcp_servers.routeledger.tools.discover_routeledger_roots]\napproval_mode = \"auto\""
+      "[mcp_servers.routeledger.tools.inspect_route]\napproval_mode = \"auto\""
     );
   });
 

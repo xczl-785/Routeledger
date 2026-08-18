@@ -646,13 +646,15 @@ describe("local L3 authorization runtime", () => {
     await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(authorityRoot, { recursive: true, mode: 0o700 });
     const bootstrap = createRegistry(workspaceRoot);
-    const initialized = await bootstrap.invoke("init_project", {
+    const initialized = await bootstrap.invoke("configure_project", {
+      operation: "initialize",
       name: "Local authority stdio",
       contentLocale: "en",
       expectedRouteLedgerRoot: workspaceRoot
     });
     const projectId = (initialized.data as { project: { id: string } }).project.id;
-    const proposalResponse = await bootstrap.invoke("create_version", {
+    const proposalResponse = await bootstrap.invoke("propose_route_change", {
+      operation: "propose_version_creation",
       projectId,
       title: "V1",
       initialTodos: [],
@@ -660,7 +662,8 @@ describe("local L3 authorization runtime", () => {
     });
     const pendingOperationId = (proposalResponse.error!.details as { pendingOperationId: string })
       .pendingOperationId;
-    const recommended = await bootstrap.invoke("recommend_l3_authorization_policy", {
+    const recommended = await bootstrap.invoke("inspect_route", {
+      operation: "recommend_l3_authorization_policy",
       projectId
     });
     const routeledgerRootDigest = (
@@ -741,7 +744,8 @@ describe("local L3 authorization runtime", () => {
 
       }
     });
-    const interrupted = await interruptedRegistry.invoke("approve_l3_operation", {
+    const interrupted = await interruptedRegistry.invoke("execute_route_change", {
+      operation: "approve_l3_operation",
       projectId,
       pendingOperationId,
       expectedRouteLedgerRoot: workspaceRoot
@@ -796,8 +800,9 @@ describe("local L3 authorization runtime", () => {
         id: "approve",
         method: "tools/call",
         params: {
-          name: "approve_l3_operation",
+          name: "execute_route_change",
           arguments: {
+            operation: "approve_l3_operation",
             projectId,
             pendingOperationId,
             expectedRouteLedgerRoot: workspaceRoot

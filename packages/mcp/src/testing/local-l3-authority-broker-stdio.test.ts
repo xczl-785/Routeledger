@@ -44,7 +44,8 @@ const initializeProject = async (projectRoot: string, name: string): Promise<str
     sqliteReadModel: "disabled"
   });
   try {
-    const response = await registry.invoke("init_project", {
+    const response = await registry.invoke("configure_project", {
+      operation: "initialize",
       name,
       contentLocale: "en",
       expectedRouteLedgerRoot: projectRoot
@@ -143,7 +144,10 @@ describe("stdio host authority broker binding", () => {
         jsonrpc: "2.0",
         id: "status",
         method: "tools/call",
-        params: { name: "get_l3_authorization_status", arguments: {} }
+        params: {
+          name: "inspect_route",
+          arguments: { operation: "get_l3_authorization_status" }
+        }
       }
     ];
     let output = "";
@@ -235,13 +239,15 @@ describe("stdio host authority broker binding", () => {
         }
       });
       await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const activation = await call(server, "activate", "activate_routeledger_binding", {
+      const activation = await call(server, "activate", "configure_binding", {
         workspaceRoot: projectRoot,
         routeledgerRoot: projectRoot
       });
       expect(activation).toMatchObject({ result: { structuredContent: { ok: true } } });
 
-      const status = await call(server, "status", "get_l3_authorization_status", {});
+      const status = await call(server, "status", "inspect_route", {
+        operation: "get_l3_authorization_status"
+      });
       expect(status).toMatchObject({
         result: {
           structuredContent: {
@@ -329,7 +335,9 @@ describe("stdio host authority broker binding", () => {
         result: { roots: [{ uri: pathToFileURL(projectA).href }] }
       });
 
-      const contextA = await call(server, "context-a", "get_runtime_context", {});
+      const contextA = await call(server, "context-a", "inspect_runtime", {
+        operation: "runtime"
+      });
       expect(contextA).toMatchObject({ result: { structuredContent: { ok: true } } });
       expect(observedProfiles.at(-1)).toBe("profile-a");
 
@@ -346,7 +354,9 @@ describe("stdio host authority broker binding", () => {
       });
       expect(observedProfiles.at(-1)).toBeNull();
 
-      const contextB = await call(server, "context-b", "get_runtime_context", {});
+      const contextB = await call(server, "context-b", "inspect_runtime", {
+        operation: "runtime"
+      });
       expect(contextB).toMatchObject({ result: { structuredContent: { ok: true } } });
       expect(observedProfiles.at(-1)).toBe("profile-b");
       expect(observedProfiles).toContain(null);

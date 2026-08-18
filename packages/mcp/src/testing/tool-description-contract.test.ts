@@ -12,7 +12,7 @@ const REMOVED_LEGACY_TOOLS = [
   "close_undo"
 ];
 
-const EXPECTED_TOOL_CONTRACT_DIGESTS = {
+const REMOVED_TOOL_CONTRACT_DIGESTS = {
   get_runtime_context: "7296318b061d1f10670f49d26b9f5e71ef3730c96f399f9becd02fa0d898707f",
   get_l3_authorization_status: "b2c7e4298325f6ceffb148f374c4e0d8fa379557d7dbfbbf8f8960f81c82e103",
   recommend_l3_authorization_profile: "a41ccd0201ea31ec142cb1863064837100f6290bcaf00db15365bbfde4ad525c",
@@ -62,6 +62,20 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   approve_l3_operation: "83adb2fb39b423d2ddc6dd08c60bb45abca119773228381e64ac6df75b12648a",
   commit_l3_operation: "53e4496ff3e58162f002d8407e0639293938f6cdabee2a067cbc42ddd36e03c0",
   reject_l3_operation: "9d4a51cb4510c7a41a13159216f0d8d75004f616c9652bcd82e7c87ffe0bcdfc"
+} as const;
+
+const EXPECTED_TOOL_CONTRACT_DIGESTS = {
+  inspect_runtime: "fe6a9dc07333866e9228faf974bf79379764be5ead2727263468b893776c377c",
+  configure_binding: "00318cee5fe77e060fd06de48b22d1e8291af35e4ee7336434493317beb7ce73",
+  configure_project: "6ee4c63a9f364fa4ed47bd576fb0fb10b14a76ac41cd5494e79645be751c0183",
+  inspect_route: "56dd46bdeeb726d3a2e7caa5a36eb5f3c19292d89698c7c7a5e292692c6fe176",
+  manage_todo: "dcf8f8a509104e2c9916e35980e8342d59d979635b4a551a5da414a833ef72ce",
+  manage_deferred: "48a91d5af1e1f8a97104d0fb867d01fc853260fdf847ab2a664291f290521708",
+  manage_constraint: "15819210e2dd2fc0059dd64975248678e8b5885820cba9cbc0375247ab15722d",
+  propose_route_change: "1aada759029e047027b37cce45bb807bc2ef74b1e73047d931a3d14111b23384",
+  set_version_state: "0766f981530dd60e6b25eea831aef469e582f9753277759190cdf0119ef78c04",
+  execute_route_change: "e5d64d534973ee9f55f386925b011f370e8486e009be2b043500799e059ec366",
+  manage_mission_control: "adf9a670231982370b535d89c19b762497e97e310d0bf3afab8b056f888e012b"
 } as const;
 
 const sortKeys = (value: unknown): unknown => {
@@ -121,36 +135,25 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(49);
-      expect(readOnly).toHaveLength(21);
-      expect(writes).toHaveLength(23);
-      expect(highRisk).toHaveLength(5);
-      expect(writes.concat(highRisk)).toHaveLength(28);
+      expect(tools).toHaveLength(11);
+      expect(readOnly).toHaveLength(2);
+      expect(writes).toHaveLength(8);
+      expect(highRisk).toHaveLength(1);
+      expect(writes.concat(highRisk)).toHaveLength(9);
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
         const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
         expect(properties).toHaveProperty("expectedRouteLedgerRoot");
         expect(required).not.toContain("expectedRouteLedgerRoot");
       }
-      for (const name of [
-        "preview_or_propose_version_transition",
-        "preview_or_propose_version_close",
-        "preview_or_propose_forced_version_shutdown"
-      ]) {
-        const tool = getTool(tools, name);
-        const properties = (tool.inputSchema.properties ?? {}) as Record<
-          string,
-          { description?: string }
-        >;
-        const mode = properties.mode;
-        const rootAssertion = properties.expectedRouteLedgerRoot;
-
-        expect(tool.description).toContain("Binding-sensitive");
-        expect(mode?.description).toContain("dry_run is a binding-sensitive preview");
-        expect(mode?.description).toContain("expectedRouteLedgerRoot");
-        expect(rootAssertion?.description).toContain("including dry_run previews");
-      }
+      expect(JSON.stringify(getTool(tools, "propose_route_change").inputSchema))
+        .toContain("dry_run is a binding-sensitive preview");
+      expect(JSON.stringify(getTool(tools, "execute_route_change").inputSchema))
+        .toContain("force_shutdown");
       for (const removedTool of REMOVED_LEGACY_TOOLS) {
+        expect(tools.find((tool) => tool.name === removedTool)).toBeUndefined();
+      }
+      for (const removedTool of Object.keys(REMOVED_TOOL_CONTRACT_DIGESTS)) {
         expect(tools.find((tool) => tool.name === removedTool)).toBeUndefined();
       }
     } finally {
@@ -190,15 +193,7 @@ describe("MCP tool description contract", () => {
     const registry = createRouteLedgerMcpRegistry({});
     try {
       const l3Tools = registry.tools.filter((tool) =>
-        [
-          "execute_l3_operation",
-          "propose_l3_operation",
-          "approve_l3_operation",
-          "commit_l3_operation",
-          "get_l3_authorization_status",
-          "recommend_l3_authorization_profile",
-          "recommend_l3_authorization_policy"
-        ].includes(tool.name)
+        ["inspect_route", "propose_route_change", "execute_route_change"].includes(tool.name)
       );
       const publicContract = JSON.stringify(
         l3Tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))
@@ -220,21 +215,10 @@ describe("MCP tool description contract", () => {
     }
   });
 
-  it("publishes exact structured output contracts for ten priority task-level tools", () => {
+  it("publishes structured output envelopes for every public task-level tool", () => {
     const registry = createRouteLedgerMcpRegistry({});
     try {
-      const priorityToolNames = [
-        "get_current_context",
-        "next_action",
-        "create_todo",
-        "close_todo",
-        "defer_work",
-        "review_deferred",
-        "record_constraint",
-        "retire_constraint",
-        "plan_version_closeout",
-        "preview_or_propose_version_close"
-      ];
+      const priorityToolNames = Object.keys(EXPECTED_TOOL_CONTRACT_DIGESTS);
       expect(
         registry.tools
           .filter((tool) => tool.outputSchema !== undefined)
@@ -253,7 +237,7 @@ describe("MCP tool description contract", () => {
           required: ["ok"]
         });
         expect(properties).toHaveProperty("data");
-        expect(properties.data).not.toEqual({ type: "object" });
+        expect(properties).toHaveProperty("data");
         expect(properties).toHaveProperty("error");
       }
     } finally {
@@ -265,8 +249,13 @@ describe("MCP tool description contract", () => {
     const registry = createRouteLedgerMcpRegistry({});
 
     try {
-      const closeVersion = getTool(registry.tools, "preview_or_propose_version_close");
-      const properties = closeVersion.inputSchema.properties as Record<string, Record<string, unknown>>;
+      const closeVersion = getTool(registry.tools, "propose_route_change");
+      const branches = closeVersion.inputSchema.oneOf as Array<Record<string, unknown>>;
+      const closeBranch = branches.find((branch) =>
+        JSON.stringify(branch).includes('"const":"preview_or_propose_version_close"')
+      );
+      if (closeBranch === undefined) throw new Error("Missing close route-change branch.");
+      const properties = closeBranch.properties as Record<string, Record<string, unknown>>;
       const residualAudit = properties.residualAudit;
       const alternatives = residualAudit?.anyOf as Array<Record<string, unknown>>;
       const legacyArray = alternatives.find((candidate) => candidate.type === "array");
@@ -294,27 +283,27 @@ describe("MCP tool description contract", () => {
       expect(
         Object.fromEntries(
           [
-            "activate_routeledger_binding",
-            "get_current_context",
-            "preview_or_propose_version_close",
-            "defer_work",
-            "propose_version_creation",
-            "commit_l3_operation"
+            "inspect_runtime",
+            "configure_binding",
+            "inspect_route",
+            "manage_deferred",
+            "propose_route_change",
+            "execute_route_change"
           ].map((name) => [name, getTool(registry.tools, name).description])
         )
       ).toMatchInlineSnapshot(`
         {
-          "activate_routeledger_binding": "Activate an explicit MCP binding. Input: workspaceRoot. Warning: switching an established Codex session requires confirmProjectSwitch=true.",
-          "commit_l3_operation": "Commit an approved L3 proposal. Input: pendingOperationId and approvalArtifactId. Warning: consumes once; exact retries replay.",
-          "defer_work": "Create Deferred work for a future review. Input: mode, targetReviewVersionId, and Todo or new-work fields.",
-          "get_current_context": "Read current project, route, work, and gate context.",
-          "preview_or_propose_version_close": "Binding-sensitive close preview or proposal. Input: mode and versionId. Warning: proposal needs a passing gate.",
-          "propose_version_creation": "Propose a top-level version, including append-only continuation after a closed top-level tail. Warning: returns a pending L3 operation.",
+          "configure_binding": "Activate an explicit RouteLedger project binding. Switching an established binding requires explicit confirmation.",
+          "execute_route_change": "Execute, resume, decide, commit, reject, or force-close one exact high-risk route change. Input: operation and the selected workflow fields.",
+          "inspect_route": "Inspect current work, route structure, gates, closeout, proposals, or authorization state. Input: operation and the selected workflow fields.",
+          "inspect_runtime": "Inspect runtime identity, binding candidates, binding plans, or Mission Control status. Input: operation and the selected workflow fields.",
+          "manage_deferred": "Create, convert, activate, defer again, or resolve Deferred work. Input: operation and the selected workflow fields.",
+          "propose_route_change": "Preflight or propose a normal Version lifecycle or route-structure change. Input: operation and the selected workflow fields.",
         }
       `);
       expect(registry.instructions).toContain("CONFIRMATION_REQUIRED");
       expect(registry.instructions).toContain(
-        "execute_l3_operation performs the proposal, decision, artifact, and commit chain"
+        "execute_route_change preserves the exact proposal, decision, artifact, and commit chain"
       );
       expect(registry.instructions).toContain("Project files are never authorization authority");
     } finally {

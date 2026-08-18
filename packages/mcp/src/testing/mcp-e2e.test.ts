@@ -105,8 +105,15 @@ describe("routeledger mcp registry", () => {
       ]);
 
       const registry = createRegistry(mcpRoot);
-      const mcpInit = await registry.invoke("init_project", {
-        name: "RouteLedger"
+      const mcpInit = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "RouteLedger",
+        contentLocale: "en",
+        firstVersion: {
+          title: "Initial Version",
+          description: "Project bootstrap version",
+          initialTodos: []
+        }
       });
       const mcpInitData = mcpInit.data as {
         project: {
@@ -118,11 +125,13 @@ describe("routeledger mcp registry", () => {
       };
       const mcpProjectId = mcpInitData.project.id;
       const mcpVersionId = mcpInitData.firstVersion!.id;
-      await registry.invoke("prepare_version", {
+      await registry.invoke("set_version_state", {
+        operation: "prepare",
         projectId: mcpProjectId,
         versionId: mcpVersionId
       });
-      const mcpProposal = await registry.invoke("propose_l3_operation", {
+      const mcpProposal = await registry.invoke("propose_route_change", {
+        operation: "propose_l3_operation",
         projectId: mcpProjectId,
         actionType: "start_version",
         targetId: mcpVersionId,
@@ -131,19 +140,22 @@ describe("routeledger mcp registry", () => {
       const mcpProposalData = mcpProposal.data as {
         id: string;
       };
-      const mcpApprove = await registry.invoke("approve_l3_operation", {
+      const mcpApprove = await registry.invoke("execute_route_change", {
+        operation: "approve_l3_operation",
         projectId: mcpProjectId,
         pendingOperationId: mcpProposalData.id
       });
       const mcpApproveData = mcpApprove.data as {
         id: string;
       };
-      await registry.invoke("commit_l3_operation", {
+      await registry.invoke("execute_route_change", {
+        operation: "commit_l3_operation",
         projectId: mcpProjectId,
         pendingOperationId: mcpProposalData.id,
         approvalArtifactId: mcpApproveData.id
       });
-      const mcpContext = await registry.invoke("get_current_context", {
+      const mcpContext = await registry.invoke("inspect_route", {
+        operation: "get_current_context",
         projectId: mcpProjectId
       });
       const mcpContextData = mcpContext.data as {
@@ -196,19 +208,18 @@ describe("routeledger mcp registry", () => {
       const tools = (response as ToolListResult).result.tools;
       const toolNames = tools.map((tool) => tool.name);
 
-      expect(tools).toHaveLength(49);
-      expect(toolNames).toContain("open_mission_control");
-      expect(toolNames).toContain("get_mission_control_status");
-      expect(toolNames).toContain("stop_mission_control");
-      expect(toolNames).toContain("get_runtime_context");
-      expect(toolNames).toContain("write_host_binding_config");
+      expect(tools).toHaveLength(11);
+      expect(toolNames).toContain("manage_mission_control");
+      expect(toolNames).toContain("inspect_runtime");
+      expect(toolNames).toContain("configure_binding");
 
       const registry = createRouteLedgerMcpRegistry({
         workspaceRoot: projectRoot,
         routeledgerRoot: projectRoot,
         runtimeProfile: "json-only"
       });
-      expect(registry.getTool("open_mission_control")).toBeDefined();
+      expect(registry.getTool("manage_mission_control")).toBeDefined();
+      expect(registry.getTool("open_mission_control")).toBeUndefined();
 
       registry.close();
       server.close();
@@ -299,8 +310,8 @@ describe("routeledger mcp registry", () => {
           id: "runtime-context",
           method: "tools/call",
           params: {
-            name: "get_runtime_context",
-            arguments: {}
+            name: "inspect_runtime",
+            arguments: { operation: "runtime" }
           }
         })}\n`
       );
