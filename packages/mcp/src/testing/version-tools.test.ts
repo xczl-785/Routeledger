@@ -19,22 +19,24 @@ describe("version tool registrations", () => {
     const mutationTools = createVersionMutationTools(dependencies);
 
     expect(workflowTools.map((tool) => tool.definition.name)).toEqual([
-      "batch_create_versions",
-      "transition_version",
-      "advance_to_version",
-      "close_version",
-      "shutdown_version"
+      "preflight_or_propose_version_batch",
+      "preview_or_propose_version_transition",
+      "propose_version_advance",
+      "preview_or_propose_version_close",
+      "preview_or_propose_forced_version_shutdown"
     ]);
     expect(mutationTools.map((tool) => tool.definition.name)).toEqual([
       "prepare_version",
       "mark_version_complete",
-      "create_version",
-      "insert_version",
-      "create_child_version",
-      "reorder_versions"
+      "propose_version_creation",
+      "propose_version_insertion",
+      "propose_child_version_creation",
+      "propose_version_reorder"
     ]);
     expect(
-      workflowTools.find((tool) => tool.definition.name === "shutdown_version")
+      workflowTools.find(
+        (tool) => tool.definition.name === "preview_or_propose_forced_version_shutdown"
+      )
         ?.definition._meta.routeledger.riskLevel
     ).toBe("high-risk");
   });
@@ -51,7 +53,9 @@ describe("version tool registrations", () => {
     const mutationTools = createVersionMutationTools(dependencies);
 
     await workflowTools
-      .find((tool) => tool.definition.name === "transition_version")!
+      .find(
+        (tool) => tool.definition.name === "preview_or_propose_version_transition"
+      )!
       .handler({ projectId: "project", versionId: "version", mode: "dry_run" });
     await mutationTools
       .find((tool) => tool.definition.name === "prepare_version")!

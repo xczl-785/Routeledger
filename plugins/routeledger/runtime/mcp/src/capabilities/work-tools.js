@@ -1,5 +1,6 @@
 import { adaptDeferWorkInput, adaptRecordConstraintInput, adaptRetireConstraintInput, adaptReviewDeferredInput } from "../input-adapter.js";
 import { defineTool } from "../registry/tool-contract.js";
+import { constraintSummaryOutputSchema, deferredSummaryOutputSchema, idempotencyOutputSchema, todoOutputSchema, todoSummaryOutputSchema, toolOutputSchema, transitionEventOutputSchema, workItemOutputSchema } from "../registry/output-schemas.js";
 const stringSchema = (description) => ({
     type: "string",
     description
@@ -11,6 +12,40 @@ const objectSchema = (properties, required = []) => ({
     ...(required.length > 0 ? { required } : {})
 });
 const withInputAdapter = (adapter, handler) => async (input) => handler(adapter(input));
+const createOrCloseTodoOutputSchema = toolOutputSchema(objectSchema({
+    todo: todoOutputSchema,
+    workItem: workItemOutputSchema,
+    events: { type: "array", items: transitionEventOutputSchema },
+    idempotency: idempotencyOutputSchema
+}, ["todo", "workItem", "events", "idempotency"]));
+const deferWorkOutputSchema = toolOutputSchema({
+    oneOf: [
+        objectSchema({
+            mode: { type: "string", const: "new" },
+            deferred: deferredSummaryOutputSchema,
+            idempotency: idempotencyOutputSchema
+        }, ["mode", "deferred", "idempotency"]),
+        objectSchema({
+            mode: { type: "string", const: "todo" },
+            todo: todoSummaryOutputSchema,
+            deferred: deferredSummaryOutputSchema,
+            idempotency: idempotencyOutputSchema
+        }, ["mode", "todo", "deferred", "idempotency"])
+    ]
+});
+const reviewDeferredOutputSchema = toolOutputSchema(objectSchema({
+    action: {
+        type: "string",
+        enum: ["activate", "defer_again", "resolve"]
+    },
+    deferred: deferredSummaryOutputSchema,
+    todo: todoSummaryOutputSchema,
+    idempotency: idempotencyOutputSchema
+}, ["action", "deferred", "idempotency"]));
+const constraintWriteOutputSchema = toolOutputSchema(objectSchema({
+    constraint: constraintSummaryOutputSchema,
+    idempotency: idempotencyOutputSchema
+}, ["constraint", "idempotency"]));
 export const createWorkTools = (dependencies) => {
     const { service, actor, appendDebugLog, summarizeTodoForAgent, summarizeDeferredForAgent, summarizeConstraintForAgent } = dependencies;
     return [
@@ -20,7 +55,12 @@ export const createWorkTools = (dependencies) => {
             title: stringSchema("Todo title."),
             description: stringSchema("Optional todo description."),
             idempotencyKey: stringSchema("Caller-stable key for persistent create_todo retry across response loss and restart.")
-        }, ["projectId", "versionId", "title", "idempotencyKey"]), { title: "Create Todo", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "versionId", "title", "idempotencyKey"]), {
+            title: "Create Todo",
+            riskLevel: "write",
+            idempotent: true,
+            outputSchema: createOrCloseTodoOutputSchema
+        }, async (input) => ({
             ok: true,
             data: await service.createTodo({
                 projectId: input.projectId,
@@ -37,7 +77,13 @@ export const createWorkTools = (dependencies) => {
             reason: stringSchema("Close reason."),
             note: stringSchema("Close note."),
             idempotencyKey: stringSchema("Caller-stable key for persistent close_todo retry.")
-        }, ["projectId", "todoId", "reason", "note", "idempotencyKey"]), { title: "Close Todo", riskLevel: "write", destructive: true }, async (input) => ({
+        }, ["projectId", "todoId", "reason", "note", "idempotencyKey"]), {
+            title: "Close Todo",
+            riskLevel: "write",
+            destructive: true,
+            idempotent: true,
+            outputSchema: createOrCloseTodoOutputSchema
+        }, async (input) => ({
             ok: true,
             data: await service.closeTodo({
                 projectId: input.projectId,
@@ -67,7 +113,12 @@ export const createWorkTools = (dependencies) => {
             note: stringSchema("Required for mode=todo. Operator note explaining the Todo transition."),
             reviewTrigger: stringSchema("Optional condition or evidence that should trigger review."),
             idempotencyKey: stringSchema("Caller-stable key for persistent defer_work retry.")
-        }, ["mode", "projectId", "targetReviewVersionId", "reason", "idempotencyKey"]), { title: "Defer Work", riskLevel: "write" }, withInputAdapter(adaptDeferWorkInput, async (input) => {
+        }, ["mode", "projectId", "targetReviewVersionId", "reason", "idempotencyKey"]), {
+            title: "Defer Work",
+            riskLevel: "write",
+            idempotent: true,
+            outputSchema: deferWorkOutputSchema
+        }, withInputAdapter(adaptDeferWorkInput, async (input) => {
             const result = input.mode === "new"
                 ? await service.deferWork({
                     mode: "new",
@@ -144,7 +195,13 @@ export const createWorkTools = (dependencies) => {
             reviewTrigger: stringSchema("Optional updated review trigger for defer_again."),
             decisionRef: stringSchema("Decision reference. Required by the service for rejected and out_of_scope outcomes."),
             idempotencyKey: stringSchema("Caller-stable key for persistent review_deferred retry.")
-        }, ["projectId", "deferredId", "action", "reason", "idempotencyKey"]), { title: "Review Deferred", riskLevel: "write", destructive: true }, withInputAdapter(adaptReviewDeferredInput, async (input) => {
+        }, ["projectId", "deferredId", "action", "reason", "idempotencyKey"]), {
+            title: "Review Deferred",
+            riskLevel: "write",
+            destructive: true,
+            idempotent: true,
+            outputSchema: reviewDeferredOutputSchema
+        }, withInputAdapter(adaptReviewDeferredInput, async (input) => {
             const result = input.action === "activate"
                 ? await service.reviewDeferred({ ...input, actor })
                 : input.action === "defer_again"
@@ -193,7 +250,12 @@ export const createWorkTools = (dependencies) => {
             },
             versionId: stringSchema("Required when scopeType=version."),
             idempotencyKey: stringSchema("Caller-stable key for persistent record_constraint retry.")
-        }, ["projectId", "rule", "rationale", "scopeType", "idempotencyKey"]), { title: "Record Constraint", riskLevel: "write" }, withInputAdapter(adaptRecordConstraintInput, async (input) => {
+        }, ["projectId", "rule", "rationale", "scopeType", "idempotencyKey"]), {
+            title: "Record Constraint",
+            riskLevel: "write",
+            idempotent: true,
+            outputSchema: constraintWriteOutputSchema
+        }, withInputAdapter(adaptRecordConstraintInput, async (input) => {
             const result = await service.recordConstraint({
                 projectId: input.projectId,
                 rule: input.rule,
@@ -230,7 +292,13 @@ export const createWorkTools = (dependencies) => {
             reason: stringSchema("Why this constraint no longer applies."),
             note: stringSchema("Operator note for the retirement audit."),
             idempotencyKey: stringSchema("Caller-stable key for persistent retire_constraint retry.")
-        }, ["projectId", "constraintId", "reason", "note", "idempotencyKey"]), { title: "Retire Constraint", riskLevel: "write", destructive: true }, withInputAdapter(adaptRetireConstraintInput, async (input) => {
+        }, ["projectId", "constraintId", "reason", "note", "idempotencyKey"]), {
+            title: "Retire Constraint",
+            riskLevel: "write",
+            destructive: true,
+            idempotent: true,
+            outputSchema: constraintWriteOutputSchema
+        }, withInputAdapter(adaptRetireConstraintInput, async (input) => {
             const result = await service.retireConstraint({ ...input, actor });
             if (!result.idempotency?.replayed)
                 await appendDebugLog("retire_constraint", {

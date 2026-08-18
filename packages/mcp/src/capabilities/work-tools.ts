@@ -22,6 +22,16 @@ import {
   type ToolRegistration,
   type ToolResponse
 } from "../registry/tool-contract.js";
+import {
+  constraintSummaryOutputSchema,
+  deferredSummaryOutputSchema,
+  idempotencyOutputSchema,
+  todoOutputSchema,
+  todoSummaryOutputSchema,
+  toolOutputSchema,
+  transitionEventOutputSchema,
+  workItemOutputSchema
+} from "../registry/output-schemas.js";
 
 type WorkService = Pick<
   RouteLedgerService,
@@ -71,6 +81,65 @@ const withInputAdapter = <TInput>(
   handler: (input: TInput) => Promise<ToolResponse>
 ): ToolHandler => async (input) => handler(adapter(input));
 
+const createOrCloseTodoOutputSchema = toolOutputSchema(
+  objectSchema(
+    {
+      todo: todoOutputSchema,
+      workItem: workItemOutputSchema,
+      events: { type: "array", items: transitionEventOutputSchema },
+      idempotency: idempotencyOutputSchema
+    },
+    ["todo", "workItem", "events", "idempotency"]
+  )
+);
+
+const deferWorkOutputSchema = toolOutputSchema({
+  oneOf: [
+    objectSchema(
+      {
+        mode: { type: "string", const: "new" },
+        deferred: deferredSummaryOutputSchema,
+        idempotency: idempotencyOutputSchema
+      },
+      ["mode", "deferred", "idempotency"]
+    ),
+    objectSchema(
+      {
+        mode: { type: "string", const: "todo" },
+        todo: todoSummaryOutputSchema,
+        deferred: deferredSummaryOutputSchema,
+        idempotency: idempotencyOutputSchema
+      },
+      ["mode", "todo", "deferred", "idempotency"]
+    )
+  ]
+});
+
+const reviewDeferredOutputSchema = toolOutputSchema(
+  objectSchema(
+    {
+      action: {
+        type: "string",
+        enum: ["activate", "defer_again", "resolve"]
+      },
+      deferred: deferredSummaryOutputSchema,
+      todo: todoSummaryOutputSchema,
+      idempotency: idempotencyOutputSchema
+    },
+    ["action", "deferred", "idempotency"]
+  )
+);
+
+const constraintWriteOutputSchema = toolOutputSchema(
+  objectSchema(
+    {
+      constraint: constraintSummaryOutputSchema,
+      idempotency: idempotencyOutputSchema
+    },
+    ["constraint", "idempotency"]
+  )
+);
+
 export const createWorkTools = (
   dependencies: WorkToolDependencies
 ): ToolRegistration[] => {
@@ -99,7 +168,12 @@ export const createWorkTools = (
         },
         ["projectId", "versionId", "title", "idempotencyKey"]
       ),
-      { title: "Create Todo", riskLevel: "write" },
+      {
+        title: "Create Todo",
+        riskLevel: "write",
+        idempotent: true,
+        outputSchema: createOrCloseTodoOutputSchema
+      },
       async (input) => ({
         ok: true,
         data: await service.createTodo({
@@ -127,7 +201,13 @@ export const createWorkTools = (
         },
         ["projectId", "todoId", "reason", "note", "idempotencyKey"]
       ),
-      { title: "Close Todo", riskLevel: "write", destructive: true },
+      {
+        title: "Close Todo",
+        riskLevel: "write",
+        destructive: true,
+        idempotent: true,
+        outputSchema: createOrCloseTodoOutputSchema
+      },
       async (input) => ({
         ok: true,
         data: await service.closeTodo({
@@ -177,7 +257,12 @@ export const createWorkTools = (
         },
         ["mode", "projectId", "targetReviewVersionId", "reason", "idempotencyKey"]
       ),
-      { title: "Defer Work", riskLevel: "write" },
+      {
+        title: "Defer Work",
+        riskLevel: "write",
+        idempotent: true,
+        outputSchema: deferWorkOutputSchema
+      },
       withInputAdapter<DeferWorkToolInput>(adaptDeferWorkInput, async (input) => {
         const result =
           input.mode === "new"
@@ -272,7 +357,13 @@ export const createWorkTools = (
         },
         ["projectId", "deferredId", "action", "reason", "idempotencyKey"]
       ),
-      { title: "Review Deferred", riskLevel: "write", destructive: true },
+      {
+        title: "Review Deferred",
+        riskLevel: "write",
+        destructive: true,
+        idempotent: true,
+        outputSchema: reviewDeferredOutputSchema
+      },
       withInputAdapter<ReviewDeferredToolInput>(adaptReviewDeferredInput, async (input) => {
         const result =
           input.action === "activate"
@@ -333,7 +424,12 @@ export const createWorkTools = (
         },
         ["projectId", "rule", "rationale", "scopeType", "idempotencyKey"]
       ),
-      { title: "Record Constraint", riskLevel: "write" },
+      {
+        title: "Record Constraint",
+        riskLevel: "write",
+        idempotent: true,
+        outputSchema: constraintWriteOutputSchema
+      },
       withInputAdapter<RecordConstraintToolInput>(adaptRecordConstraintInput, async (input) => {
         const result = await service.recordConstraint({
           projectId: input.projectId,
@@ -381,7 +477,13 @@ export const createWorkTools = (
         },
         ["projectId", "constraintId", "reason", "note", "idempotencyKey"]
       ),
-      { title: "Retire Constraint", riskLevel: "write", destructive: true },
+      {
+        title: "Retire Constraint",
+        riskLevel: "write",
+        destructive: true,
+        idempotent: true,
+        outputSchema: constraintWriteOutputSchema
+      },
       withInputAdapter<RetireConstraintToolInput>(adaptRetireConstraintInput, async (input) => {
         const result = await service.retireConstraint({ ...input, actor });
         if (!result.idempotency?.replayed) await appendDebugLog("retire_constraint", {

@@ -10,8 +10,10 @@ rules.
 1. Each MCP process has one binding. Discovery and planning tools can inspect
    candidates, but do not switch a running process to a different project.
 2. Non-read-only tools require a matching absolute `expectedRouteLedgerRoot`,
-   including `dry_run` previews for `transition_version`, `close_version`, and
-   `shutdown_version`. Those previews remain write/high-risk MCP operations:
+   including `dry_run` previews for `preview_or_propose_version_transition`,
+   `preview_or_propose_version_close`, and
+   `preview_or_propose_forced_version_shutdown`. Those previews remain
+   write/high-risk MCP operations:
    binding preflight blocks unbound, invalid, or uninitialized operations
    before they enter a write path.
 3. Current work is presented as Todo, Deferred, and Constraint. Legacy Undo
@@ -67,14 +69,14 @@ rules.
     Omitting `firstVersion` creates a valid empty route with nullable current
     and legacy-initial pointers. An explicit `firstVersion` creates the first
     current `wait` node and its `initialTodos` in the same aggregate write.
-14. On an empty route, the first approved `create_version` commit creates the
+14. On an empty route, the first approved `propose_version_creation` commit creates the
     node and assigns it as current atomically. Batch creation requires an
     explicit `setCurrentTo`. A closed top-level tail may receive an append-only
     successor through single or batch creation without reopening or replacing
     that historical node; insertion before closed history, reordering it,
     changing its parent, and adding children beneath it remain forbidden. The
     continuation records `version.successor_appended`. For ordinary forward progress from a closed
-    current Version to its ready direct successor, `advance_to_version`
+    current Version to its ready direct successor, `propose_version_advance`
     performs current-switch and start under one proposal, digest, approval
     artifact, operation ID, and aggregate save. A blocked gate returns
     structured blockers without creating a pending proposal.
@@ -83,6 +85,10 @@ rules.
     reload. A lossy adapter fails early and the new proposal is rolled back.
     Equal-timestamp Todos created by one batch retain their explicit input
     order through their creation-event sequence.
+16. Proposal-producing MCP names describe their immediate effect. The public
+    registry uses `preflight_or_propose_*`, `preview_or_propose_*`, or
+    `propose_*`; the former action-style names remain accepted as unadvertised
+    compatibility aliases. Persisted L3 `actionType` values do not change.
 
 ## Evidence
 

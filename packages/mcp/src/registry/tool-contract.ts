@@ -31,6 +31,7 @@ export interface ToolDefinition {
   title: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   annotations: ToolAnnotations;
   _meta: ToolMeta;
 }
@@ -75,6 +76,7 @@ export interface DefineToolOptions {
   idempotent?: boolean;
   recommendedApprovalMode?: RouteLedgerApprovalMode;
   visibility?: "default" | "source-only";
+  outputSchema?: Record<string, unknown>;
 }
 
 const expectedRouteLedgerRootSchema = {
@@ -197,6 +199,9 @@ export const defineTool = (
     inputSchema: withResponseLocaleInputSchema(
       withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel)
     ),
+    ...(options.outputSchema === undefined
+      ? {}
+      : { outputSchema: options.outputSchema }),
     ...createToolMetadata(options)
   },
   toolKind:

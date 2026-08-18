@@ -345,7 +345,7 @@ const createInstructions = (options: {
     "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
     "L3 route changes are proposal-based: execute_l3_operation performs the proposal, decision, artifact, and commit chain with an idempotency key; the low-level propose, approve, reject, and commit tools remain available. Project files are never authorization authority.",
     "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
-    "High-risk tools are shutdown_version, execute_l3_operation, approve_l3_operation, reject_l3_operation, and commit_l3_operation. shutdown_version is an emergency forced-close proposal path; Codex gates high-risk calls before RouteLedger issues an exact single-use capability, while generic MCP hosts require trusted authority, preauthorization, or elicitation.",
+    "High-risk tools are preview_or_propose_forced_version_shutdown, execute_l3_operation, approve_l3_operation, reject_l3_operation, and commit_l3_operation. preview_or_propose_forced_version_shutdown is an emergency forced-close preview/proposal path; Codex gates high-risk calls before RouteLedger issues an exact single-use capability, while generic MCP hosts require trusted authority, preauthorization, or elicitation.",
     `Current host profile: ${hostLabel}. Default actor: ${actorLabel}. Default approver: ${approverLabel}.`
   ].join(" ");
 };
@@ -707,9 +707,9 @@ const buildToolErrorRecovery = (
         },
         {
           type: "retry_create_version",
-          tool: "create_version",
+          tool: "propose_version_creation",
           description:
-            "Retry create_version against the current route; do not reuse a stale tail ID as the new target.",
+            "Retry propose_version_creation against the current route; do not reuse a stale tail ID as the new target.",
           toolInput: createVersionInput,
           requiredInputs: typeof title === "string" ? undefined : ["title"]
         }
@@ -1154,6 +1154,20 @@ export const createRouteLedgerMcpRegistry = (
     digestRouteLedgerRoot,
     appendDebugLog
   };
+  const legacyToolAliases = new Map<string, string>([
+    ["batch_create_versions", "preflight_or_propose_version_batch"],
+    ["transition_version", "preview_or_propose_version_transition"],
+    ["advance_to_version", "propose_version_advance"],
+    ["close_version", "preview_or_propose_version_close"],
+    ["shutdown_version", "preview_or_propose_forced_version_shutdown"],
+    ["create_version", "propose_version_creation"],
+    ["insert_version", "propose_version_insertion"],
+    ["create_child_version", "propose_child_version_creation"],
+    ["reorder_versions", "propose_version_reorder"]
+  ]);
+  const resolveToolName = (toolName: string): string =>
+    legacyToolAliases.get(toolName) ?? toolName;
+
   const tools: ToolRegistration[] = [
     defineTool(
       "get_runtime_context",
@@ -1364,16 +1378,20 @@ export const createRouteLedgerMcpRegistry = (
     runtimeProfile,
     runtimeIdentity,
     instructions,
-    getTool: (toolName) => toolDefinitions.find((tool) => tool.name === toolName),
+    getTool: (toolName) => {
+      const resolvedToolName = resolveToolName(toolName);
+      return toolDefinitions.find((tool) => tool.name === resolvedToolName);
+    },
     invoke: async (toolName, input) => {
       if (reboundRegistry !== null) {
         return reboundRegistry.invoke(toolName, input);
       }
+      const resolvedToolName = resolveToolName(toolName);
       const responseLocale = resolveResponseLocale(
         input?.responseLocale,
         options.defaultResponseLocale
       );
-      const handler = handlers.get(toolName);
+      const handler = handlers.get(resolvedToolName);
 
       if (handler === undefined) {
         return localizeToolResponse(
@@ -1385,24 +1403,27 @@ export const createRouteLedgerMcpRegistry = (
             }
           }),
           responseLocale,
-          toolName
+          resolvedToolName
         );
       }
 
       try {
         const response = await handler(input);
         const activationResponse =
-          toolName === "activate_routeledger_binding"
+          resolvedToolName === "activate_routeledger_binding"
             ? await activatePendingRebindForDirectRegistry()
             : null;
         return localizeToolResponse(
           await attachRuntimeContextToError(activationResponse ?? response),
           responseLocale,
-          toolName
+          resolvedToolName
         );
       } catch (error) {
-        const response = toToolError(error, { toolName, input: input ?? {} });
-        await appendDebugLog(toolName, {
+        const response = toToolError(error, {
+          toolName: resolvedToolName,
+          input: input ?? {}
+        });
+        await appendDebugLog(resolvedToolName, {
           type: "tool.failure",
           projectId: readStringField(input, "projectId"),
           versionId: readDebugVersionId(input),
@@ -1415,7 +1436,7 @@ export const createRouteLedgerMcpRegistry = (
         return localizeToolResponse(
           await attachRuntimeContextToError(response),
           responseLocale,
-          toolName
+          resolvedToolName
         );
       }
     },

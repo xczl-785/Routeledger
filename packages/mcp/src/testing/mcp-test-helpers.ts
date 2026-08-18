@@ -71,6 +71,11 @@ export const WRITE_TOOL_NAMES = new Set([
   "write_host_binding_config",
   "init_project",
   "set_project_content_locale",
+  "preflight_or_propose_version_batch",
+  "preview_or_propose_version_transition",
+  "propose_version_advance",
+  "preview_or_propose_version_close",
+  "preview_or_propose_forced_version_shutdown",
   "batch_create_versions",
   "transition_version",
   "advance_to_version",
@@ -89,6 +94,10 @@ export const WRITE_TOOL_NAMES = new Set([
   "close_undo",
   "prepare_version",
   "mark_version_complete",
+  "propose_version_creation",
+  "propose_version_insertion",
+  "propose_child_version_creation",
+  "propose_version_reorder",
   "create_version",
   "insert_version",
   "create_child_version",
@@ -578,12 +587,24 @@ export const expectRouteLedgerRootGuardError = (
   projectRoot: string,
   toolName: string
 ): void => {
+  const reportedToolName =
+    {
+      batch_create_versions: "preflight_or_propose_version_batch",
+      transition_version: "preview_or_propose_version_transition",
+      advance_to_version: "propose_version_advance",
+      close_version: "preview_or_propose_version_close",
+      shutdown_version: "preview_or_propose_forced_version_shutdown",
+      create_version: "propose_version_creation",
+      insert_version: "propose_version_insertion",
+      create_child_version: "propose_child_version_creation",
+      reorder_versions: "propose_version_reorder"
+    }[toolName] ?? toolName;
   expect(response).toMatchObject({
     ok: false,
     error: {
       code,
       details: {
-        toolName,
+        toolName: reportedToolName,
         binding: {
           routeledgerRoot: projectRoot
         }

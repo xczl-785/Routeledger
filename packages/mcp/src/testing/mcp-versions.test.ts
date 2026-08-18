@@ -2562,7 +2562,7 @@ describe("routeledger mcp registry", () => {
       });
 
       const closeVersionSchema = registry.tools.find(
-        (tool) => tool.name === "close_version"
+        (tool) => tool.name === "preview_or_propose_version_close"
       )!.inputSchema;
       expect(JSON.stringify(closeVersionSchema)).not.toContain("create_undo");
       expect(JSON.stringify(closeVersionSchema)).not.toContain("preferredResolutionVersionId");

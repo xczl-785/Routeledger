@@ -760,7 +760,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "close-from-version",
           status: "blocked",
-          recommendedTool: "close_version",
+          recommendedTool: "preview_or_propose_version_close",
           createsL3Proposal: true
         })
       ])
@@ -822,7 +822,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "start-current-version",
           status: "ready",
-          recommendedTool: "transition_version",
+          recommendedTool: "preview_or_propose_version_transition",
           actionType: "start_version"
         })
       ])
@@ -871,7 +871,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "close-current-version",
           status: "ready",
-          recommendedTool: "close_version",
+          recommendedTool: "preview_or_propose_version_close",
           actionType: "close_version"
         })
       ])
@@ -1062,7 +1062,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "transition-to-target",
           status: "blocked",
-          recommendedTool: "advance_to_version"
+          recommendedTool: "propose_version_advance"
         })
       ])
     );
@@ -1211,7 +1211,7 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "transition-to-target",
           actionType: "set_current_version",
-          recommendedTool: "transition_version"
+          recommendedTool: "preview_or_propose_version_transition"
         })
       ])
     );

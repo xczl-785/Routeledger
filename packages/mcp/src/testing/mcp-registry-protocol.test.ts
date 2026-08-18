@@ -133,24 +133,39 @@ describe("routeledger mcp registry", () => {
       const getVersionTransitionGuideTool = tools.find(
         (tool) => tool.name === "get_version_transition_guide"
       );
-      const transitionVersionTool = tools.find((tool) => tool.name === "transition_version");
-      const closeVersionTool = tools.find((tool) => tool.name === "close_version");
-      const shutdownVersionTool = tools.find((tool) => tool.name === "shutdown_version");
+      const transitionVersionTool = tools.find(
+        (tool) => tool.name === "preview_or_propose_version_transition"
+      );
+      const closeVersionTool = tools.find(
+        (tool) => tool.name === "preview_or_propose_version_close"
+      );
+      const shutdownVersionTool = tools.find(
+        (tool) => tool.name === "preview_or_propose_forced_version_shutdown"
+      );
       const carryForwardUndoTool = tools.find((tool) => tool.name === "carry_forward_undo");
       const approveTool = tools.find((tool) => tool.name === "approve_l3_operation");
       const rejectTool = tools.find((tool) => tool.name === "reject_l3_operation");
       const commitTool = tools.find((tool) => tool.name === "commit_l3_operation");
-      const createVersionTool = tools.find((tool) => tool.name === "create_version");
-      const insertVersionTool = tools.find((tool) => tool.name === "insert_version");
-      const createChildVersionTool = tools.find((tool) => tool.name === "create_child_version");
-      const reorderVersionsTool = tools.find((tool) => tool.name === "reorder_versions");
+      const createVersionTool = tools.find(
+        (tool) => tool.name === "propose_version_creation"
+      );
+      const insertVersionTool = tools.find(
+        (tool) => tool.name === "propose_version_insertion"
+      );
+      const createChildVersionTool = tools.find(
+        (tool) => tool.name === "propose_child_version_creation"
+      );
+      const reorderVersionsTool = tools.find(
+        (tool) => tool.name === "propose_version_reorder"
+      );
 
       expect(runtimeContextTool?.annotations.readOnlyHint).toBe(true);
       expect(runtimeContextTool?.annotations.idempotentHint).toBe(true);
       expect(runtimeContextTool?._meta.routeledger.riskLevel).toBe("read-only");
       expect(runtimeContextTool?._meta.routeledger.recommendedApprovalMode).toBe("auto");
-      expect(openMissionControlTool?.annotations.readOnlyHint).toBe(true);
-      expect(openMissionControlTool?._meta.routeledger.riskLevel).toBe("read-only");
+      expect(openMissionControlTool?.annotations.readOnlyHint).toBe(false);
+      expect(openMissionControlTool?.annotations.idempotentHint).toBe(false);
+      expect(openMissionControlTool?._meta.routeledger.riskLevel).toBe("write");
       expect(openMissionControlTool?.inputSchema.properties).toMatchObject({
         workspaceRoot: expect.objectContaining({ type: "string" }),
         routeledgerRoot: expect.objectContaining({ type: "string" }),
@@ -162,8 +177,9 @@ describe("routeledger mcp registry", () => {
         workspaceRoot: expect.objectContaining({ type: "string" }),
         routeledgerRoot: expect.objectContaining({ type: "string" })
       });
-      expect(stopMissionControlTool?.annotations.readOnlyHint).toBe(true);
-      expect(stopMissionControlTool?._meta.routeledger.riskLevel).toBe("read-only");
+      expect(stopMissionControlTool?.annotations.readOnlyHint).toBe(false);
+      expect(stopMissionControlTool?.annotations.idempotentHint).toBe(true);
+      expect(stopMissionControlTool?._meta.routeledger.riskLevel).toBe("write");
       expect(contextTool?.annotations.readOnlyHint).toBe(true);
       expect(contextTool?.annotations.idempotentHint).toBe(true);
       expect(writeHostBindingConfigTool?.annotations.readOnlyHint).toBe(false);
@@ -176,7 +192,7 @@ describe("routeledger mcp registry", () => {
         outputPath: expect.objectContaining({ type: "string" }),
         expectedRouteLedgerRoot: expect.objectContaining({ type: "string" })
       });
-      expect(writeTools).toHaveLength(21);
+      expect(writeTools).toHaveLength(23);
       expect(highRiskTools).toHaveLength(5);
       for (const tool of [...writeTools, ...highRiskTools]) {
         expect(tool.inputSchema.properties).toHaveProperty("expectedRouteLedgerRoot");
@@ -237,6 +253,7 @@ describe("routeledger mcp registry", () => {
         recommendedApprovalMode: "prompt"
       });
       expect(commitTool?.annotations.destructiveHint).toBe(true);
+      expect(commitTool?.annotations.idempotentHint).toBe(true);
       expect(commitTool?._meta.routeledger).toMatchObject({
         destructive: true,
         recommendedApprovalMode: "approve"
@@ -245,6 +262,36 @@ describe("routeledger mcp registry", () => {
       expect(insertVersionTool?._meta.routeledger.riskLevel).toBe("write");
       expect(createChildVersionTool?._meta.routeledger.riskLevel).toBe("write");
       expect(reorderVersionsTool?._meta.routeledger.riskLevel).toBe("write");
+      expect(
+        tools
+          .filter((tool) => tool.annotations.destructiveHint)
+          .map((tool) => tool.name)
+          .sort()
+      ).toEqual(
+        [
+          "close_todo",
+          "commit_l3_operation",
+          "execute_l3_operation",
+          "mark_version_complete",
+          "prepare_version",
+          "retire_constraint",
+          "review_deferred"
+        ].sort()
+      );
+
+      for (const legacyName of [
+        "batch_create_versions",
+        "transition_version",
+        "advance_to_version",
+        "close_version",
+        "shutdown_version",
+        "create_version",
+        "insert_version",
+        "create_child_version",
+        "reorder_versions"
+      ]) {
+        expect(tools.find((tool) => tool.name === legacyName)).toBeUndefined();
+      }
 
       server.close();
     } finally {

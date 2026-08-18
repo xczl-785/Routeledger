@@ -244,7 +244,7 @@ export const createMissionControlTools = <TBinding>(
     }),
     {
       title: "Open Mission Control",
-      riskLevel: "read-only",
+      riskLevel: "write",
       toolKind: "diagnostic",
       visibility: "default"
     },
@@ -313,7 +313,8 @@ export const createMissionControlTools = <TBinding>(
     objectSchema({}),
     {
       title: "Stop Mission Control",
-      riskLevel: "read-only",
+      riskLevel: "write",
+      idempotent: true,
       toolKind: "diagnostic",
       visibility: "default"
     },

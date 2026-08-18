@@ -21,16 +21,16 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   activate_routeledger_binding: "a611c1cab06c442358e39f042afcf95c6b724c99e0d63bf1557110b6630af5a4",
   render_host_binding_config: "0416054f0f4f0f4d76258b293be5c0c52d7fc7f9efc266ad55c22bce00fc72d9",
   write_host_binding_config: "b18fb6267a005ac2419708e0e9cc6678a08bc554183775f3132d96fc5b207d0c",
-  open_mission_control: "7417f9b7283f5212afa3aadf335e03ded414f9ab26d76e508209167f21212f01",
+  open_mission_control: "0d32fcc71bd108c6f392f8a781f37fd85a7082a75a25879be89f845a06bfe45c",
   get_mission_control_status: "2492089957b2e36211d64a6b36e3041ec2f86b32633fc978a11a406bde526632",
-  stop_mission_control: "dd2463e3515783427e8a8f97a9f73a7a7409e3eca556c12096bdd208c41be974",
+  stop_mission_control: "794d4d35be4f394b2f200a0dc3607763e6b9e30f5740fd308f0abf785db7fa3f",
   init_project: "7e38acb9d746569b0fc140911488b150f8014922ef759d9e82549fdbfea487e3",
   set_project_content_locale: "779bb39842ff4de414d9610107aef073a8bd05aab5692b2bc5e18ab50ef1654c",
-  get_current_context: "237d3945f6093cf1a95b18c37b49619b0958b303b01b212a96f0dba6d01f356b",
-  next_action: "a274cd6c3ce7d73ccd5f79502d7b008198461a5f44b0dce671d33d69a280b6ec",
+  get_current_context: "0d3d66dc13ca3810f34a18d873a0e5caa5e42fce4e663edff93dcc586689d83d",
+  next_action: "cdbead82aa238790ede0af23b6f7665e119fbabcba159a116ef55f1348812abe",
   check_doc_drift: "7675168031f1c3d3b1842ce9963c076a8d91c26c324af0e8d360136b31486add",
   summarize_version_closeout: "66ec9c27dce60e1c53e16f8dbea8b45013b0e79ee74cb359bd29ee4480e657c4",
-  plan_version_closeout: "08bf4d1b2980c928bbf05c6d573263b30e0da0be711b0f8a97c5525e4de2d16c",
+  plan_version_closeout: "22b55767b5b2bfd4d359b274d772cfbaf4d5697bc835a5cf7ba1ec6c127b7a3f",
   list_versions_window: "c40ea761829df3828b19e2a0fbfd6762890b4430a61c952add2ef8fcc814fe47",
   list_versions: "480db027872daaa23e514025f6de89f52ab5b7e4ceedda85a82d9746288785d9",
   check_start_gate: "a9542c5ef093c5388343fc7b93aa73a0a0cdb6c19336019612063e6fc1f59596",
@@ -40,27 +40,27 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   recommend_l3_authorization_policy: "29d6aa2d56650582026660cf00531373ad6faa3596b65d3630d8d92ce72f1c9f",
   list_l3_proposals: "166213f9bbec88e1a35ce92b5376c93170370af0d67388847e3f5d79e4b8838d",
   get_l3_proposal: "a0aedcb4c5e004650c9f4be127292aa3310e752de41a48151f8a2713e93b5434",
-  batch_create_versions: "5fee13a0fe31a90a51af668ef9cbe5761b54613e113c2a730e26f27c839b0b28",
-  transition_version: "3f043ea5340c8a8be716d468a5a455d49d8182165af61d6e620fd39f65309d18",
-  advance_to_version: "e1452462673afd76fbbb58c3bff562a245c1ef343cd25fad56754cba2930b947",
-  close_version: "f20a5ecdc38118df5b5cc4c201fee6cb139b7fa4f50a1b2eb3a2b0fdfbf56e8e",
-  shutdown_version: "d94d76b1a65dc9a4790ba42400713ef58e55b3efdcacf813d9c710f69bb55c47",
-  create_todo: "6cead40a1b4e59159cf7765224bd1d991d67b770450a1dd1974e99e2bf38ae0e",
-  close_todo: "322e05f82d2bead1965125646fa9af89877f28fffc6a85dcb90ee88811fc48b9",
-  defer_work: "f1b234cccb02eaa3b50110a975ca741314088760ec4f377e192c4182c3f8de6a",
-  review_deferred: "889d7329f5d6679e9f49a24ce0a91f0f3e5d007c5f654bd85e67015e382626a5",
-  record_constraint: "06a23f77f10e87f1ef2f8a9041bff23b982444f1006b214be225b5fb28584868",
-  retire_constraint: "ee3cbd916666af637c4cb454706c6690cea8ae78b490c366a1b68f2bf2b23d2d",
+  preflight_or_propose_version_batch: "e5014f724d092d503cf561a9539ae7dfd3fc759b58ad9cbe1550dae167a54a84",
+  preview_or_propose_version_transition: "d72e22ef1d2a3aff66c709f2a94c21e2fcdfb38ebeeec5ae9237106f1857a2f6",
+  propose_version_advance: "90a5193920bd06ce91113acad2a8d6d32ee355f95b100181899bbddb0ef988b2",
+  preview_or_propose_version_close: "0dcbce1e698a7e2add1fa14382cddf3ba81c832fa3110980f0653dc09b187c33",
+  preview_or_propose_forced_version_shutdown: "8c9fd3ac0cc76f8734a71a48eeaba8089be3e526aeb81b2b6521d48519bb76d0",
+  create_todo: "312cecf5f3e5a7a82d75386dd5f6ec2a47d97244d7462b569ca1833ee56fcca7",
+  close_todo: "c9897b4ff3152e9c9809ef43d7a040cf4260da679f3c2cbd86895eb8948cf150",
+  defer_work: "3b1a5ed35a696c8efe0917c3c4f3d77572831d9325c283fc8a42497ae3b8beb8",
+  review_deferred: "17155553bca9f57695dd1d61c5781abef4eff393dc365f110e37f613e542ec52",
+  record_constraint: "f7ec201d21b039a840633eb29cc4430dafd725654913a88eff3409cbb9f82598",
+  retire_constraint: "29cf7c05560330ae6251ed00120418ec170a71b6a23a0f51ca029b790ae46001",
   prepare_version: "0f9d1e7ab1dc22349ed9f7b0bf028e9dbb39f74e0c1f9c341ef6cd2e518bbb57",
   mark_version_complete: "b06f40659efb3cc29f0ece168e1a805910475bf83cf99c74820a0435b6c07632",
-  create_version: "9451200f504914cec1397a994d52d10ce33db133111c3c25166cf91aa240abfc",
-  insert_version: "98dfca2d5ce1fafb3b1ccb07cfb4be52a9353498a638f0aac37e3a46315068a9",
-  create_child_version: "ef3794112ceea8ef6bf7ebf3823ccff5486d707ccb0840d637497fcadaad4eac",
-  reorder_versions: "b4658ec764e4a65aa90f464742d8599010923080e1c3b309474762bad5f4daec",
+  propose_version_creation: "6b5692f75359615e71f336828bbf13f4ebe7bba16f2b70ef2b8c03c16698ff17",
+  propose_version_insertion: "26504c21d63320945789d98734aca9434ead884afa5104047ca95619ca5f69fc",
+  propose_child_version_creation: "343b24372a8d420710548679f93c86c409f9264b1da147c632c66494fc292868",
+  propose_version_reorder: "a0f6cdd139d66455dfc00ab27235f297519e7c746ae444e75ec0be57c2896e83",
   propose_l3_operation: "539422107c5281075c037aee09d5eba5ee93612d8da05c8d1cb333a24288e540",
   execute_l3_operation: "a39420cc1d8c96860b013e5d9dda04f4d5ee681ba940d125b9170d9dd37db81f",
   approve_l3_operation: "83adb2fb39b423d2ddc6dd08c60bb45abca119773228381e64ac6df75b12648a",
-  commit_l3_operation: "fcbb42557fb8ea8812012b2c8e6a3fa71e687bcbbe62aa61b75567ea1f782244",
+  commit_l3_operation: "53e4496ff3e58162f002d8407e0639293938f6cdabee2a067cbc42ddd36e03c0",
   reject_l3_operation: "9d4a51cb4510c7a41a13159216f0d8d75004f616c9652bcd82e7c87ffe0bcdfc"
 } as const;
 
@@ -122,17 +122,21 @@ describe("MCP tool description contract", () => {
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
       expect(tools).toHaveLength(49);
-      expect(readOnly).toHaveLength(23);
-      expect(writes).toHaveLength(21);
+      expect(readOnly).toHaveLength(21);
+      expect(writes).toHaveLength(23);
       expect(highRisk).toHaveLength(5);
-      expect(writes.concat(highRisk)).toHaveLength(26);
+      expect(writes.concat(highRisk)).toHaveLength(28);
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
         const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
         expect(properties).toHaveProperty("expectedRouteLedgerRoot");
         expect(required).not.toContain("expectedRouteLedgerRoot");
       }
-      for (const name of ["transition_version", "close_version", "shutdown_version"]) {
+      for (const name of [
+        "preview_or_propose_version_transition",
+        "preview_or_propose_version_close",
+        "preview_or_propose_forced_version_shutdown"
+      ]) {
         const tool = getTool(tools, name);
         const properties = (tool.inputSchema.properties ?? {}) as Record<
           string,
@@ -216,11 +220,52 @@ describe("MCP tool description contract", () => {
     }
   });
 
+  it("publishes exact structured output contracts for ten priority task-level tools", () => {
+    const registry = createRouteLedgerMcpRegistry({});
+    try {
+      const priorityToolNames = [
+        "get_current_context",
+        "next_action",
+        "create_todo",
+        "close_todo",
+        "defer_work",
+        "review_deferred",
+        "record_constraint",
+        "retire_constraint",
+        "plan_version_closeout",
+        "preview_or_propose_version_close"
+      ];
+      expect(
+        registry.tools
+          .filter((tool) => tool.outputSchema !== undefined)
+          .map((tool) => tool.name)
+          .sort()
+      ).toEqual(priorityToolNames.slice().sort());
+      for (const name of priorityToolNames) {
+        const outputSchema = getTool(registry.tools, name).outputSchema as Record<
+          string,
+          unknown
+        >;
+        const properties = outputSchema.properties as Record<string, unknown>;
+        expect(outputSchema).toMatchObject({
+          type: "object",
+          additionalProperties: false,
+          required: ["ok"]
+        });
+        expect(properties).toHaveProperty("data");
+        expect(properties.data).not.toEqual({ type: "object" });
+        expect(properties).toHaveProperty("error");
+      }
+    } finally {
+      registry.close();
+    }
+  });
+
   it("keeps close residual-audit schemas free of the removed legacy create_undo routing", () => {
     const registry = createRouteLedgerMcpRegistry({});
 
     try {
-      const closeVersion = getTool(registry.tools, "close_version");
+      const closeVersion = getTool(registry.tools, "preview_or_propose_version_close");
       const properties = closeVersion.inputSchema.properties as Record<string, Record<string, unknown>>;
       const residualAudit = properties.residualAudit;
       const alternatives = residualAudit?.anyOf as Array<Record<string, unknown>>;
@@ -251,20 +296,20 @@ describe("MCP tool description contract", () => {
           [
             "activate_routeledger_binding",
             "get_current_context",
-            "close_version",
+            "preview_or_propose_version_close",
             "defer_work",
-            "create_version",
+            "propose_version_creation",
             "commit_l3_operation"
           ].map((name) => [name, getTool(registry.tools, name).description])
         )
       ).toMatchInlineSnapshot(`
         {
           "activate_routeledger_binding": "Activate an explicit MCP binding. Input: workspaceRoot. Warning: switching an established Codex session requires confirmProjectSwitch=true.",
-          "close_version": "Binding-sensitive close preview or proposal. Input: mode and versionId. Warning: proposal needs a passing gate.",
           "commit_l3_operation": "Commit an approved L3 proposal. Input: pendingOperationId and approvalArtifactId. Warning: consumes once; exact retries replay.",
-          "create_version": "Propose a top-level version, including append-only continuation after a closed top-level tail. Warning: returns a pending L3 operation.",
           "defer_work": "Create Deferred work for a future review. Input: mode, targetReviewVersionId, and Todo or new-work fields.",
           "get_current_context": "Read current project, route, work, and gate context.",
+          "preview_or_propose_version_close": "Binding-sensitive close preview or proposal. Input: mode and versionId. Warning: proposal needs a passing gate.",
+          "propose_version_creation": "Propose a top-level version, including append-only continuation after a closed top-level tail. Warning: returns a pending L3 operation.",
         }
       `);
       expect(registry.instructions).toContain("CONFIRMATION_REQUIRED");

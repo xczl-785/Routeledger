@@ -40,6 +40,18 @@ const validateValueAgainstSchema = (schema, value, path = []) => {
         }
         return issues;
     }
+    const oneOf = schema.oneOf;
+    if (Array.isArray(oneOf)) {
+        const oneOfSchemas = oneOf.filter(isObject);
+        const matchCount = oneOfSchemas.filter((candidateSchema) => validateValueAgainstSchema(candidateSchema, value, path).length === 0).length;
+        if (matchCount !== 1) {
+            issues.push({
+                path: formatPath(path),
+                message: `Value must match exactly one allowed schema; matched ${matchCount}.`
+            });
+        }
+        return issues;
+    }
     const expectedType = schema.type;
     if (typeof expectedType === "string") {
         switch (expectedType) {
@@ -111,6 +123,12 @@ const validateValueAgainstSchema = (schema, value, path = []) => {
             message: `Expected one of ${schema.enum.map(String).join(", ")}.`
         });
     }
+    if ("const" in schema && !Object.is(schema.const, value)) {
+        issues.push({
+            path: formatPath(path),
+            message: `Expected constant value ${String(schema.const)}.`
+        });
+    }
     if (schema.type === "object" && isObject(value)) {
         const properties = isObject(schema.properties) ? schema.properties : {};
         const required = Array.isArray(schema.required)
@@ -174,6 +192,27 @@ const validateToolInput = (toolDefinition, input) => {
         error: {
             code: "INVALID_TOOL_INPUT",
             message: firstIssue?.message ?? "Invalid tool input.",
+            details: {
+                path: firstIssue?.path ?? "$",
+                issues
+            }
+        }
+    };
+};
+export const validateToolOutput = (toolDefinition, output) => {
+    if (toolDefinition.outputSchema === undefined) {
+        return null;
+    }
+    const issues = validateValueAgainstSchema(toolDefinition.outputSchema, output);
+    if (issues.length === 0) {
+        return null;
+    }
+    const [firstIssue] = issues;
+    return {
+        ok: false,
+        error: {
+            code: "INVALID_TOOL_OUTPUT",
+            message: "Tool output did not match its published outputSchema.",
             details: {
                 path: firstIssue?.path ?? "$",
                 issues
@@ -1000,7 +1039,8 @@ export const createRouteLedgerStdioServer = (options) => {
                                 }
                             });
                         }
-                        const callResult = toCallToolResult(activeRegistry, toolCall.name, effectiveToolResponse);
+                        const outputValidationError = validateToolOutput(toolDefinition, effectiveToolResponse);
+                        const callResult = toCallToolResult(activeRegistry, toolCall.name, outputValidationError ?? effectiveToolResponse);
                         return successResponse(request.id, is2026Request
                             ? to2026Result(activeRegistry, callResult)
                             : callResult);

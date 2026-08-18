@@ -109,7 +109,7 @@ describe("MCP business error recovery", () => {
             expect.objectContaining({ type: "inspect_version_structure", tool: "get_version_structure" }),
             expect.objectContaining({
               type: "retry_create_version",
-              tool: "create_version",
+              tool: "propose_version_creation",
               toolInput: { projectId: "project-1" },
               requiredInputs: ["title"]
             })

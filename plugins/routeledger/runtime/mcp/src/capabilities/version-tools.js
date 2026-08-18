@@ -1,5 +1,6 @@
 import { ApplicationError, BATCH_CREATE_VERSIONS_MODES, BATCH_PREVIOUS_CURRENT_POLICIES, ROUTE_OPERATION_WORKFLOW_MODES, isBatchCreateVersionsMode, isBatchPreviousCurrentPolicy, isRouteOperationWorkflowMode } from "../../../core/src/index.js";
 import { residualAuditInputSchema } from "../registry/route-input-schemas.js";
+import { toolOutputSchema } from "../registry/output-schemas.js";
 import { defineTool } from "../registry/tool-contract.js";
 const stringSchema = (description) => ({
     type: "string",
@@ -15,6 +16,41 @@ const objectSchema = (properties, required = []) => ({
     additionalProperties: false,
     ...(required.length > 0 ? { required } : {})
 });
+const stringArrayOutputSchema = { type: "array", items: { type: "string" } };
+const gateBlockerOutputSchema = objectSchema({
+    code: { type: "string" },
+    message: { type: "string" },
+    recordIds: stringArrayOutputSchema
+}, ["code", "message", "recordIds"]);
+const operationDigestOutputSchema = objectSchema({
+    algorithm: { type: "string", const: "sha256" },
+    value: { type: "string" },
+    payload: { type: "object", additionalProperties: true }
+}, ["algorithm", "value", "payload"]);
+const previewOrProposeCloseOutputSchema = toolOutputSchema(objectSchema({
+    mode: { type: "string", enum: ["dry_run", "propose"] },
+    status: { type: "string", enum: ["ready", "blocked"] },
+    projectId: { type: "string" },
+    versionId: { type: "string" },
+    blockers: { type: "array", items: gateBlockerOutputSchema },
+    unresolvedTodoIds: stringArrayOutputSchema,
+    unresolvedUndoIds: stringArrayOutputSchema,
+    unresolvedDeferredIds: stringArrayOutputSchema,
+    blockedConstraintIds: stringArrayOutputSchema,
+    pendingOperationId: { type: "string" },
+    operationDigest: operationDigestOutputSchema,
+    humanReviewText: { type: "string" }
+}, [
+    "mode",
+    "status",
+    "projectId",
+    "versionId",
+    "blockers",
+    "unresolvedTodoIds",
+    "unresolvedUndoIds",
+    "unresolvedDeferredIds",
+    "blockedConstraintIds"
+]));
 const batchCreateVersionsAnchorSchema = objectSchema({
     parentVersionId: {
         anyOf: [
@@ -81,7 +117,7 @@ const parseRouteOperationWorkflowMode = (value) => {
 export const createVersionWorkflowTools = (dependencies) => {
     const { service, actor, appendDebugLog } = dependencies;
     return [
-        defineTool("batch_create_versions", {
+        defineTool("preflight_or_propose_version_batch", {
             what: "Preflight or propose an atomic version batch, including append-only continuation after a closed top-level tail.",
             parameter: "mode and versions"
         }, objectSchema({
@@ -105,7 +141,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                 description: "How to treat the previous current version if setCurrentTo is provided."
             },
             reason: stringSchema("Optional proposal reason override.")
-        }, ["projectId", "mode", "items"]), { title: "Batch Create Versions", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "mode", "items"]), { title: "Preflight or Propose Version Batch", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.batchCreateVersions({
                 projectId: input.projectId,
@@ -119,7 +155,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("transition_version", {
+        defineTool("preview_or_propose_version_transition", {
             what: "Binding-sensitive transition preview or proposal.",
             parameter: "mode and targetVersionId"
         }, objectSchema({
@@ -131,7 +167,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                 description: "dry_run is a binding-sensitive preview and still requires expectedRouteLedgerRoot; propose creates exactly one next-step proposal when actionable."
             },
             reason: stringSchema("Optional proposal reason override.")
-        }, ["projectId", "versionId"]), { title: "Transition Version", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "versionId"]), { title: "Preview or Propose Version Transition", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.transitionVersion({
                 projectId: input.projectId,
@@ -141,7 +177,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("advance_to_version", {
+        defineTool("propose_version_advance", {
             what: "Atomically switch to and start the ready next Version.",
             warning: "Blocked gates return without writing; passing gates create one L3 proposal."
         }, objectSchema({
@@ -149,7 +185,7 @@ export const createVersionWorkflowTools = (dependencies) => {
             versionId: stringSchema("Ready target Version ID."),
             fromVersionId: stringSchema("Optional expected closed current Version ID."),
             reason: stringSchema("Optional proposal reason override.")
-        }, ["projectId", "versionId"]), { title: "Advance To Version", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "versionId"]), { title: "Propose Version Advance", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.advanceToVersion({
                 projectId: input.projectId,
@@ -159,7 +195,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("close_version", {
+        defineTool("preview_or_propose_version_close", {
             what: "Binding-sensitive close preview or proposal.",
             parameter: "mode and versionId",
             warning: "proposal needs a passing gate"
@@ -176,7 +212,11 @@ export const createVersionWorkflowTools = (dependencies) => {
                 description: "Residual audit items used for close preflight and, when allowed, the proposal payload."
             },
             reason: stringSchema("Optional proposal reason override.")
-        }, ["projectId", "versionId"]), { title: "Close Version", riskLevel: "write" }, async (input) => {
+        }, ["projectId", "versionId"]), {
+            title: "Preview or Propose Version Close",
+            riskLevel: "write",
+            outputSchema: previewOrProposeCloseOutputSchema
+        }, async (input) => {
             const result = await service.closeVersionWorkflow({
                 projectId: input.projectId,
                 versionId: input.versionId,
@@ -199,7 +239,7 @@ export const createVersionWorkflowTools = (dependencies) => {
             });
             return { ok: true, data: result };
         }),
-        defineTool("shutdown_version", {
+        defineTool("preview_or_propose_forced_version_shutdown", {
             what: "Binding-sensitive forced-close preview or proposal.",
             parameter: "mode and versionId",
             warning: "bypasses ordinary blockers"
@@ -213,7 +253,10 @@ export const createVersionWorkflowTools = (dependencies) => {
             },
             shutdownReason: stringSchema("Required shutdown reason suffix. RouteLedger stores it as version.stateReason with a shutdown: prefix."),
             reason: stringSchema("Optional proposal reason override shown in audit/review surfaces.")
-        }, ["projectId", "versionId", "shutdownReason"]), { title: "Shutdown Version", riskLevel: "high-risk" }, async (input) => {
+        }, ["projectId", "versionId", "shutdownReason"]), {
+            title: "Preview or Propose Forced Version Shutdown",
+            riskLevel: "high-risk"
+        }, async (input) => {
             const result = await service.shutdownVersionWorkflow({
                 projectId: input.projectId,
                 versionId: input.versionId,
@@ -269,14 +312,14 @@ export const createVersionMutationTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("create_version", {
+        defineTool("propose_version_creation", {
             what: "Propose a top-level version, including append-only continuation after a closed top-level tail.",
             warning: "returns a pending L3 operation"
         }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             title: stringSchema("Version title."),
             description: stringSchema("Optional version description.")
-        }, ["projectId", "title"]), { title: "Create Version", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "title"]), { title: "Propose Version Creation", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.createVersion({
                 projectId: input.projectId,
@@ -285,7 +328,7 @@ export const createVersionMutationTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("insert_version", {
+        defineTool("propose_version_insertion", {
             what: "Propose a sibling version insertion.",
             parameter: "sibling anchor"
         }, objectSchema({
@@ -294,7 +337,7 @@ export const createVersionMutationTools = (dependencies) => {
             description: stringSchema("Optional version description."),
             afterVersionId: stringSchema("Insert after this sibling version ID."),
             beforeVersionId: stringSchema("Insert before this sibling version ID.")
-        }, ["projectId", "title"]), { title: "Insert Version", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "title"]), { title: "Propose Version Insertion", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.insertVersion({
                 projectId: input.projectId,
@@ -305,7 +348,7 @@ export const createVersionMutationTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("create_child_version", {
+        defineTool("propose_child_version_creation", {
             what: "Propose a child version.",
             parameter: "parentVersionId and child anchor"
         }, objectSchema({
@@ -315,7 +358,7 @@ export const createVersionMutationTools = (dependencies) => {
             description: stringSchema("Optional version description."),
             afterVersionId: stringSchema("Insert after this child version ID."),
             beforeVersionId: stringSchema("Insert before this child version ID.")
-        }, ["projectId", "parentVersionId", "title"]), { title: "Create Child Version", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "parentVersionId", "title"]), { title: "Propose Child Version Creation", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.createChildVersion({
                 projectId: input.projectId,
@@ -327,7 +370,7 @@ export const createVersionMutationTools = (dependencies) => {
                 actor
             })
         })),
-        defineTool("reorder_versions", {
+        defineTool("propose_version_reorder", {
             what: "Propose a version reorder within its parent.",
             parameter: "sibling anchor"
         }, objectSchema({
@@ -335,7 +378,7 @@ export const createVersionMutationTools = (dependencies) => {
             versionId: stringSchema("Version ID to move."),
             afterVersionId: stringSchema("Move after this sibling version ID."),
             beforeVersionId: stringSchema("Move before this sibling version ID.")
-        }, ["projectId", "versionId"]), { title: "Reorder Versions", riskLevel: "write" }, async (input) => ({
+        }, ["projectId", "versionId"]), { title: "Propose Version Reorder", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.reorderVersions({
                 projectId: input.projectId,

@@ -618,12 +618,12 @@ const buildVersionTransitionGuide = (snapshot, input) => {
                     stepId: "start-current-version",
                     label: "Start current version",
                     status: startStatus,
-                    recommendedTool: "transition_version",
+                    recommendedTool: "preview_or_propose_version_transition",
                     createsL3Proposal: true,
                     actionType: "start_version",
                     reason: startGate.allowed
-                        ? "current version 已 ready；用 transition_version 生成 start_version proposal。"
-                        : "current version start gate 仍有 blockers，transition_version 目前不会创建 proposal。",
+                        ? "current version 已 ready；用 preview_or_propose_version_transition 生成 start_version proposal。"
+                        : "current version start gate 仍有 blockers，preview_or_propose_version_transition 目前不会创建 proposal。",
                     blockerIds: collectBlockerIds(startGate.blockers)
                 },
                 {
@@ -658,11 +658,11 @@ const buildVersionTransitionGuide = (snapshot, input) => {
                     stepId: "close-current-version",
                     label: "Close current version boundary",
                     status: closeStatus,
-                    recommendedTool: "close_version",
+                    recommendedTool: "preview_or_propose_version_close",
                     createsL3Proposal: true,
                     actionType: "close_version",
                     reason: closeGate.allowed
-                        ? "current version 已满足 close gate；用 close_version 生成 close proposal。"
+                        ? "current version 已满足 close gate；用 preview_or_propose_version_close 生成 close proposal。"
                         : "current version close gate 仍未通过，需先处理 blockers 或补 residual audit。",
                     blockerIds: collectBlockerIds(closeGate.blockers)
                 },
@@ -673,7 +673,7 @@ const buildVersionTransitionGuide = (snapshot, input) => {
                     recommendedTool: "approve_l3_operation",
                     createsL3Proposal: false,
                     actionType: "close_version",
-                    reason: "close_version proposal 创建后，再走现有 approve_l3_operation 审批链。",
+                    reason: "preview_or_propose_version_close 创建 proposal 后，再走现有 approve_l3_operation 审批链。",
                     blockerIds: closeStatus === "blocked" ? collectBlockerIds(closeGate.blockers) : []
                 },
                 {
@@ -714,13 +714,13 @@ const buildVersionTransitionGuide = (snapshot, input) => {
         stepId: "close-from-version",
         label: "Close from version boundary",
         status: closeProposalStatus,
-        recommendedTool: "close_version",
+        recommendedTool: "preview_or_propose_version_close",
         createsL3Proposal: true,
         actionType: "close_version",
         reason: fromVersion.state === "close"
             ? "from version 已经 close，无需再次创建 close proposal。"
             : closeGate.allowed
-                ? "from version 已满足 close gate，可先用 close_version 生成 close proposal。"
+                ? "from version 已满足 close gate，可先用 preview_or_propose_version_close 生成 close proposal。"
                 : "from version close gate 仍未通过，需先处理 blockers 或补 residual audit。",
         blockerIds: collectBlockerIds(closeGate.blockers)
     });
@@ -733,7 +733,7 @@ const buildVersionTransitionGuide = (snapshot, input) => {
         recommendedTool: "approve_l3_operation",
         createsL3Proposal: false,
         actionType: "close_version",
-        reason: "close_version proposal 创建后，再走现有 approve_l3_operation 审批链。",
+        reason: "preview_or_propose_version_close 创建 proposal 后，再走现有 approve_l3_operation 审批链。",
         blockerIds: closeProposalStatus === "blocked" ? collectBlockerIds(closeGate.blockers) : []
     });
     addStep({
@@ -808,21 +808,21 @@ const buildVersionTransitionGuide = (snapshot, input) => {
                 : "Set current to target version",
         status: transitionProposalStatus,
         recommendedTool: transitionActionType === "advance_to_version"
-            ? "advance_to_version"
-            : "transition_version",
+            ? "propose_version_advance"
+            : "preview_or_propose_version_transition",
         createsL3Proposal: true,
         actionType: transitionActionType,
         reason: transitionEvaluation?.status === "noop"
             ? "target version 已经是 current 且处于 running，本步无需执行。"
             : targetVersion.state === "wait"
-                ? "target version 尚未 ready；先 prepare，再重新进入 transition_version。"
+                ? "target version 尚未 ready；先 prepare，再重新进入 preview_or_propose_version_transition。"
                 : transitionEvaluation?.status === "blocked"
-                    ? "target start gate 仍有 blockers，transition_version 目前不会创建 proposal。"
+                    ? "target start gate 仍有 blockers，preview_or_propose_version_transition 目前不会创建 proposal。"
                     : transitionActionType === "advance_to_version"
-                        ? "from 边界已关闭；用 advance_to_version 生成一次原子切换并启动的 proposal。"
+                        ? "from 边界已关闭；用 propose_version_advance 生成一次原子切换并启动的 proposal。"
                         : transitionActionType === "start_version"
-                            ? "关闭 from 边界后，用 transition_version 生成 start_version proposal。"
-                            : "关闭 from 边界后，用 transition_version 先生成 set_current_version proposal。",
+                            ? "关闭 from 边界后，用 preview_or_propose_version_transition 生成 start_version proposal。"
+                            : "关闭 from 边界后，用 preview_or_propose_version_transition 先生成 set_current_version proposal。",
         blockerIds: collectBlockerIds(transitionBlockers)
     });
     addStep({
@@ -834,7 +834,7 @@ const buildVersionTransitionGuide = (snapshot, input) => {
         recommendedTool: "approve_l3_operation",
         createsL3Proposal: false,
         actionType: transitionActionType,
-        reason: "transition_version 创建 proposal 后，再审批对应 L3 proposal。",
+        reason: "preview_or_propose_version_transition 创建 proposal 后，再审批对应 L3 proposal。",
         blockerIds: transitionProposalStatus === "blocked" ? collectBlockerIds(transitionBlockers) : []
     });
     addStep({
@@ -858,11 +858,11 @@ const buildVersionTransitionGuide = (snapshot, input) => {
         status: needsStartAfterSetCurrent
             ? "waiting"
             : "not_needed",
-        recommendedTool: "transition_version",
+        recommendedTool: "preview_or_propose_version_transition",
         createsL3Proposal: true,
         actionType: "start_version",
         reason: needsStartAfterSetCurrent
-            ? "set_current_version 提交后，需要再次执行 transition_version 生成 start_version proposal。"
+            ? "set_current_version 提交后，需要再次执行 preview_or_propose_version_transition 生成 start_version proposal。"
             : "当前路径不需要额外的二次 start proposal。",
         blockerIds: transitionProposalStatus === "blocked" ? collectBlockerIds(transitionBlockers) : []
     });
@@ -873,7 +873,7 @@ const buildVersionTransitionGuide = (snapshot, input) => {
         recommendedTool: "approve_l3_operation",
         createsL3Proposal: false,
         actionType: "start_version",
-        reason: "二次 transition_version 创建 start proposal 后，再审批。",
+        reason: "二次 preview_or_propose_version_transition 创建 start proposal 后，再审批。",
         blockerIds: transitionProposalStatus === "blocked" ? collectBlockerIds(transitionBlockers) : []
     });
     addStep({
@@ -1548,7 +1548,7 @@ const buildStaleProposalRecoveryDetails = (options) => {
             }
         }, {
             action: "propose_replacement",
-            tool: "close_version",
+            tool: "preview_or_propose_version_close",
             input: {
                 projectId,
                 versionId: pendingOperation.targetId,

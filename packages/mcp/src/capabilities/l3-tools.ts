@@ -987,6 +987,7 @@ export const createL3OperationTools = (
         title: "Commit L3 Operation",
         riskLevel: "high-risk",
         destructive: true,
+        idempotent: true,
         recommendedApprovalMode: "approve"
       },
       async (input) => {
