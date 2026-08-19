@@ -205,9 +205,9 @@ const createInstructions = (options) => {
         "Before route operations, call inspect_runtime with operation=runtime to verify workspaceRoot and routeledgerRoot.",
         "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
         "If binding is missing, invalid, or low-confidence, use inspect_runtime to discover and plan the target, then call configure_binding; never treat the MCP process cwd as an initialization target.",
-        "Use inspect_route first to inspect current context, versions, gates, closeout, and pending L3 proposals.",
+        "Use inspect_route_progress for current context, next actions, document drift, and closeout planning; use inspect_versions for version lists, structure, gates, and transition guidance; use inspect_l3_route_operations for L3 authorization and proposal state.",
         "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
-        "Use manage_todo, manage_deferred, and manage_constraint for current work. Legacy Undo records remain audit-only and are available only through inspect_route when explicitly requested.",
+        "Use manage_todo, manage_deferred, and manage_constraint for current work. Legacy Undo records remain audit-only and are available only through inspect_route_progress when explicitly requested.",
         "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
         "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
         "L3 route changes are proposal-based: execute_route_change preserves the exact proposal, decision, artifact, and commit chain behind one high-risk public entrypoint. Project files are never authorization authority.",
@@ -355,23 +355,23 @@ const PUBLIC_TOOL_REFERENCE_MAP = {
     retire_constraint: { tool: "manage_constraint", operation: "retire" },
     prepare_version: { tool: "set_version_state", operation: "prepare" },
     mark_version_complete: { tool: "set_version_state", operation: "mark_complete" },
-    preflight_or_propose_version_batch: { tool: "propose_route_change", operation: "preflight_or_propose_version_batch" },
-    batch_create_versions: { tool: "propose_route_change", operation: "preflight_or_propose_version_batch" },
-    preview_or_propose_version_transition: { tool: "propose_route_change", operation: "preview_or_propose_version_transition" },
-    transition_version: { tool: "propose_route_change", operation: "preview_or_propose_version_transition" },
-    propose_version_advance: { tool: "propose_route_change", operation: "propose_version_advance" },
-    advance_to_version: { tool: "propose_route_change", operation: "propose_version_advance" },
-    preview_or_propose_version_close: { tool: "propose_route_change", operation: "preview_or_propose_version_close" },
-    close_version: { tool: "propose_route_change", operation: "preview_or_propose_version_close" },
-    propose_version_creation: { tool: "propose_route_change", operation: "propose_version_creation" },
-    create_version: { tool: "propose_route_change", operation: "propose_version_creation" },
-    propose_version_insertion: { tool: "propose_route_change", operation: "propose_version_insertion" },
-    insert_version: { tool: "propose_route_change", operation: "propose_version_insertion" },
-    propose_child_version_creation: { tool: "propose_route_change", operation: "propose_child_version_creation" },
-    create_child_version: { tool: "propose_route_change", operation: "propose_child_version_creation" },
-    propose_version_reorder: { tool: "propose_route_change", operation: "propose_version_reorder" },
-    reorder_versions: { tool: "propose_route_change", operation: "propose_version_reorder" },
-    propose_l3_operation: { tool: "propose_route_change", operation: "propose_l3_operation" },
+    preflight_or_propose_version_batch: { tool: "propose_version_lifecycle_change", operation: "preflight_or_propose_version_batch" },
+    batch_create_versions: { tool: "propose_version_lifecycle_change", operation: "preflight_or_propose_version_batch" },
+    preview_or_propose_version_transition: { tool: "propose_version_lifecycle_change", operation: "preview_or_propose_version_transition" },
+    transition_version: { tool: "propose_version_lifecycle_change", operation: "preview_or_propose_version_transition" },
+    propose_version_advance: { tool: "propose_version_lifecycle_change", operation: "propose_version_advance" },
+    advance_to_version: { tool: "propose_version_lifecycle_change", operation: "propose_version_advance" },
+    preview_or_propose_version_close: { tool: "propose_version_lifecycle_change", operation: "preview_or_propose_version_close" },
+    close_version: { tool: "propose_version_lifecycle_change", operation: "preview_or_propose_version_close" },
+    propose_version_creation: { tool: "propose_version_structure_change", operation: "propose_version_creation" },
+    create_version: { tool: "propose_version_structure_change", operation: "propose_version_creation" },
+    propose_version_insertion: { tool: "propose_version_structure_change", operation: "propose_version_insertion" },
+    insert_version: { tool: "propose_version_structure_change", operation: "propose_version_insertion" },
+    propose_child_version_creation: { tool: "propose_version_structure_change", operation: "propose_child_version_creation" },
+    create_child_version: { tool: "propose_version_structure_change", operation: "propose_child_version_creation" },
+    propose_version_reorder: { tool: "propose_version_structure_change", operation: "propose_version_reorder" },
+    reorder_versions: { tool: "propose_version_structure_change", operation: "propose_version_reorder" },
+    propose_l3_operation: { tool: "propose_l3_route_change" },
     preview_or_propose_forced_version_shutdown: { tool: "execute_route_change", operation: "force_shutdown" },
     shutdown_version: { tool: "execute_route_change", operation: "force_shutdown" },
     execute_l3_operation: { tool: "execute_route_change", operation: "execute_l3_operation" },
@@ -379,14 +379,14 @@ const PUBLIC_TOOL_REFERENCE_MAP = {
     commit_l3_operation: { tool: "execute_route_change", operation: "commit_l3_operation" },
     reject_l3_operation: { tool: "execute_route_change", operation: "reject_l3_operation" }
 };
-for (const tool of [
-    "get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout",
-    "plan_version_closeout", "list_versions_window", "list_versions", "check_start_gate",
-    "check_close_gate", "get_version_structure", "get_version_transition_guide",
-    "get_l3_authorization_status", "recommend_l3_authorization_profile",
-    "recommend_l3_authorization_policy", "list_l3_proposals", "get_l3_proposal"
+for (const [publicTool, operations] of [
+    ["inspect_route_progress", ["get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout", "plan_version_closeout"]],
+    ["inspect_versions", ["list_versions_window", "list_versions", "check_start_gate", "check_close_gate", "get_version_structure", "get_version_transition_guide"]],
+    ["inspect_l3_route_operations", ["get_l3_authorization_status", "recommend_l3_authorization_profile", "recommend_l3_authorization_policy", "list_l3_proposals", "get_l3_proposal"]]
 ]) {
-    PUBLIC_TOOL_REFERENCE_MAP[tool] = { tool: "inspect_route", operation: tool };
+    for (const operation of operations) {
+        PUBLIC_TOOL_REFERENCE_MAP[operation] = { tool: publicTool, operation };
+    }
 }
 const projectPublicToolReferences = (value) => {
     if (Array.isArray(value))
@@ -523,7 +523,7 @@ const buildToolErrorRecovery = (error, context) => {
         };
     }
     const isCreateVersionFailure = error.code === "INVALID_VERSION_TRANSITION" &&
-        (context?.toolName === "propose_route_change" ||
+        (context?.toolName === "propose_version_structure_change" ||
             (context?.toolName === "execute_route_change" &&
                 context.input.operation === "execute_l3_operation" &&
                 context.input.actionType === "create_version"));
@@ -1005,13 +1005,20 @@ export const createRouteLedgerMcpRegistry = (options) => {
             { action: "initialize", tool: requireTool(projectBootstrapTools, "init_project") },
             { action: "set_content_locale", tool: requireTool(projectBootstrapTools, "set_project_content_locale") }
         ], { title: "Configure RouteLedger Project", riskLevel: "write", toolKind: "bootstrap" }),
-        createCompositeTool("inspect_route", "Inspect RouteLedger Route", "Inspect current work, route structure, gates, closeout, proposals, or authorization state.", [
-            ...contextTools.map((tool) => ({ action: tool.definition.name, tool })),
+        createCompositeTool("inspect_route_progress", "Inspect Route Progress", "Inspect current route context, next actions, document drift, or Version closeout progress.", [
+            ...["get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout", "plan_version_closeout"]
+                .map((name) => ({ action: name, tool: requireTool(contextTools, name) }))
+        ], { title: "Inspect Route Progress", riskLevel: "read-only" }),
+        createCompositeTool("inspect_versions", "Inspect Versions", "Inspect Version lists, route structure, start and close gates, or transition guidance.", [
+            ...["list_versions_window", "list_versions", "check_start_gate", "check_close_gate", "get_version_structure", "get_version_transition_guide"]
+                .map((name) => ({ action: name, tool: requireTool(contextTools, name) }))
+        ], { title: "Inspect Versions", riskLevel: "read-only" }),
+        createCompositeTool("inspect_l3_route_operations", "Inspect L3 Route Operations", "Inspect L3 authorization state, authorization recommendations, or route-change proposals.", [
             ...l3AuthorizationTools.map((tool) => ({ action: tool.definition.name, tool })),
             ...l3ProposalTools
                 .filter((tool) => tool.definition.annotations.readOnlyHint === true)
                 .map((tool) => ({ action: tool.definition.name, tool }))
-        ], { title: "Inspect RouteLedger Route", riskLevel: "read-only" }),
+        ], { title: "Inspect L3 Route Operations", riskLevel: "read-only" }),
         createCompositeTool("manage_todo", "Manage Todo", "Create or close current Version work.", [
             { action: "create", tool: requireTool(workTools, "create_todo") },
             { action: "close", tool: requireTool(workTools, "close_todo") }
@@ -1024,15 +1031,17 @@ export const createRouteLedgerMcpRegistry = (options) => {
             { action: "record", tool: requireTool(workTools, "record_constraint") },
             { action: "retire", tool: requireTool(workTools, "retire_constraint") }
         ], { title: "Manage Constraint", riskLevel: "write", destructive: true, idempotent: true }),
-        createCompositeTool("propose_route_change", "Propose Route Change", "Preflight or propose a normal Version lifecycle or route-structure change.", [
+        createCompositeTool("propose_version_lifecycle_change", "Propose Version Lifecycle Change", "Preview, preflight, or propose Version batch creation, transition, advance, or close lifecycle changes.", [
             ...versionWorkflowTools
                 .filter((tool) => tool.definition.name !== "preview_or_propose_forced_version_shutdown")
-                .map((tool) => ({ action: tool.definition.name, tool })),
+                .map((tool) => ({ action: tool.definition.name, tool }))
+        ], { title: "Propose Version Lifecycle Change", riskLevel: "write" }),
+        createCompositeTool("propose_version_structure_change", "Propose Version Structure Change", "Propose creating, inserting, nesting, or reordering Versions in the route structure.", [
             ...versionMutationTools
                 .filter((tool) => !["prepare_version", "mark_version_complete"].includes(tool.definition.name))
-                .map((tool) => ({ action: tool.definition.name, tool })),
-            { action: "propose_l3_operation", tool: requireTool(l3OperationTools, "propose_l3_operation") }
-        ], { title: "Propose Route Change", riskLevel: "write" }),
+                .map((tool) => ({ action: tool.definition.name, tool }))
+        ], { title: "Propose Version Structure Change", riskLevel: "write" }),
+        renameTool(requireTool(l3OperationTools, "propose_l3_operation"), "propose_l3_route_change", "Propose L3 Route Change", "Create one exact L3 route-change proposal without executing or approving it."),
         createCompositeTool("set_version_state", "Set Version State", "Prepare a Version or mark its implementation complete.", [
             { action: "prepare", tool: requireTool(versionMutationTools, "prepare_version") },
             { action: "mark_complete", tool: requireTool(versionMutationTools, "mark_version_complete") }

@@ -275,7 +275,9 @@ const SYSTEM_CODE_COLLECTION_KEYS = new Set([
     "warnings"
 ]);
 const HUMAN_REVIEW_TOOLS = new Set([
-    "propose_route_change",
+    "propose_version_lifecycle_change",
+    "propose_version_structure_change",
+    "propose_l3_route_change",
     "execute_route_change",
     "propose_version_advance",
     "preflight_or_propose_version_batch",

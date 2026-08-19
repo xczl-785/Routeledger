@@ -320,10 +320,16 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime initialize did not expose the plugin artifact identity.");
     }
-    if (!Array.isArray(responses[1]?.result?.tools) || responses[1].result.tools.length !== 11) {
-      throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
+    const bundledToolNames = responses[1]?.result?.tools?.map((tool) => tool.name).sort();
+    const expectedToolNames = [
+      "configure_binding", "configure_project", "execute_route_change", "inspect_l3_route_operations",
+      "inspect_route_progress", "inspect_runtime", "inspect_versions", "manage_constraint",
+      "manage_deferred", "manage_mission_control", "manage_todo", "propose_l3_route_change",
+      "propose_version_lifecycle_change", "propose_version_structure_change", "set_version_state"
+    ].sort();
+    if (JSON.stringify(bundledToolNames) !== JSON.stringify(expectedToolNames)) {
+      throw new Error(`Bundled runtime tools/list mismatch: ${JSON.stringify(bundledToolNames)}.`);
     }
-    const bundledToolNames = responses[1].result.tools.map((tool) => tool.name);
     for (const portableUiTool of ["manage_mission_control", "inspect_runtime"]) {
       if (!bundledToolNames.includes(portableUiTool)) {
         throw new Error(`Bundled JSON-only runtime did not expose ${portableUiTool}.`);
@@ -486,7 +492,7 @@ const runPluginStdioSmoke = async () => {
       "Bundled JSON-only runtime unexpectedly created a SQLite database in the Codex plugin cache cwd."
     );
   } finally {
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
+    await fs.rm(temporaryRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 };
 

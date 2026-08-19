@@ -478,7 +478,7 @@ const main = async () => {
     console.log("Codex Git marketplace smoke passed: fresh install, automatic upgrade, fixture-tag reinstall, cache hashes, and JSON-only installed runtime.");
   } finally {
     await gitServer?.close().catch(() => undefined);
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
+    await fs.rm(temporaryRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 };
 
