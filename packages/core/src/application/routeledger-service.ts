@@ -1702,11 +1702,15 @@ const buildVersionTransitionGuide = (
     manualTargetStates.includes(targetVersion.state);
 
   if (!fromIsCurrent) {
-    notes.push("fromVersion 不是当前 current version。请先确认 live current，再决定是否仍按该 from -> target 顺序推进。");
+    notes.push(
+      "fromVersion is not the current Version. Confirm the live route before continuing from the source to the target."
+    );
   }
 
   if (manualTargetStates.includes(targetVersion.state)) {
-    notes.push(`target version 目前是 ${targetVersion.state}，已超出本 guide 的常规 close -> start 向导路径。`);
+    notes.push(
+      `The target Version is in \`${targetVersion.state}\`, outside this guide's ordinary close -> start path.`
+    );
   }
 
   if (startGate.selfReferentialUndoIds.length > 0) {

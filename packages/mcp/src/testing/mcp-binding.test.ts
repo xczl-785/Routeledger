@@ -1338,7 +1338,7 @@ describe("routeledger mcp registry", () => {
           recommendedNextActions: [
             expect.objectContaining({
               type: "confirm_content_locale",
-              proposedValue: "en",
+              proposedValue: null,
               requiresUserDecision: true
             }),
             expect.objectContaining({

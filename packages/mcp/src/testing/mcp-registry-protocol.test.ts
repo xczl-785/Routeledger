@@ -5,7 +5,7 @@ import { createRouteLedgerStdioServer, type JsonRpcResponse } from "../stdio-ser
 
 import { createTempProjectRoot, createRegistry, createServer, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, runTranscript, type ToolListResult } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
-  it("init_project requires a concrete contentLocale and localizes human-readable errors", async () => {
+  it("init_project requires a concrete contentLocale and uses canonical English errors", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRouteLedgerMcpRegistry({
       workspaceRoot: projectRoot,
@@ -16,31 +16,30 @@ describe("routeledger mcp registry", () => {
       const missing = await registry.invoke("configure_project", {
         operation: "initialize",
         name: "RouteLedger",
-        expectedRouteLedgerRoot: projectRoot,
-        responseLocale: "zh-CN"
+        expectedRouteLedgerRoot: projectRoot
       });
       const automatic = await registry.invoke("configure_project", {
         operation: "initialize",
         name: "RouteLedger",
         contentLocale: "auto",
-        expectedRouteLedgerRoot: projectRoot,
-        responseLocale: "zh-CN"
+        expectedRouteLedgerRoot: projectRoot
       });
 
       expect(missing).toMatchObject({
         ok: false,
         error: {
           code: "CONTENT_LOCALE_REQUIRED",
-          message: "项目的 content_locale 尚未确认；请先与用户确认具体语言。"
+          message: "The project content_locale is unresolved; confirm a concrete locale with the user first."
         }
       });
       expect(automatic).toMatchObject({
         ok: false,
         error: {
           code: "CONTENT_LOCALE_MUST_BE_CONCRETE",
-          message: "content_locale 必须是具体语言，不能使用 auto。"
+          message: "content_locale must be concrete and cannot be auto."
         }
       });
+
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);

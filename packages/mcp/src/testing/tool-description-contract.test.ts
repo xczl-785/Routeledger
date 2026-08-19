@@ -65,21 +65,21 @@ const REMOVED_TOOL_CONTRACT_DIGESTS = {
 } as const;
 
 const EXPECTED_TOOL_CONTRACT_DIGESTS = {
-  inspect_runtime: "fe6a9dc07333866e9228faf974bf79379764be5ead2727263468b893776c377c",
-  configure_binding: "00318cee5fe77e060fd06de48b22d1e8291af35e4ee7336434493317beb7ce73",
-  configure_project: "6ee4c63a9f364fa4ed47bd576fb0fb10b14a76ac41cd5494e79645be751c0183",
-  inspect_route_progress: "b088592ffdb57c3b7f75a42624cad4e3f99a74bb8b6fbf3ce6258fb27b037792",
-  inspect_versions: "41331f04c6b2d152fe7ac4f8077808072ef8956013cb392bfee703dafeed9be0",
-  inspect_l3_route_operations: "ed3743348697faec1727aa9af679415a12190a5eff419fe2b750b6534054e0de",
-  manage_todo: "dcf8f8a509104e2c9916e35980e8342d59d979635b4a551a5da414a833ef72ce",
-  manage_deferred: "48a91d5af1e1f8a97104d0fb867d01fc853260fdf847ab2a664291f290521708",
-  manage_constraint: "15819210e2dd2fc0059dd64975248678e8b5885820cba9cbc0375247ab15722d",
-  propose_version_lifecycle_change: "55199039b91967cd1ad4a3ef524dce590f5d228e14e248034d0b692c2cfb108c",
-  propose_version_structure_change: "1852b6d9bf1233ab0df93ea9d269657460a6de422573d9455c912e438c7c084a",
-  propose_l3_route_change: "2069a774424f5e8b7804d09bf3fd2ecce3f2099c691359364134eb2f3728acab",
-  set_version_state: "0766f981530dd60e6b25eea831aef469e582f9753277759190cdf0119ef78c04",
-  execute_route_change: "e5d64d534973ee9f55f386925b011f370e8486e009be2b043500799e059ec366",
-  manage_mission_control: "adf9a670231982370b535d89c19b762497e97e310d0bf3afab8b056f888e012b"
+  inspect_runtime: "a128a28c3122613882c00aece3dcf708afa05ce17679b95cb521fc790aa73d27",
+  configure_binding: "173959152c3d331efe756d3769d6ceabcc2faccb0f01b8e67ee787b14289c502",
+  configure_project: "ddd2a20a2363aa134d36fbbb6c2f0ef13d98c701542ce2c24a645461ac30a523",
+  inspect_route_progress: "ee33a6b9a05701ad6a50843bcc1b906a8f430b75399823ef4ffb226f164e2428",
+  inspect_versions: "8682fbb8b7185fd962ed06acdf0aafed966bedb543c7d7903d7c270b21665b82",
+  inspect_l3_route_operations: "f9243542802191e88544e525aeffd559eaa8bd1dfb8af24fb6b705c69ae4d8d2",
+  manage_todo: "d37cac76e6bdf10dd20708d009c70e9c28606cb90b9ffad19b70fc566fdff721",
+  manage_deferred: "91167954936757b98814b60408e2bb4e2e16860349402a43c83f3358e231962d",
+  manage_constraint: "40b20ddeef6faabb3f1377ab86dc2f0d821c4eeca1381c3c558dc3d536508f2c",
+  propose_version_lifecycle_change: "937f21d9fbc73b5f878f0917842286cb4d879bfbd6b1121835cea0e42c42a3ac",
+  propose_version_structure_change: "fe496e73d3f4c44299325ad47f264dd8c77e3f06d1285cd63cd30dbafd52ddbb",
+  propose_l3_route_change: "f0282666db2aa87b05f6f1b4c396fac24375b4f1e4dc5096af4318516980160c",
+  set_version_state: "010290bc44f5f1071bef65b76ccf4c42ad3f8aaa29d426d3ac1e4a0f72c80ce0",
+  execute_route_change: "c6a766809184bec923851b59b0e5d419c0fecf8ae90cf6390cd268dd63122b1d",
+  manage_mission_control: "5cb46a058edec62a79aff7ac5273c15b37468714b9a2b158ad8b543dd3e8ee69"
 } as const;
 
 const sortKeys = (value: unknown): unknown => {
@@ -144,6 +144,10 @@ describe("MCP tool description contract", () => {
       expect(writes).toHaveLength(10);
       expect(highRisk).toHaveLength(1);
       expect(writes.concat(highRisk)).toHaveLength(11);
+      for (const tool of tools) {
+        const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
+        expect(properties).not.toHaveProperty("responseLocale");
+      }
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
         const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;

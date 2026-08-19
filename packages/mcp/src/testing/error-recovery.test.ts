@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ApplicationError, DomainError } from "@routeledger/core";
 
 import { toToolError } from "../index.js";
-import { localizeToolResponse, resolveResponseLocale } from "../locale.js";
+import { normalizeAgentToolResponse } from "../agent-response.js";
 
 describe("MCP business error recovery", () => {
   it("treats a repeated close_todo as an already-applied boundary without weakening the state machine", () => {
@@ -33,13 +33,15 @@ describe("MCP business error recovery", () => {
       }
     });
     expect(
-      localizeToolResponse(response, resolveResponseLocale("zh-CN"), "close_todo")
+      normalizeAgentToolResponse(response, "close_todo")
     ).toMatchObject({
       error: {
-        message: "Todo 已关闭，无需重试；请继续处理后续路线。",
+        message: "The Todo is already closed; do not retry it and continue with the route.",
         details: {
           recommendedNextActions: [
-            expect.objectContaining({ description: "Todo 已关闭；不要重试写入，继续读取下一步路线动作。" })
+            expect.objectContaining({
+              description: "The Todo is closed; do not retry the write and continue with the next route action."
+            })
           ]
         }
       }

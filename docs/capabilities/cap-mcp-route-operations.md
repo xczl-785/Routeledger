@@ -47,11 +47,11 @@ rules.
    resolved evidence (input first, then a pending close proposal) is used by
    gates, closeout summaries/plans, guides, close proposals, and approval
    digests.
-9. `responseLocale` controls only human-readable response text for the current
-   call (or the server default). Protocol identifiers remain English and
-   stable. `inspect_runtime(operation="runtime")` uses that locale to propose a concrete
-   project `contentLocale`, but initialization still requires user
-   confirmation and an explicit value. `auto` is invalid.
+9. Agent-facing MCP messages and protocol identifiers use canonical English.
+   `inspect_runtime(operation="runtime")` reports an unresolved project
+   `contentLocale` without inferring a value from the agent or host language;
+   initialization requires user confirmation and an explicit value. `auto` is
+   invalid.
 10. A legacy project whose `contentLocale` is unresolved remains readable.
    All project writes except `configure_project(operation="set_content_locale")` are blocked until a
     concrete BCP 47 locale is persisted.
