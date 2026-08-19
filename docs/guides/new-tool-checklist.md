@@ -13,7 +13,7 @@ checklist for every new tool.
    preflight, and debug hooks still come from the registry.
 2. Update the tool budget assertions in
    `packages/mcp/src/testing/tool-description-contract.test.ts` (currently
-   11 tools: 2 read-only / 8 write / 1 high-risk). The budget is a
+   15 tools: 4 read-only / 10 write / 1 high-risk). The budget is a
    deliberate gate against silent surface growth.
 3. Classify annotations from actual effects, not from apparent product intent.
    `readOnlyHint` is true only when the tool cannot change state;
@@ -24,10 +24,10 @@ checklist for every new tool.
    server authorization, validation, root assertions, or confirmation.
 4. Declare an `outputSchema` for every tool that returns `structuredContent`
    and validate representative success and failure results against it. The 11
-   public tools currently share a validated response envelope; narrowing each
-   `operation` branch to an exact data schema remains follow-up contract work.
-   Internal capability registrations are not public tools and are not examples
-   to copy for new work.
+   public tools share a validated response envelope and validate each
+   `operation` branch against its exact data schema. Internal capability
+   registrations are not public tools and are not examples to copy for new
+   work.
 5. Add or update the capability-factory test under
    `packages/mcp/src/testing/*-tools.test.ts`; add an MCP integration behavior
    test when wiring, preflight, session state, or response behavior changes.
@@ -48,6 +48,6 @@ checklist for every new tool.
    `pnpm build:codex-plugin`, `pnpm smoke:codex-plugin`,
    `pnpm check:codex-plugin-release`, and add a release note under
    `docs/release/release-notes/`.
-10. Verify the full and json-only runtimes both expose the expected 11-tool
-   surface, including `open_mission_control`,
-   `get_mission_control_status`, and `stop_mission_control`.
+10. Verify the source and bundled json-only runtimes both expose the expected
+    15-tool surface, including `inspect_runtime`, `inspect_route_progress`,
+    `execute_route_change`, and `manage_mission_control`.
