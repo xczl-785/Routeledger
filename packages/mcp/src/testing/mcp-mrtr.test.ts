@@ -152,7 +152,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
           }
         }
       });
-      const proposals = await call(server, "list", "inspect_route", {
+      const proposals = await call(server, "list", "inspect_l3_route_operations", {
         operation: "list_l3_proposals",
         projectId
       });
@@ -252,7 +252,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
         }
       });
       expect(responseOnly).toMatchObject({ error: { code: -32602 } });
-      const proposals = await call(server, "list", "inspect_route", {
+      const proposals = await call(server, "list", "inspect_l3_route_operations", {
         operation: "list_l3_proposals",
         projectId
       });
@@ -303,7 +303,7 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
           }
         }
       });
-      const proposals = await call(server, "list", "inspect_route", {
+      const proposals = await call(server, "list", "inspect_l3_route_operations", {
         operation: "list_l3_proposals",
         projectId
       });

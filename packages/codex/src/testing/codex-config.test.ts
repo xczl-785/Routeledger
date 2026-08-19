@@ -183,7 +183,13 @@ describe("@routeledger/codex", () => {
       "[mcp_servers.routeledger.tools.inspect_runtime]\napproval_mode = \"auto\""
     );
     expect(config).toContain(
-      "[mcp_servers.routeledger.tools.inspect_route]\napproval_mode = \"auto\""
+      "[mcp_servers.routeledger.tools.inspect_route_progress]\napproval_mode = \"auto\""
+    );
+    expect(config).toContain(
+      "[mcp_servers.routeledger.tools.inspect_versions]\napproval_mode = \"auto\""
+    );
+    expect(config).toContain(
+      "[mcp_servers.routeledger.tools.inspect_l3_route_operations]\napproval_mode = \"auto\""
     );
   });
 

@@ -52,15 +52,25 @@ default_tools_approval_mode = "prompt"
 # enabled_tools = [
 #   "configure_project",
 #   "inspect_runtime",
-#   "inspect_route",
-#   "propose_route_change",
+#   "inspect_route_progress",
+#   "inspect_versions",
+#   "inspect_l3_route_operations",
+#   "propose_version_lifecycle_change",
+#   "propose_version_structure_change",
+#   "propose_l3_route_change",
 #   "execute_route_change",
 # ]
 
 [mcp_servers.routeledger.env]
 ROUTELEDGER_MCP_PROFILE = "codex"
 
-[mcp_servers.routeledger.tools.inspect_route]
+[mcp_servers.routeledger.tools.inspect_route_progress]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.inspect_versions]
+approval_mode = "auto"
+
+[mcp_servers.routeledger.tools.inspect_l3_route_operations]
 approval_mode = "auto"
 
 [mcp_servers.routeledger.tools.inspect_runtime]

@@ -28,14 +28,21 @@ const buildToolApprovalMap = (): Map<string, string> => {
 
 describe("@routeledger/codex approval list vs MCP registry", () => {
   const approvalByTool = buildToolApprovalMap();
-  const expectedAutoTools = ["inspect_runtime", "inspect_route"];
+  const expectedAutoTools = [
+    "inspect_runtime",
+    "inspect_route_progress",
+    "inspect_versions",
+    "inspect_l3_route_operations"
+  ];
   const expectedPromptTools = [
     "configure_binding",
     "configure_project",
     "manage_todo",
     "manage_deferred",
     "manage_constraint",
-    "propose_route_change",
+    "propose_version_lifecycle_change",
+    "propose_version_structure_change",
+    "propose_l3_route_change",
     "set_version_state",
     "manage_mission_control"
   ];

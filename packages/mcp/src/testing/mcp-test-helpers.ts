@@ -73,7 +73,9 @@ export const WRITE_TOOL_NAMES = new Set([
   "manage_todo",
   "manage_deferred",
   "manage_constraint",
-  "propose_route_change",
+  "propose_version_lifecycle_change",
+  "propose_version_structure_change",
+  "propose_l3_route_change",
   "set_version_state",
   "execute_route_change",
   "manage_mission_control"
@@ -97,23 +99,23 @@ const PUBLIC_TOOL_CALLS: Record<string, { name: string; action?: string }> = {
   retire_constraint: { name: "manage_constraint", action: "retire" },
   prepare_version: { name: "set_version_state", action: "prepare" },
   mark_version_complete: { name: "set_version_state", action: "mark_complete" },
-  preflight_or_propose_version_batch: { name: "propose_route_change", action: "preflight_or_propose_version_batch" },
-  batch_create_versions: { name: "propose_route_change", action: "preflight_or_propose_version_batch" },
-  preview_or_propose_version_transition: { name: "propose_route_change", action: "preview_or_propose_version_transition" },
-  transition_version: { name: "propose_route_change", action: "preview_or_propose_version_transition" },
-  propose_version_advance: { name: "propose_route_change", action: "propose_version_advance" },
-  advance_to_version: { name: "propose_route_change", action: "propose_version_advance" },
-  preview_or_propose_version_close: { name: "propose_route_change", action: "preview_or_propose_version_close" },
-  close_version: { name: "propose_route_change", action: "preview_or_propose_version_close" },
-  propose_version_creation: { name: "propose_route_change", action: "propose_version_creation" },
-  create_version: { name: "propose_route_change", action: "propose_version_creation" },
-  propose_version_insertion: { name: "propose_route_change", action: "propose_version_insertion" },
-  insert_version: { name: "propose_route_change", action: "propose_version_insertion" },
-  propose_child_version_creation: { name: "propose_route_change", action: "propose_child_version_creation" },
-  create_child_version: { name: "propose_route_change", action: "propose_child_version_creation" },
-  propose_version_reorder: { name: "propose_route_change", action: "propose_version_reorder" },
-  reorder_versions: { name: "propose_route_change", action: "propose_version_reorder" },
-  propose_l3_operation: { name: "propose_route_change", action: "propose_l3_operation" },
+  preflight_or_propose_version_batch: { name: "propose_version_lifecycle_change", action: "preflight_or_propose_version_batch" },
+  batch_create_versions: { name: "propose_version_lifecycle_change", action: "preflight_or_propose_version_batch" },
+  preview_or_propose_version_transition: { name: "propose_version_lifecycle_change", action: "preview_or_propose_version_transition" },
+  transition_version: { name: "propose_version_lifecycle_change", action: "preview_or_propose_version_transition" },
+  propose_version_advance: { name: "propose_version_lifecycle_change", action: "propose_version_advance" },
+  advance_to_version: { name: "propose_version_lifecycle_change", action: "propose_version_advance" },
+  preview_or_propose_version_close: { name: "propose_version_lifecycle_change", action: "preview_or_propose_version_close" },
+  close_version: { name: "propose_version_lifecycle_change", action: "preview_or_propose_version_close" },
+  propose_version_creation: { name: "propose_version_structure_change", action: "propose_version_creation" },
+  create_version: { name: "propose_version_structure_change", action: "propose_version_creation" },
+  propose_version_insertion: { name: "propose_version_structure_change", action: "propose_version_insertion" },
+  insert_version: { name: "propose_version_structure_change", action: "propose_version_insertion" },
+  propose_child_version_creation: { name: "propose_version_structure_change", action: "propose_child_version_creation" },
+  create_child_version: { name: "propose_version_structure_change", action: "propose_child_version_creation" },
+  propose_version_reorder: { name: "propose_version_structure_change", action: "propose_version_reorder" },
+  reorder_versions: { name: "propose_version_structure_change", action: "propose_version_reorder" },
+  propose_l3_operation: { name: "propose_l3_route_change" },
   preview_or_propose_forced_version_shutdown: { name: "execute_route_change", action: "force_shutdown" },
   shutdown_version: { name: "execute_route_change", action: "force_shutdown" },
   execute_l3_operation: { name: "execute_route_change", action: "execute_l3_operation" },
@@ -124,12 +126,23 @@ const PUBLIC_TOOL_CALLS: Record<string, { name: string; action?: string }> = {
 
 for (const name of [
   "get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout",
-  "plan_version_closeout", "list_versions_window", "list_versions", "check_start_gate",
-  "check_close_gate", "get_version_structure", "get_version_transition_guide",
+  "plan_version_closeout"
+]) {
+  PUBLIC_TOOL_CALLS[name] = { name: "inspect_route_progress", action: name };
+}
+
+for (const name of [
+  "list_versions_window", "list_versions", "check_start_gate",
+  "check_close_gate", "get_version_structure", "get_version_transition_guide"
+]) {
+  PUBLIC_TOOL_CALLS[name] = { name: "inspect_versions", action: name };
+}
+
+for (const name of [
   "get_l3_authorization_status", "recommend_l3_authorization_profile",
   "recommend_l3_authorization_policy", "list_l3_proposals", "get_l3_proposal"
 ]) {
-  PUBLIC_TOOL_CALLS[name] = { name: "inspect_route", action: name };
+  PUBLIC_TOOL_CALLS[name] = { name: "inspect_l3_route_operations", action: name };
 }
 
 const adaptPublicToolCall = (toolName: string, input: Record<string, unknown>) => {
@@ -631,14 +644,14 @@ export const expectRouteLedgerRootGuardError = (
       review_deferred: "manage_deferred",
       record_constraint: "manage_constraint",
       retire_constraint: "manage_constraint",
-      batch_create_versions: "propose_route_change",
-      transition_version: "propose_route_change",
-      advance_to_version: "propose_route_change",
-      close_version: "propose_route_change",
-      create_version: "propose_route_change",
-      insert_version: "propose_route_change",
-      create_child_version: "propose_route_change",
-      reorder_versions: "propose_route_change",
+      batch_create_versions: "propose_version_lifecycle_change",
+      transition_version: "propose_version_lifecycle_change",
+      advance_to_version: "propose_version_lifecycle_change",
+      close_version: "propose_version_lifecycle_change",
+      create_version: "propose_version_structure_change",
+      insert_version: "propose_version_structure_change",
+      create_child_version: "propose_version_structure_change",
+      reorder_versions: "propose_version_structure_change",
       prepare_version: "set_version_state",
       mark_version_complete: "set_version_state",
       shutdown_version: "execute_route_change",

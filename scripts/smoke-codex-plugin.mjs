@@ -261,7 +261,7 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "authorization-status",
     method: "tools/call",
-    params: { name: "inspect_route", arguments: { operation: "get_l3_authorization_status" } }
+    params: { name: "inspect_l3_route_operations", arguments: { operation: "get_l3_authorization_status" } }
   });
   write({
     jsonrpc: "2.0",

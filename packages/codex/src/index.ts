@@ -105,7 +105,9 @@ const DEFAULT_FRAGMENT_SUFFIX = ".fragment.toml";
 
 export const AUTO_APPROVAL_TOOLS = [
   "inspect_runtime",
-  "inspect_route"
+  "inspect_route_progress",
+  "inspect_versions",
+  "inspect_l3_route_operations"
 ] as const;
 
 export const PROMPT_APPROVAL_TOOLS = [
@@ -114,7 +116,9 @@ export const PROMPT_APPROVAL_TOOLS = [
   "manage_todo",
   "manage_deferred",
   "manage_constraint",
-  "propose_route_change",
+  "propose_version_lifecycle_change",
+  "propose_version_structure_change",
+  "propose_l3_route_change",
   "set_version_state",
   "manage_mission_control"
 ] as const;

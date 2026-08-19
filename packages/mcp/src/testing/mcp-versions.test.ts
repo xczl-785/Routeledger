@@ -890,12 +890,12 @@ describe("routeledger mcp registry", () => {
     }
   });
 
-  it("propose_route_change batch action schema exposes mode/items/setCurrentTo", () => {
+  it("propose_version_lifecycle_change batch action schema exposes mode/items/setCurrentTo", () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);
 
     try {
-      const tool = registry.getTool("propose_route_change");
+      const tool = registry.getTool("propose_version_lifecycle_change");
       const batchBranch = (
         tool?.inputSchema as { oneOf?: Array<Record<string, unknown>> }
       ).oneOf?.find((branch) =>
@@ -2575,7 +2575,7 @@ describe("routeledger mcp registry", () => {
         }
       });
 
-      const closeVersionSchema = registry.getTool("propose_route_change")!.inputSchema;
+      const closeVersionSchema = registry.getTool("propose_version_lifecycle_change")!.inputSchema;
       expect(JSON.stringify(closeVersionSchema)).not.toContain("create_undo");
       expect(JSON.stringify(closeVersionSchema)).not.toContain("preferredResolutionVersionId");
       expect(JSON.stringify(closeVersionSchema)).toContain("defer_work");

@@ -44,7 +44,7 @@ const main = async (): Promise<void> => {
   });
   if (!initialized.ok) throw new Error(initialized.error?.message ?? "fixture init failed");
   const projectId = (initialized.data as { project: { id: string } }).project.id;
-  const proposed = await registry.invoke("propose_route_change", {
+  const proposed = await registry.invoke("propose_version_structure_change", {
     operation: "propose_version_creation",
     projectId,
     title: "Version 1",
@@ -52,9 +52,9 @@ const main = async (): Promise<void> => {
   });
   const pendingOperationId = proposed.error?.details?.pendingOperationId;
   if (typeof pendingOperationId !== "string") {
-    throw new Error("Fixture propose_route_change did not produce an L3 pending operation.");
+    throw new Error("Fixture propose_version_structure_change did not produce an L3 pending operation.");
   }
-  const proposalResult = await registry.invoke("inspect_route", {
+  const proposalResult = await registry.invoke("inspect_l3_route_operations", {
     operation: "get_l3_proposal",
     projectId,
     pendingOperationId

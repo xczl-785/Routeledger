@@ -393,9 +393,10 @@ const assertInstalledListing = async (environment, expectedVersion) => {
 
 const runInstalledRuntimeSmoke = async (installedPluginRoot, temporaryRoot, releaseStage) => {
   const expectedToolNames = [
-    "configure_binding", "configure_project", "execute_route_change", "inspect_route",
-    "inspect_runtime", "manage_constraint", "manage_deferred", "manage_mission_control",
-    "manage_todo", "propose_route_change", "set_version_state"
+    "configure_binding", "configure_project", "execute_route_change", "inspect_l3_route_operations",
+    "inspect_route_progress", "inspect_runtime", "inspect_versions", "manage_constraint",
+    "manage_deferred", "manage_mission_control", "manage_todo", "propose_l3_route_change",
+    "propose_version_lifecycle_change", "propose_version_structure_change", "set_version_state"
   ].sort();
   const testWorkspaceRoot = path.join(temporaryRoot, `runtime-workspace-${releaseStage}`);
   const testRouteledgerRoot = path.join(testWorkspaceRoot, "routeledger");

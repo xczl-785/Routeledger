@@ -153,15 +153,15 @@ describe("routeledger mcp registry", () => {
       };
 
       const dryRunInputs: Array<{
-        toolName: "propose_route_change" | "execute_route_change";
+        toolName: "propose_version_lifecycle_change" | "execute_route_change";
         input: Record<string, unknown>;
       }> = [
         {
-          toolName: "propose_route_change",
+          toolName: "propose_version_lifecycle_change",
           input: { operation: "preview_or_propose_version_transition", projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
         },
         {
-          toolName: "propose_route_change",
+          toolName: "propose_version_lifecycle_change",
           input: { operation: "preview_or_propose_version_close", projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
         },
         {

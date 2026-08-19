@@ -130,8 +130,7 @@ describe("routeledger mcp registry", () => {
         projectId: mcpProjectId,
         versionId: mcpVersionId
       });
-      const mcpProposal = await registry.invoke("propose_route_change", {
-        operation: "propose_l3_operation",
+      const mcpProposal = await registry.invoke("propose_l3_route_change", {
         projectId: mcpProjectId,
         actionType: "start_version",
         targetId: mcpVersionId,
@@ -154,7 +153,7 @@ describe("routeledger mcp registry", () => {
         pendingOperationId: mcpProposalData.id,
         approvalArtifactId: mcpApproveData.id
       });
-      const mcpContext = await registry.invoke("inspect_route", {
+      const mcpContext = await registry.invoke("inspect_route_progress", {
         operation: "get_current_context",
         projectId: mcpProjectId
       });
@@ -208,7 +207,7 @@ describe("routeledger mcp registry", () => {
       const tools = (response as ToolListResult).result.tools;
       const toolNames = tools.map((tool) => tool.name);
 
-      expect(tools).toHaveLength(11);
+      expect(tools).toHaveLength(15);
       expect(toolNames).toContain("manage_mission_control");
       expect(toolNames).toContain("inspect_runtime");
       expect(toolNames).toContain("configure_binding");

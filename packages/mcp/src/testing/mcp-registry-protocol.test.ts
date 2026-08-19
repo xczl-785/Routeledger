@@ -71,7 +71,7 @@ describe("routeledger mcp registry", () => {
       });
 
       const projectId = (initialized.data as { project: { id: string } }).project.id;
-      const context = await registry.invoke("inspect_route", {
+      const context = await registry.invoke("inspect_route_progress", {
         operation: "get_current_context",
         projectId
       });
@@ -121,22 +121,28 @@ describe("routeledger mcp registry", () => {
         "inspect_runtime",
         "configure_binding",
         "configure_project",
-        "inspect_route",
+        "inspect_route_progress",
+        "inspect_versions",
+        "inspect_l3_route_operations",
         "manage_todo",
         "manage_deferred",
         "manage_constraint",
-        "propose_route_change",
+        "propose_version_lifecycle_change",
+        "propose_version_structure_change",
+        "propose_l3_route_change",
         "set_version_state",
         "execute_route_change",
         "manage_mission_control"
       ];
       expect(tools.map((tool) => tool.name)).toEqual(expectedToolNames);
-      expect(tools).toHaveLength(11);
+      expect(tools).toHaveLength(15);
       expect(readOnlyTools.map((tool) => tool.name)).toEqual([
         "inspect_runtime",
-        "inspect_route"
+        "inspect_route_progress",
+        "inspect_versions",
+        "inspect_l3_route_operations"
       ]);
-      expect(writeTools).toHaveLength(8);
+      expect(writeTools).toHaveLength(10);
       expect(highRiskTools.map((tool) => tool.name)).toEqual(["execute_route_change"]);
 
       for (const tool of [...writeTools, ...highRiskTools]) {
@@ -178,7 +184,9 @@ describe("routeledger mcp registry", () => {
         expect(tools.find((tool) => tool.name === legacyName)).toBeUndefined();
       }
 
-      for (const tool of tools.filter((item) => item.name !== "configure_binding")) {
+      for (const tool of tools.filter(
+        (item) => !["configure_binding", "propose_l3_route_change"].includes(item.name)
+      )) {
         const branches = (
           tool.inputSchema as unknown as {
             oneOf?: Array<{
@@ -231,7 +239,7 @@ describe("routeledger mcp registry", () => {
       const missingRequiredResponse = await callTool(
         server,
         "missing-required",
-        "inspect_route",
+        "inspect_versions",
         { operation: "list_versions" }
       );
       const runtimeContext = getStructuredData<{
@@ -361,11 +369,11 @@ describe("routeledger mcp registry", () => {
         title: "must not write",
         idempotencyKey: "untrusted-request-create"
       });
-      const applicationError = await registry.invoke("inspect_route", {
+      const applicationError = await registry.invoke("inspect_versions", {
         operation: "list_versions",
         projectId: "untrusted-request-project"
       });
-      const inputError = await registry.invoke("inspect_route", {
+      const inputError = await registry.invoke("inspect_route_progress", {
         operation: "get_current_context",
         projectId: 42
       } as any);
@@ -458,7 +466,7 @@ describe("routeledger mcp registry", () => {
         firstVersion: { id: string };
       }).firstVersion!.id;
 
-      const defaultGateResponse = await defaultRegistry.invoke("inspect_route", {
+      const defaultGateResponse = await defaultRegistry.invoke("inspect_versions", {
         operation: "check_start_gate",
         projectId: defaultProjectId,
         versionId: defaultVersionId
@@ -479,13 +487,13 @@ describe("routeledger mcp registry", () => {
         firstVersion: { id: string };
       };
 
-      const enabledGateResponse = await enabledRegistry.invoke("inspect_route", {
+      const enabledGateResponse = await enabledRegistry.invoke("inspect_versions", {
         operation: "check_start_gate",
         projectId: enabledData.project.id,
         versionId: enabledData.firstVersion!.id
       });
       expect(enabledGateResponse.ok).toBe(true);
-      const failureResponse = await enabledRegistry.invoke("inspect_route", {
+      const failureResponse = await enabledRegistry.invoke("inspect_route_progress", {
         operation: "get_current_context",
         projectId: "missing-project"
       });
@@ -507,7 +515,7 @@ describe("routeledger mcp registry", () => {
         }),
         expect.objectContaining({
           type: "tool.failure",
-          toolName: "inspect_route",
+          toolName: "inspect_route_progress",
           projectId: "missing-project",
           actorId: "debug-agent",
           actorDisplayName: "Debug Agent",
@@ -578,20 +586,20 @@ describe("routeledger mcp registry", () => {
       const contextResponse = await callTool(
         server,
         "get-context",
-        "inspect_route",
+        "inspect_route_progress",
         {
           operation: "get_current_context",
           projectId
         }
       );
-      const nextActionResponse = await callTool(server, "next-action", "inspect_route", {
+      const nextActionResponse = await callTool(server, "next-action", "inspect_route_progress", {
         operation: "next_action",
         projectId
       });
       const summarizeVersionCloseoutResponse = await callTool(
         server,
         "summarize-closeout",
-        "inspect_route",
+        "inspect_route_progress",
         {
           operation: "summarize_version_closeout",
           projectId
@@ -600,7 +608,7 @@ describe("routeledger mcp registry", () => {
       const planVersionCloseoutResponse = await callTool(
         server,
         "plan-closeout",
-        "inspect_route",
+        "inspect_route_progress",
         {
           operation: "plan_version_closeout",
           projectId
@@ -609,7 +617,7 @@ describe("routeledger mcp registry", () => {
       const listVersionsWindowResponse = await callTool(
         server,
         "list-versions-window",
-        "inspect_route",
+        "inspect_versions",
         {
           operation: "list_versions_window",
           projectId
@@ -851,7 +859,7 @@ describe("routeledger mcp registry", () => {
         id: "bad-call",
         method: "tools/call",
         params: {
-          name: "inspect_route",
+          name: "inspect_route_progress",
           arguments: "nope"
         }
       })) as JsonRpcResponse;

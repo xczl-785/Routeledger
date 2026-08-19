@@ -10,7 +10,8 @@ rules.
 1. Each MCP process has one binding. Discovery and planning tools can inspect
    candidates, but do not switch a running process to a different project.
 2. Non-read-only tools require a matching absolute `expectedRouteLedgerRoot`,
-   including `dry_run` operations on `propose_route_change` and
+   including preview or `dry_run` operations on the three public
+   `propose_*_change` tools and
    `execute_route_change`. Those previews remain
    write/high-risk MCP operations:
    binding preflight blocks unbound, invalid, or uninitialized operations
@@ -35,7 +36,7 @@ rules.
    creating canonical events. Every mismatch fails closed.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
-7. `inspect_route(operation="next_action")` follows the version lifecycle: a current `wait` version
+7. `inspect_route_progress(operation="next_action")` follows the version lifecycle: a current `wait` version
    recommends `set_version_state(operation="prepare")`, while a current `ready` version with a passing
    start gate recommends `start_version`. Gate blockers, due Deferred work,
    pending proposals, shutdown state, and pointer drift retain higher priority.
@@ -59,7 +60,7 @@ rules.
     default language agents should use for new project content, and the
     write-integrity gate. It does
     not claim translation of user-authored or existing project content.
-12. `inspect_route(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
+12. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
     current Version ID, title, and state. It returns every recognized,
     mismatched, and non-detected assertion under `checkedAssertions`, and its
     `coverage.level` remains `partial`; zero warnings never claims complete
@@ -68,14 +69,14 @@ rules.
     Omitting `firstVersion` creates a valid empty route with nullable current
     and legacy-initial pointers. An explicit `firstVersion` creates the first
     current `wait` node and its `initialTodos` in the same aggregate write.
-14. On an empty route, the first approved `propose_route_change(operation="propose_version_creation")` commit creates the
+14. On an empty route, the first approved `propose_version_structure_change(operation="propose_version_creation")` commit creates the
     node and assigns it as current atomically. Batch creation requires an
     explicit `setCurrentTo`. A closed top-level tail may receive an append-only
     successor through single or batch creation without reopening or replacing
     that historical node; insertion before closed history, reordering it,
     changing its parent, and adding children beneath it remain forbidden. The
     continuation records `version.successor_appended`. For ordinary forward progress from a closed
-    current Version to its ready direct successor, `propose_route_change(operation="propose_version_advance")`
+    current Version to its ready direct successor, `propose_version_lifecycle_change(operation="propose_version_advance")`
     performs current-switch and start under one proposal, digest, approval
     artifact, operation ID, and aggregate save. A blocked gate returns
     structured blockers without creating a pending proposal.
@@ -84,12 +85,13 @@ rules.
     reload. A lossy adapter fails early and the new proposal is rolled back.
     Equal-timestamp Todos created by one batch retain their explicit input
     order through their creation-event sequence.
-16. The public registry exposes exactly 11 task-level tools. Multi-operation
+16. The public registry exposes exactly 15 task-level tools. Multi-operation
     tools select behavior with `operation`; business fields named `action`
     remain available without colliding with dispatch. Internal capability
     registrations and persisted L3 `actionType` values do not change.
-17. The public risk split is 2 read-only tools (`inspect_runtime`,
-    `inspect_route`), 8 ordinary write tools, and one high-risk tool
+17. The public risk split is 4 read-only tools (`inspect_runtime`,
+    `inspect_route_progress`, `inspect_versions`, and
+    `inspect_l3_route_operations`), 10 ordinary write tools, and one high-risk tool
     (`execute_route_change`). Host binding config rendering/writing remains an
     internal/CLI installation capability rather than an Agent-facing MCP tool.
 

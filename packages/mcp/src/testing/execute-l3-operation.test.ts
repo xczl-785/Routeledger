@@ -131,7 +131,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         }
       });
 
-      const proposals = await registry.invoke("inspect_route", {
+      const proposals = await registry.invoke("inspect_l3_route_operations", {
         operation: "list_l3_proposals",
         projectId
       });
@@ -186,7 +186,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
           details: { reason: "IDEMPOTENCY_KEY_REUSE_MISMATCH" }
         }
       });
-      const proposals = await registry.invoke("inspect_route", {
+      const proposals = await registry.invoke("inspect_l3_route_operations", {
         operation: "list_l3_proposals",
         projectId
       });
@@ -201,7 +201,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);
     try {
-      expect(registry.getTool("propose_route_change")).toBeDefined();
+      expect(registry.getTool("propose_l3_route_change")).toBeDefined();
       const executeTool = registry.getTool("execute_route_change");
       expect(executeTool).toBeDefined();
       const operations = (executeTool!.inputSchema.oneOf as Array<{
@@ -277,7 +277,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
           }
         }
       });
-      const status = await registry.invoke("inspect_route", {
+      const status = await registry.invoke("inspect_l3_route_operations", {
         operation: "get_l3_authorization_status",
         detail: "internal"
       });
@@ -296,7 +296,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
           recommendedNextActions: []
         }
       });
-      const proposals = await registry.invoke("inspect_route", {
+      const proposals = await registry.invoke("inspect_l3_route_operations", {
         operation: "list_l3_proposals",
         projectId
       });
@@ -333,8 +333,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         versionId
       });
 
-      const proposed = await registry.invoke("propose_route_change", {
-        operation: "propose_l3_operation",
+      const proposed = await registry.invoke("propose_l3_route_change", {
         projectId,
         actionType: "start_version",
         targetId: versionId,
@@ -399,7 +398,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         contentLocale: "en",
         firstVersion: { title: "Initial Version", initialTodos: [] }
       });
-      const response = await registry.invoke("inspect_route", {
+      const response = await registry.invoke("inspect_l3_route_operations", {
         operation: "get_l3_authorization_status"
       });
       expect(response).toMatchObject({

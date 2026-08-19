@@ -653,7 +653,7 @@ describe("local L3 authorization runtime", () => {
       expectedRouteLedgerRoot: workspaceRoot
     });
     const projectId = (initialized.data as { project: { id: string } }).project.id;
-    const proposalResponse = await bootstrap.invoke("propose_route_change", {
+    const proposalResponse = await bootstrap.invoke("propose_version_structure_change", {
       operation: "propose_version_creation",
       projectId,
       title: "V1",
@@ -662,7 +662,7 @@ describe("local L3 authorization runtime", () => {
     });
     const pendingOperationId = (proposalResponse.error!.details as { pendingOperationId: string })
       .pendingOperationId;
-    const recommended = await bootstrap.invoke("inspect_route", {
+    const recommended = await bootstrap.invoke("inspect_l3_route_operations", {
       operation: "recommend_l3_authorization_policy",
       projectId
     });

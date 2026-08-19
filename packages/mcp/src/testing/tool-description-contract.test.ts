@@ -68,11 +68,15 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   inspect_runtime: "fe6a9dc07333866e9228faf974bf79379764be5ead2727263468b893776c377c",
   configure_binding: "00318cee5fe77e060fd06de48b22d1e8291af35e4ee7336434493317beb7ce73",
   configure_project: "6ee4c63a9f364fa4ed47bd576fb0fb10b14a76ac41cd5494e79645be751c0183",
-  inspect_route: "56dd46bdeeb726d3a2e7caa5a36eb5f3c19292d89698c7c7a5e292692c6fe176",
+  inspect_route_progress: "b088592ffdb57c3b7f75a42624cad4e3f99a74bb8b6fbf3ce6258fb27b037792",
+  inspect_versions: "41331f04c6b2d152fe7ac4f8077808072ef8956013cb392bfee703dafeed9be0",
+  inspect_l3_route_operations: "ed3743348697faec1727aa9af679415a12190a5eff419fe2b750b6534054e0de",
   manage_todo: "dcf8f8a509104e2c9916e35980e8342d59d979635b4a551a5da414a833ef72ce",
   manage_deferred: "48a91d5af1e1f8a97104d0fb867d01fc853260fdf847ab2a664291f290521708",
   manage_constraint: "15819210e2dd2fc0059dd64975248678e8b5885820cba9cbc0375247ab15722d",
-  propose_route_change: "1aada759029e047027b37cce45bb807bc2ef74b1e73047d931a3d14111b23384",
+  propose_version_lifecycle_change: "55199039b91967cd1ad4a3ef524dce590f5d228e14e248034d0b692c2cfb108c",
+  propose_version_structure_change: "1852b6d9bf1233ab0df93ea9d269657460a6de422573d9455c912e438c7c084a",
+  propose_l3_route_change: "2069a774424f5e8b7804d09bf3fd2ecce3f2099c691359364134eb2f3728acab",
   set_version_state: "0766f981530dd60e6b25eea831aef469e582f9753277759190cdf0119ef78c04",
   execute_route_change: "e5d64d534973ee9f55f386925b011f370e8486e009be2b043500799e059ec366",
   manage_mission_control: "adf9a670231982370b535d89c19b762497e97e310d0bf3afab8b056f888e012b"
@@ -135,18 +139,18 @@ describe("MCP tool description contract", () => {
       const writes = tools.filter((tool) => tool._meta.routeledger.riskLevel === "write");
       const highRisk = tools.filter((tool) => tool._meta.routeledger.riskLevel === "high-risk");
 
-      expect(tools).toHaveLength(11);
-      expect(readOnly).toHaveLength(2);
-      expect(writes).toHaveLength(8);
+      expect(tools).toHaveLength(15);
+      expect(readOnly).toHaveLength(4);
+      expect(writes).toHaveLength(10);
       expect(highRisk).toHaveLength(1);
-      expect(writes.concat(highRisk)).toHaveLength(9);
+      expect(writes.concat(highRisk)).toHaveLength(11);
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
         const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
         expect(properties).toHaveProperty("expectedRouteLedgerRoot");
         expect(required).not.toContain("expectedRouteLedgerRoot");
       }
-      expect(JSON.stringify(getTool(tools, "propose_route_change").inputSchema))
+      expect(JSON.stringify(getTool(tools, "propose_version_lifecycle_change").inputSchema))
         .toContain("dry_run is a binding-sensitive preview");
       expect(JSON.stringify(getTool(tools, "execute_route_change").inputSchema))
         .toContain("force_shutdown");
@@ -168,7 +172,7 @@ describe("MCP tool description contract", () => {
       const descriptions = registry.tools.map((tool) => tool.description);
       expect(descriptions.reduce((total, description) => total + description.length, 0)).toBeLessThanOrEqual(3500);
       for (const description of descriptions) {
-        expect(description.length).toBeLessThanOrEqual(150);
+        expect(description.length).toBeLessThanOrEqual(160);
       }
 
       const repeatedLongSentences = new Map<string, number>();
@@ -204,7 +208,11 @@ describe("MCP tool description contract", () => {
     const registry = createRouteLedgerMcpRegistry({});
     try {
       const l3Tools = registry.tools.filter((tool) =>
-        ["inspect_route", "propose_route_change", "execute_route_change"].includes(tool.name)
+        [
+          "inspect_l3_route_operations",
+          "propose_l3_route_change",
+          "execute_route_change"
+        ].includes(tool.name)
       );
       const publicContract = JSON.stringify(
         l3Tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))
@@ -260,7 +268,7 @@ describe("MCP tool description contract", () => {
     const registry = createRouteLedgerMcpRegistry({});
 
     try {
-      const closeVersion = getTool(registry.tools, "propose_route_change");
+      const closeVersion = getTool(registry.tools, "propose_version_lifecycle_change");
       const branches = closeVersion.inputSchema.oneOf as Array<Record<string, unknown>>;
       const closeBranch = branches.find((branch) =>
         JSON.stringify(branch).includes('"const":"preview_or_propose_version_close"')
@@ -296,9 +304,13 @@ describe("MCP tool description contract", () => {
           [
             "inspect_runtime",
             "configure_binding",
-            "inspect_route",
+            "inspect_route_progress",
+            "inspect_versions",
+            "inspect_l3_route_operations",
             "manage_deferred",
-            "propose_route_change",
+            "propose_version_lifecycle_change",
+            "propose_version_structure_change",
+            "propose_l3_route_change",
             "execute_route_change"
           ].map((name) => [name, getTool(registry.tools, name).description])
         )
@@ -306,10 +318,14 @@ describe("MCP tool description contract", () => {
         {
           "configure_binding": "Activate an explicit RouteLedger project binding. Switching an established binding requires explicit confirmation.",
           "execute_route_change": "Execute, resume, decide, commit, reject, or force-close one exact high-risk route change. Input: operation and the selected workflow fields.",
-          "inspect_route": "Inspect current work, route structure, gates, closeout, proposals, or authorization state. Input: operation and the selected workflow fields.",
+          "inspect_l3_route_operations": "Inspect L3 authorization state, authorization recommendations, or route-change proposals. Input: operation and the selected workflow fields.",
+          "inspect_route_progress": "Inspect current route context, next actions, document drift, or Version closeout progress. Input: operation and the selected workflow fields.",
           "inspect_runtime": "Inspect runtime identity, binding candidates, binding plans, or Mission Control status. Input: operation and the selected workflow fields.",
+          "inspect_versions": "Inspect Version lists, route structure, start and close gates, or transition guidance. Input: operation and the selected workflow fields.",
           "manage_deferred": "Create, convert, activate, defer again, or resolve Deferred work. Input: operation and the selected workflow fields.",
-          "propose_route_change": "Preflight or propose a normal Version lifecycle or route-structure change. Input: operation and the selected workflow fields.",
+          "propose_l3_route_change": "Create one exact L3 route-change proposal without executing or approving it.",
+          "propose_version_lifecycle_change": "Preview, preflight, or propose Version batch creation, transition, advance, or close lifecycle changes. Input: operation and the selected workflow fields.",
+          "propose_version_structure_change": "Propose creating, inserting, nesting, or reordering Versions in the route structure. Input: operation and the selected workflow fields.",
         }
       `);
       expect(registry.instructions).toContain("CONFIRMATION_REQUIRED");

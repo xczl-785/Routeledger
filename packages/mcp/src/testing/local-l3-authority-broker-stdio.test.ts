@@ -145,7 +145,7 @@ describe("stdio host authority broker binding", () => {
         id: "status",
         method: "tools/call",
         params: {
-          name: "inspect_route",
+          name: "inspect_l3_route_operations",
           arguments: { operation: "get_l3_authorization_status" }
         }
       }
@@ -245,7 +245,7 @@ describe("stdio host authority broker binding", () => {
       });
       expect(activation).toMatchObject({ result: { structuredContent: { ok: true } } });
 
-      const status = await call(server, "status", "inspect_route", {
+      const status = await call(server, "status", "inspect_l3_route_operations", {
         operation: "get_l3_authorization_status"
       });
       expect(status).toMatchObject({

@@ -13,6 +13,7 @@ const agentFacingFiles = [
   "examples/config/codex.config.toml"
 ];
 const removedPublicTools = [
+  "inspect_route", "propose_route_change",
   "create_undo", "reassign_undo", "carry_forward_undo", "resolve_undo_as_downstream_input", "close_undo",
   "get_runtime_context", "get_l3_authorization_status", "recommend_l3_authorization_profile",
   "discover_routeledger_roots", "plan_routeledger_binding", "activate_routeledger_binding",

@@ -42,13 +42,26 @@ const resolveSmokeOptions = (argv) => {
   };
 };
 
-const run = (command, args, options = {}) =>
-  execFileSync(command, args, {
+const run = (command, args, options = {}) => {
+  const executionOptions = {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     ...options
-  });
+  };
+
+  if (process.platform === "win32" && command === npmCommand) {
+    const quoteForCmd = (value) =>
+      /[\s"]/u.test(value) ? `"${value.replace(/"/gu, '\\"')}"` : value;
+    return execFileSync(
+      process.env.ComSpec ?? "cmd.exe",
+      ["/d", "/s", "/c", [command, ...args].map(quoteForCmd).join(" ")],
+      executionOptions
+    );
+  }
+
+  return execFileSync(command, args, executionOptions);
+};
 
 const readTarballPackageJson = async (tarballPath) => {
   const archive = gunzipSync(await fs.readFile(tarballPath));
@@ -188,7 +201,7 @@ const assertDirectImportProfile = async ({
       );
     }
 
-    const missionControlTools = ["open_mission_control", "get_mission_control_status", "stop_mission_control"];
+    const missionControlTools = ["inspect_runtime", "manage_mission_control"];
     for (const toolName of missionControlTools) {
       const exposed = registry.getTool(toolName) !== undefined;
       if (!exposed) {
@@ -196,7 +209,8 @@ const assertDirectImportProfile = async ({
       }
     }
 
-    const status = await registry.invoke("get_mission_control_status", {
+    const status = await registry.invoke("inspect_runtime", {
+      operation: "mission_control_status",
       workspaceRoot,
       routeledgerRoot
     });
@@ -239,13 +253,14 @@ const assertPackagedIdempotencyRestart = async ({
   let firstClose;
 
   try {
-    firstCreate = await registry.invoke("create_todo", createInput);
+    firstCreate = await registry.invoke("manage_todo", { operation: "create", ...createInput });
     if (!firstCreate.ok || firstCreate.data?.idempotency?.replayed !== false) {
       throw new Error(
         `Packaged create_todo did not commit an idempotency receipt: ${JSON.stringify(firstCreate)}`
       );
     }
-    firstClose = await registry.invoke("close_todo", {
+    firstClose = await registry.invoke("manage_todo", {
+      operation: "close",
       projectId: initialized.project.id,
       todoId: firstCreate.data.todo.id,
       reason: "package smoke complete",
@@ -264,8 +279,9 @@ const assertPackagedIdempotencyRestart = async ({
 
   registry = createRegistry();
   try {
-    const replayedCreate = await registry.invoke("create_todo", createInput);
-    const replayedClose = await registry.invoke("close_todo", {
+    const replayedCreate = await registry.invoke("manage_todo", { operation: "create", ...createInput });
+    const replayedClose = await registry.invoke("manage_todo", {
+      operation: "close",
       projectId: initialized.project.id,
       todoId: firstCreate.data.todo.id,
       reason: "package smoke complete",
@@ -285,7 +301,8 @@ const assertPackagedIdempotencyRestart = async ({
         `Packaged ordinary writes did not replay after registry restart: ${JSON.stringify({ replayedCreate, replayedClose })}`
       );
     }
-    const conflict = await registry.invoke("close_todo", {
+    const conflict = await registry.invoke("manage_todo", {
+      operation: "close",
       projectId: initialized.project.id,
       todoId: firstCreate.data.todo.id,
       reason: "package smoke complete",
@@ -368,8 +385,9 @@ const runStdioSmoke = async ({
       id: "init-project",
       method: "tools/call",
       params: {
-        name: "init_project",
+        name: "configure_project",
         arguments: {
+          operation: "initialize",
           name: "Packaged MCP Runtime Smoke",
           contentLocale: "en",
           firstVersion: {
@@ -388,8 +406,8 @@ const runStdioSmoke = async ({
       id: "runtime-context",
       method: "tools/call",
       params: {
-        name: "get_runtime_context",
-        arguments: {}
+        name: "inspect_runtime",
+        arguments: { operation: "runtime" }
       }
     })}\n`
   );
@@ -430,7 +448,7 @@ const runStdioSmoke = async ({
     throw new Error("tools/list response did not include RouteLedger tools.");
   }
   const listedToolNames = stdoutLines[1].result.tools.map((tool) => tool.name);
-  const missionControlToolNames = ["open_mission_control", "get_mission_control_status", "stop_mission_control"];
+  const missionControlToolNames = ["manage_mission_control"];
   for (const toolName of missionControlToolNames) {
     if (!listedToolNames.includes(toolName)) {
       throw new Error(`${profileName} tools/list did not expose ${toolName}.`);
@@ -438,33 +456,34 @@ const runStdioSmoke = async ({
   }
 
   if (stdoutLines[2]?.result?.structuredContent?.ok !== true) {
-    throw new Error("init_project did not report a successful canonical JSON write.");
+    throw new Error("configure_project(operation=initialize) did not report a successful canonical JSON write.");
   }
 
   const runtimeContext = stdoutLines[3]?.result?.structuredContent?.data;
   if (runtimeContext?.binding?.workspaceRoot !== workspaceRoot) {
-    throw new Error("get_runtime_context did not bind workspaceRoot from initialize rootUri.");
+    throw new Error("inspect_runtime(operation=runtime) did not bind workspaceRoot from initialize rootUri.");
   }
   if (runtimeContext?.binding?.workspaceRootSource !== "mcp_roots") {
-    throw new Error("get_runtime_context did not report workspaceRootSource=mcp_roots.");
+    throw new Error("inspect_runtime(operation=runtime) did not report workspaceRootSource=mcp_roots.");
   }
   if (runtimeContext?.binding?.routeledgerRoot !== routeledgerRoot) {
-    throw new Error("get_runtime_context did not resolve routeledgerRoot from workspace config.");
+    throw new Error("inspect_runtime(operation=runtime) did not resolve routeledgerRoot from workspace config.");
   }
 
   if (runtimeContext?.storage?.sqliteReadModel !== sqliteReadModel) {
-    throw new Error(`get_runtime_context did not report sqliteReadModel=${sqliteReadModel}.`);
+    throw new Error(`inspect_runtime(operation=runtime) did not report sqliteReadModel=${sqliteReadModel}.`);
   }
   if (runtimeContext?.runtimeProfile !== profileName) {
-    throw new Error(`get_runtime_context did not report runtimeProfile=${profileName}.`);
+    throw new Error(`inspect_runtime(operation=runtime) did not report runtimeProfile=${profileName}.`);
   }
   if (
     runtimeContext?.missionControl?.status !== "stopped" ||
     runtimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
-    runtimeContext?.missionControl?.recommendedAction?.tool !== "open_mission_control"
+    runtimeContext?.missionControl?.recommendedAction?.tool !== "manage_mission_control" ||
+    runtimeContext?.missionControl?.recommendedAction?.arguments?.operation !== "open"
   ) {
     throw new Error(
-      `get_runtime_context did not report executable Mission Control startup guidance: ${JSON.stringify(runtimeContext?.missionControl)}`
+      `inspect_runtime(operation=runtime) did not report executable Mission Control startup guidance: ${JSON.stringify(runtimeContext?.missionControl)}`
     );
   }
   if (
@@ -474,7 +493,7 @@ const runStdioSmoke = async ({
     runtimeContext?.runtimeIdentity?.pluginVersion !== null ||
     typeof runtimeContext?.runtimeIdentity?.runtimePayloadDigest !== "string"
   ) {
-    throw new Error("get_runtime_context did not report the generated package runtime identity.");
+    throw new Error("inspect_runtime(operation=runtime) did not report the generated package runtime identity.");
   }
   const sourceTreeState = runtimeContext.runtimeIdentity.sourceTreeState;
   if (
@@ -486,7 +505,7 @@ const runStdioSmoke = async ({
   }
   const initializeIdentity = stdoutLines[0]?.result?.serverInfo?.runtimeIdentity;
   if (JSON.stringify(initializeIdentity) !== JSON.stringify(runtimeContext.runtimeIdentity)) {
-    throw new Error("initialize serverInfo and get_runtime_context reported different runtime identities.");
+    throw new Error("initialize serverInfo and inspect_runtime(operation=runtime) reported different runtime identities.");
   }
 
   return {
@@ -610,10 +629,10 @@ const main = async () => {
       const canonicalJsonPath = path.join(routeledgerRoot, ".routeledger", "project.json");
       const sqliteDbPath = path.join(routeledgerRoot, ".routeledger", "db", "routeledger.sqlite3");
       if (!(await fs.stat(canonicalJsonPath).catch(() => null))) {
-        throw new Error("JSON-only init_project did not create canonical JSON.");
+        throw new Error("JSON-only configure_project(operation=initialize) did not create canonical JSON.");
       }
       if (await fs.stat(sqliteDbPath).catch(() => null)) {
-        throw new Error("JSON-only init_project unexpectedly created a SQLite database.");
+        throw new Error("JSON-only configure_project(operation=initialize) unexpectedly created a SQLite database.");
       }
       if (runtimeContext?.storage?.mode !== "json") {
         throw new Error("JSON-only runtime context did not report storage mode=json.");
@@ -630,7 +649,7 @@ const main = async () => {
     } else {
       process.env.XDG_STATE_HOME = previousXdgStateHome;
     }
-    await fs.rm(tmpRoot, { recursive: true, force: true });
+    await fs.rm(tmpRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 };
 
