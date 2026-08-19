@@ -1,7 +1,7 @@
 {
   "name": "routeledger",
-  "version": "0.9.5",
-  "description": "Clear proposal-oriented tool names, accurate MCP annotations, and structured output contracts.",
+  "version": "0.9.6",
+  "description": "Agent-friendly proposal outcomes, binding guidance, and actionable validation errors.",
   "author": {
     "name": "RouteLedger"
   },

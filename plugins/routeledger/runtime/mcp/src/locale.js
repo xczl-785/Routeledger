@@ -104,6 +104,7 @@ const EN_CODE_MESSAGES = {
     PENDING_OPERATION_PERSISTENCE_MISMATCH: "The persisted pending operation did not match its digest, so commit was blocked."
 };
 const ZH_ACTION_DESCRIPTIONS = {
+    propose_downstream_version: "先提出下游 Version，完成其审批流程，再重试 Deferred 操作。",
     inspect_runtime: "读取当前 binding 和 runtime 摘要后再重试。",
     inspect_workspace: "初始化前检查 workspaceRoot 内是否已有 RouteLedger 项目。",
     plan_binding: "在修改 host 配置或初始化前规划 binding 目标。",
@@ -131,6 +132,7 @@ const EN_ACTION_DESCRIPTIONS = {
     set_project_content_locale: "Set the existing project to the concrete content_locale confirmed by the user.",
     continue_route: "The Todo is already closed; do not retry the write and continue with the route.",
     choose_legal_deferred_target: "Choose a legal downstream Version from eligibleTargetVersions and retry the Deferred operation.",
+    propose_downstream_version: "Propose a downstream Version, complete its approval flow, then retry the Deferred operation.",
     inspect_version_structure: "Inspect the current Version structure and legal operations before retrying.",
     retry_create_version: "Retry propose_version_creation against the current route; do not reuse a stale tail ID as the new target.",
     reject_stale_proposal: "Reject the stale proposal before creating a replacement.",

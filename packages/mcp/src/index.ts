@@ -459,7 +459,7 @@ const createInstructions = (options: {
     "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
     "Tool approval metadata is only a host-policy hint and never replaces binding or L3 authorization.",
     "L3 route changes are proposal-based: execute_route_change preserves the exact proposal, decision, artifact, and commit chain behind one high-risk public entrypoint. Project files are never authorization authority.",
-    "Business failures such as CONFIRMATION_REQUIRED are returned as tool-level isError results, not JSON-RPC protocol errors.",
+    "A persisted proposal is returned as ok=true with status=confirmation_required; confirmation failures that perform no write remain tool-level isError results, not JSON-RPC protocol errors.",
     "The only public high-risk tool is execute_route_change. Forced shutdown and exact L3 execution remain explicit actions; Codex gates the call before RouteLedger issues an exact single-use capability, while generic MCP hosts require trusted authority, preauthorization, or elicitation.",
     `Current host profile: ${hostLabel}. Default actor: ${actorLabel}. Default approver: ${approverLabel}.`
   ].join(" ");
@@ -730,6 +730,61 @@ const projectPublicToolReferences = (value: unknown): unknown => {
   return record;
 };
 
+const buildPersistedProposalResponse = (
+  error: unknown,
+  context: ToolErrorContext
+): ToolResponse | null => {
+  if (
+    !(error instanceof ApplicationError) ||
+    error.code !== "CONFIRMATION_REQUIRED" ||
+    context.toolName !== "propose_version_structure_change" ||
+    error.details === undefined
+  ) {
+    return null;
+  }
+  const proposal = error.details.proposal;
+  if (
+    proposal === null ||
+    typeof proposal !== "object" ||
+    Array.isArray(proposal) ||
+    typeof (proposal as Record<string, unknown>).id !== "string"
+  ) {
+    return null;
+  }
+  const pendingOperationId = (proposal as Record<string, unknown>).id as string;
+  const projectId = context.input.projectId;
+  const nextActionInput = {
+    ...(typeof projectId === "string" ? { projectId } : {}),
+    pendingOperationId
+  };
+  return {
+    ok: true,
+    data: {
+      status: "confirmation_required",
+      proposalPersisted: true,
+      pendingOperationId,
+      proposal,
+      ...(typeof error.details.digest === "string" ? { digest: error.details.digest } : {}),
+      ...(typeof error.details.humanReviewText === "string"
+        ? { humanReviewText: error.details.humanReviewText }
+        : {}),
+      recommendedNextActions: [
+        {
+          action: "approve",
+          tool: "approve_l3_operation",
+          input: nextActionInput
+        },
+        {
+          action: "reject",
+          tool: "reject_l3_operation",
+          input: nextActionInput,
+          requiredInputs: ["reason"]
+        }
+      ]
+    }
+  };
+};
+
 const STALE_PROPOSAL_ACTION_DESCRIPTIONS: Record<string, string> = {
   reject_stale_proposal: "Reject the stale proposal before creating a replacement.",
   refresh_context: "Refresh the current route and work context.",
@@ -837,6 +892,31 @@ const buildToolErrorRecovery = (
           ]
         : []
     );
+    if (eligibleTargetVersions.length === 0) {
+      const projectId = context.input.projectId;
+      return {
+        recoveryState: "downstream_version_required",
+        currentState: "no_downstream_version",
+        expectedState: "downstream_version",
+        blockedReason: error.code,
+        safeToRetry: false,
+        writesPerformed: false,
+        artifactConsumed: false,
+        recommendedNextActions: [
+          {
+            type: "propose_downstream_version",
+            tool: "propose_version_creation",
+            description:
+              "Propose a downstream Version, complete its approval flow, then retry the Deferred operation with that Version ID.",
+            toolInput: {
+              operation: "propose_version_creation",
+              ...(typeof projectId === "string" ? { projectId } : {})
+            },
+            requiredInputs: ["title"]
+          }
+        ]
+      };
+    }
     return {
       recoveryState: "retry_with_legal_target",
       currentState: "invalid_target",
@@ -848,16 +928,7 @@ const buildToolErrorRecovery = (
       recommendedNextActions:
         retryActions.length > 0
           ? retryActions
-          : [
-              {
-                type: "choose_legal_deferred_target",
-                tool: context.toolName,
-                description:
-                  "Choose one of eligibleTargetVersions and retry the Deferred operation with that Version ID.",
-                toolInput: { ...context.input },
-                requiredInputs: ["targetReviewVersionId"]
-              }
-            ]
+          : []
     };
   }
 
@@ -1645,6 +1716,46 @@ export const createRouteLedgerMcpRegistry = (
   ): Promise<ToolResponse> => {
     const binding = readBinding();
     const runtimeContext = await getRuntimeContextData(binding);
+    const activatedBindingPlan: RouteLedgerBindingPlanResult = {
+      ...pendingRebind.bindingPlan,
+      status: pendingRebind.requiresInit ? "needs_init" : "ready",
+      currentBinding: {
+        status: runtimeContext.binding.status,
+        workspaceRoot: runtimeContext.binding.workspaceRoot,
+        routeledgerRoot: runtimeContext.binding.routeledgerRoot,
+        workspaceConfigPath: runtimeContext.binding.workspaceConfigPath,
+        dataRoot: runtimeContext.binding.dataRoot,
+        routeledgerDir: runtimeContext.binding.routeledgerDir,
+        jsonProjectPath: runtimeContext.binding.jsonProjectPath,
+        sqliteDbPath: runtimeContext.binding.sqliteDbPath
+      },
+      requiresUserDecision: pendingRebind.requiresInit,
+      requiresHostConfigUpdate: false,
+      requiresServerRestart: false,
+      sessionActivation: {
+        available: false,
+        required: false,
+        action: null
+      },
+      persistentHostBinding: {
+        requiredForFutureSessions: false,
+        requiresHostConfigUpdate: false,
+        requiresServerRestart: false
+      },
+      recommendedNextActions: pendingRebind.requiresInit
+        ? [
+            {
+              type: "initialize_routeledger",
+              tool: "configure_project",
+              description:
+                "Initialize RouteLedger at the active root after confirming the project name and content locale.",
+              requiresUserDecision: true,
+              requiredFields: ["name", "contentLocale"],
+              toolInput: { operation: "initialize" }
+            }
+          ]
+        : []
+    };
 
     return {
       ok: true,
@@ -1654,7 +1765,7 @@ export const createRouteLedgerMcpRegistry = (
         previousBinding: pendingRebind.previousBinding,
         activeBinding: runtimeContext.binding,
         requiresInit: pendingRebind.requiresInit,
-        bindingPlan: pendingRebind.bindingPlan
+        bindingPlan: activatedBindingPlan
       },
       meta: withRuntimeContextMeta({
         data:
@@ -1765,17 +1876,23 @@ export const createRouteLedgerMcpRegistry = (
           toolName
         );
       } catch (error) {
-        const response = toToolError(error, {
+        const errorContext = {
           toolName,
           input: input ?? {}
-        });
+        };
+        const persistedProposalResponse = buildPersistedProposalResponse(error, errorContext);
+        const response = persistedProposalResponse ?? toToolError(error, errorContext);
         await appendDebugLog(toolName, {
-          type: "tool.failure",
+          type:
+            persistedProposalResponse === null
+              ? "tool.failure"
+              : "tool.pending_confirmation",
           projectId: readStringField(input, "projectId"),
           versionId: readDebugVersionId(input),
           pendingOperationId: readDebugPendingOperationId(input),
           payload: {
-            error: response.error,
+            ...(response.error === undefined ? {} : { error: response.error }),
+            ...(response.data === undefined ? {} : { data: response.data }),
             inputKeys: Object.keys(input ?? {}).sort()
           }
         });

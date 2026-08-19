@@ -32,6 +32,36 @@ const structured = (response: unknown) =>
   (response as { result: { structuredContent: { data?: unknown; error?: unknown } } }).result
     .structuredContent;
 
+const confirmationRequired = (response: unknown) => {
+  const content = structured(response) as {
+    ok?: boolean;
+    data?: {
+      status?: string;
+      proposalPersisted?: boolean;
+      pendingOperationId?: string;
+      proposal?: { id: string; targetId: string };
+    };
+  };
+  expect(content).toMatchObject({
+    ok: true,
+    data: {
+      status: "confirmation_required",
+      proposalPersisted: true,
+      pendingOperationId: expect.any(String),
+      proposal: { id: expect.any(String), targetId: expect.any(String) }
+    }
+  });
+  if (content.data?.pendingOperationId === undefined || content.data.proposal === undefined) {
+    throw new Error(JSON.stringify(content, null, 2));
+  }
+  expect(content.data.proposal.id).toBe(content.data.pendingOperationId);
+  return {
+    ...content.data,
+    pendingOperationId: content.data.pendingOperationId,
+    proposal: content.data.proposal
+  };
+};
+
 const profileFor = (input: {
   mode: L3AuthorizationMode;
   projectId: string;
@@ -117,13 +147,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
       });
-      if (!(structured(createResponse).error as { details?: { pendingOperationId?: string } })?.details
-        ?.pendingOperationId) {
-        throw new Error(JSON.stringify(structured(createResponse), null, 2));
-      }
-      const pendingOperationId = (
-        structured(createResponse).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
+      const pendingOperationId = confirmationRequired(createResponse).pendingOperationId;
 
       const approvalPromise = call(server, "approve", "execute_route_change", {
         operation: "approve_l3_operation",
@@ -215,9 +239,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
       });
-      const pendingOperationId = (
-        structured(createResponse).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
+      const pendingOperationId = confirmationRequired(createResponse).pendingOperationId;
       fs.writeFileSync(
         path.join(projectRoot, ".routeledger", "l3-authorization.json"),
         '{"mode":"delegated","rules":[{"effect":"allow"}]}\n',
@@ -275,9 +297,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
       });
-      const pendingOperationId = (
-        structured(createResponse).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
+      const pendingOperationId = confirmationRequired(createResponse).pendingOperationId;
       const approvalPromise = call(server, "approve", "execute_route_change", {
         operation: "approve_l3_operation",
         projectId,
@@ -357,9 +377,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
       });
-      const pendingOperationId = (
-        structured(created).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
+      const pendingOperationId = confirmationRequired(created).pendingOperationId;
       const approval = await call(server, "approve", "execute_route_change", {
         operation: "approve_l3_operation",
         projectId,
@@ -477,9 +495,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
       });
-      const details = (structured(createResponse).error as {
-        details: { pendingOperationId: string; targetId: string };
-      }).details;
+      const details = confirmationRequired(createResponse);
       const response = await call(server, "approve", "execute_route_change", {
         operation: "approve_l3_operation",
         projectId,
@@ -503,9 +519,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 2",
         expectedRouteLedgerRoot: projectRoot
       });
-      const secondPendingOperationId = (
-        structured(secondCreate).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
+      const secondPendingOperationId = confirmationRequired(secondCreate).pendingOperationId;
       const exhausted = await call(server, "approve-2", "execute_route_change", {
         operation: "approve_l3_operation",
         projectId,
@@ -554,9 +568,7 @@ describe("MCP L3 authorization elicitation", () => {
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
       });
-      const pendingOperationId = (
-        structured(created).error as { details: { pendingOperationId: string } }
-      ).details.pendingOperationId;
+      const pendingOperationId = confirmationRequired(created).pendingOperationId;
       bootstrap.close();
 
       let interactionCalls = 0;

@@ -18,6 +18,19 @@ const describeExpectedType = (schema: Record<string, unknown>): string =>
 const hasEnumMatch = (allowedValues: unknown[], value: unknown): boolean =>
   allowedValues.some((allowedValue) => Object.is(allowedValue, value));
 
+const matchesPresentConstDiscriminators = (
+  schema: Record<string, unknown>,
+  value: Record<string, unknown>
+): boolean => {
+  const properties = isObject(schema.properties) ? schema.properties : {};
+  return Object.entries(properties).every(([field, propertySchema]) => {
+    if (!isObject(propertySchema) || !("const" in propertySchema) || !(field in value)) {
+      return true;
+    }
+    return Object.is(propertySchema.const, value[field]);
+  });
+};
+
 /** Validates the JSON Schema subset supported at RouteLedger's MCP boundary. */
 export const validateValueAgainstSchema = (
   schema: Record<string, unknown>,
@@ -35,10 +48,24 @@ export const validateValueAgainstSchema = (
   }
   const oneOf = schema.oneOf;
   if (Array.isArray(oneOf)) {
-    const matchCount = oneOf.filter(isObject).filter((candidate) =>
-      validateValueAgainstSchema(candidate, value, path).length === 0
-    ).length;
-    if (matchCount !== 1) issues.push({ path: formatPath(path), message: `Value must match exactly one allowed schema; matched ${matchCount}.` });
+    const candidates = oneOf.filter(isObject);
+    const candidateResults = candidates.map((candidate) => ({
+      candidate,
+      issues: validateValueAgainstSchema(candidate, value, path)
+    }));
+    const matchCount = candidateResults.filter((result) => result.issues.length === 0).length;
+    if (matchCount !== 1) {
+      const discriminatedResults = isObject(value)
+        ? candidateResults.filter(({ candidate }) =>
+            matchesPresentConstDiscriminators(candidate, value)
+          )
+        : [];
+      if (matchCount === 0 && discriminatedResults.length === 1) {
+        issues.push(...discriminatedResults[0]!.issues);
+      } else {
+        issues.push({ path: formatPath(path), message: `Value must match exactly one allowed schema; matched ${matchCount}.` });
+      }
+    }
     return issues;
   }
   const expectedType = schema.type;
@@ -60,7 +87,7 @@ export const validateValueAgainstSchema = (
     const properties = isObject(schema.properties) ? schema.properties : {};
     const required = Array.isArray(schema.required) ? schema.required.filter((field): field is string => typeof field === "string") : [];
     for (const field of required) if (!(field in value)) issues.push({ path: formatPath(path.concat(field)), message: "Required field is missing." });
-    if (schema.additionalProperties === false) for (const field of Object.keys(value)) if (!(field in properties)) issues.push({ path: formatPath(path.concat(field)), message: "Additional properties are not allowed." });
+    if (schema.additionalProperties === false) for (const field of Object.keys(value)) if (!(field in properties)) issues.push({ path: formatPath(path.concat(field)), message: `Additional property '${field}' is not allowed.` });
     for (const [field, propertySchema] of Object.entries(properties)) if (field in value && isObject(propertySchema)) issues.push(...validateValueAgainstSchema(propertySchema, value[field], path.concat(field)));
   }
   if (schema.type === "array" && Array.isArray(value) && isObject(schema.items)) value.forEach((item, index) => issues.push(...validateValueAgainstSchema(schema.items as Record<string, unknown>, item, path.concat(index))));

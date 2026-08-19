@@ -125,14 +125,17 @@ describe("@routeledger/ui launcher", () => {
     fs.writeFileSync(projectPath, "{}", "utf8");
     const before = fs.readFileSync(projectPath, "utf8");
 
-    expect(resolveMissionControlProjectPath(workspaceRoot)).toEqual({
+    const expectedRoots = {
       workspaceRoot: fs.realpathSync.native(workspaceRoot),
       routeledgerRoot: fs.realpathSync.native(dataRoot)
-    });
-    expect(resolveMissionControlProjectPath(dataRoot)).toEqual({
-      workspaceRoot: fs.realpathSync.native(workspaceRoot),
-      routeledgerRoot: fs.realpathSync.native(dataRoot)
-    });
+    };
+    const expectSamePhysicalRoots = (actual: typeof expectedRoots) => {
+      expect(fs.realpathSync.native(actual.workspaceRoot)).toBe(expectedRoots.workspaceRoot);
+      expect(fs.realpathSync.native(actual.routeledgerRoot)).toBe(expectedRoots.routeledgerRoot);
+    };
+
+    expectSamePhysicalRoots(resolveMissionControlProjectPath(workspaceRoot));
+    expectSamePhysicalRoots(resolveMissionControlProjectPath(dataRoot));
     expect(fs.readFileSync(projectPath, "utf8")).toBe(before);
   });
 

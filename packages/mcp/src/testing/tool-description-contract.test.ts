@@ -328,7 +328,12 @@ describe("MCP tool description contract", () => {
           "propose_version_structure_change": "Propose creating, inserting, nesting, or reordering Versions in the route structure. Input: operation and the selected workflow fields.",
         }
       `);
-      expect(registry.instructions).toContain("CONFIRMATION_REQUIRED");
+      expect(registry.instructions).toContain(
+        "A persisted proposal is returned as ok=true with status=confirmation_required"
+      );
+      expect(registry.instructions).toContain(
+        "confirmation failures that perform no write remain tool-level isError results, not JSON-RPC protocol errors"
+      );
       expect(registry.instructions).toContain(
         "execute_route_change preserves the exact proposal, decision, artifact, and commit chain"
       );

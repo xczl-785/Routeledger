@@ -660,7 +660,16 @@ describe("local L3 authorization runtime", () => {
       initialTodos: [],
       expectedRouteLedgerRoot: workspaceRoot
     });
-    const pendingOperationId = (proposalResponse.error!.details as { pendingOperationId: string })
+    expect(proposalResponse).toMatchObject({
+      ok: true,
+      data: {
+        status: "confirmation_required",
+        proposalPersisted: true,
+        pendingOperationId: expect.any(String),
+        proposal: { id: expect.any(String) }
+      }
+    });
+    const pendingOperationId = (proposalResponse.data as { pendingOperationId: string })
       .pendingOperationId;
     const recommended = await bootstrap.invoke("inspect_l3_route_operations", {
       operation: "recommend_l3_authorization_policy",

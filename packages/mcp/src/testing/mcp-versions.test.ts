@@ -28,18 +28,20 @@ describe("routeledger mcp registry", () => {
         responseLocale: "zh-CN"
       });
       expect(createFirst).toMatchObject({
-        ok: false,
-        error: { code: "CONFIRMATION_REQUIRED" }
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          pendingOperationId: expect.any(String),
+          proposal: { targetId: expect.any(String) }
+        }
       });
-      const createFirstDetails = createFirst.error!.details as {
+      const createFirstDetails = createFirst.data as {
         pendingOperationId: string;
         proposal: { targetId: string };
+        humanReviewText: string;
       };
       const firstVersionId = createFirstDetails.proposal.targetId;
-      expect(
-        (createFirst.error!.details as { humanReviewText: string })
-          .humanReviewText
-      ).toContain("RouteLedger 提案");
+      expect(createFirstDetails.humanReviewText).toContain("RouteLedger 提案");
       const firstApproval = await registry.invoke("approve_l3_operation", {
         projectId,
         pendingOperationId: createFirstDetails.pendingOperationId
@@ -60,10 +62,14 @@ describe("routeledger mcp registry", () => {
         title: "Successor delivery"
       });
       expect(createSuccessor).toMatchObject({
-        ok: false,
-        error: { code: "CONFIRMATION_REQUIRED" }
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          pendingOperationId: expect.any(String),
+          proposal: { targetId: expect.any(String) }
+        }
       });
-      const createSuccessorDetails = createSuccessor.error!.details as {
+      const createSuccessorDetails = createSuccessor.data as {
         pendingOperationId: string;
         proposal: { targetId: string };
       };
@@ -241,10 +247,14 @@ describe("routeledger mcp registry", () => {
         title: "Third delivery"
       });
       expect(appendThird).toMatchObject({
-        ok: false,
-        error: { code: "CONFIRMATION_REQUIRED" }
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          pendingOperationId: expect.any(String),
+          proposal: { targetId: expect.any(String) }
+        }
       });
-      const appendThirdDetails = appendThird.error!.details as {
+      const appendThirdDetails = appendThird.data as {
         pendingOperationId: string;
         proposal: { targetId: string };
       };
@@ -1073,7 +1083,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$"
+                path: "$.mode"
               }
             }
           }
@@ -1189,7 +1199,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$"
+                path: "$.previousCurrentPolicy"
               }
             }
           }
@@ -2652,11 +2662,12 @@ describe("routeledger mcp registry", () => {
         jsonrpc: "2.0",
         id: "create-version",
         result: {
-          isError: true,
           structuredContent: {
-            ok: false,
-            error: {
-              code: "CONFIRMATION_REQUIRED"
+            ok: true,
+            data: {
+              status: "confirmation_required",
+              pendingOperationId: expect.any(String),
+              proposal: { targetId: expect.any(String) }
             }
           }
         }
@@ -2665,16 +2676,14 @@ describe("routeledger mcp registry", () => {
         createVersionResponse as {
           result: {
             structuredContent: {
-              error: {
-                details: {
-                  pendingOperationId: string;
-                  proposal: { targetId: string };
-                };
+              data: {
+                pendingOperationId: string;
+                proposal: { targetId: string };
               };
             };
           };
         }
-      ).result.structuredContent.error.details;
+      ).result.structuredContent.data;
       const createVersionApprove = await callTool(server, "approve-create", "approve_l3_operation", {
         projectId: projectData.project.id,
         pendingOperationId: createVersionDetails.pendingOperationId
@@ -2702,11 +2711,12 @@ describe("routeledger mcp registry", () => {
         jsonrpc: "2.0",
         id: "insert-version",
         result: {
-          isError: true,
           structuredContent: {
-            ok: false,
-            error: {
-              code: "CONFIRMATION_REQUIRED"
+            ok: true,
+            data: {
+              status: "confirmation_required",
+              pendingOperationId: expect.any(String),
+              proposal: { targetId: expect.any(String) }
             }
           }
         }
@@ -2715,16 +2725,14 @@ describe("routeledger mcp registry", () => {
         insertVersionResponse as {
           result: {
             structuredContent: {
-              error: {
-                details: {
-                  pendingOperationId: string;
-                  proposal: { targetId: string };
-                };
+              data: {
+                pendingOperationId: string;
+                proposal: { targetId: string };
               };
             };
           };
         }
-      ).result.structuredContent.error.details;
+      ).result.structuredContent.data;
       const insertVersionApprove = await callTool(server, "approve-insert", "approve_l3_operation", {
         projectId: projectData.project.id,
         pendingOperationId: insertVersionDetails.pendingOperationId
@@ -2757,11 +2765,12 @@ describe("routeledger mcp registry", () => {
         jsonrpc: "2.0",
         id: "create-child-version",
         result: {
-          isError: true,
           structuredContent: {
-            ok: false,
-            error: {
-              code: "CONFIRMATION_REQUIRED"
+            ok: true,
+            data: {
+              status: "confirmation_required",
+              pendingOperationId: expect.any(String),
+              proposal: { targetId: expect.any(String) }
             }
           }
         }
@@ -2770,16 +2779,14 @@ describe("routeledger mcp registry", () => {
         childVersionResponse as {
           result: {
             structuredContent: {
-              error: {
-                details: {
-                  pendingOperationId: string;
-                  proposal: { targetId: string };
-                };
+              data: {
+                pendingOperationId: string;
+                proposal: { targetId: string };
               };
             };
           };
         }
-      ).result.structuredContent.error.details;
+      ).result.structuredContent.data;
       const childVersionApprove = await callTool(server, "approve-child", "approve_l3_operation", {
         projectId: projectData.project.id,
         pendingOperationId: childVersionDetails.pendingOperationId
@@ -2807,11 +2814,11 @@ describe("routeledger mcp registry", () => {
         jsonrpc: "2.0",
         id: "reorder-version",
         result: {
-          isError: true,
           structuredContent: {
-            ok: false,
-            error: {
-              code: "CONFIRMATION_REQUIRED"
+            ok: true,
+            data: {
+              status: "confirmation_required",
+              pendingOperationId: expect.any(String)
             }
           }
         }
@@ -2820,15 +2827,13 @@ describe("routeledger mcp registry", () => {
         reorderResponse as {
           result: {
             structuredContent: {
-              error: {
-                details: {
-                  pendingOperationId: string;
-                };
+              data: {
+                pendingOperationId: string;
               };
             };
           };
         }
-      ).result.structuredContent.error.details;
+      ).result.structuredContent.data;
       const reorderApprove = await callTool(server, "approve-reorder", "approve_l3_operation", {
         projectId: projectData.project.id,
         pendingOperationId: reorderDetails.pendingOperationId

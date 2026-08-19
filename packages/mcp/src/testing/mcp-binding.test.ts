@@ -2009,6 +2009,93 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("configure_binding returns current public follow-ups after activating an uninitialized root", async () => {
+    const cacheCwd = createTempProjectRoot();
+    const workspaceRoot = createTempProjectRoot();
+    const previousCwd = process.cwd();
+    process.chdir(cacheCwd);
+    const server = createRouteLedgerStdioServer({ hostProfile: "codex" });
+
+    try {
+      await server.handleMessage({
+        jsonrpc: "2.0",
+        id: "public-binding-initialize",
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "codex-mcp-client", version: "0.144.1" }
+        }
+      });
+      await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+      const activation = await callTool(
+        server,
+        "activate-public-binding",
+        "configure_binding",
+        { workspaceRoot, routeledgerRoot: workspaceRoot }
+      );
+      const activationData = getStructuredData<{
+        status: string;
+        rebound: boolean;
+        activeBinding: { status: string; workspaceRoot: string; routeledgerRoot: string };
+        bindingPlan: {
+          requiresHostConfigUpdate: boolean;
+          requiresServerRestart: boolean;
+          sessionActivation: { available: boolean; required: boolean; action: string | null };
+          persistentHostBinding: {
+            requiredForFutureSessions: boolean;
+            requiresHostConfigUpdate: boolean;
+            requiresServerRestart: boolean;
+          };
+          recommendedNextActions: Array<{
+            type: string;
+            tool?: string;
+            toolInput?: { operation?: string };
+          }>;
+        };
+      }>(activation);
+
+      expect(activationData).toMatchObject({
+        status: "activated",
+        rebound: true,
+        activeBinding: {
+          status: "uninitialized",
+          workspaceRoot,
+          routeledgerRoot: workspaceRoot
+        },
+        bindingPlan: {
+          requiresHostConfigUpdate: false,
+          requiresServerRestart: false,
+          sessionActivation: {
+            available: false,
+            required: false,
+            action: null
+          },
+          persistentHostBinding: {
+            requiredForFutureSessions: false,
+            requiresHostConfigUpdate: false,
+            requiresServerRestart: false
+          },
+          recommendedNextActions: [
+            expect.objectContaining({
+              type: "initialize_routeledger",
+              tool: "configure_project",
+              toolInput: expect.objectContaining({ operation: "initialize" })
+            })
+          ]
+        }
+      });
+      expect(JSON.stringify(activation)).not.toContain("activate_routeledger_binding");
+      expect(JSON.stringify(activation)).not.toContain("init_project");
+    } finally {
+      server.close();
+      process.chdir(previousCwd);
+      cleanupProjectRoot(cacheCwd);
+      cleanupProjectRoot(workspaceRoot);
+    }
+  });
+
   it("initialize rootUri on a fresh workspace bootstraps default config and allows init_project", async () => {
     const workspaceRoot = createTempProjectRoot();
     const server = createRouteLedgerStdioServer({

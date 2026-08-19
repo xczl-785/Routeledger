@@ -35,6 +35,8 @@ Read `inspect_route_progress(operation="get_current_context")` before changing w
 - Use `manage_deferred` for work that must be reviewed by a future Version.
 - Use `manage_constraint` for persistent rules that must remain true.
 
+If Deferred work has no eligible downstream Version, follow the returned `propose_downstream_version` action. Complete the Version proposal approval flow before retrying Deferred creation; do not retry against the current Version or an invented ID.
+
 Do not convert Deferred work or Constraints into completion counts. Keep legacy Undo data audit-only.
 
 All canonical writes must pass RouteLedger's binding, validation, concurrency, and storage checks. Skill guidance never replaces those safeguards.

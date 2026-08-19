@@ -262,7 +262,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$"
+                path: "$.decisionRef"
               }
             },
             meta: {
@@ -307,7 +307,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$"
+                path: "$.contentLocale"
               }
             }
           }
@@ -323,7 +323,46 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$"
+                path: "$.projectId"
+              }
+            }
+          }
+        }
+      });
+
+      server.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("tools/call names unexpected write-binding fields on read tools", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const server = await initializeServer(projectRoot, { runtimeProfile: "json-only" });
+      const response = await callTool(
+        server,
+        "read-tool-unexpected-binding-field",
+        "inspect_runtime",
+        {
+          operation: "runtime",
+          expectedRouteLedgerRoot: projectRoot
+        }
+      );
+
+      expect(response).toMatchObject({
+        jsonrpc: "2.0",
+        id: "read-tool-unexpected-binding-field",
+        result: {
+          isError: true,
+          structuredContent: {
+            ok: false,
+            error: {
+              code: "INVALID_TOOL_INPUT",
+              message: expect.stringContaining("expectedRouteLedgerRoot"),
+              details: {
+                path: "$.expectedRouteLedgerRoot"
               }
             }
           }

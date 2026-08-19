@@ -688,17 +688,20 @@ export const createAndCommitVersion = async (
 
   expect(createVersionResponse).toMatchObject({
     result: {
-      isError: true,
       structuredContent: {
-        ok: false,
-        error: {
-          code: "CONFIRMATION_REQUIRED"
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          pendingOperationId: expect.any(String),
+          proposal: {
+            targetId: expect.any(String)
+          }
         }
       }
     }
   });
 
-  const createVersionDetails = getStructuredErrorDetails<{
+  const createVersionDetails = getStructuredData<{
     pendingOperationId: string;
     proposal: { targetId: string };
   }>(createVersionResponse);
@@ -732,14 +735,18 @@ export const createApprovedVersionProposal = async (
   });
 
   expect(createResponse).toMatchObject({
-    ok: false,
-    error: {
-      code: "CONFIRMATION_REQUIRED"
+    ok: true,
+    data: {
+      status: "confirmation_required",
+      pendingOperationId: expect.any(String),
+      proposal: {
+        targetId: expect.any(String)
+      }
     }
   });
 
   const pendingOperationId = (
-    createResponse.error?.details as {
+    createResponse.data as {
       pendingOperationId: string;
     }
   ).pendingOperationId;
