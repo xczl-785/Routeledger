@@ -34,6 +34,8 @@ Use the bundled RouteLedger MCP server to inspect and change Version state or ro
 
 For closeout, inspect `summarize_version_closeout` or `plan_version_closeout`, clear the named blockers, and review residual work. Declare `{ status: "reviewed", items: [] }` only after confirming no residuals remain; otherwise include every routed item. A summary or plan is evidence, not approval.
 
+When a proposal is persisted successfully, treat `ok: true` with `data.status: "confirmation_required"` as a pending approval state, not as a failed proposal. Follow the returned exact next actions; do not recreate the proposal merely because execution has not occurred yet.
+
 Do not insert before closed history, reorder it, change its parent, or add a child beneath it. Append the next real top-level successor when continuing from a closed tail.
 
 ## Execute an admitted change

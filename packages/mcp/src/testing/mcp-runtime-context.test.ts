@@ -1249,13 +1249,18 @@ describe("routeledger mcp registry", () => {
         title: "Version 2"
       });
       expect(createVersionResponse).toMatchObject({
-        ok: false,
-        error: {
-          code: "CONFIRMATION_REQUIRED"
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          proposalPersisted: true,
+          pendingOperationId: expect.any(String),
+          proposal: {
+            id: expect.any(String)
+          }
         }
       });
       const pendingOperationId = (
-        createVersionResponse.error?.details as {
+        createVersionResponse.data as {
           pendingOperationId: string;
         }
       ).pendingOperationId;
