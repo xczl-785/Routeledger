@@ -6,33 +6,33 @@
   },
   "plugin": {
     "name": "routeledger",
-    "version": "0.9.4"
+    "version": "0.9.5"
   },
   "runtimeIdentity": {
-    "runtimePackageVersion": "0.9.4",
+    "runtimePackageVersion": "0.9.5",
     "runtimeProfile": "json-only",
-    "pluginVersion": "0.9.4",
-    "releaseTag": "routeledger-plugin-v0.9.4",
+    "pluginVersion": "0.9.5",
+    "releaseTag": "routeledger-plugin-v0.9.5",
     "sourceTreeState": "clean",
     "provenanceStatus": "external_attestation_required",
     "attestation": {
       "strategy": "git-tag-external",
       "repositoryUrl": "https://github.com/xczl-785/Routeledger",
-      "releaseTag": "routeledger-plugin-v0.9.4",
-      "assetName": "routeledger-plugin-v0.9.4-attestation.json",
-      "downloadUrl": "https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v0.9.4/routeledger-plugin-v0.9.4-attestation.json"
+      "releaseTag": "routeledger-plugin-v0.9.5",
+      "assetName": "routeledger-plugin-v0.9.5-attestation.json",
+      "downloadUrl": "https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v0.9.5/routeledger-plugin-v0.9.5-attestation.json"
     },
     "buildCommit": null,
     "artifactDigest": null,
-    "runtimePayloadDigest": "9f39ed62e3e948302f48c43aef525dbadf762dcd627edbc0a3d3ccfd32d5dec5",
+    "runtimePayloadDigest": "69d29131b8d7450bb6465a2b879e7d3d4cd148920251c7363f8c22f11fe833a1",
     "runtimePayloadCoverage": "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
   },
   "attestation": {
     "strategy": "git-tag-external",
     "repositoryUrl": "https://github.com/xczl-785/Routeledger",
-    "releaseTag": "routeledger-plugin-v0.9.4",
-    "assetName": "routeledger-plugin-v0.9.4-attestation.json",
-    "downloadUrl": "https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v0.9.4/routeledger-plugin-v0.9.4-attestation.json",
+    "releaseTag": "routeledger-plugin-v0.9.5",
+    "assetName": "routeledger-plugin-v0.9.5-attestation.json",
+    "downloadUrl": "https://github.com/xczl-785/Routeledger/releases/download/routeledger-plugin-v0.9.5/routeledger-plugin-v0.9.5-attestation.json",
     "retention": "github-release-asset",
     "sourceCommit": null,
     "artifactDigestField": "content.pluginDistributionSha256",
@@ -40,8 +40,8 @@
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "babdc9bd0310e66ec7bf6c8859cca85ee573855952eb53c15a3df782f3e52edd",
-    "runtimeSha256": "57c798d522143512794ee2ddeba3604f512f31e8a61aad9866d102b089eda6d3",
+    "pluginDistributionSha256": "c9e9bf917bd6c1db78feac5acf7f57aa6bc34645752b6a58b19af5831838b039",
+    "runtimeSha256": "0cf2b61328ed6de3625f68325b430fc66fa84a8453076120e3a314a5984e16d1",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }

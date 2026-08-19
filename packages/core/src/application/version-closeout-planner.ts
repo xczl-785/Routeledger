@@ -245,7 +245,7 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
       createStep({
         stepId: `close-version-${version.id}`,
         kind: "close_version",
-        recommendedTool: "close_version",
+        recommendedTool: "preview_or_propose_version_close",
         targetId: version.id,
         requiredInputs: [
           { field: "projectId", value: summary.projectId },
@@ -261,11 +261,11 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
         reason: `version ${version.id} is complete and the ordinary close gate now passes.`,
         unlockPaths: [
           createUnlockPath(
-            "close_version",
+            "preview_or_propose_version_close",
             "close_version",
             "l3_proposal",
             false,
-            "Create the close_version proposal."
+            "Create the Version close proposal."
           )
         ]
       })
@@ -280,7 +280,7 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
           { field: "projectId", value: summary.projectId },
           {
             field: "pendingOperationId",
-            value: "<from close_version.pendingOperationId>"
+            value: "<from preview_or_propose_version_close.pendingOperationId>"
           }
         ],
         governanceLayer: "l3_approval",
@@ -300,7 +300,7 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
           { field: "projectId", value: summary.projectId },
           {
             field: "pendingOperationId",
-            value: "<from close_version.pendingOperationId>"
+            value: "<from preview_or_propose_version_close.pendingOperationId>"
           },
           {
             field: "approvalArtifactId",
@@ -357,7 +357,7 @@ export const buildVersionCloseoutPlan = (view: VersionCloseoutView): VersionClos
 
   if (version.state === "complete") {
     warnings.push(
-      "The ordinary close gate still has unmapped blockers. Resolve them first, or explicitly choose the high-risk shutdown_version path outside this ordinary closeout plan."
+      "The ordinary close gate still has unmapped blockers. Resolve them first, or explicitly choose the high-risk preview_or_propose_forced_version_shutdown path outside this ordinary closeout plan."
     );
     addStep(
       createStep({

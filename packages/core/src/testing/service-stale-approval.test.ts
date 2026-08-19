@@ -113,7 +113,7 @@ describe("stale L3 approval recovery", () => {
           },
           {
             action: "propose_replacement",
-            tool: "close_version",
+            tool: "preview_or_propose_version_close",
             input: {
               projectId: prepared.projectId,
               versionId: prepared.versionId,

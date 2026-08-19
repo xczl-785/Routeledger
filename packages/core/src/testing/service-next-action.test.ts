@@ -801,7 +801,7 @@ describe("route ledger service", () => {
     expect(nextAction.data).toMatchObject({
       nextAction: {
         actionType: "create_version",
-        recommendedTool: "create_version",
+        recommendedTool: "propose_version_creation",
         targetId: currentVersion.id,
         recordIds: [currentVersion.id]
       }

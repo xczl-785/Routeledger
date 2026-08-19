@@ -107,33 +107,41 @@ const assertPluginFiles = async () => {
   }
   await Promise.all([
     assertRegularFile(path.join(pluginRoot, "skills", "routeledger-operator", "SKILL.md")),
+    assertRegularFile(path.join(pluginRoot, "skills", "routeledger-operator", "agents", "openai.yaml")),
+    assertRegularFile(path.join(pluginRoot, "skills", "routeledger-version-lifecycle", "SKILL.md")),
+    assertRegularFile(path.join(pluginRoot, "skills", "routeledger-version-lifecycle", "agents", "openai.yaml")),
     assertRegularFile(path.join(pluginRoot, "runtime", "bin.js")),
     assertRegularFile(path.join(pluginRoot, "runtime", "package.json"))
   ]);
   const operatorSkill = await fs.readFile(path.join(pluginRoot, "skills", "routeledger-operator", "SKILL.md"), "utf8");
+  const versionSkill = await fs.readFile(path.join(pluginRoot, "skills", "routeledger-version-lifecycle", "SKILL.md"), "utf8");
   for (const requiredGuidance of [
     "`WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`",
-    "`get_runtime_context` again to confirm the session rebound",
-    "Use `discover_routeledger_roots` and `plan_routeledger_binding` only when the target root is ambiguous",
-    "never infer it from the plugin cache or MCP process `cwd`",
-    "standing policy or delegated authority mint an independent exact decision for the current proposal",
-    "approve-only structured elicitation",
-    "There is no consumable or reusable preauthorization",
-    "surface its localized `notice.message` once",
-    "UI never blocks RouteLedger work"
+    "inspect_runtime(operation=\"runtime\")",
+    "configure_binding",
+    "manage_todo",
+    "routeledger-version-lifecycle",
+    "Never edit canonical RouteLedger JSON directly"
   ]) {
     if (!operatorSkill.includes(requiredGuidance)) {
-      throw new Error(`RouteLedger operator Skill is missing required unbound-binding guidance: ${requiredGuidance}`);
+      throw new Error(`RouteLedger operator Skill is missing required guidance: ${requiredGuidance}`);
     }
   }
-  for (const forbiddenGuidance of [
-    "consume a preauthorization",
-    "preauthorization grant",
-    "use budget"
+  for (const requiredGuidance of [
+    "inspect_versions",
+    "propose_version_lifecycle_change",
+    "propose_version_structure_change",
+    "execute_route_change",
+    "Codex decides whether a high-risk",
+    "Do not reproduce that permission decision in the Skill",
+    "Never edit canonical RouteLedger JSON directly"
   ]) {
-    if (operatorSkill.includes(forbiddenGuidance)) {
-      throw new Error(`RouteLedger operator Skill contains reusable-authority guidance: ${forbiddenGuidance}`);
+    if (!versionSkill.includes(requiredGuidance)) {
+      throw new Error(`RouteLedger Version lifecycle Skill is missing required guidance: ${requiredGuidance}`);
     }
+  }
+  if (operatorSkill.includes("Use only these 11 public tools") || versionSkill.includes("Use only these 11 public tools")) {
+    throw new Error("RouteLedger Skills contain the stale 11-tool surface claim.");
   }
 };
 
@@ -207,15 +215,16 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "runtime-context-unbound",
     method: "tools/call",
-    params: { name: "get_runtime_context", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "runtime" } }
   });
   write({
     jsonrpc: "2.0",
     id: "init-project",
     method: "tools/call",
     params: {
-      name: "init_project",
+      name: "configure_project",
       arguments: {
+        operation: "initialize",
         name: "Codex Plugin Smoke",
         contentLocale: "en",
         expectedRouteLedgerRoot: testRouteledgerRoot
@@ -227,7 +236,7 @@ const runPluginStdioSmoke = async () => {
     id: "activate-binding",
     method: "tools/call",
     params: {
-      name: "activate_routeledger_binding",
+      name: "configure_binding",
       arguments: { workspaceRoot: testWorkspaceRoot, routeledgerRoot: testRouteledgerRoot }
     }
   });
@@ -235,15 +244,16 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "runtime-context-rebound",
     method: "tools/call",
-    params: { name: "get_runtime_context", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "runtime" } }
   });
   write({
     jsonrpc: "2.0",
     id: "init-project-rebound",
     method: "tools/call",
     params: {
-      name: "init_project",
+      name: "configure_project",
       arguments: {
+        operation: "initialize",
         name: "Codex Plugin Smoke",
         contentLocale: "en",
         expectedRouteLedgerRoot: testRouteledgerRoot
@@ -254,25 +264,25 @@ const runPluginStdioSmoke = async () => {
     jsonrpc: "2.0",
     id: "runtime-context-initialized",
     method: "tools/call",
-    params: { name: "get_runtime_context", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "runtime" } }
   });
   write({
     jsonrpc: "2.0",
     id: "authorization-status",
     method: "tools/call",
-    params: { name: "get_l3_authorization_status", arguments: {} }
+    params: { name: "inspect_l3_route_operations", arguments: { operation: "get_l3_authorization_status" } }
   });
   write({
     jsonrpc: "2.0",
     id: "open-mission-control",
     method: "tools/call",
-    params: { name: "open_mission_control", arguments: { openBrowser: false } }
+    params: { name: "manage_mission_control", arguments: { operation: "open", openBrowser: false } }
   });
   write({
     jsonrpc: "2.0",
     id: "mission-control-status",
     method: "tools/call",
-    params: { name: "get_mission_control_status", arguments: {} }
+    params: { name: "inspect_runtime", arguments: { operation: "mission_control_status" } }
   });
   child.stdin.end();
 
@@ -319,11 +329,17 @@ const runPluginStdioSmoke = async () => {
     ) {
       throw new Error("Bundled runtime initialize did not expose the plugin artifact identity.");
     }
-    if (!Array.isArray(responses[1]?.result?.tools) || responses[1].result.tools.length === 0) {
-      throw new Error("Bundled runtime tools/list did not expose RouteLedger tools.");
+    const bundledToolNames = responses[1]?.result?.tools?.map((tool) => tool.name).sort();
+    const expectedToolNames = [
+      "configure_binding", "configure_project", "execute_route_change", "inspect_l3_route_operations",
+      "inspect_route_progress", "inspect_runtime", "inspect_versions", "manage_constraint",
+      "manage_deferred", "manage_mission_control", "manage_todo", "propose_l3_route_change",
+      "propose_version_lifecycle_change", "propose_version_structure_change", "set_version_state"
+    ].sort();
+    if (JSON.stringify(bundledToolNames) !== JSON.stringify(expectedToolNames)) {
+      throw new Error(`Bundled runtime tools/list mismatch: ${JSON.stringify(bundledToolNames)}.`);
     }
-    const bundledToolNames = responses[1].result.tools.map((tool) => tool.name);
-    for (const portableUiTool of ["open_mission_control", "get_mission_control_status", "stop_mission_control"]) {
+    for (const portableUiTool of ["manage_mission_control", "inspect_runtime"]) {
       if (!bundledToolNames.includes(portableUiTool)) {
         throw new Error(`Bundled JSON-only runtime did not expose ${portableUiTool}.`);
       }
@@ -401,7 +417,7 @@ const runPluginStdioSmoke = async () => {
       unboundInit?.isError !== true ||
       unboundInit?.structuredContent?.error?.code !== "ROUTELEDGER_BINDING_REQUIRED"
     ) {
-      throw new Error("Bundled runtime allowed init_project before an explicit workspace binding.");
+      throw new Error("Bundled runtime allowed project initialization before an explicit workspace binding.");
     }
     const activation = responses[5]?.result?.structuredContent?.data;
     if (
@@ -435,7 +451,7 @@ const runPluginStdioSmoke = async () => {
       );
     }
     if (responses[7]?.result?.structuredContent?.ok !== true) {
-      throw new Error("Bundled runtime init_project did not report a successful canonical JSON write after session rebound.");
+      throw new Error("Bundled runtime project initialization did not report a successful canonical JSON write after session rebound.");
     }
     const initializedRuntimeContext = responses[8]?.result?.structuredContent?.data;
     if (
@@ -450,12 +466,13 @@ const runPluginStdioSmoke = async () => {
     if (
       initializedRuntimeContext?.missionControl?.status !== "stopped" ||
       initializedRuntimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
-      initializedRuntimeContext?.missionControl?.recommendedAction?.tool !== "open_mission_control"
+      initializedRuntimeContext?.missionControl?.recommendedAction?.tool !== "manage_mission_control" ||
+      initializedRuntimeContext?.missionControl?.recommendedAction?.arguments?.operation !== "open"
     ) {
       throw new Error("Bundled runtime did not expose executable Mission Control startup guidance.");
     }
     if (JSON.stringify(initializedRuntimeContext?.runtimeIdentity) !== JSON.stringify(initializeIdentity)) {
-      throw new Error("Bundled runtime initialize and get_runtime_context reported different identities.");
+      throw new Error("Bundled runtime initialize and inspect_runtime reported different identities.");
     }
     const authorizationStatus = responses[9]?.result?.structuredContent?.data;
     if (
@@ -484,7 +501,7 @@ const runPluginStdioSmoke = async () => {
       "Bundled JSON-only runtime unexpectedly created a SQLite database in the Codex plugin cache cwd."
     );
   } finally {
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
+    await fs.rm(temporaryRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 };
 

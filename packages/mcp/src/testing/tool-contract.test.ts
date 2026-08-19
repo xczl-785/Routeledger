@@ -1,8 +1,47 @@
 import { describe, expect, it } from "vitest";
 
+import { createCompositeTool } from "../index.js";
 import { defineTool } from "../registry/tool-contract.js";
+import { validateValueAgainstSchema } from "../schema-validation.js";
 
 describe("MCP tool contract construction", () => {
+  it("keeps the shared schema validator strict for unsupported JSON Schema types", () => {
+    expect(validateValueAgainstSchema({ type: "number" }, 1)).toEqual([
+      { path: "$", message: "Unsupported schema type 'number'." }
+    ]);
+  });
+
+  it("rejects a selected capability response that violates its output schema", async () => {
+    const internalTool = defineTool(
+      "internal_fixture",
+      { what: "Return an invalid fixture response." },
+      { type: "object", properties: {}, additionalProperties: false },
+      {
+        title: "Internal Fixture",
+        riskLevel: "read-only",
+        outputSchema: {
+          type: "object",
+          properties: { ok: { const: true }, data: { type: "string" } },
+          required: ["ok", "data"],
+          additionalProperties: false
+        }
+      },
+      async () => ({ ok: true, data: 42 })
+    );
+    const composite = createCompositeTool(
+      "public_fixture",
+      "Public Fixture",
+      "Exercise selected capability output validation.",
+      [{ action: "run", tool: internalTool }],
+      { title: "Public Fixture", riskLevel: "read-only" }
+    );
+
+    await expect(composite.handler({ operation: "run" })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "INVALID_TOOL_OUTPUT", details: { path: "$.data" } }
+    });
+  });
+
   it("decorates write tools without changing their handler or base schema", async () => {
     const handler = async () => ({ ok: true as const, data: { accepted: true } });
     const registration = defineTool(

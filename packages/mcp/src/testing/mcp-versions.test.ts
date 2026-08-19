@@ -138,8 +138,16 @@ describe("routeledger mcp registry", () => {
           digest: expect.any(String),
           humanReviewText: expect.any(String),
           recommendedNextActions: [
-            expect.objectContaining({ action: "approve", tool: "approve_l3_operation" }),
-            expect.objectContaining({ action: "reject", tool: "reject_l3_operation" })
+            expect.objectContaining({
+              action: "approve",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "approve_l3_operation" })
+            }),
+            expect.objectContaining({
+              action: "reject",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "reject_l3_operation" })
+            })
           ]
         }
       });
@@ -294,8 +302,9 @@ describe("routeledger mcp registry", () => {
             artifactConsumed: false,
             recommendedNextActions: [
               expect.objectContaining({
-                tool: "defer_work",
+                tool: "manage_deferred",
                 toolInput: expect.objectContaining({
+                  operation: "defer",
                   targetReviewVersionId: appendThirdDetails.proposal.targetId
                 })
               })
@@ -881,17 +890,29 @@ describe("routeledger mcp registry", () => {
     }
   });
 
-  it("batch_create_versions tool schema exposes mode/items/setCurrentTo", () => {
+  it("propose_version_lifecycle_change batch action schema exposes mode/items/setCurrentTo", () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);
 
     try {
-      const tool = registry.getTool("batch_create_versions");
+      const tool = registry.getTool("propose_version_lifecycle_change");
+      const batchBranch = (
+        tool?.inputSchema as { oneOf?: Array<Record<string, unknown>> }
+      ).oneOf?.find((branch) =>
+        JSON.stringify(branch).includes('"const":"preflight_or_propose_version_batch"')
+      ) as {
+        required: string[];
+        properties: {
+          mode: { enum: string[] };
+          items: { type: string; items: { required: string[] } };
+          setCurrentTo: { type: string };
+        };
+      };
 
       expect(tool).toBeDefined();
-      expect(tool?.inputSchema).toMatchObject({
+      expect(batchBranch).toMatchObject({
         type: "object",
-        required: ["projectId", "mode", "items"],
+        required: ["operation", "projectId", "mode", "items"],
         properties: {
           mode: {
             enum: ["preflight", "propose"]
@@ -906,15 +927,7 @@ describe("routeledger mcp registry", () => {
       });
       expect(
         (
-          tool?.inputSchema as {
-            properties: {
-              items: {
-                items: {
-                  required: string[];
-                };
-              };
-            };
-          }
+          batchBranch
         ).properties.items.items.required
       ).toEqual(["clientKey", "title", "description", "initialTodos"]);
     } finally {
@@ -1060,7 +1073,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$.mode"
+                path: "$"
               }
             }
           }
@@ -1176,7 +1189,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$.previousCurrentPolicy"
+                path: "$"
               }
             }
           }
@@ -2009,16 +2022,17 @@ describe("routeledger mcp registry", () => {
       const listedToolNames = registry.tools.map((tool) => tool.name);
       expect(listedToolNames).toEqual(
         expect.arrayContaining([
-          "defer_work",
-          "review_deferred",
-          "record_constraint",
-          "retire_constraint"
+          "manage_deferred",
+          "manage_constraint",
+          "manage_todo"
         ])
       );
       expect(
         listedToolNames.filter((name) => name.includes("undo"))
       ).toEqual([]);
       expect(registry.getTool("create_undo")).toBeUndefined();
+      expect(registry.getTool("defer_work")).toBeUndefined();
+      expect(registry.getTool("record_constraint")).toBeUndefined();
 
       const initResponse = await callTool(server, "agent-init", "init_project", {
         name: "Agent Semantics"
@@ -2561,9 +2575,7 @@ describe("routeledger mcp registry", () => {
         }
       });
 
-      const closeVersionSchema = registry.tools.find(
-        (tool) => tool.name === "close_version"
-      )!.inputSchema;
+      const closeVersionSchema = registry.getTool("propose_version_lifecycle_change")!.inputSchema;
       expect(JSON.stringify(closeVersionSchema)).not.toContain("create_undo");
       expect(JSON.stringify(closeVersionSchema)).not.toContain("preferredResolutionVersionId");
       expect(JSON.stringify(closeVersionSchema)).toContain("defer_work");

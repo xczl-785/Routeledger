@@ -13,12 +13,14 @@ describe("routeledger mcp registry", () => {
     });
 
     try {
-      const missing = await registry.invoke("init_project", {
+      const missing = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
         expectedRouteLedgerRoot: projectRoot,
         responseLocale: "zh-CN"
       });
-      const automatic = await registry.invoke("init_project", {
+      const automatic = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
         contentLocale: "auto",
         expectedRouteLedgerRoot: projectRoot,
@@ -53,7 +55,8 @@ describe("routeledger mcp registry", () => {
     });
 
     try {
-      const initialized = await registry.invoke("init_project", {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "Empty Route",
         contentLocale: "zh-CN",
         expectedRouteLedgerRoot: projectRoot
@@ -68,7 +71,10 @@ describe("routeledger mcp registry", () => {
       });
 
       const projectId = (initialized.data as { project: { id: string } }).project.id;
-      const context = await registry.invoke("get_current_context", { projectId });
+      const context = await registry.invoke("inspect_route_progress", {
+        operation: "get_current_context",
+        projectId
+      });
       expect(context).toMatchObject({
         ok: true,
         data: {
@@ -111,73 +117,34 @@ describe("routeledger mcp registry", () => {
       const highRiskTools = tools.filter(
         (tool) => tool._meta.routeledger.riskLevel === "high-risk"
       );
-      expect(tools).toHaveLength(49);
-      const runtimeContextTool = tools.find((tool) => tool.name === "get_runtime_context");
-      const openMissionControlTool = tools.find((tool) => tool.name === "open_mission_control");
-      const writeHostBindingConfigTool = tools.find(
-        (tool) => tool.name === "write_host_binding_config"
-      );
-      const missionControlStatusTool = tools.find(
-        (tool) => tool.name === "get_mission_control_status"
-      );
-      const stopMissionControlTool = tools.find((tool) => tool.name === "stop_mission_control");
-      const contextTool = tools.find((tool) => tool.name === "get_current_context");
-      const nextActionTool = tools.find((tool) => tool.name === "next_action");
-      const checkDocDriftTool = tools.find((tool) => tool.name === "check_doc_drift");
-      const summarizeVersionCloseoutTool = tools.find(
-        (tool) => tool.name === "summarize_version_closeout"
-      );
-      const planVersionCloseoutTool = tools.find((tool) => tool.name === "plan_version_closeout");
-      const listVersionsWindowTool = tools.find((tool) => tool.name === "list_versions_window");
-      const getVersionStructureTool = tools.find((tool) => tool.name === "get_version_structure");
-      const getVersionTransitionGuideTool = tools.find(
-        (tool) => tool.name === "get_version_transition_guide"
-      );
-      const transitionVersionTool = tools.find((tool) => tool.name === "transition_version");
-      const closeVersionTool = tools.find((tool) => tool.name === "close_version");
-      const shutdownVersionTool = tools.find((tool) => tool.name === "shutdown_version");
-      const carryForwardUndoTool = tools.find((tool) => tool.name === "carry_forward_undo");
-      const approveTool = tools.find((tool) => tool.name === "approve_l3_operation");
-      const rejectTool = tools.find((tool) => tool.name === "reject_l3_operation");
-      const commitTool = tools.find((tool) => tool.name === "commit_l3_operation");
-      const createVersionTool = tools.find((tool) => tool.name === "create_version");
-      const insertVersionTool = tools.find((tool) => tool.name === "insert_version");
-      const createChildVersionTool = tools.find((tool) => tool.name === "create_child_version");
-      const reorderVersionsTool = tools.find((tool) => tool.name === "reorder_versions");
+      const expectedToolNames = [
+        "inspect_runtime",
+        "configure_binding",
+        "configure_project",
+        "inspect_route_progress",
+        "inspect_versions",
+        "inspect_l3_route_operations",
+        "manage_todo",
+        "manage_deferred",
+        "manage_constraint",
+        "propose_version_lifecycle_change",
+        "propose_version_structure_change",
+        "propose_l3_route_change",
+        "set_version_state",
+        "execute_route_change",
+        "manage_mission_control"
+      ];
+      expect(tools.map((tool) => tool.name)).toEqual(expectedToolNames);
+      expect(tools).toHaveLength(15);
+      expect(readOnlyTools.map((tool) => tool.name)).toEqual([
+        "inspect_runtime",
+        "inspect_route_progress",
+        "inspect_versions",
+        "inspect_l3_route_operations"
+      ]);
+      expect(writeTools).toHaveLength(10);
+      expect(highRiskTools.map((tool) => tool.name)).toEqual(["execute_route_change"]);
 
-      expect(runtimeContextTool?.annotations.readOnlyHint).toBe(true);
-      expect(runtimeContextTool?.annotations.idempotentHint).toBe(true);
-      expect(runtimeContextTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(runtimeContextTool?._meta.routeledger.recommendedApprovalMode).toBe("auto");
-      expect(openMissionControlTool?.annotations.readOnlyHint).toBe(true);
-      expect(openMissionControlTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(openMissionControlTool?.inputSchema.properties).toMatchObject({
-        workspaceRoot: expect.objectContaining({ type: "string" }),
-        routeledgerRoot: expect.objectContaining({ type: "string" }),
-        devBuild: expect.objectContaining({ type: "boolean" })
-      });
-      expect(missionControlStatusTool?.annotations.readOnlyHint).toBe(true);
-      expect(missionControlStatusTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(missionControlStatusTool?.inputSchema.properties).toMatchObject({
-        workspaceRoot: expect.objectContaining({ type: "string" }),
-        routeledgerRoot: expect.objectContaining({ type: "string" })
-      });
-      expect(stopMissionControlTool?.annotations.readOnlyHint).toBe(true);
-      expect(stopMissionControlTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(contextTool?.annotations.readOnlyHint).toBe(true);
-      expect(contextTool?.annotations.idempotentHint).toBe(true);
-      expect(writeHostBindingConfigTool?.annotations.readOnlyHint).toBe(false);
-      expect(writeHostBindingConfigTool?._meta.routeledger).toMatchObject({
-        riskLevel: "write",
-        recommendedApprovalMode: "prompt"
-      });
-      expect(writeHostBindingConfigTool?.inputSchema.properties).toMatchObject({
-        routeledgerRoot: expect.objectContaining({ type: "string" }),
-        outputPath: expect.objectContaining({ type: "string" }),
-        expectedRouteLedgerRoot: expect.objectContaining({ type: "string" })
-      });
-      expect(writeTools).toHaveLength(21);
-      expect(highRiskTools).toHaveLength(5);
       for (const tool of [...writeTools, ...highRiskTools]) {
         expect(tool.inputSchema.properties).toHaveProperty("expectedRouteLedgerRoot");
         expect(tool.inputSchema.required ?? []).not.toContain("expectedRouteLedgerRoot");
@@ -185,66 +152,57 @@ describe("routeledger mcp registry", () => {
       for (const tool of readOnlyTools) {
         expect(tool.inputSchema.properties ?? {}).not.toHaveProperty("expectedRouteLedgerRoot");
       }
-      expect(nextActionTool?.annotations.readOnlyHint).toBe(true);
-      expect(nextActionTool?.annotations.idempotentHint).toBe(true);
-      expect(checkDocDriftTool?.annotations.readOnlyHint).toBe(true);
-      expect(checkDocDriftTool?.annotations.idempotentHint).toBe(true);
-      expect(checkDocDriftTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(checkDocDriftTool?.description).toBe(
-        "Compare selected entry docs with RouteLedger truth. Input: entryFiles."
-      );
-      expect(summarizeVersionCloseoutTool?.annotations.readOnlyHint).toBe(true);
-      expect(summarizeVersionCloseoutTool?.annotations.idempotentHint).toBe(true);
-      expect(summarizeVersionCloseoutTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(summarizeVersionCloseoutTool?.description).toBe(
-        "Summarize a version's closeout blockers and evidence."
-      );
-      expect(planVersionCloseoutTool?.annotations.readOnlyHint).toBe(true);
-      expect(planVersionCloseoutTool?.annotations.idempotentHint).toBe(true);
-      expect(planVersionCloseoutTool?._meta.routeledger.riskLevel).toBe("read-only");
-      expect(planVersionCloseoutTool?.description).toBe(
-        "Plan concrete steps to clear a version closeout."
-      );
-      expect(listVersionsWindowTool?.annotations.readOnlyHint).toBe(true);
-      expect(listVersionsWindowTool?.annotations.idempotentHint).toBe(true);
-      expect(getVersionStructureTool?.annotations.readOnlyHint).toBe(true);
-      expect(getVersionStructureTool?.annotations.idempotentHint).toBe(true);
-      expect(getVersionTransitionGuideTool?.annotations.readOnlyHint).toBe(true);
-      expect(getVersionTransitionGuideTool?.annotations.idempotentHint).toBe(true);
-      expect(transitionVersionTool?._meta.routeledger.riskLevel).toBe("write");
-      expect(closeVersionTool?._meta.routeledger.riskLevel).toBe("write");
-      expect(shutdownVersionTool?._meta.routeledger.riskLevel).toBe("high-risk");
-      expect(carryForwardUndoTool).toBeUndefined();
-      for (const legacyToolName of [
-        "create_undo",
-        "reassign_undo",
-        "carry_forward_undo",
-        "resolve_undo_as_downstream_input",
-        "close_undo"
-      ]) {
-        expect(tools.find((tool) => tool.name === legacyToolName)).toBeUndefined();
-      }
-      expect(approveTool?._meta.routeledger).toMatchObject({
+      const executeRouteChange = tools.find((tool) => tool.name === "execute_route_change");
+      expect(executeRouteChange?.annotations.destructiveHint).toBe(true);
+      expect(executeRouteChange?._meta.routeledger).toMatchObject({
         riskLevel: "high-risk",
         highRisk: true,
-        destructive: false,
-        recommendedApprovalMode: "prompt"
-      });
-      expect(rejectTool?._meta.routeledger).toMatchObject({
-        riskLevel: "high-risk",
-        highRisk: true,
-        destructive: false,
-        recommendedApprovalMode: "prompt"
-      });
-      expect(commitTool?.annotations.destructiveHint).toBe(true);
-      expect(commitTool?._meta.routeledger).toMatchObject({
         destructive: true,
         recommendedApprovalMode: "approve"
       });
-      expect(createVersionTool?._meta.routeledger.riskLevel).toBe("write");
-      expect(insertVersionTool?._meta.routeledger.riskLevel).toBe("write");
-      expect(createChildVersionTool?._meta.routeledger.riskLevel).toBe("write");
-      expect(reorderVersionsTool?._meta.routeledger.riskLevel).toBe("write");
+      expect(
+        tools
+          .filter((tool) => tool.annotations.destructiveHint)
+          .map((tool) => tool.name)
+          .sort()
+      ).toEqual(
+        [
+          "manage_todo",
+          "manage_deferred",
+          "manage_constraint",
+          "set_version_state",
+          "execute_route_change"
+        ].sort()
+      );
+
+      for (const legacyName of [
+        "get_runtime_context",
+        "create_todo",
+        "prepare_version",
+        "execute_l3_operation"
+      ]) {
+        expect(tools.find((tool) => tool.name === legacyName)).toBeUndefined();
+      }
+
+      for (const tool of tools.filter(
+        (item) => !["configure_binding", "propose_l3_route_change"].includes(item.name)
+      )) {
+        const branches = (
+          tool.inputSchema as unknown as {
+            oneOf?: Array<{
+              properties?: { operation?: { const?: string } };
+              required?: string[];
+            }>;
+          }
+        ).oneOf;
+        expect(branches, tool.name).toBeDefined();
+        expect(branches?.every((branch) => branch.required?.includes("operation"))).toBe(true);
+        expect(
+          branches?.every(
+            (branch) => typeof branch.properties?.operation?.const === "string"
+          )
+        ).toBe(true);
+      }
 
       server.close();
     } finally {
@@ -260,26 +218,37 @@ describe("routeledger mcp registry", () => {
       const badDecisionRefResponse = await callTool(
         server,
         "bad-decision-ref",
-        "approve_l3_operation",
+        "execute_route_change",
         {
+          operation: "approve_l3_operation",
           projectId: "missing-project",
           pendingOperationId: "pending-operation",
           decisionRef: 42
         }
       );
-      const extraFieldResponse = await callTool(server, "extra-field", "init_project", {
-        name: "RouteLedger",
-        unexpected: true
-      });
+      const extraFieldResponse = await callTool(
+        server,
+        "extra-field",
+        "configure_project",
+        {
+          operation: "initialize",
+          name: "RouteLedger",
+          unexpected: true
+        }
+      );
       const missingRequiredResponse = await callTool(
         server,
         "missing-required",
-        "list_versions",
-        {}
+        "inspect_versions",
+        { operation: "list_versions" }
       );
       const runtimeContext = getStructuredData<{
         activeProject: { id: string; name: string } | null;
-      }>(await callTool(server, "schema-validation-context", "get_runtime_context", {}));
+      }>(
+        await callTool(server, "schema-validation-context", "inspect_runtime", {
+          operation: "runtime"
+        })
+      );
 
       expect(runtimeContext.activeProject).toBeNull();
 
@@ -293,7 +262,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$.decisionRef"
+                path: "$"
               }
             },
             meta: {
@@ -323,8 +292,8 @@ describe("routeledger mcp registry", () => {
       ).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            path: "$.decisionRef",
-            message: expect.stringContaining("Expected string")
+            path: expect.any(String),
+            message: expect.any(String)
           })
         ])
       );
@@ -338,7 +307,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$.unexpected"
+                path: "$"
               }
             }
           }
@@ -354,7 +323,7 @@ describe("routeledger mcp registry", () => {
             error: {
               code: "INVALID_TOOL_INPUT",
               details: {
-                path: "$.projectId"
+                path: "$"
               }
             }
           }
@@ -376,7 +345,8 @@ describe("routeledger mcp registry", () => {
     });
 
     try {
-      const initialized = await registry.invoke("init_project", {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "Inspected Runtime Project",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
@@ -392,16 +362,19 @@ describe("routeledger mcp registry", () => {
         })
       };
 
-      const preflightError = await registry.invoke("create_todo", {
+      const preflightError = await registry.invoke("manage_todo", {
+        operation: "create",
         projectId: "untrusted-request-project",
         versionId: "untrusted-request-version",
         title: "must not write",
         idempotencyKey: "untrusted-request-create"
       });
-      const applicationError = await registry.invoke("list_versions", {
+      const applicationError = await registry.invoke("inspect_versions", {
+        operation: "list_versions",
         projectId: "untrusted-request-project"
       });
-      const inputError = await registry.invoke("get_current_context", {
+      const inputError = await registry.invoke("inspect_route_progress", {
+        operation: "get_current_context",
         projectId: 42
       } as any);
       const unknownToolError = await registry.invoke("not_a_routeledger_tool", {
@@ -476,8 +449,11 @@ describe("routeledger mcp registry", () => {
     });
 
     try {
-      const defaultInitResponse = await defaultRegistry.invoke("init_project", {
+      const defaultInitResponse = await defaultRegistry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] },
         expectedRouteLedgerRoot: defaultProjectRoot
       });
       expect(defaultInitResponse.ok).toBe(true);
@@ -490,15 +466,19 @@ describe("routeledger mcp registry", () => {
         firstVersion: { id: string };
       }).firstVersion!.id;
 
-      const defaultGateResponse = await defaultRegistry.invoke("check_start_gate", {
+      const defaultGateResponse = await defaultRegistry.invoke("inspect_versions", {
+        operation: "check_start_gate",
         projectId: defaultProjectId,
         versionId: defaultVersionId
       });
       expect(defaultGateResponse.ok).toBe(true);
       expect(readDebugLogRecords(defaultProjectRoot)).toEqual([]);
 
-      const enabledInitResponse = await enabledRegistry.invoke("init_project", {
+      const enabledInitResponse = await enabledRegistry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
+        contentLocale: "en",
+        firstVersion: { title: "Initial Version", initialTodos: [] },
         expectedRouteLedgerRoot: enabledProjectRoot
       });
       expect(enabledInitResponse.ok).toBe(true);
@@ -507,12 +487,14 @@ describe("routeledger mcp registry", () => {
         firstVersion: { id: string };
       };
 
-      const enabledGateResponse = await enabledRegistry.invoke("check_start_gate", {
+      const enabledGateResponse = await enabledRegistry.invoke("inspect_versions", {
+        operation: "check_start_gate",
         projectId: enabledData.project.id,
         versionId: enabledData.firstVersion!.id
       });
       expect(enabledGateResponse.ok).toBe(true);
-      const failureResponse = await enabledRegistry.invoke("get_current_context", {
+      const failureResponse = await enabledRegistry.invoke("inspect_route_progress", {
+        operation: "get_current_context",
         projectId: "missing-project"
       });
       expect(failureResponse.ok).toBe(false);
@@ -533,7 +515,7 @@ describe("routeledger mcp registry", () => {
         }),
         expect.objectContaining({
           type: "tool.failure",
-          toolName: "get_current_context",
+          toolName: "inspect_route_progress",
           projectId: "missing-project",
           actorId: "debug-agent",
           actorDisplayName: "Debug Agent",
@@ -543,7 +525,7 @@ describe("routeledger mcp registry", () => {
               code: expect.any(String),
               message: expect.any(String)
             }),
-            inputKeys: ["projectId"]
+            inputKeys: ["operation", "projectId"]
           })
         })
       ]);
@@ -561,9 +543,17 @@ describe("routeledger mcp registry", () => {
 
     try {
       server = await initializeServer(projectRoot);
-      const initResponse = await callTool(server, "init-project", "init_project", {
-        name: "RouteLedger"
-      });
+      const initResponse = await callTool(
+        server,
+        "init-project",
+        "configure_project",
+        {
+          operation: "initialize",
+          name: "RouteLedger",
+          contentLocale: "en",
+          firstVersion: { title: "Initial Version", initialTodos: [] }
+        }
+      );
 
       expect(initResponse).toMatchObject({
         jsonrpc: "2.0",
@@ -596,35 +586,40 @@ describe("routeledger mcp registry", () => {
       const contextResponse = await callTool(
         server,
         "get-context",
-        "get_current_context",
+        "inspect_route_progress",
         {
+          operation: "get_current_context",
           projectId
         }
       );
-      const nextActionResponse = await callTool(server, "next-action", "next_action", {
+      const nextActionResponse = await callTool(server, "next-action", "inspect_route_progress", {
+        operation: "next_action",
         projectId
       });
       const summarizeVersionCloseoutResponse = await callTool(
         server,
         "summarize-closeout",
-        "summarize_version_closeout",
+        "inspect_route_progress",
         {
+          operation: "summarize_version_closeout",
           projectId
         }
       );
       const planVersionCloseoutResponse = await callTool(
         server,
         "plan-closeout",
-        "plan_version_closeout",
+        "inspect_route_progress",
         {
+          operation: "plan_version_closeout",
           projectId
         }
       );
       const listVersionsWindowResponse = await callTool(
         server,
         "list-versions-window",
-        "list_versions_window",
+        "inspect_versions",
         {
+          operation: "list_versions_window",
           projectId
         }
       );
@@ -864,7 +859,7 @@ describe("routeledger mcp registry", () => {
         id: "bad-call",
         method: "tools/call",
         params: {
-          name: "get_current_context",
+          name: "inspect_route_progress",
           arguments: "nope"
         }
       })) as JsonRpcResponse;

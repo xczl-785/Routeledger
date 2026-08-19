@@ -34,6 +34,7 @@ import type {
   BoundLocalL3Authority,
   LocalL3AuthorityBroker
 } from "./local-l3-authority-broker.js";
+import { validateValueAgainstSchema } from "./schema-validation.js";
 
 type JsonRpcId = string | number;
 
@@ -144,11 +145,6 @@ type PendingRequestHandlers = {
   reject: (error: Error) => void;
 };
 
-interface ToolInputValidationIssue {
-  path: string;
-  message: string;
-}
-
 const JSONRPC_VERSION = "2.0" as const;
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
@@ -170,191 +166,6 @@ const isJsonRpcErrorResponse = (value: unknown): value is JsonRpcErrorResponse =
   "error" in value &&
   "id" in value;
 
-const formatPath = (path: Array<string | number>): string =>
-  path.reduce<string>((formattedPath, segment) => {
-    if (typeof segment === "number") {
-      return `${formattedPath}[${segment}]`;
-    }
-
-    return `${formattedPath}.${segment}`;
-  }, "$");
-
-const describeExpectedType = (schema: Record<string, unknown>): string =>
-  typeof schema.type === "string" ? schema.type : "valid value";
-
-const hasEnumMatch = (allowedValues: unknown[], value: unknown): boolean =>
-  allowedValues.some((allowedValue) => Object.is(allowedValue, value));
-
-const validateValueAgainstSchema = (
-  schema: Record<string, unknown>,
-  value: unknown,
-  path: Array<string | number> = []
-): ToolInputValidationIssue[] => {
-  const issues: ToolInputValidationIssue[] = [];
-  const anyOf = schema.anyOf;
-
-  if (Array.isArray(anyOf)) {
-    const anyOfSchemas = anyOf.filter(isObject);
-    const matchedSchema = anyOfSchemas.some(
-      (candidateSchema) => validateValueAgainstSchema(candidateSchema, value, path).length === 0
-    );
-
-    if (!matchedSchema) {
-      issues.push({
-        path: formatPath(path),
-        message: "Value does not match any allowed schema."
-      });
-    }
-
-    return issues;
-  }
-
-  const expectedType = schema.type;
-
-  if (typeof expectedType === "string") {
-    switch (expectedType) {
-      case "object":
-        if (!isObject(value)) {
-          issues.push({
-            path: formatPath(path),
-            message: `Expected object, received ${Array.isArray(value) ? "array" : typeof value}.`
-          });
-          return issues;
-        }
-
-        break;
-      case "array":
-        if (!Array.isArray(value)) {
-          issues.push({
-            path: formatPath(path),
-            message: `Expected array, received ${typeof value}.`
-          });
-          return issues;
-        }
-
-        break;
-      case "string":
-        if (typeof value !== "string") {
-          issues.push({
-            path: formatPath(path),
-            message: `Expected string, received ${typeof value}.`
-          });
-          return issues;
-        }
-
-        break;
-      case "integer":
-        if (typeof value !== "number" || !Number.isInteger(value)) {
-          issues.push({
-            path: formatPath(path),
-            message: `Expected integer, received ${typeof value}.`
-          });
-          return issues;
-        }
-
-        break;
-      case "boolean":
-        if (typeof value !== "boolean") {
-          issues.push({
-            path: formatPath(path),
-            message: `Expected boolean, received ${typeof value}.`
-          });
-          return issues;
-        }
-
-        break;
-      case "null":
-        if (value !== null) {
-          issues.push({
-            path: formatPath(path),
-            message: `Expected null, received ${typeof value}.`
-          });
-          return issues;
-        }
-
-        break;
-      default:
-        issues.push({
-          path: formatPath(path),
-          message: `Unsupported schema type '${expectedType}'.`
-        });
-        return issues;
-    }
-  }
-
-  if (Array.isArray(schema.enum) && !hasEnumMatch(schema.enum, value)) {
-    issues.push({
-      path: formatPath(path),
-      message: `Expected one of ${schema.enum.map(String).join(", ")}.`
-    });
-  }
-
-  if (schema.type === "object" && isObject(value)) {
-    const properties = isObject(schema.properties) ? schema.properties : {};
-    const required = Array.isArray(schema.required)
-      ? schema.required.filter((field): field is string => typeof field === "string")
-      : [];
-
-    for (const field of required) {
-      if (!(field in value)) {
-        issues.push({
-          path: formatPath(path.concat(field)),
-          message: "Required field is missing."
-        });
-      }
-    }
-
-    if (schema.additionalProperties === false) {
-      for (const field of Object.keys(value)) {
-        if (!(field in properties)) {
-          issues.push({
-            path: formatPath(path.concat(field)),
-            message: "Additional properties are not allowed."
-          });
-        }
-      }
-    }
-
-    for (const [field, propertySchema] of Object.entries(properties)) {
-      if (field in value && isObject(propertySchema)) {
-        issues.push(
-          ...validateValueAgainstSchema(propertySchema, value[field], path.concat(field))
-        );
-      }
-    }
-  }
-
-  if (schema.type === "array" && Array.isArray(value) && isObject(schema.items)) {
-    value.forEach((item, index) => {
-      issues.push(...validateValueAgainstSchema(schema.items as Record<string, unknown>, item, path.concat(index)));
-    });
-  }
-
-  if (
-    typeof schema.minimum === "number" &&
-    typeof value === "number" &&
-    value < schema.minimum
-  ) {
-    issues.push({
-      path: formatPath(path),
-      message: `Expected ${describeExpectedType(schema)} greater than or equal to ${schema.minimum}.`
-    });
-  }
-
-  if (
-    typeof schema.maximum === "number" &&
-    typeof value === "number" &&
-    value > schema.maximum
-  ) {
-    issues.push({
-      path: formatPath(path),
-      message: `Expected ${describeExpectedType(schema)} less than or equal to ${schema.maximum}.`
-    });
-  }
-
-  return issues;
-};
-
 const validateToolInput = (
   toolDefinition: ToolDefinition,
   input: Record<string, unknown>
@@ -372,6 +183,33 @@ const validateToolInput = (
     error: {
       code: "INVALID_TOOL_INPUT",
       message: firstIssue?.message ?? "Invalid tool input.",
+      details: {
+        path: firstIssue?.path ?? "$",
+        issues
+      }
+    }
+  };
+};
+
+export const validateToolOutput = (
+  toolDefinition: ToolDefinition,
+  output: ToolResponse
+): ToolResponse | null => {
+  if (toolDefinition.outputSchema === undefined) {
+    return null;
+  }
+
+  const issues = validateValueAgainstSchema(toolDefinition.outputSchema, output);
+  if (issues.length === 0) {
+    return null;
+  }
+
+  const [firstIssue] = issues;
+  return {
+    ok: false,
+    error: {
+      code: "INVALID_TOOL_OUTPUT",
+      message: "Tool output did not match its published outputSchema.",
       details: {
         path: firstIssue?.path ?? "$",
         issues
@@ -1272,7 +1110,8 @@ export const createRouteLedgerStdioServer = (
 
             if (
               is2026Request &&
-              toolCall.name === "execute_l3_operation" &&
+              toolCall.name === "execute_route_change" &&
+              toolCall.arguments.operation === "execute_l3_operation" &&
               options.mcpRequestStateSecret === undefined
             ) {
               return successResponse(
@@ -1298,7 +1137,11 @@ export const createRouteLedgerStdioServer = (
                 : validateToolInput(toolDefinition, toolCall.arguments);
             const invocationRegistry = activeRegistry;
             let invocationArguments = toolCall.arguments;
-            if (is2026Request && toolCall.name === "execute_l3_operation") {
+            if (
+              is2026Request &&
+              toolCall.name === "execute_route_change" &&
+              toolCall.arguments.operation === "execute_l3_operation"
+            ) {
               const argumentsDigest = digestMcpToolArguments(toolCall.arguments);
               if (params.requestState !== undefined) {
                 if (typeof params.requestState !== "string") {
@@ -1357,14 +1200,15 @@ export const createRouteLedgerStdioServer = (
               activeMcpRequestContext = null;
             }
             const rebindResponse =
-              validationError === null && toolCall.name === "activate_routeledger_binding"
+              validationError === null && toolCall.name === "configure_binding"
                 ? await activatePendingSessionRebind(invocationRegistry)
                 : null;
 
             const effectiveToolResponse = rebindResponse ?? toolResponse;
             if (
               is2026Request &&
-              toolCall.name === "execute_l3_operation" &&
+              toolCall.name === "execute_route_change" &&
+              toolCall.arguments.operation === "execute_l3_operation" &&
               effectiveToolResponse.ok &&
               isObject(effectiveToolResponse.data) &&
               effectiveToolResponse.data.status === "input_required"
@@ -1427,7 +1271,7 @@ export const createRouteLedgerStdioServer = (
                 requestState: sealMcpRequestState(
                   {
                     schemaVersion: 2,
-                    toolName: "execute_l3_operation",
+                    toolName: "execute_route_change",
                     argumentsDigest: digestMcpToolArguments(toolCall.arguments),
                     binding: {
                       proposalId: requestState.proposalId,
@@ -1447,10 +1291,14 @@ export const createRouteLedgerStdioServer = (
                 }
               });
             }
+            const outputValidationError = validateToolOutput(
+              toolDefinition!,
+              effectiveToolResponse
+            );
             const callResult = toCallToolResult(
               activeRegistry,
               toolCall.name,
-              effectiveToolResponse
+              outputValidationError ?? effectiveToolResponse
             );
             return successResponse(
               request.id,

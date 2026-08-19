@@ -711,7 +711,8 @@ const buildNextAction = (options: {
   if (currentVersion?.state === "complete") {
     return {
       actionType: "close_version",
-      summary: "准备 residual audit 后，发起 close_version。",
+      recommendedTool: "preview_or_propose_version_close",
+      summary: "准备 residual audit 后，预览或发起 Version 关闭提案。",
       reason: `current version ${currentVersion.id} 已 complete，但尚未 close。`,
       targetId: currentVersion.id,
       requiresL3Approval: true,
@@ -836,7 +837,7 @@ const buildNextAction = (options: {
   ) {
     return {
       actionType: "create_version",
-      recommendedTool: "create_version",
+      recommendedTool: "propose_version_creation",
       summary: "Append one successor Version after the closed top-level tail.",
       reason: `version ${currentVersion.id} is the ordinary closed top-level tail; continue the route by appending one real successor Version.`,
       targetId: currentVersion.id,

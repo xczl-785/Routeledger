@@ -14,7 +14,7 @@ const secret = "routeledger-request-state-test-secret-32";
 const args = { projectId: "project-1", idempotencyKey: "key-1" };
 const state = {
   schemaVersion: 2 as const,
-  toolName: "execute_l3_operation" as const,
+  toolName: "execute_route_change" as const,
   argumentsDigest: digestMcpToolArguments(args),
   binding: {
     proposalId: "proposal-1",
@@ -50,14 +50,14 @@ describe("MCP request-state integrity", () => {
     const token = sealMcpRequestState(state, secret);
     expect(
       verifyMcpRequestState(token, secret, {
-        toolName: "execute_l3_operation",
+        toolName: "execute_route_change",
         argumentsDigest: digestMcpToolArguments({ idempotencyKey: "key-1", projectId: "project-1" }),
         now: new Date("2026-08-11T00:05:00.000Z")
       })
     ).toEqual(state);
     expect(() =>
       verifyMcpRequestState(token, secret, {
-        toolName: "execute_l3_operation",
+        toolName: "execute_route_change",
         argumentsDigest: digestMcpToolArguments({ ...args, idempotencyKey: "key-2" }),
         now: new Date("2026-08-11T00:05:00.000Z")
       })
@@ -68,14 +68,14 @@ describe("MCP request-state integrity", () => {
     const token = sealMcpRequestState(state, secret);
     expect(() =>
       verifyMcpRequestState(token, secret, {
-        toolName: "execute_l3_operation",
+        toolName: "execute_route_change",
         argumentsDigest: state.argumentsDigest,
         now: new Date("2026-08-11T00:10:00.000Z")
       })
     ).toThrow("expired");
     expect(() =>
       verifyMcpRequestState(token, "another-request-state-secret-32-characters", {
-        toolName: "execute_l3_operation",
+        toolName: "execute_route_change",
         argumentsDigest: state.argumentsDigest,
         now: new Date("2026-08-11T00:05:00.000Z")
       })
@@ -91,7 +91,7 @@ describe("MCP request-state integrity", () => {
         ),
         secret,
         {
-          toolName: "execute_l3_operation",
+          toolName: "execute_route_change",
           argumentsDigest: state.argumentsDigest,
           now: new Date("2026-08-11T00:05:00.000Z")
         }
@@ -105,7 +105,7 @@ describe("MCP request-state integrity", () => {
         ),
         secret,
         {
-          toolName: "execute_l3_operation",
+          toolName: "execute_route_change",
           argumentsDigest: state.argumentsDigest,
           now: new Date("2026-08-11T00:05:00.000Z")
         }

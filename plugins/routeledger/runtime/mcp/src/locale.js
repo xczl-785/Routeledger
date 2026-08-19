@@ -119,7 +119,7 @@ const ZH_ACTION_DESCRIPTIONS = {
     continue_route: "Todo 已关闭；不要重试写入，继续读取下一步路线动作。",
     choose_legal_deferred_target: "从 eligibleTargetVersions 中选择合法下游 Version 后重试 Deferred 操作。",
     inspect_version_structure: "读取当前 Version 结构和合法操作后再重试。",
-    retry_create_version: "使用当前路线状态重试 create_version，不要把旧尾节点 ID 当作新目标。",
+    retry_create_version: "使用当前路线状态重试 propose_version_creation，不要把旧尾节点 ID 当作新目标。",
     reject_stale_proposal: "先拒绝陈旧 proposal，再创建替代 proposal。",
     refresh_context: "重新读取当前路线和工作上下文。",
     resolve_live_blocker: "处理 gate 差异中新增的实时 blocker。",
@@ -132,7 +132,7 @@ const EN_ACTION_DESCRIPTIONS = {
     continue_route: "The Todo is already closed; do not retry the write and continue with the route.",
     choose_legal_deferred_target: "Choose a legal downstream Version from eligibleTargetVersions and retry the Deferred operation.",
     inspect_version_structure: "Inspect the current Version structure and legal operations before retrying.",
-    retry_create_version: "Retry create_version against the current route; do not reuse a stale tail ID as the new target.",
+    retry_create_version: "Retry propose_version_creation against the current route; do not reuse a stale tail ID as the new target.",
     reject_stale_proposal: "Reject the stale proposal before creating a replacement.",
     refresh_context: "Refresh the current route and work context.",
     resolve_live_blocker: "Resolve the live blocker recorded in the gate difference.",
@@ -275,6 +275,19 @@ const SYSTEM_CODE_COLLECTION_KEYS = new Set([
     "warnings"
 ]);
 const HUMAN_REVIEW_TOOLS = new Set([
+    "propose_version_lifecycle_change",
+    "propose_version_structure_change",
+    "propose_l3_route_change",
+    "execute_route_change",
+    "propose_version_advance",
+    "preflight_or_propose_version_batch",
+    "preview_or_propose_version_close",
+    "propose_child_version_creation",
+    "propose_version_creation",
+    "propose_version_insertion",
+    "propose_version_reorder",
+    "preview_or_propose_forced_version_shutdown",
+    "preview_or_propose_version_transition",
     "advance_to_version",
     "batch_create_versions",
     "close_version",
@@ -287,6 +300,14 @@ const HUMAN_REVIEW_TOOLS = new Set([
     "transition_version"
 ]);
 const CODED_PRESENTATION_PATHS = {
+    propose_version_advance: new Set(["data.blockers"]),
+    preflight_or_propose_version_batch: new Set(["data.blockers", "data.issues", "data.risks"]),
+    preview_or_propose_version_close: new Set(["data.blockers"]),
+    preview_or_propose_forced_version_shutdown: new Set([
+        "data.blockers",
+        "data.ordinaryCloseGate.blockers"
+    ]),
+    preview_or_propose_version_transition: new Set(["data.blockers"]),
     advance_to_version: new Set(["data.blockers"]),
     batch_create_versions: new Set(["data.blockers", "data.issues", "data.risks"]),
     check_close_gate: new Set(["data.blockers"]),
@@ -405,13 +426,13 @@ const TRANSITION_GUIDE_REASONS = {
         "当前 Version 仍是 `wait`；先用 prepare_version 进入 `ready`，再重新读取向导。",
         "The current Version is still in `wait`; use prepare_version to enter `ready`, then read the guide again."
     ],
-    "current version 已 ready；用 transition_version 生成 start_version proposal。": [
-        "当前 Version 已是 `ready`；用 transition_version 生成 start_version proposal。",
-        "The current Version is `ready`; use transition_version to create a start_version proposal."
+    "current version 已 ready；用 preview_or_propose_version_transition 生成 start_version proposal。": [
+        "当前 Version 已是 `ready`；用 preview_or_propose_version_transition 生成 start_version proposal。",
+        "The current Version is `ready`; use preview_or_propose_version_transition to create a start_version proposal."
     ],
-    "current version start gate 仍有 blockers，transition_version 目前不会创建 proposal。": [
-        "当前 Version 的 start gate 仍有阻断项，transition_version 暂不会创建 proposal。",
-        "The current Version start gate still has blockers, so transition_version will not create a proposal."
+    "current version start gate 仍有 blockers，preview_or_propose_version_transition 目前不会创建 proposal。": [
+        "当前 Version 的 start gate 仍有阻断项，preview_or_propose_version_transition 暂不会创建 proposal。",
+        "The current Version start gate still has blockers, so preview_or_propose_version_transition will not create a proposal."
     ],
     "start_version proposal 创建后，再走现有 approve_l3_operation 审批链。": [
         "创建 start_version proposal 后，再执行现有 approve_l3_operation 审批链。",
@@ -421,17 +442,17 @@ const TRANSITION_GUIDE_REASONS = {
         "审批通过后，再提交 start_version proposal。",
         "Commit the start_version proposal after approval."
     ],
-    "current version 已满足 close gate；用 close_version 生成 close proposal。": [
-        "当前 Version 已满足 close gate；用 close_version 生成关闭 proposal。",
-        "The current Version satisfies the close gate; use close_version to create a close proposal."
+    "current version 已满足 close gate；用 preview_or_propose_version_close 生成 close proposal。": [
+        "当前 Version 已满足 close gate；用 preview_or_propose_version_close 生成关闭 proposal。",
+        "The current Version satisfies the close gate; use preview_or_propose_version_close to create a close proposal."
     ],
     "current version close gate 仍未通过，需先处理 blockers 或补 residual audit。": [
         "当前 Version 的 close gate 尚未通过；先处理阻断项或补充 residual audit。",
         "The current Version close gate has not passed; resolve the blockers or provide a residual audit first."
     ],
-    "close_version proposal 创建后，再走现有 approve_l3_operation 审批链。": [
-        "创建 close_version proposal 后，再执行现有 approve_l3_operation 审批链。",
-        "After creating the close_version proposal, use the existing approve_l3_operation approval chain."
+    "preview_or_propose_version_close 创建 proposal 后，再走现有 approve_l3_operation 审批链。": [
+        "创建 preview_or_propose_version_close proposal 后，再执行现有 approve_l3_operation 审批链。",
+        "After preview_or_propose_version_close creates the proposal, use the existing approve_l3_operation approval chain."
     ],
     "拿到 approval artifact 后，再用 commit_l3_operation 落地 close。": [
         "取得 approval artifact 后，再用 commit_l3_operation 提交关闭操作。",
@@ -441,9 +462,9 @@ const TRANSITION_GUIDE_REASONS = {
         "来源 Version 已是 `close`，无需再次创建关闭 proposal。",
         "The source Version is already in `close`; no additional close proposal is needed."
     ],
-    "from version 已满足 close gate，可先用 close_version 生成 close proposal。": [
-        "来源 Version 已满足 close gate；可先用 close_version 生成关闭 proposal。",
-        "The source Version satisfies the close gate; use close_version to create a close proposal."
+    "from version 已满足 close gate，可先用 preview_or_propose_version_close 生成 close proposal。": [
+        "来源 Version 已满足 close gate；可先用 preview_or_propose_version_close 生成关闭 proposal。",
+        "The source Version satisfies the close gate; use preview_or_propose_version_close to create a close proposal."
     ],
     "from version close gate 仍未通过，需先处理 blockers 或补 residual audit。": [
         "来源 Version 的 close gate 尚未通过；先处理阻断项或补充 residual audit。",
@@ -461,41 +482,41 @@ const TRANSITION_GUIDE_REASONS = {
         "目标 Version 已是 current 且处于 `running`，无需执行本步骤。",
         "The target Version is already current and running, so this step is not needed."
     ],
-    "target version 尚未 ready；先 prepare，再重新进入 transition_version。": [
-        "目标 Version 尚未 `ready`；先 prepare，再重新执行 transition_version。",
-        "The target Version is not yet `ready`; prepare it before running transition_version again."
+    "target version 尚未 ready；先 prepare，再重新进入 preview_or_propose_version_transition。": [
+        "目标 Version 尚未 `ready`；先 prepare，再重新执行 preview_or_propose_version_transition。",
+        "The target Version is not yet `ready`; prepare it before running preview_or_propose_version_transition again."
     ],
-    "target start gate 仍有 blockers，transition_version 目前不会创建 proposal。": [
-        "目标 start gate 仍有阻断项，transition_version 暂不会创建 proposal。",
-        "The target start gate still has blockers, so transition_version will not create a proposal."
+    "target start gate 仍有 blockers，preview_or_propose_version_transition 目前不会创建 proposal。": [
+        "目标 start gate 仍有阻断项，preview_or_propose_version_transition 暂不会创建 proposal。",
+        "The target start gate still has blockers, so preview_or_propose_version_transition will not create a proposal."
     ],
-    "关闭 from 边界后，用 transition_version 生成 start_version proposal。": [
-        "关闭来源边界后，用 transition_version 生成 start_version proposal。",
-        "After closing the source boundary, use transition_version to create a start_version proposal."
+    "关闭 from 边界后，用 preview_or_propose_version_transition 生成 start_version proposal。": [
+        "关闭来源边界后，用 preview_or_propose_version_transition 生成 start_version proposal。",
+        "After closing the source boundary, use preview_or_propose_version_transition to create a start_version proposal."
     ],
-    "关闭 from 边界后，用 transition_version 先生成 set_current_version proposal。": [
-        "关闭来源边界后，用 transition_version 先生成 set_current_version proposal。",
-        "After closing the source boundary, use transition_version to create a set_current_version proposal first."
+    "关闭 from 边界后，用 preview_or_propose_version_transition 先生成 set_current_version proposal。": [
+        "关闭来源边界后，用 preview_or_propose_version_transition 先生成 set_current_version proposal。",
+        "After closing the source boundary, use preview_or_propose_version_transition to create a set_current_version proposal first."
     ],
-    "transition_version 创建 proposal 后，再审批对应 L3 proposal。": [
-        "transition_version 创建 proposal 后，再审批对应的 L3 proposal。",
-        "After transition_version creates the proposal, approve the corresponding L3 proposal."
+    "preview_or_propose_version_transition 创建 proposal 后，再审批对应 L3 proposal。": [
+        "preview_or_propose_version_transition 创建 proposal 后，再审批对应的 L3 proposal。",
+        "After preview_or_propose_version_transition creates the proposal, approve the corresponding L3 proposal."
     ],
     "审批通过后，再提交对应的 transition proposal。": [
         "审批通过后，再提交对应的转换 proposal。",
         "Commit the corresponding transition proposal after approval."
     ],
-    "set_current_version 提交后，需要再次执行 transition_version 生成 start_version proposal。": [
-        "提交 set_current_version 后，需再次执行 transition_version 生成 start_version proposal。",
-        "After committing set_current_version, run transition_version again to create a start_version proposal."
+    "set_current_version 提交后，需要再次执行 preview_or_propose_version_transition 生成 start_version proposal。": [
+        "提交 set_current_version 后，需再次执行 preview_or_propose_version_transition 生成 start_version proposal。",
+        "After committing set_current_version, run preview_or_propose_version_transition again to create a start_version proposal."
     ],
     "当前路径不需要额外的二次 start proposal。": [
         "当前路径不需要额外的第二个启动 proposal。",
         "The current path does not require an additional start proposal."
     ],
-    "二次 transition_version 创建 start proposal 后，再审批。": [
-        "第二次 transition_version 创建启动 proposal 后，再进行审批。",
-        "Approve the start proposal after the second transition_version call creates it."
+    "二次 preview_or_propose_version_transition 创建 start proposal 后，再审批。": [
+        "第二次 preview_or_propose_version_transition 创建启动 proposal 后，再进行审批。",
+        "Approve the start proposal after the second preview_or_propose_version_transition call creates it."
     ],
     "审批通过后，再提交 start proposal。": [
         "审批通过后，再提交启动 proposal。",

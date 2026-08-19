@@ -379,7 +379,7 @@ const buildCloseoutNextAction = (options: {
   if (version.state === "complete" && closeGate.ok) {
     return {
       actionType: "close_version",
-      recommendedTool: "close_version",
+      recommendedTool: "preview_or_propose_version_close",
       mode: "propose",
       summary: "The version is ordinary-close ready.",
       reason: `version ${version.id} is complete and the ordinary close gate now passes.`,

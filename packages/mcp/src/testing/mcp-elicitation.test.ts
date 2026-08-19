@@ -101,7 +101,8 @@ describe("MCP L3 authorization elicitation", () => {
         method: "notifications/initialized"
       });
 
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "Authorization Probe",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
@@ -110,7 +111,8 @@ describe("MCP L3 authorization elicitation", () => {
         throw new Error(JSON.stringify(structured(initialized), null, 2));
       }
       const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const createResponse = await call(server, "create", "create_version", {
+      const createResponse = await call(server, "create", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
@@ -123,7 +125,8 @@ describe("MCP L3 authorization elicitation", () => {
         structured(createResponse).error as { details: { pendingOperationId: string } }
       ).details.pendingOperationId;
 
-      const approvalPromise = call(server, "approve", "approve_l3_operation", {
+      const approvalPromise = call(server, "approve", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -199,13 +202,15 @@ describe("MCP L3 authorization elicitation", () => {
       });
       await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
 
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "Authorization Probe",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const createResponse = await call(server, "create", "create_version", {
+      const createResponse = await call(server, "create", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
@@ -219,7 +224,8 @@ describe("MCP L3 authorization elicitation", () => {
         "utf8"
       );
 
-      const response = await call(server, "approve", "approve_l3_operation", {
+      const response = await call(server, "approve", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -256,13 +262,15 @@ describe("MCP L3 authorization elicitation", () => {
         }
       });
       await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "Authorization Probe",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const createResponse = await call(server, "create", "create_version", {
+      const createResponse = await call(server, "create", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
@@ -270,7 +278,8 @@ describe("MCP L3 authorization elicitation", () => {
       const pendingOperationId = (
         structured(createResponse).error as { details: { pendingOperationId: string } }
       ).details.pendingOperationId;
-      const approvalPromise = call(server, "approve", "approve_l3_operation", {
+      const approvalPromise = call(server, "approve", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -291,7 +300,10 @@ describe("MCP L3 authorization elicitation", () => {
         code: "EXACT_AUTHORIZATION_REJECTED",
         details: { reason: "HOST_DECLINED" }
       });
-      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      const proposals = await call(server, "list", "inspect_l3_route_operations", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect(structured(proposals).data).toMatchObject([
         { id: pendingOperationId, status: "rejected", approvalArtifactId: null }
       ]);
@@ -332,13 +344,15 @@ describe("MCP L3 authorization elicitation", () => {
         }
       });
       await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "Pending decision probe",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const created = await call(server, "create", "create_version", {
+      const created = await call(server, "create", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
@@ -346,7 +360,8 @@ describe("MCP L3 authorization elicitation", () => {
       const pendingOperationId = (
         structured(created).error as { details: { pendingOperationId: string } }
       ).details.pendingOperationId;
-      const approval = await call(server, "approve", "approve_l3_operation", {
+      const approval = await call(server, "approve", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -355,7 +370,10 @@ describe("MCP L3 authorization elicitation", () => {
         code: "EXACT_AUTHORIZATION_REJECTED",
         details: { reason }
       });
-      const proposals = await call(server, "list", "list_l3_proposals", { projectId });
+      const proposals = await call(server, "list", "inspect_l3_route_operations", {
+        operation: "list_l3_proposals",
+        projectId
+      });
       expect(structured(proposals).data).toMatchObject([
         { id: pendingOperationId, status: "pending", approvalArtifactId: null }
       ]);
@@ -446,13 +464,15 @@ describe("MCP L3 authorization elicitation", () => {
         }
       });
       await server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const initialized = await call(server, "init", "init_project", {
+      const initialized = await call(server, "init", "configure_project", {
+        operation: "initialize",
         name: "Authorization Probe",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const createResponse = await call(server, "create", "create_version", {
+      const createResponse = await call(server, "create", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
@@ -460,7 +480,8 @@ describe("MCP L3 authorization elicitation", () => {
       const details = (structured(createResponse).error as {
         details: { pendingOperationId: string; targetId: string };
       }).details;
-      const response = await call(server, "approve", "approve_l3_operation", {
+      const response = await call(server, "approve", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId: details.pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -476,7 +497,8 @@ describe("MCP L3 authorization elicitation", () => {
       });
       expect(outbound).toHaveLength(0);
 
-      const secondCreate = await call(server, "create-2", "create_version", {
+      const secondCreate = await call(server, "create-2", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 2",
         expectedRouteLedgerRoot: projectRoot
@@ -484,7 +506,8 @@ describe("MCP L3 authorization elicitation", () => {
       const secondPendingOperationId = (
         structured(secondCreate).error as { details: { pendingOperationId: string } }
       ).details.pendingOperationId;
-      const exhausted = await call(server, "approve-2", "approve_l3_operation", {
+      const exhausted = await call(server, "approve-2", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId: secondPendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -518,13 +541,15 @@ describe("MCP L3 authorization elicitation", () => {
         }
       });
       await bootstrap.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const initialized = await call(bootstrap, "init", "init_project", {
+      const initialized = await call(bootstrap, "init", "configure_project", {
+        operation: "initialize",
         name: "V3 Mode Probe",
         contentLocale: "en",
         expectedRouteLedgerRoot: projectRoot
       });
       const projectId = (structured(initialized).data as { project: { id: string } }).project.id;
-      const created = await call(bootstrap, "create", "create_version", {
+      const created = await call(bootstrap, "create", "propose_version_structure_change", {
+        operation: "propose_version_creation",
         projectId,
         title: "Version 1",
         expectedRouteLedgerRoot: projectRoot
@@ -566,8 +591,8 @@ describe("MCP L3 authorization elicitation", () => {
       const status = await call(
         preauthorized,
         "authorization-status",
-        "get_l3_authorization_status",
-        {}
+        "inspect_l3_route_operations",
+        { operation: "get_l3_authorization_status" }
       );
       expect(structured(status).data).toMatchObject({
         controlPlane: "host_authority_broker_v2",
@@ -582,8 +607,8 @@ describe("MCP L3 authorization elicitation", () => {
       const internalStatus = await call(
         preauthorized,
         "authorization-status-internal",
-        "get_l3_authorization_status",
-        { detail: "internal" }
+        "inspect_l3_route_operations",
+        { operation: "get_l3_authorization_status", detail: "internal" }
       );
       expect(structured(internalStatus).data).toMatchObject({
         profile: {
@@ -598,8 +623,8 @@ describe("MCP L3 authorization elicitation", () => {
       const recommendation = await call(
         preauthorized,
         "authorization-recommendation",
-        "recommend_l3_authorization_profile",
-        { projectId, mode: "interactive" }
+        "inspect_l3_route_operations",
+        { operation: "recommend_l3_authorization_profile", projectId, mode: "interactive" }
       );
       expect(structured(recommendation).data).toMatchObject({
         candidateOnly: true,
@@ -620,7 +645,8 @@ describe("MCP L3 authorization elicitation", () => {
           expect.stringContaining("host authority broker")
         ])
       });
-      const miss = await call(preauthorized, "approve-miss", "approve_l3_operation", {
+      const miss = await call(preauthorized, "approve-miss", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot
@@ -661,8 +687,13 @@ describe("MCP L3 authorization elicitation", () => {
       const noProvenance = await call(
         untrustedInteractive,
         "approve-untrusted",
-        "approve_l3_operation",
-        { projectId, pendingOperationId, expectedRouteLedgerRoot: projectRoot }
+        "execute_route_change",
+        {
+          operation: "approve_l3_operation",
+          projectId,
+          pendingOperationId,
+          expectedRouteLedgerRoot: projectRoot
+        }
       );
       expect(structured(noProvenance).error).toMatchObject({
         code: "TRUSTED_HOST_USER_DECISION_REQUIRED"
@@ -702,7 +733,8 @@ describe("MCP L3 authorization elicitation", () => {
         }
       });
       await trustedInteractive.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-      const approved = await call(trustedInteractive, "approve-trusted", "approve_l3_operation", {
+      const approved = await call(trustedInteractive, "approve-trusted", "execute_route_change", {
+        operation: "approve_l3_operation",
         projectId,
         pendingOperationId,
         expectedRouteLedgerRoot: projectRoot

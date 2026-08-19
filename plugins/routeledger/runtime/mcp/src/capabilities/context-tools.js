@@ -1,6 +1,7 @@
 import { adaptCheckDocDriftInput, adaptGetCurrentContextInput, adaptListVersionsWindowInput } from "../input-adapter.js";
 import { defineTool } from "../registry/tool-contract.js";
 import { residualAuditInputSchema } from "../registry/route-input-schemas.js";
+import { toolOutputSchema } from "../registry/output-schemas.js";
 import { sanitizeDocDriftForAgent, sanitizeVersionStructureForAgent } from "./context-agent-projection.js";
 const stringSchema = (description, extra = {}) => ({ type: "string", description, ...extra });
 const integerSchema = (description, extra = {}) => ({ type: "integer", description, ...extra });
@@ -20,6 +21,126 @@ const docDriftExpectedPointerSchema = objectSchema({
     required: booleanSchema("Defaults to true. Set false to make this pointer advisory only.")
 }, ["kind", "path"]);
 const withInputAdapter = (adapter, handler) => async (input) => handler(adapter(input));
+const nullableStringOutputSchema = {
+    anyOf: [{ type: "string" }, { type: "null" }]
+};
+const flexibleObjectOutputSchema = {
+    type: "object",
+    additionalProperties: true
+};
+const flexibleObjectArrayOutputSchema = {
+    type: "array",
+    items: flexibleObjectOutputSchema
+};
+const stringArrayOutputSchema = { type: "array", items: { type: "string" } };
+const nullableFlexibleObjectOutputSchema = {
+    anyOf: [flexibleObjectOutputSchema, { type: "null" }]
+};
+const projectContextOutputSchema = objectSchema({
+    id: { type: "string" },
+    name: { type: "string" },
+    status: { type: "string" },
+    currentVersionId: nullableStringOutputSchema,
+    contentLocale: { type: "string" },
+    updatedAt: { type: "string" }
+}, ["id", "name", "status", "currentVersionId", "contentLocale", "updatedAt"]);
+const nextActionOutputSchema = objectSchema({
+    actionType: { type: "string" },
+    recommendedTool: { anyOf: [{ type: "string" }, { type: "null" }] },
+    toolInput: flexibleObjectOutputSchema,
+    summary: { type: "string" },
+    reason: { type: "string" },
+    targetId: nullableStringOutputSchema,
+    requiresL3Approval: { type: "boolean" },
+    recordIds: stringArrayOutputSchema,
+    blockingRiskCodes: stringArrayOutputSchema
+}, [
+    "actionType",
+    "summary",
+    "reason",
+    "targetId",
+    "requiresL3Approval",
+    "recordIds",
+    "blockingRiskCodes"
+]);
+const sharedContextFields = {
+    project: projectContextOutputSchema,
+    currentVersion: nullableFlexibleObjectOutputSchema,
+    nextVersion: nullableFlexibleObjectOutputSchema,
+    todos: flexibleObjectArrayOutputSchema,
+    currentTodos: flexibleObjectArrayOutputSchema,
+    todoScopes: objectSchema({
+        todos: { type: "string", const: "all_open_route" },
+        currentTodos: { type: "string", const: "current_version_open" }
+    }, ["todos", "currentTodos"]),
+    deferred: flexibleObjectArrayOutputSchema,
+    constraints: flexibleObjectArrayOutputSchema,
+    dueDeferred: flexibleObjectArrayOutputSchema,
+    dueDeferredIds: stringArrayOutputSchema,
+    unresolvedDeferredIds: stringArrayOutputSchema,
+    blockedConstraintIds: stringArrayOutputSchema,
+    gates: objectSchema({
+        start: nullableFlexibleObjectOutputSchema,
+        close: nullableFlexibleObjectOutputSchema
+    }, ["start", "close"]),
+    pendingL3Proposals: flexibleObjectArrayOutputSchema,
+    statusRisks: flexibleObjectArrayOutputSchema,
+    nextAction: nextActionOutputSchema
+};
+const sharedContextRequired = Object.keys(sharedContextFields);
+const getCurrentContextOutputSchema = toolOutputSchema(objectSchema({
+    ...sharedContextFields,
+    versions: flexibleObjectArrayOutputSchema,
+    legacyUndo: flexibleObjectArrayOutputSchema
+}, [...sharedContextRequired, "versions"]));
+const nextActionContextOutputSchema = toolOutputSchema(objectSchema(sharedContextFields, sharedContextRequired));
+const closeoutStepOutputSchema = objectSchema({
+    stepId: { type: "string" },
+    kind: { type: "string" },
+    recommendedTool: nullableStringOutputSchema,
+    targetId: nullableStringOutputSchema,
+    requiredInputs: {
+        type: "array",
+        items: objectSchema({ field: { type: "string" }, value: {} }, ["field", "value"])
+    },
+    governanceLayer: { type: "string" },
+    requiresL3Approval: { type: "boolean" },
+    writesRouteState: { type: "boolean" },
+    summary: { type: "string" },
+    reason: { type: "string" },
+    unlockPaths: flexibleObjectArrayOutputSchema,
+    warnings: stringArrayOutputSchema
+}, [
+    "stepId",
+    "kind",
+    "recommendedTool",
+    "targetId",
+    "requiredInputs",
+    "governanceLayer",
+    "requiresL3Approval",
+    "writesRouteState",
+    "summary",
+    "reason",
+    "unlockPaths"
+]);
+const planVersionCloseoutOutputSchema = toolOutputSchema(objectSchema({
+    projectId: { type: "string" },
+    version: flexibleObjectOutputSchema,
+    summary: flexibleObjectOutputSchema,
+    status: {
+        type: "string",
+        enum: [
+            "no_op",
+            "blocked",
+            "ready_to_complete",
+            "ready_to_close",
+            "needs_pending_decision",
+            "planned"
+        ]
+    },
+    steps: { type: "array", items: closeoutStepOutputSchema },
+    warnings: stringArrayOutputSchema
+}, ["projectId", "version", "summary", "status", "steps", "warnings"]));
 export const createContextTools = (dependencies) => {
     const { service, actor, appendDebugLog, withCurrentRuntimeContextMeta } = dependencies;
     return [
@@ -39,7 +160,11 @@ export const createContextTools = (dependencies) => {
                 maximum: 20
             }),
             includeLegacyUndo: booleanSchema("Audit-only. Include legacy Undo records under legacyUndo when a hidden legacy blocker must be inspected. Defaults to false.")
-        }, ["projectId"]), { title: "Get Current Context", riskLevel: "read-only" }, withInputAdapter(adaptGetCurrentContextInput, async (input) => {
+        }, ["projectId"]), {
+            title: "Get Current Context",
+            riskLevel: "read-only",
+            outputSchema: getCurrentContextOutputSchema
+        }, withInputAdapter(adaptGetCurrentContextInput, async (input) => {
             const context = await service.getCurrentContext({
                 projectId: input.projectId,
                 budgetBytes: input.budgetBytes,
@@ -54,7 +179,11 @@ export const createContextTools = (dependencies) => {
                 meta: withCurrentRuntimeContextMeta({ meta: context.meta, data: context.data })
             };
         })),
-        defineTool("next_action", { what: "Read the shared next route action." }, objectSchema({ projectId: stringSchema("RouteLedger project ID.") }, ["projectId"]), { title: "Next Action", riskLevel: "read-only" }, async (input) => {
+        defineTool("next_action", { what: "Read the shared next route action." }, objectSchema({ projectId: stringSchema("RouteLedger project ID.") }, ["projectId"]), {
+            title: "Next Action",
+            riskLevel: "read-only",
+            outputSchema: nextActionContextOutputSchema
+        }, async (input) => {
             const nextAction = await service.getNextAction({ projectId: input.projectId });
             return {
                 ok: true,
@@ -126,7 +255,11 @@ export const createContextTools = (dependencies) => {
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Optional version ID. Defaults to project.currentVersionId."),
             eventLimit: integerSchema("How many related recent events to include in the embedded summary.", { minimum: 1, maximum: 50 })
-        }, ["projectId"]), { title: "Plan Version Closeout", riskLevel: "read-only" }, async (input) => {
+        }, ["projectId"]), {
+            title: "Plan Version Closeout",
+            riskLevel: "read-only",
+            outputSchema: planVersionCloseoutOutputSchema
+        }, async (input) => {
             const plan = await service.planVersionCloseout({
                 projectId: input.projectId,
                 versionId: input.versionId,

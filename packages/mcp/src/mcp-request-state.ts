@@ -3,7 +3,7 @@ import type { ExactAuthorizationBinding } from "@routeledger/core";
 
 export interface RouteLedgerMcpRequestState {
   readonly schemaVersion: 2;
-  readonly toolName: "execute_l3_operation";
+  readonly toolName: "execute_route_change";
   readonly argumentsDigest: string;
   readonly binding: ExactAuthorizationBinding;
   readonly issuedAt: string;
@@ -71,7 +71,7 @@ export const verifyMcpRequestState = (
   const state = decoded as Partial<RouteLedgerMcpRequestState>;
   if (
     state.schemaVersion !== 2 ||
-    state.toolName !== "execute_l3_operation" ||
+    state.toolName !== "execute_route_change" ||
     state.toolName !== expected.toolName ||
     state.argumentsDigest !== expected.argumentsDigest ||
     state.binding === undefined ||

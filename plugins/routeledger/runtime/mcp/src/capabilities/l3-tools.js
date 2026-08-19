@@ -657,6 +657,7 @@ export const createL3OperationTools = (dependencies) => {
             title: "Commit L3 Operation",
             riskLevel: "high-risk",
             destructive: true,
+            idempotent: true,
             recommendedApprovalMode: "approve"
         }, async (input) => {
             const committed = await service.commitL3Operation({

@@ -10,7 +10,7 @@ import { createRouteLedgerStdioServer, type JsonRpcMessage } from "../stdio-serv
 import { resolveWorkspaceConfigSync } from "../workspace-config.js";
 import { resolveRouteLedgerBinding } from "../binding.js";
 import { isPhysicalPathContainedWithinSync } from "../physical-path.js";
-import { planRouteLedgerBinding } from "../binding-assist.js";
+import { planRouteLedgerBinding, renderHostBindingConfig, writeHostBindingConfig } from "../binding-assist.js";
 
 import { createTempProjectRoot, toForwardSlashes, getDefaultWorkspaceConfigPath, createBindingRegistry, createRegistry, createProcessCwdRegistry, createCapturedServer, cleanupProjectRoot, initializeCanonicalProjectAtRoot, initializeServer, callTool, getStructuredData, expectSingleRootsListRequest, expectRouteLedgerRootGuardError } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
@@ -212,7 +212,7 @@ describe("routeledger mcp registry", () => {
     });
 
     try {
-      const response = await registry.invoke("get_runtime_context", {});
+      const response = await registry.invoke("inspect_runtime", { operation: "runtime" });
 
       expect(response).toMatchObject({
         ok: true,
@@ -253,7 +253,7 @@ describe("routeledger mcp registry", () => {
           recommendedNextActions: [
             expect.objectContaining({
               type: "provide_explicit_workspace_root",
-              tool: "activate_routeledger_binding"
+              tool: "configure_binding"
             })
           ]
         }
@@ -393,7 +393,7 @@ describe("routeledger mcp registry", () => {
         code: "HIGH_CONFIDENCE_BINDING_SWITCH_REFUSED",
         recommendedNextActions: [
           expect.objectContaining({
-            tool: "activate_routeledger_binding",
+            tool: "configure_binding",
             requiresUserDecision: true,
             toolInput: {
               workspaceRoot: outsideRoot,
@@ -712,7 +712,7 @@ describe("routeledger mcp registry", () => {
               }
             }
           },
-          _meta: { routeledger: { toolName: "activate_routeledger_binding" } }
+          _meta: { routeledger: { toolName: "configure_binding" } }
         }
       });
       expect(JSON.stringify(failedActivation)).not.toContain('"activated"');
@@ -1035,15 +1035,17 @@ describe("routeledger mcp registry", () => {
           recommendedNextActions: [
             expect.objectContaining({
               type: "activate_session_binding",
-              tool: "activate_routeledger_binding"
+              tool: "configure_binding"
             }),
             expect.objectContaining({
               type: "initialize_routeledger",
-              tool: "init_project"
+              tool: "configure_project",
+              toolInput: expect.objectContaining({ operation: "initialize" })
             }),
             expect.objectContaining({
               type: "render_codex_config",
-              tool: "render_host_binding_config"
+              tool: "inspect_runtime",
+              toolInput: expect.objectContaining({ operation: "plan_binding" })
             })
           ]
         }
@@ -1118,8 +1120,11 @@ describe("routeledger mcp registry", () => {
             requiresServerRestart: true
           },
           recommendedNextActions: [
-            expect.objectContaining({ tool: "activate_routeledger_binding" }),
-            expect.objectContaining({ tool: "render_host_binding_config" })
+            expect.objectContaining({ tool: "configure_binding" }),
+            expect.objectContaining({
+              tool: "inspect_runtime",
+              toolInput: expect.objectContaining({ operation: "plan_binding" })
+            })
           ]
         }
       });
@@ -1169,7 +1174,7 @@ describe("routeledger mcp registry", () => {
           },
           recommendedNextActions: [
             expect.objectContaining({
-              tool: "activate_routeledger_binding",
+              tool: "configure_binding",
               requiresUserDecision: true,
               toolInput: {
                 workspaceRoot: targetRoot,
@@ -1177,7 +1182,10 @@ describe("routeledger mcp registry", () => {
                 confirmProjectSwitch: true
               }
             }),
-            expect.objectContaining({ tool: "render_host_binding_config" })
+            expect.objectContaining({
+              tool: "inspect_runtime",
+              toolInput: expect.objectContaining({ operation: "plan_binding" })
+            })
           ]
         }
       });
@@ -1206,46 +1214,47 @@ describe("routeledger mcp registry", () => {
     const resolvedWorkspaceRoot = fs.realpathSync.native(workspaceRoot);
 
     try {
-      const blockedWithoutLauncher = await registry.invoke("render_host_binding_config", {
+      const binding = resolveRouteLedgerBinding({
+        processCwd: workspaceRoot,
+        workspaceRoot: resolvedWorkspaceRoot,
+        routeledgerRoot: resolvedRouteledgerRoot
+      });
+      const blockedWithoutLauncher = await renderHostBindingConfig({
+        binding,
         workspaceRoot: resolvedWorkspaceRoot,
         routeledgerRoot: resolvedRouteledgerRoot
       });
       expect(blockedWithoutLauncher).toMatchObject({
-        ok: true,
-        data: {
-          status: "blocked",
-          launcherRequirement: {
-            code: "STABLE_RUNTIME_LAUNCHER_REQUIRED"
-          },
-          renderedConfig: null,
-          writePlan: null
-        }
+        status: "blocked",
+        launcherRequirement: {
+          code: "STABLE_RUNTIME_LAUNCHER_REQUIRED"
+        },
+        renderedConfig: null,
+        writePlan: null
       });
-      const response = await registry.invoke("render_host_binding_config", {
+      const response = await renderHostBindingConfig({
+        binding,
         workspaceRoot: resolvedWorkspaceRoot,
         routeledgerRoot: resolvedRouteledgerRoot,
         routeLedgerWorkspaceRoot: process.cwd()
       });
 
       expect(response).toMatchObject({
-        ok: true,
-        data: {
-          hostProfile: "codex",
-          status: "ready",
-          bindingPlan: {
-            status: "needs_init",
-            targetBinding: {
-              routeledgerRoot: resolvedRouteledgerRoot
-            }
+        hostProfile: "codex",
+        status: "ready",
+        bindingPlan: {
+          status: "needs_init",
+          targetBinding: {
+            routeledgerRoot: resolvedRouteledgerRoot
           },
-          renderedConfig: {
-            format: "toml",
-            content: expect.stringContaining('"--routeledger-root"')
-          },
-          writePlan: {
-            kind: "fragment",
-            path: path.join(resolvedWorkspaceRoot, ".codex", "routeledger.fragment.toml")
-          }
+        },
+        renderedConfig: {
+          format: "toml",
+          content: expect.stringContaining('"--routeledger-root"')
+        },
+        writePlan: {
+          kind: "fragment",
+          path: path.join(resolvedWorkspaceRoot, ".codex", "routeledger.fragment.toml")
         }
       });
       expect(
@@ -1269,30 +1278,33 @@ describe("routeledger mcp registry", () => {
     const resolvedConfigPath = path.join(resolvedWorkspaceRoot, ".codex", "config.toml");
 
     try {
-      const response = await registry.invoke("write_host_binding_config", {
+      const binding = resolveRouteLedgerBinding({
+        processCwd: workspaceRoot,
+        workspaceRoot: resolvedWorkspaceRoot,
+        routeledgerRoot: resolvedRouteledgerRoot
+      });
+      const response = await writeHostBindingConfig({
+        binding,
         workspaceRoot: resolvedWorkspaceRoot,
         routeledgerRoot: resolvedRouteledgerRoot,
         routeLedgerWorkspaceRoot: process.cwd()
       });
 
       expect(response).toMatchObject({
-        ok: true,
-        data: {
-          hostProfile: "codex",
-          status: "ready",
-          bindingPlan: {
-            status: "needs_init",
-            targetBinding: {
-              workspaceRoot: resolvedWorkspaceRoot,
-              routeledgerRoot: resolvedRouteledgerRoot
-            }
+        hostProfile: "codex",
+        status: "ready",
+        bindingPlan: {
+          status: "needs_init",
+          targetBinding: {
+            workspaceRoot: resolvedWorkspaceRoot,
+            routeledgerRoot: resolvedRouteledgerRoot
           },
-          writeResult: {
-            kind: "project-config",
-            path: resolvedConfigPath,
-            created: true,
-            warnings: []
-          }
+        },
+        writeResult: {
+          kind: "project-config",
+          path: resolvedConfigPath,
+          created: true,
+          warnings: []
         }
       });
       expect(fs.readFileSync(configPath, "utf8")).toContain('"--workspace-root"');
@@ -1331,19 +1343,23 @@ describe("routeledger mcp registry", () => {
             }),
             expect.objectContaining({
               type: "inspect_runtime",
-              tool: "get_runtime_context"
+              tool: "inspect_runtime",
+              toolInput: expect.objectContaining({ operation: "runtime" })
             }),
             expect.objectContaining({
               type: "inspect_workspace",
-              tool: "discover_routeledger_roots"
+              tool: "inspect_runtime",
+              toolInput: expect.objectContaining({ operation: "discover_roots" })
             }),
             expect.objectContaining({
               type: "plan_binding",
-              tool: "plan_routeledger_binding"
+              tool: "inspect_runtime",
+              toolInput: expect.objectContaining({ operation: "plan_binding" })
             }),
             expect.objectContaining({
               type: "initialize_routeledger",
-              tool: "init_project"
+              tool: "configure_project",
+              toolInput: expect.objectContaining({ operation: "initialize" })
             })
           ]
         }
@@ -1363,7 +1379,7 @@ describe("routeledger mcp registry", () => {
             recommendedNextActions: expect.arrayContaining([
             expect.objectContaining({
               type: "activate_explicit_workspace_binding",
-              tool: "activate_routeledger_binding"
+              tool: "configure_binding"
             })
             ])
           }

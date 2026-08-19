@@ -82,7 +82,7 @@ test("parses split JSONL chunks and resolves notification waiters from live and 
   const first = JSON.stringify({ method: "turn/started", params: { turn: { id: "turn-1" } } });
   const second = JSON.stringify({
     method: "item/completed",
-    params: { item: { id: "item-1", type: "mcpToolCall", tool: "get_runtime_context" } }
+    params: { item: { id: "item-1", type: "mcpToolCall", tool: "inspect_runtime" } }
   });
   harness.sendChunks(first.slice(0, 11), `${first.slice(11)}\r\n${second.slice(0, 17)}`, `${second.slice(17)}\n`);
   assert.equal((await live).params.item.id, "item-1");

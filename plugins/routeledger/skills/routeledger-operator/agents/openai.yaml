@@ -1,0 +1,4 @@
+interface:
+  display_name: "RouteLedger Operator"
+  short_description: "Set up RouteLedger and manage current work"
+  default_prompt: "Use $routeledger-operator to inspect this RouteLedger project and manage its current work."

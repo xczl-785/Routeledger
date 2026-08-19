@@ -4,10 +4,9 @@ import path from "node:path";
 import { expect, it, describe, vi } from "vitest";
 
 import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments, replaceRouteLedgerJsonDocuments } from "../../../json/src/index.js";
-import { createRouteLedgerMcpRegistry } from "../index.js";
 import type { createRouteLedgerStdioServer } from "../stdio-server.js";
 
-import { createTempProjectRoot, ensureDefaultWorkspaceConfig, getDefaultDataRoot, getDefaultWorkspaceConfigPath, getDefaultCanonicalJsonRoot, getDefaultJsonProjectPath, getDefaultSqliteDbPath, createRegistry, cleanupProjectRoot, createDeferred, removeSqliteFiles, createSqliteOnlyProject, initializeServer, callTool, getStructuredData, createAndCommitVersion, createApprovedVersionProposal, expectCanonicalJsonValid, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";
+import { createTempProjectRoot, ensureDefaultWorkspaceConfig, getDefaultDataRoot, getDefaultWorkspaceConfigPath, getDefaultCanonicalJsonRoot, getDefaultJsonProjectPath, getDefaultSqliteDbPath, createRegistry, createBindingRegistry, cleanupProjectRoot, createDeferred, removeSqliteFiles, createSqliteOnlyProject, initializeServer, callTool, getStructuredData, createAndCommitVersion, createApprovedVersionProposal, expectCanonicalJsonValid, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
   it("migrated read-tool adapters preserve success data/meta contracts and keep runtimeContext aligned", async () => {
     const projectRoot = createTempProjectRoot();
@@ -391,7 +390,7 @@ describe("routeledger mcp registry", () => {
     const workspaceRoot = createTempProjectRoot();
     const previousCwd = process.cwd();
     process.chdir(workspaceRoot);
-    const registry = createRouteLedgerMcpRegistry({});
+    const registry = createBindingRegistry({});
 
     try {
       const response = await registry.invoke("get_runtime_context", {});
@@ -459,7 +458,7 @@ describe("routeledger mcp registry", () => {
     fs.mkdirSync(path.join(projectRoot, ".routeledger"), { recursive: true });
     fs.writeFileSync(getDefaultWorkspaceConfigPath(projectRoot), '{"version":1,"dataDir":', "utf8");
 
-    const registry = createRouteLedgerMcpRegistry({
+    const registry = createBindingRegistry({
       workspaceRoot: projectRoot,
       routeledgerRoot: projectRoot
     });
@@ -509,7 +508,7 @@ describe("routeledger mcp registry", () => {
       "utf8"
     );
 
-    const registry = createRouteLedgerMcpRegistry({
+    const registry = createBindingRegistry({
       workspaceRoot,
       routeledgerRoot: workspaceRoot
     });
@@ -544,7 +543,7 @@ describe("routeledger mcp registry", () => {
       "utf8"
     );
 
-    const registry = createRouteLedgerMcpRegistry({
+    const registry = createBindingRegistry({
       workspaceRoot,
       routeledgerRoot: workspaceRoot
     });
@@ -680,8 +679,8 @@ describe("routeledger mcp registry", () => {
             },
             recommendedAction: {
               type: "open_mission_control",
-              tool: "open_mission_control",
-              arguments: {},
+              tool: "manage_mission_control",
+              arguments: { operation: "open" },
               requiresUserDecision: true
             }
           }
@@ -763,7 +762,7 @@ describe("routeledger mcp registry", () => {
               suggestedValue: "zh-CN",
               requiresUserDecision: true
             },
-            blockedTools: expect.arrayContaining(["create_todo"]),
+            blockedTools: expect.arrayContaining(["manage_todo"]),
             recommendedNextActions: [
               expect.objectContaining({
                 type: "set_project_content_locale",

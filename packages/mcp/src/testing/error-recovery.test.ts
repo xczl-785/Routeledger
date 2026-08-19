@@ -12,7 +12,7 @@ describe("MCP business error recovery", () => {
           todoId: "todo-1",
           status: "closed"
         }),
-        { toolName: "close_todo", input: { projectId: "project-1", todoId: "todo-1" } }
+        { toolName: "manage_todo", input: { operation: "close", projectId: "project-1", todoId: "todo-1" } }
       );
     expect(response).toMatchObject({
       ok: false,
@@ -91,8 +91,8 @@ describe("MCP business error recovery", () => {
           targetId: "old-tail"
         }),
         {
-          toolName: "execute_l3_operation",
-          input: { projectId: "project-1", actionType: "create_version", targetId: "old-tail" }
+          toolName: "execute_route_change",
+          input: { operation: "execute_l3_operation", projectId: "project-1", actionType: "create_version", targetId: "old-tail" }
         }
       )
     ).toMatchObject({
@@ -109,7 +109,7 @@ describe("MCP business error recovery", () => {
             expect.objectContaining({ type: "inspect_version_structure", tool: "get_version_structure" }),
             expect.objectContaining({
               type: "retry_create_version",
-              tool: "create_version",
+              tool: "propose_version_creation",
               toolInput: { projectId: "project-1" },
               requiredInputs: ["title"]
             })

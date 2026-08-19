@@ -96,7 +96,7 @@ export const createMissionControlTools = (dependencies) => [
         openBrowser: booleanSchema("Open the Mission Control URL in the default browser. Defaults to true. Set false for automation.")
     }), {
         title: "Open Mission Control",
-        riskLevel: "read-only",
+        riskLevel: "write",
         toolKind: "diagnostic",
         visibility: "default"
     }, async (input) => {
@@ -147,7 +147,8 @@ export const createMissionControlTools = (dependencies) => [
     }),
     defineTool("stop_mission_control", { what: "Stop the local RouteLedger UI Hub while preserving MCP and the UI project catalog." }, objectSchema({}), {
         title: "Stop Mission Control",
-        riskLevel: "read-only",
+        riskLevel: "write",
+        idempotent: true,
         toolKind: "diagnostic",
         visibility: "default"
     }, async () => {

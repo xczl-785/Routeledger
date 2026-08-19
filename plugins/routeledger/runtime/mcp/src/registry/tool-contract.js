@@ -84,6 +84,9 @@ export const defineTool = (name, narrative, inputSchema, options, handler) => ({
         name,
         description: formatToolNarrative(narrative),
         inputSchema: withResponseLocaleInputSchema(withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel)),
+        ...(options.outputSchema === undefined
+            ? {}
+            : { outputSchema: options.outputSchema }),
         ...createToolMetadata(options)
     },
     toolKind: options.toolKind ??

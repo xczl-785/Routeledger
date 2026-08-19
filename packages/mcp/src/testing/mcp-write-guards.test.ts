@@ -72,10 +72,11 @@ describe("routeledger mcp registry", () => {
 
   it("write tools reject invalid relative expectedRouteLedgerRoot before mutating state", async () => {
     const projectRoot = createTempProjectRoot();
-    const registry = createRegistry(projectRoot);
+    const registry = createRouteLedgerMcpRegistry({ workspaceRoot: projectRoot, routeledgerRoot: projectRoot });
 
     try {
-      const response = await registry.invoke("init_project", {
+      const response = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
         expectedRouteLedgerRoot: "relative/path"
       });
@@ -84,7 +85,7 @@ describe("routeledger mcp registry", () => {
         response,
         "MCP_EXPECTED_ROUTELEDGER_ROOT_INVALID",
         projectRoot,
-        "init_project"
+        "configure_project"
       );
       expect(response.error?.details).toMatchObject({
         expectedRouteLedgerRoot: "relative/path",
@@ -100,11 +101,21 @@ describe("routeledger mcp registry", () => {
 
   it("matched expectedRouteLedgerRoot allows write tools to proceed", async () => {
     const projectRoot = createTempProjectRoot();
-    const registry = createRegistry(projectRoot);
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot
+    });
 
     try {
-      const response = await registry.invoke("init_project", {
+      const response = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
+        contentLocale: "en",
+        firstVersion: {
+          title: "Initial Version",
+          description: "Project bootstrap version",
+          initialTodos: []
+        },
         expectedRouteLedgerRoot: projectRoot
       });
 
@@ -124,7 +135,8 @@ describe("routeledger mcp registry", () => {
     });
 
     try {
-      const initialized = await registry.invoke("init_project", {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
         name: "RouteLedger",
         contentLocale: "en",
         firstVersion: {
@@ -141,20 +153,21 @@ describe("routeledger mcp registry", () => {
       };
 
       const dryRunInputs: Array<{
-        toolName: "transition_version" | "close_version" | "shutdown_version";
+        toolName: "propose_version_lifecycle_change" | "execute_route_change";
         input: Record<string, unknown>;
       }> = [
         {
-          toolName: "transition_version",
-          input: { projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
+          toolName: "propose_version_lifecycle_change",
+          input: { operation: "preview_or_propose_version_transition", projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
         },
         {
-          toolName: "close_version",
-          input: { projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
+          toolName: "propose_version_lifecycle_change",
+          input: { operation: "preview_or_propose_version_close", projectId: data.project.id, versionId: data.firstVersion!.id, mode: "dry_run" }
         },
         {
-          toolName: "shutdown_version",
+          toolName: "execute_route_change",
           input: {
+            operation: "force_shutdown",
             projectId: data.project.id,
             versionId: data.firstVersion!.id,
             mode: "dry_run",
