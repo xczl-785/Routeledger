@@ -727,6 +727,23 @@ const projectPublicToolReferences = (value: unknown): unknown => {
       }
     }
   }
+  const recommendedMapping =
+    typeof record.recommendedTool === "string"
+      ? PUBLIC_TOOL_REFERENCE_MAP[record.recommendedTool]
+      : undefined;
+  if (recommendedMapping !== undefined) {
+    record.recommendedTool = recommendedMapping.tool;
+    if (recommendedMapping.operation !== undefined) {
+      record.toolInput = {
+        operation: recommendedMapping.operation,
+        ...(record.toolInput !== null &&
+        typeof record.toolInput === "object" &&
+        !Array.isArray(record.toolInput)
+          ? (record.toolInput as Record<string, unknown>)
+          : {})
+      };
+    }
+  }
   return record;
 };
 

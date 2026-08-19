@@ -1,7 +1,7 @@
 {
   "name": "routeledger",
-  "version": "0.9.6",
-  "description": "Agent-friendly proposal outcomes, binding guidance, and actionable validation errors.",
+  "version": "0.9.7",
+  "description": "Clear next-action guidance for ready Versions and pending L3 proposals.",
   "author": {
     "name": "RouteLedger"
   },

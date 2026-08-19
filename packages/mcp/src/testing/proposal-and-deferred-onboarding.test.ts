@@ -49,6 +49,26 @@ describe("proposal and Deferred onboarding contracts", () => {
         }
       });
       expect(proposed.error).toBeUndefined();
+
+      const nextAction = await registry.invoke("inspect_route_progress", {
+        operation: "next_action",
+        projectId
+      });
+      expect(nextAction).toMatchObject({
+        ok: true,
+        data: {
+          nextAction: {
+            actionType: "review_pending_proposal",
+            recommendedTool: "inspect_l3_route_operations",
+            toolInput: {
+              operation: "get_l3_proposal",
+              projectId,
+              pendingOperationId: (proposed.data as { pendingOperationId: string })
+                .pendingOperationId
+            }
+          }
+        }
+      });
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);

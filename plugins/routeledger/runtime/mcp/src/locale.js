@@ -201,8 +201,8 @@ const ZH_NEXT_ACTIONS = {
         reason: "current 指针与实际运行边界不一致。"
     },
     start_version: {
-        summary: "启动目标 Version。",
-        reason: "目标 Version 已准备完成并通过 start gate。"
+        summary: "为目标 Version 创建启动提案。",
+        reason: "目标 Version 已 ready 且通过 start gate；启动仍需完成 L3 审批和精确执行。"
     },
     work_todo: {
         summary: "继续处理当前 Version 的开放 Todo。",
@@ -251,8 +251,8 @@ const EN_NEXT_ACTIONS = {
         reason: "The current pointer does not match the running boundary."
     },
     start_version: {
-        summary: "Start the target Version.",
-        reason: "The target Version is ready and its start gate passes."
+        summary: "Propose starting the target Version.",
+        reason: "The target Version is ready and its start gate passes; starting still requires L3 approval and exact execution."
     },
     work_todo: {
         summary: "Continue the current Version's open Todo.",
@@ -800,7 +800,7 @@ const localizeSystemValue = (value, locale, valuePath, toolName) => {
         }
     }
     if (typeof record.actionType === "string" &&
-        (toolName === "next_action" || valuePath.at(-1) === "nextAction")) {
+        valuePath.at(-1) === "nextAction") {
         const catalog = locale === "zh-CN" ? ZH_NEXT_ACTIONS : EN_NEXT_ACTIONS;
         const localized = catalog[record.actionType];
         if (localized !== undefined) {

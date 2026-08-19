@@ -558,6 +558,11 @@ const buildNextAction = (options: {
 
     return {
       actionType: "review_pending_proposal",
+      recommendedTool: "get_l3_proposal",
+      toolInput: {
+        projectId,
+        pendingOperationId: proposal.id
+      },
       summary: "先处理 pending L3 proposal。",
       reason: `待处理提案 ${proposal.id} 会影响后续路线判断，应先审批或拒绝。`,
       targetId: proposal.id,
@@ -820,6 +825,13 @@ const buildNextAction = (options: {
   if (currentVersion?.state === "ready" && startGate?.allowed) {
     return {
       actionType: "start_version",
+      recommendedTool: "propose_l3_operation",
+      toolInput: {
+        projectId,
+        actionType: "start_version",
+        targetId: currentVersion.id,
+        reason: "Start the ready current Version after its start gate passed."
+      },
       summary: "启动当前 ready version。",
       reason: `current version ${currentVersion.id} 已 ready 且 start gate 通过，可进入 start_version 审计链。`,
       targetId: currentVersion.id,

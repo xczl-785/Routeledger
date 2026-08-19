@@ -808,6 +808,61 @@ describe("route ledger service", () => {
     });
   });
 
+  it("ready and pending contexts return actionable public-boundary guidance", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+    const currentVersion = createVersionFixture({
+      id: "version-ready",
+      title: "V1.0",
+      state: "ready",
+      isCurrent: true,
+      order: 1
+    });
+    const snapshot = {
+      project: createProjectFixture({ id: "project-1", currentVersionId: currentVersion.id }),
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    };
+    await storage.saveProjectAggregate(snapshot);
+
+    const readyAction = await service.getNextAction({ projectId: "project-1" });
+    expect(readyAction.data.nextAction).toMatchObject({
+      actionType: "start_version",
+      recommendedTool: "propose_l3_operation",
+      toolInput: {
+        projectId: "project-1",
+        actionType: "start_version",
+        targetId: currentVersion.id
+      },
+      requiresL3Approval: true
+    });
+
+    const proposal = await service.proposeL3Operation({
+      projectId: "project-1",
+      actionType: "start_version",
+      targetId: currentVersion.id,
+      reason: "test pending guidance",
+      actor: TEST_ACTOR
+    });
+    const pendingAction = await service.getNextAction({ projectId: "project-1" });
+    expect(pendingAction.data.nextAction).toMatchObject({
+      actionType: "review_pending_proposal",
+      recommendedTool: "get_l3_proposal",
+      toolInput: {
+        projectId: "project-1",
+        pendingOperationId: proposal.id
+      }
+    });
+  });
+
   it("shutdown closed tail does not recommend automatic successor creation", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
