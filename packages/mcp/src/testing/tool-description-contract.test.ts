@@ -189,6 +189,17 @@ describe("MCP tool description contract", () => {
     }
   });
 
+  it("uses operation terminology throughout Agent-facing public instructions", () => {
+    const registry = createRouteLedgerMcpRegistry({});
+    try {
+      expect(registry.instructions).toContain("inspect_runtime with operation=runtime");
+      expect(registry.instructions).toContain("manage_mission_control with operation=open");
+      expect(registry.instructions).not.toMatch(/(?:^|\s)action=/u);
+    } finally {
+      registry.close();
+    }
+  });
+
   it("exposes exact-only L3 authorization schemas", () => {
     const registry = createRouteLedgerMcpRegistry({});
     try {

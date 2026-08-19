@@ -276,4 +276,3 @@ export const toolOutputSchema = (dataSchema: Record<string, unknown>): Record<st
     },
     ["ok"]
   );
-

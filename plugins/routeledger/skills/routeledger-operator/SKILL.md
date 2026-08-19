@@ -17,7 +17,7 @@ Use only these 11 public tools. Select a workflow with `operation` when the tool
 - Route: `propose_route_change`, `set_version_state`, `execute_route_change`.
 - UI: `manage_mission_control`.
 
-`execute_route_change` is the only high-risk public tool. Former low-level tool names are not aliases; use the matching operation on the task-level tool.
+`execute_route_change` is the only high-risk public tool.
 
 ## Binding and preflight
 

@@ -86,9 +86,8 @@ rules.
     order through their creation-event sequence.
 16. The public registry exposes exactly 11 task-level tools. Multi-operation
     tools select behavior with `operation`; business fields named `action`
-    remain available without colliding with dispatch. Former tool names are not
-    public aliases. They remain internal capability registrations only, and
-    persisted L3 `actionType` values do not change.
+    remain available without colliding with dispatch. Internal capability
+    registrations and persisted L3 `actionType` values do not change.
 17. The public risk split is 2 read-only tools (`inspect_runtime`,
     `inspect_route`), 8 ordinary write tools, and one high-risk tool
     (`execute_route_change`). Host binding config rendering/writing remains an

@@ -50,53 +50,21 @@ default_tools_approval_mode = "prompt"
 # Optional strict smoke allowlist. Uncomment only when you want the smallest
 # possible Codex trial surface; leave unset for normal operation.
 # enabled_tools = [
-#   "init_project",
-#   "get_runtime_context",
-#   "get_current_context",
-#   "list_versions",
-#   "prepare_version",
-#   "check_start_gate",
-#   "list_l3_proposals",
-#   "propose_l3_operation",
-#   "approve_l3_operation",
-#   "commit_l3_operation",
+#   "configure_project",
+#   "inspect_runtime",
+#   "inspect_route",
+#   "propose_route_change",
+#   "execute_route_change",
 # ]
 
 [mcp_servers.routeledger.env]
 ROUTELEDGER_MCP_PROFILE = "codex"
 
-[mcp_servers.routeledger.tools.get_current_context]
+[mcp_servers.routeledger.tools.inspect_route]
 approval_mode = "auto"
 
-[mcp_servers.routeledger.tools.get_runtime_context]
+[mcp_servers.routeledger.tools.inspect_runtime]
 approval_mode = "auto"
 
-[mcp_servers.routeledger.tools.next_action]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.list_versions_window]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.list_versions]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.check_start_gate]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.check_close_gate]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.list_l3_proposals]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.get_l3_proposal]
-approval_mode = "auto"
-
-[mcp_servers.routeledger.tools.approve_l3_operation]
-approval_mode = "prompt"
-
-[mcp_servers.routeledger.tools.reject_l3_operation]
-approval_mode = "prompt"
-
-[mcp_servers.routeledger.tools.commit_l3_operation]
+[mcp_servers.routeledger.tools.execute_route_change]
 approval_mode = "approve"

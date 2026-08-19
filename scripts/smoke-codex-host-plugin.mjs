@@ -24,7 +24,7 @@ if (typeof expectedRuntimePayloadDigest !== "string") {
 }
 const prompt = [
   "RouteLedger host release acceptance probe.",
-  "Call the RouteLedger MCP tool get_runtime_context exactly once.",
+  "Call the RouteLedger MCP tool inspect_runtime exactly once with operation=runtime.",
   "Do not use shell commands, do not modify files, and then report whether the tool was callable."
 ].join(" ");
 
@@ -68,12 +68,12 @@ const calls = events.filter(
     event.type === "item.completed" &&
     event.item?.type === "mcp_tool_call" &&
     event.item.server === "routeledger" &&
-    event.item.tool === "get_runtime_context"
+    event.item.tool === "inspect_runtime"
 );
 
 if (calls.length !== 1) {
   throw new Error(
-    `Expected one native RouteLedger get_runtime_context call, observed ${calls.length}.`
+    `Expected one native RouteLedger inspect_runtime call, observed ${calls.length}.`
   );
 }
 
@@ -103,5 +103,5 @@ if (actualRuntimePayloadDigest !== expectedRuntimePayloadDigest) {
 }
 
 console.log(
-  `Codex host plugin smoke passed: a fresh task called native get_runtime_context on the exact RouteLedger ${actualVersion} runtime payload.`
+  `Codex host plugin smoke passed: a fresh task called native inspect_runtime on the exact RouteLedger ${actualVersion} runtime payload.`
 );

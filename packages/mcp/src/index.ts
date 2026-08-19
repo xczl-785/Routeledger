@@ -80,6 +80,7 @@ import type {
   RouteLedgerMcpAuthorizationInteraction,
   RouteLedgerMcpDelegatedAuthorizationAuthority
 } from "./l3-authorization-contract.js";
+import { validateValueAgainstSchema } from "./schema-validation.js";
 
 export * from "./local-l3-authorization.js";
 export * from "./local-l3-authority-registry.js";
@@ -349,7 +350,7 @@ const publicToolOutputSchema = {
   additionalProperties: false
 };
 
-const createCompositeTool = (
+export const createCompositeTool = (
   name: string,
   title: string,
   what: string,
@@ -390,7 +391,7 @@ const createCompositeTool = (
     async (input) => {
       const branch = branchByAction.get(input.operation);
       if (branch === undefined) {
-        throw new InvalidToolInputError(`Unknown ${name} action`, {
+        throw new InvalidToolInputError(`Unknown ${name} operation`, {
           toolName: name,
           path: "$.operation",
           expected: branches.map((item) => item.action)
@@ -398,8 +399,22 @@ const createCompositeTool = (
       }
       const forwardedInput = { ...input };
       delete forwardedInput.operation;
+      const branchOutput = await branch.handler(forwardedInput);
+      if (branch.definition.outputSchema !== undefined) {
+        const issues = validateValueAgainstSchema(branch.definition.outputSchema, branchOutput);
+        if (issues.length > 0) {
+          return {
+            ok: false,
+            error: {
+              code: "INVALID_TOOL_OUTPUT",
+              message: "Selected operation output did not match its internal outputSchema.",
+              details: { path: issues[0]?.path ?? "$", issues }
+            }
+          };
+        }
+      }
       return localizeToolResponse(
-        await branch.handler(forwardedInput),
+        branchOutput,
         resolveResponseLocale(input.responseLocale),
         branch.definition.name
       );
@@ -435,8 +450,8 @@ const createInstructions = (options: {
 
   return [
     "RouteLedger exposes project state and route transitions through MCP tools.",
-    "Before route operations, call inspect_runtime with action=runtime to verify workspaceRoot and routeledgerRoot.",
-    "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with action=open; declining UI must never block route work.",
+    "Before route operations, call inspect_runtime with operation=runtime to verify workspaceRoot and routeledgerRoot.",
+    "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
     "If binding is missing, invalid, or low-confidence, use inspect_runtime to discover and plan the target, then call configure_binding; never treat the MCP process cwd as an initialization target.",
     "Use inspect_route first to inspect current context, versions, gates, closeout, and pending L3 proposals.",
     "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",

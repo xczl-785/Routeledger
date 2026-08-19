@@ -36,23 +36,26 @@ const main = async (): Promise<void> => {
   });
 
   try {
-  const initialized = await registry.invoke("init_project", {
+  const initialized = await registry.invoke("configure_project", {
+    operation: "initialize",
     name: "Codex L3 normal-turn fixture",
     contentLocale: "en",
     expectedRouteLedgerRoot: workspaceRoot
   });
   if (!initialized.ok) throw new Error(initialized.error?.message ?? "fixture init failed");
   const projectId = (initialized.data as { project: { id: string } }).project.id;
-  const proposed = await registry.invoke("create_version", {
+  const proposed = await registry.invoke("propose_route_change", {
+    operation: "propose_version_creation",
     projectId,
     title: "Version 1",
     expectedRouteLedgerRoot: workspaceRoot
   });
   const pendingOperationId = proposed.error?.details?.pendingOperationId;
   if (typeof pendingOperationId !== "string") {
-    throw new Error("Fixture create_version did not produce an L3 pending operation.");
+    throw new Error("Fixture propose_route_change did not produce an L3 pending operation.");
   }
-  const proposalResult = await registry.invoke("get_l3_proposal", {
+  const proposalResult = await registry.invoke("inspect_route", {
+    operation: "get_l3_proposal",
     projectId,
     pendingOperationId
   });

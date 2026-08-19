@@ -392,6 +392,11 @@ const assertInstalledListing = async (environment, expectedVersion) => {
 };
 
 const runInstalledRuntimeSmoke = async (installedPluginRoot, temporaryRoot, releaseStage) => {
+  const expectedToolNames = [
+    "configure_binding", "configure_project", "execute_route_change", "inspect_route",
+    "inspect_runtime", "manage_constraint", "manage_deferred", "manage_mission_control",
+    "manage_todo", "propose_route_change", "set_version_state"
+  ].sort();
   const testWorkspaceRoot = path.join(temporaryRoot, `runtime-workspace-${releaseStage}`);
   const testRouteledgerRoot = path.join(testWorkspaceRoot, "routeledger");
   await fs.mkdir(path.join(testWorkspaceRoot, ".routeledger"), { recursive: true });
@@ -409,8 +414,8 @@ const runInstalledRuntimeSmoke = async (installedPluginRoot, temporaryRoot, rele
   write({ jsonrpc: "2.0", id: "initialize", method: "initialize", params: { protocolVersion: "2025-11-25", rootUri: pathToFileURL(testWorkspaceRoot).href, capabilities: {}, clientInfo: { name: "routeledger-git-marketplace-smoke", version: "1" } } });
   write({ jsonrpc: "2.0", method: "notifications/initialized" });
   write({ jsonrpc: "2.0", id: "tools-list", method: "tools/list", params: {} });
-  write({ jsonrpc: "2.0", id: "init-project", method: "tools/call", params: { name: "init_project", arguments: { name: "Git Marketplace Smoke", contentLocale: "en", expectedRouteLedgerRoot: testRouteledgerRoot } } });
-  write({ jsonrpc: "2.0", id: "runtime-context", method: "tools/call", params: { name: "get_runtime_context", arguments: {} } });
+  write({ jsonrpc: "2.0", id: "init-project", method: "tools/call", params: { name: "configure_project", arguments: { operation: "initialize", name: "Git Marketplace Smoke", contentLocale: "en", expectedRouteLedgerRoot: testRouteledgerRoot } } });
+  write({ jsonrpc: "2.0", id: "runtime-context", method: "tools/call", params: { name: "inspect_runtime", arguments: { operation: "runtime" } } });
   child.stdin.end();
   const exitCode = await new Promise((resolve, reject) => {
     child.once("error", reject);
@@ -420,7 +425,8 @@ const runInstalledRuntimeSmoke = async (installedPluginRoot, temporaryRoot, rele
   const responses = Buffer.concat(stdout).toString("utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   if (exitCode !== 0 || stderrText !== "" || responses.length !== 4) fail(`installed runtime smoke failed (exit=${exitCode}, responses=${responses.length}): ${stderrText}`);
   const context = responses[3]?.result?.structuredContent?.data;
-  if (responses[0]?.result?.protocolVersion !== "2025-11-25" || !Array.isArray(responses[1]?.result?.tools) || responses[2]?.result?.structuredContent?.ok !== true) fail("installed runtime did not complete initialize/tools-list/init_project.");
+  const actualToolNames = responses[1]?.result?.tools?.map((tool) => tool.name).sort();
+  if (responses[0]?.result?.protocolVersion !== "2025-11-25" || !Array.isArray(actualToolNames) || JSON.stringify(actualToolNames) !== JSON.stringify(expectedToolNames) || responses[2]?.result?.structuredContent?.ok !== true || responses[3]?.result?.structuredContent?.ok !== true) fail("installed runtime did not complete initialize/tools-list/configure_project/inspect_runtime with the exact 11-tool surface.");
   if (context?.binding?.workspaceRoot !== testWorkspaceRoot || context?.binding?.routeledgerRoot !== testRouteledgerRoot || context?.storage?.mode !== "json" || context?.storage?.sqliteReadModel !== "disabled") fail("installed runtime did not preserve canonical JSON-only binding.");
   const projectPath = path.join(testRouteledgerRoot, ".routeledger", "project.json");
   if (!(await exists(projectPath))) fail("installed runtime did not create canonical project JSON.");

@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "test": "vitest run && node ./scripts/testing/check-codex-plugin-release.test.mjs && node ./scripts/testing/create-codex-plugin-attestation.test.mjs && node ./scripts/testing/codex-plugin-workflow.test.mjs && node ./scripts/testing/codex-app-server-jsonl-client.test.mjs",
+    "test": "vitest run && node ./scripts/testing/check-agent-tool-surface.test.mjs && node ./scripts/testing/check-agent-tool-surface.mjs && node ./scripts/testing/check-codex-plugin-release.test.mjs && node ./scripts/testing/create-codex-plugin-attestation.test.mjs && node ./scripts/testing/codex-plugin-workflow.test.mjs && node ./scripts/testing/codex-app-server-jsonl-client.test.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --ignore-pattern \"packages/*/dist/**\" --ignore-pattern \"packages/*/dist-plugin-runtime/**\" --ignore-pattern \"plugins/*/runtime/**\"",
