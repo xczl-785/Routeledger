@@ -42,11 +42,7 @@ import {
   resolveRuntimeIdentity,
   type RuntimeIdentity
 } from "./runtime-identity.js";
-import {
-  localizeToolResponse,
-  resolveResponseLocale,
-  suggestContentLocale
-} from "./locale.js";
+import { normalizeAgentToolResponse } from "./agent-response.js";
 import {
   defineTool,
   type ToolDefinition,
@@ -137,7 +133,6 @@ export interface RouteLedgerMcpRegistryOptions {
   debugLog?: {
     enabled?: boolean;
   };
-  defaultResponseLocale?: string;
   /** Optional loader seam for host integration and deterministic runtime-context tests. */
   missionControlSourceLoader?: () => Promise<MissionControlSourceModule>;
   hostPermissionContext?:
@@ -413,11 +408,7 @@ export const createCompositeTool = (
           };
         }
       }
-      return localizeToolResponse(
-        branchOutput,
-        resolveResponseLocale(input.responseLocale),
-        branch.definition.name
-      );
+      return normalizeAgentToolResponse(branchOutput, branch.definition.name);
     }
   );
 };
@@ -1247,17 +1238,10 @@ export const createRouteLedgerMcpRegistry = (
   };
   const getRuntimeContextData = async (
     binding: RouteLedgerBindingSummary = readBinding(),
-    requestedResponseLocale?: unknown
   ) => {
     const storageInspection = storage === null ? null : await storage.inspectRuntimeBinding();
     const activeProject = storageInspection?.activeProject ?? null;
-    const resolvedResponseLocale = resolveResponseLocale(
-      requestedResponseLocale,
-      options.defaultResponseLocale
-    );
-    const suggestedContentLocale = suggestContentLocale(
-      resolvedResponseLocale.requested ?? resolvedResponseLocale.resolved
-    );
+    const suggestedContentLocale = null;
     const contentLocaleEffectiveScopes = [
       "project_setting",
       "agent_content_default",
@@ -1450,9 +1434,9 @@ export const createRouteLedgerMcpRegistry = (
         riskLevel: "read-only",
         toolKind: "diagnostic"
       },
-      async (input) => {
+      async () => {
         const binding = readBinding();
-        const runtimeContext = await getRuntimeContextData(binding, input.responseLocale);
+        const runtimeContext = await getRuntimeContextData(binding);
 
         return {
           ok: true,
@@ -1859,14 +1843,10 @@ export const createRouteLedgerMcpRegistry = (
       if (reboundRegistry !== null) {
         return reboundRegistry.invoke(toolName, input);
       }
-      const responseLocale = resolveResponseLocale(
-        input?.responseLocale,
-        options.defaultResponseLocale
-      );
       const handler = handlers.get(toolName);
 
       if (handler === undefined) {
-        return localizeToolResponse(
+        return normalizeAgentToolResponse(
           projectPublicToolReferences(await attachRuntimeContextToError({
             ok: false,
             error: {
@@ -1874,7 +1854,6 @@ export const createRouteLedgerMcpRegistry = (
               message: `unknown tool ${toolName}`
             }
           })) as ToolResponse,
-          responseLocale,
           toolName
         );
       }
@@ -1885,11 +1864,10 @@ export const createRouteLedgerMcpRegistry = (
           toolName === "configure_binding"
             ? await activatePendingRebindForDirectRegistry()
             : null;
-        return localizeToolResponse(
+        return normalizeAgentToolResponse(
           projectPublicToolReferences(
             await attachRuntimeContextToError(activationResponse ?? response)
           ) as ToolResponse,
-          responseLocale,
           toolName
         );
       } catch (error) {
@@ -1913,11 +1891,10 @@ export const createRouteLedgerMcpRegistry = (
             inputKeys: Object.keys(input ?? {}).sort()
           }
         });
-        return localizeToolResponse(
+        return normalizeAgentToolResponse(
           projectPublicToolReferences(
             await attachRuntimeContextToError(response)
           ) as ToolResponse,
-          responseLocale,
           toolName
         );
       }

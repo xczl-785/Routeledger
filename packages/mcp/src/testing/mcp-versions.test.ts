@@ -24,8 +24,7 @@ describe("routeledger mcp registry", () => {
 
       const createFirst = await registry.invoke("create_version", {
         projectId,
-        title: "First delivery",
-        responseLocale: "zh-CN"
+        title: "First delivery"
       });
       expect(createFirst).toMatchObject({
         ok: true,
@@ -41,7 +40,7 @@ describe("routeledger mcp registry", () => {
         humanReviewText: string;
       };
       const firstVersionId = createFirstDetails.proposal.targetId;
-      expect(createFirstDetails.humanReviewText).toContain("RouteLedger 提案");
+      expect(createFirstDetails.humanReviewText).toContain("RouteLedger proposal");
       const firstApproval = await registry.invoke("approve_l3_operation", {
         projectId,
         pendingOperationId: createFirstDetails.pendingOperationId
@@ -229,8 +228,7 @@ describe("routeledger mcp registry", () => {
       });
 
       const closedTailNextAction = await registry.invoke("next_action", {
-        projectId,
-        responseLocale: "en"
+        projectId
       });
       expect(closedTailNextAction).toMatchObject({
         ok: true,
@@ -983,7 +981,6 @@ describe("routeledger mcp registry", () => {
       const validPropose = await callTool(server, "batch-propose", "batch_create_versions", {
         projectId: initData.project.id,
         mode: "propose",
-        responseLocale: "zh-CN",
         anchor: {
           afterVersionId: initData.firstVersion!.id
         },
@@ -1027,7 +1024,7 @@ describe("routeledger mcp registry", () => {
         getStructuredData<{
           humanReviewText: string;
         }>(validPropose).humanReviewText
-      ).toContain("RouteLedger 批量提案");
+      ).toContain("RouteLedger batch proposal");
 
       server.close();
     } finally {
@@ -1613,16 +1610,6 @@ describe("routeledger mcp registry", () => {
         recommendedSteps: Array<{ stepId: string; status: string; label: string; reason: string }>;
         notes: string[];
       }>(guideResponse);
-      const zhGuideData = getStructuredData<{
-        recommendedSteps: Array<{ label: string; reason: string }>;
-        notes: string[];
-      }>(
-        await callTool(server, "transition-guide-zh", "get_version_transition_guide", {
-          projectId: initData.project.id,
-          targetVersionId,
-          responseLocale: "zh-CN"
-        })
-      );
       const proposalList = await callTool(server, "proposal-list-after-guide", "list_l3_proposals", {
         projectId: initData.project.id
       });
@@ -1667,14 +1654,6 @@ describe("routeledger mcp registry", () => {
         )
       ).toBe(true);
       expect(guideData.notes.every((note) => !/[\u3400-\u9fff]/u.test(note))).toBe(true);
-      expect(zhGuideData.recommendedSteps).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ label: "关闭来源 Version 边界" })
-        ])
-      );
-      expect(zhGuideData.notes[0]).toBe(
-        "这是只读向导，不会创建待决 proposal；请逐步执行列出的现有工具。"
-      );
       expect(proposalListData.filter((proposal) => proposal.status === "pending")).toEqual([]);
 
       server.close();

@@ -335,14 +335,12 @@ describe("routeledger mcp registry", () => {
     }
   });
 
-  it("get_runtime_context asks for content_locale and proposes the response language", async () => {
+  it("get_runtime_context requires an explicit content locale without deriving it from agent response language", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRegistry(projectRoot);
 
     try {
-      const response = await registry.invoke("get_runtime_context", {
-        responseLocale: "zh-CN"
-      });
+      const response = await registry.invoke("get_runtime_context", {});
 
       expect(response).toMatchObject({
         ok: true,
@@ -350,8 +348,8 @@ describe("routeledger mcp registry", () => {
           contentLocale: {
             status: "confirmation_required",
             configuredValue: null,
-            suggestedValue: "zh-CN",
-            suggestionSource: "response_locale",
+            suggestedValue: null,
+            suggestionSource: null,
             requiresUserDecision: true,
             effectiveScopes: [
               "project_setting",
@@ -362,9 +360,9 @@ describe("routeledger mcp registry", () => {
           recommendedNextActions: expect.arrayContaining([
             expect.objectContaining({
               type: "confirm_content_locale",
-              proposedValue: "zh-CN",
+              proposedValue: null,
               requiresUserDecision: true,
-              description: "初始化或继续写入前，与用户确认具体 content_locale。"
+              description: "Confirm a concrete content_locale with the user before initialization or further writes."
             }),
             expect.objectContaining({
               type: "initialize_routeledger",
@@ -372,14 +370,9 @@ describe("routeledger mcp registry", () => {
               blockedBy: ["content_locale_confirmation"]
             })
           ])
-        },
-        meta: {
-          language: {
-            responseLocale: "zh-CN",
-            requestedResponseLocale: "zh-CN"
-          }
         }
       });
+      expect(response.meta).not.toHaveProperty("language");
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);
@@ -623,7 +616,7 @@ describe("routeledger mcp registry", () => {
     }
   });
 
-  it("get_runtime_context returns localized Mission Control notices and executable guidance", async () => {
+  it("get_runtime_context returns canonical English Mission Control notices and executable guidance", async () => {
     const projectRoot = createTempProjectRoot();
     const getMissionControlStatus = vi
       .fn()
@@ -662,9 +655,7 @@ describe("routeledger mcp registry", () => {
       });
       expect(initResponse.ok).toBe(true);
 
-      const stopped = await registry.invoke("get_runtime_context", {
-        responseLocale: "zh-CN"
-      });
+      const stopped = await registry.invoke("get_runtime_context", {});
       expect(stopped).toMatchObject({
         ok: true,
         data: {
@@ -674,7 +665,8 @@ describe("routeledger mcp registry", () => {
             currentProjectRegistered: false,
             notice: {
               code: "MISSION_CONTROL_STOPPED",
-              message: "RouteLedger Mission Control 尚未启动，是否现在启动并打开当前项目？",
+              message:
+                "RouteLedger Mission Control is not running. Would you like to start it and open the current project?",
               requiresUserDecision: true
             },
             recommendedAction: {
@@ -687,9 +679,7 @@ describe("routeledger mcp registry", () => {
         }
       });
 
-      const running = await registry.invoke("get_runtime_context", {
-        responseLocale: "en"
-      });
+      const running = await registry.invoke("get_runtime_context", {});
       expect(running).toMatchObject({
         ok: true,
         data: {
@@ -750,23 +740,21 @@ describe("routeledger mcp registry", () => {
 
       const legacyRegistry = createRegistry(projectRoot);
       try {
-        const context = await legacyRegistry.invoke("get_runtime_context", {
-          responseLocale: "zh-CN"
-        });
+        const context = await legacyRegistry.invoke("get_runtime_context", {});
         expect(context).toMatchObject({
           ok: true,
           data: {
             activeProject: { contentLocale: null },
             contentLocale: {
               status: "confirmation_required",
-              suggestedValue: "zh-CN",
+              suggestedValue: null,
               requiresUserDecision: true
             },
             blockedTools: expect.arrayContaining(["manage_todo"]),
             recommendedNextActions: [
               expect.objectContaining({
                 type: "set_project_content_locale",
-                proposedValue: "zh-CN"
+                proposedValue: null
               })
             ]
           }

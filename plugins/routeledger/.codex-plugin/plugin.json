@@ -1,7 +1,7 @@
 {
   "name": "routeledger",
-  "version": "0.9.7",
-  "description": "Clear next-action guidance for ready Versions and pending L3 proposals.",
+  "version": "0.10.0",
+  "description": "Canonical English agent protocol with user-controlled project content locale.",
   "author": {
     "name": "RouteLedger"
   },

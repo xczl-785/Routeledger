@@ -37,9 +37,10 @@ arguments and select an appropriate supported profile.
 ## First use and existing data
 
 Call `get_runtime_context` before planning or writing. It returns the active
-binding, storage mode, and `contentLocale` state. For an empty intended
-project, it proposes a concrete locale from `responseLocale`; the agent must
-ask the user to confirm it before calling `init_project`. Initialization
+binding, storage mode, and `contentLocale` state. When the project locale is
+unresolved, the agent must ask the user to choose a concrete locale before
+calling `init_project`; the protocol does not infer that choice from the agent
+or host language. Initialization
 requires an explicit BCP 47 `contentLocale`; missing, `null`, and `auto` are
 not accepted. With no `firstVersion`, initialization creates a Project logical
 root with an empty route and `currentVersionId: null`; when the user has already
@@ -54,10 +55,10 @@ a result.
 
 An older project without `settings.content_locale` decodes as unresolved
 `null`. It remains readable, but project writes are blocked until
-`set_project_content_locale` records a user-confirmed concrete value.
-`responseLocale` is request/session presentation state only: it localizes
-human-readable MCP messages while tool names, object keys, enums, and error
-codes remain stable English protocol values.
+`set_project_content_locale` records a user-confirmed concrete value. Agent-facing
+MCP messages, tool names, object keys, enums, and error codes use one canonical
+English protocol. The persisted `contentLocale` remains the language contract
+for generated project content and user-facing consumers.
 
 Canonical JSON is the MCP runtime authority. SQLite is a rebuildable read
 model when enabled. The JSON-only plugin runtime disables that read model and

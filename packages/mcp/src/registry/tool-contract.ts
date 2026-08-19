@@ -85,12 +85,6 @@ const expectedRouteLedgerRootSchema = {
     "Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot."
 };
 
-const responseLocaleSchema = {
-  type: "string",
-  description:
-    "Optional BCP 47 locale for human-readable tool messages. It is not persisted as project content_locale."
-};
-
 const approvalModeForRisk = (
   riskLevel: RouteLedgerToolRiskLevel
 ): RouteLedgerApprovalMode => {
@@ -130,23 +124,6 @@ const createToolMetadata = (
         recommendedApprovalMode:
           options.recommendedApprovalMode ?? approvalModeForRisk(options.riskLevel)
       }
-    }
-  };
-};
-
-const withResponseLocaleInputSchema = (
-  inputSchema: Record<string, unknown>
-): Record<string, unknown> => {
-  const properties =
-    inputSchema.properties !== null && typeof inputSchema.properties === "object"
-      ? (inputSchema.properties as Record<string, unknown>)
-      : {};
-
-  return {
-    ...inputSchema,
-    properties: {
-      ...properties,
-      responseLocale: responseLocaleSchema
     }
   };
 };
@@ -196,9 +173,7 @@ export const defineTool = (
   definition: {
     name,
     description: formatToolNarrative(narrative),
-    inputSchema: withResponseLocaleInputSchema(
-      withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel)
-    ),
+    inputSchema: withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel),
     ...(options.outputSchema === undefined
       ? {}
       : { outputSchema: options.outputSchema }),

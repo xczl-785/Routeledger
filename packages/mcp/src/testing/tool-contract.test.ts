@@ -79,11 +79,6 @@ describe("MCP tool contract construction", () => {
             type: "string",
             description:
               "Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot."
-          },
-          responseLocale: {
-            type: "string",
-            description:
-              "Optional BCP 47 locale for human-readable tool messages. It is not persisted as project content_locale."
           }
         },
         required: ["value"],
