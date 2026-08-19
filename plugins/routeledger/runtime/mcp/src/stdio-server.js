@@ -917,7 +917,6 @@ export const runRouteLedgerStdioServer = async (options) => {
         mcpRequestStateSecret: options.mcpRequestStateSecret,
         actor: options.actor,
         approver: options.approver,
-        defaultResponseLocale: options.defaultResponseLocale,
         ...(options.l3Authorization === undefined
             ? {}
             : { l3Authorization: options.l3Authorization }),
