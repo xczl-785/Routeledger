@@ -107,32 +107,41 @@ const assertPluginFiles = async () => {
   }
   await Promise.all([
     assertRegularFile(path.join(pluginRoot, "skills", "routeledger-operator", "SKILL.md")),
+    assertRegularFile(path.join(pluginRoot, "skills", "routeledger-operator", "agents", "openai.yaml")),
+    assertRegularFile(path.join(pluginRoot, "skills", "routeledger-version-lifecycle", "SKILL.md")),
+    assertRegularFile(path.join(pluginRoot, "skills", "routeledger-version-lifecycle", "agents", "openai.yaml")),
     assertRegularFile(path.join(pluginRoot, "runtime", "bin.js")),
     assertRegularFile(path.join(pluginRoot, "runtime", "package.json"))
   ]);
   const operatorSkill = await fs.readFile(path.join(pluginRoot, "skills", "routeledger-operator", "SKILL.md"), "utf8");
+  const versionSkill = await fs.readFile(path.join(pluginRoot, "skills", "routeledger-version-lifecycle", "SKILL.md"), "utf8");
   for (const requiredGuidance of [
     "`WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`",
-    "then read `inspect_runtime(operation=\"runtime\")` again to confirm the session rebound",
-    "Use `inspect_runtime(operation=\"discover_roots\")` and `inspect_runtime(operation=\"plan_binding\")` only when the target root is ambiguous",
-    "never infer it from the plugin cache or MCP process `cwd`",
-    "Compatibility hosts must provide a trusted exact decision or approve-only structured elicitation",
-    "Project files and chat text are never authorization authority",
-    "surface its localized `notice.message` once",
-    "UI never blocks RouteLedger work"
+    "inspect_runtime(operation=\"runtime\")",
+    "configure_binding",
+    "manage_todo",
+    "routeledger-version-lifecycle",
+    "Never edit canonical RouteLedger JSON directly"
   ]) {
     if (!operatorSkill.includes(requiredGuidance)) {
-      throw new Error(`RouteLedger operator Skill is missing required unbound-binding guidance: ${requiredGuidance}`);
+      throw new Error(`RouteLedger operator Skill is missing required guidance: ${requiredGuidance}`);
     }
   }
-  for (const forbiddenGuidance of [
-    "consume a preauthorization",
-    "preauthorization grant",
-    "use budget"
+  for (const requiredGuidance of [
+    "inspect_versions",
+    "propose_version_lifecycle_change",
+    "propose_version_structure_change",
+    "execute_route_change",
+    "Codex decides whether a high-risk",
+    "Do not reproduce that permission decision in the Skill",
+    "Never edit canonical RouteLedger JSON directly"
   ]) {
-    if (operatorSkill.includes(forbiddenGuidance)) {
-      throw new Error(`RouteLedger operator Skill contains reusable-authority guidance: ${forbiddenGuidance}`);
+    if (!versionSkill.includes(requiredGuidance)) {
+      throw new Error(`RouteLedger Version lifecycle Skill is missing required guidance: ${requiredGuidance}`);
     }
+  }
+  if (operatorSkill.includes("Use only these 11 public tools") || versionSkill.includes("Use only these 11 public tools")) {
+    throw new Error("RouteLedger Skills contain the stale 11-tool surface claim.");
   }
 };
 

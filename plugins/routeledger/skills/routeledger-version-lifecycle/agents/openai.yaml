@@ -1,0 +1,4 @@
+interface:
+  display_name: "RouteLedger Version Lifecycle"
+  short_description: "Inspect and progress RouteLedger Versions"
+  default_prompt: "Use $routeledger-version-lifecycle to inspect and safely progress the current Version."
