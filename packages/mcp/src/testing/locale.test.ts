@@ -3,6 +3,42 @@ import { describe, expect, it } from "vitest";
 import { localizeToolResponse, resolveResponseLocale } from "../locale.js";
 
 describe("MCP response locale", () => {
+  it("localizes only the selected next action and preserves pending proposal facts", () => {
+    const response = localizeToolResponse(
+      {
+        ok: true,
+        data: {
+          pendingL3Proposals: [
+            {
+              id: "pending-create",
+              actionType: "create_version",
+              targetId: "future-version",
+              status: "pending"
+            }
+          ],
+          nextAction: {
+            actionType: "review_pending_proposal",
+            summary: "original summary",
+            reason: "original reason"
+          }
+        }
+      },
+      resolveResponseLocale("en"),
+      "next_action"
+    );
+
+    expect(response.data.pendingL3Proposals[0]).toEqual({
+      id: "pending-create",
+      actionType: "create_version",
+      targetId: "future-version",
+      status: "pending"
+    });
+    expect(response.data.nextAction).toMatchObject({
+      summary: "Resolve the pending L3 proposal first.",
+      reason: "The pending proposal affects subsequent route decisions."
+    });
+  });
+
   it("localizes explicit system fields without rewriting user-shaped payloads", () => {
     const response = localizeToolResponse(
       {

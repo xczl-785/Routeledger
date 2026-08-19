@@ -198,8 +198,9 @@ describe("routeledger mcp registry", () => {
         data: {
           warnings: [
             expect.objectContaining({
-              recommendedTool: "check_close_gate",
+              recommendedTool: "inspect_versions",
               toolInput: {
+                operation: "check_close_gate",
                 projectId,
                 versionId: successorVersionId,
                 residualAudit: { status: "reviewed", items: [] }
