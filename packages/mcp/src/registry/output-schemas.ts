@@ -26,9 +26,27 @@ export const idempotencyOutputSchema = objectSchema(
   {
     protected: { type: "boolean", const: true },
     receiptId: stringSchema,
-    replayed: { type: "boolean" }
+    replayed: { type: "boolean" },
+    resultScope: { type: "string", const: "original_commit" },
+    originalCommittedAt: stringSchema,
+    currentStateRefreshed: { type: "boolean" },
+    recommendedNextAction: objectSchema(
+      {
+        type: { type: "string", const: "refresh_current_context" },
+        tool: { type: "string", const: "get_current_context" },
+        toolInput: objectSchema({ projectId: stringSchema }, ["projectId"])
+      },
+      ["type", "tool", "toolInput"]
+    )
   },
-  ["protected", "receiptId", "replayed"]
+  [
+    "protected",
+    "receiptId",
+    "replayed",
+    "resultScope",
+    "originalCommittedAt",
+    "currentStateRefreshed"
+  ]
 );
 
 export const todoOutputSchema = objectSchema(

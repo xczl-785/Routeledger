@@ -83,11 +83,15 @@ const operationDigestOutputSchema = objectSchema(
   },
   ["algorithm", "value", "payload"]
 );
+const persistedProposalGuidanceOutputSchema = {
+  type: "array",
+  items: { type: "object", additionalProperties: true }
+};
 const previewOrProposeCloseOutputSchema = toolOutputSchema(
   objectSchema(
     {
       mode: { type: "string", enum: ["dry_run", "propose"] },
-      status: { type: "string", enum: ["ready", "blocked"] },
+      status: { type: "string", enum: ["ready", "blocked", "confirmation_required"] },
       projectId: { type: "string" },
       versionId: { type: "string" },
       blockers: { type: "array", items: gateBlockerOutputSchema },
@@ -95,9 +99,11 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(
       unresolvedUndoIds: stringArrayOutputSchema,
       unresolvedDeferredIds: stringArrayOutputSchema,
       blockedConstraintIds: stringArrayOutputSchema,
+      proposalPersisted: { type: "boolean", const: true },
       pendingOperationId: { type: "string" },
       operationDigest: operationDigestOutputSchema,
-      humanReviewText: { type: "string" }
+      humanReviewText: { type: "string" },
+      recommendedNextActions: persistedProposalGuidanceOutputSchema
     },
     [
       "mode",
@@ -112,6 +118,38 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(
     ]
   )
 );
+
+const withPersistedProposalGuidance = <
+  TResult extends {
+    projectId: string;
+    pendingOperationId?: string;
+  }
+>(result: TResult): TResult & {
+  recommendedNextActions?: Array<Record<string, unknown>>;
+} => {
+  if (result.pendingOperationId === undefined) return result;
+
+  const input = {
+    projectId: result.projectId,
+    pendingOperationId: result.pendingOperationId
+  };
+  return {
+    ...result,
+    recommendedNextActions: [
+      {
+        action: "approve",
+        tool: "approve_l3_operation",
+        input
+      },
+      {
+        action: "reject",
+        tool: "reject_l3_operation",
+        input,
+        requiredInputs: ["reason"]
+      }
+    ]
+  };
+};
 
 const batchCreateVersionsAnchorSchema = objectSchema({
   parentVersionId: {
@@ -297,13 +335,13 @@ export const createVersionWorkflowTools = (
       { title: "Preview or Propose Version Transition", riskLevel: "write" },
       async (input) => ({
         ok: true,
-        data: await service.transitionVersion({
+        data: withPersistedProposalGuidance(await service.transitionVersion({
           projectId: input.projectId,
           versionId: input.versionId,
           mode: parseRouteOperationWorkflowMode(input.mode),
           reason: input.reason,
           actor
-        })
+        }))
       })
     ),
     defineTool(
@@ -389,7 +427,7 @@ export const createVersionWorkflowTools = (
           }
         });
 
-        return { ok: true, data: result };
+        return { ok: true, data: withPersistedProposalGuidance(result) };
       }
     ),
     defineTool(
@@ -448,7 +486,7 @@ export const createVersionWorkflowTools = (
           }
         });
 
-        return { ok: true, data: result };
+        return { ok: true, data: withPersistedProposalGuidance(result) };
       }
     )
   ];

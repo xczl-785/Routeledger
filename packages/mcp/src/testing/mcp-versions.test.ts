@@ -96,6 +96,26 @@ describe("routeledger mcp registry", () => {
         versionId: firstVersionId,
         mode: "propose"
       });
+      expect(start).toMatchObject({
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          proposalPersisted: true,
+          pendingOperationId: expect.any(String),
+          recommendedNextActions: [
+            expect.objectContaining({
+              action: "approve",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "approve_l3_operation" })
+            }),
+            expect.objectContaining({
+              action: "reject",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "reject_l3_operation" })
+            })
+          ]
+        }
+      });
       const startProposalId = (start.data as { pendingOperationId: string })
         .pendingOperationId;
       const startApproval = await registry.invoke("approve_l3_operation", {
@@ -116,6 +136,26 @@ describe("routeledger mcp registry", () => {
         versionId: firstVersionId,
         mode: "propose",
         residualAudit: { status: "reviewed", items: [] }
+      });
+      expect(close).toMatchObject({
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          proposalPersisted: true,
+          pendingOperationId: expect.any(String),
+          recommendedNextActions: [
+            expect.objectContaining({
+              action: "approve",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "approve_l3_operation" })
+            }),
+            expect.objectContaining({
+              action: "reject",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "reject_l3_operation" })
+            })
+          ]
+        }
       });
       const closeProposalId = (close.data as { pendingOperationId: string })
         .pendingOperationId;
@@ -2925,7 +2965,7 @@ describe("routeledger mcp registry", () => {
       }>(shutdownProposal);
 
       expect(shutdownProposalData).toMatchObject({
-        status: "ready",
+        status: "confirmation_required",
         forced: true,
         shutdownStateReason: "shutdown:emergency_stop"
       });

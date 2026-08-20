@@ -21,14 +21,25 @@ RouteLedger project.
    audit and gate evaluation, while Todo, Deferred, and Constraint remain the
    current work surface. No tool or CLI can create or modify Undo records
    anymore.
-5. CLI JSON commands expose validation, import/export, merge-check, and
-   ref-based review summary without changing the canonical schema.
+5. CLI JSON commands expose validation, import/export, merge-check,
+   ref-based review summary, and audit summary without changing the logical
+   canonical schema.
 6. `project.json` persists `settings.content_locale` as a concrete BCP 47
    locale. Missing legacy values decode as `null` and produce a non-fatal
    `PROJECT_CONTENT_LOCALE_UNRESOLVED` warning; they are never inferred or
    silently stored as `auto`.
+7. Audit compaction is explicit and backward compatible. A compacted project
+   stores immutable events and ordinary-write receipts in one hashed operation
+   envelope per operation. Readers expand envelopes back into the same logical
+   canonical documents, while malformed or digest-mismatched containers fail
+   closed. Loose legacy documents remain readable.
+8. `json compact-audit --pack-closed-version-id <id>` may seal audit records
+   related to an already closed Version into a hashed pack. Packed records are
+   immutable, survive later aggregate replacement, and remain visible through
+   normal JSON reads. Open Versions cannot be packed.
 
 ## Evidence
 
-`packages/json/src/codec.ts`, `filesystem.ts`, `importer.ts`,
-`merge-check.ts`, `validator.ts`, and their tests are the source of truth.
+`packages/json/src/codec.ts`, `filesystem.ts`, `audit-storage.ts`,
+`audit-summary.ts`, `importer.ts`, `merge-check.ts`, `validator.ts`, and their
+tests are the source of truth.

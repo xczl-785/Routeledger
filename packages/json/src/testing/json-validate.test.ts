@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireRouteLedgerJsonWriteLock,
+  compactRouteLedgerAudit,
   encodeProjectAggregateToJsonDocuments,
   exportProjectAggregateToJsonDirectory,
   recoverRouteLedgerJsonReplacement,
@@ -15,6 +16,7 @@ import {
   setRouteLedgerJsonFilesystemTestHooks,
   validateProjectAggregateSnapshot,
   validateRouteLedgerJsonDocuments,
+  writeRouteLedgerJsonDocuments,
   type RouteLedgerJsonDocument
 } from "../index.js";
 import {
@@ -406,6 +408,98 @@ describe("@routeledger/json validate", () => {
       const readDocuments = await readRouteLedgerJsonDocuments(root);
 
       expect(readDocuments).toEqual(expectedDocuments);
+    } finally {
+      cleanupRoot(root);
+    }
+  });
+
+  it("compacts immutable event files into operation envelopes without changing logical reads", async () => {
+    const root = createTempRoot();
+
+    try {
+      const expectedDocuments = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
+      await writeRouteLedgerJsonDocuments({ outputRoot: root, documents: expectedDocuments });
+
+      const result = await compactRouteLedgerAudit({ outputRoot: root });
+
+      expect(result).toMatchObject({
+        logicalDocumentCount: expectedDocuments.length,
+        operationEnvelopeCount: 1,
+        packedDocumentCount: 0
+      });
+      expect(fs.existsSync(path.join(root, ".routeledger", "events"))).toBe(false);
+      expect(fs.existsSync(path.join(root, ".routeledger", "operations", "operation-1.json"))).toBe(true);
+      expect(await readRouteLedgerJsonDocuments(root)).toEqual(expectedDocuments);
+
+      await replaceRouteLedgerJsonDocuments({ outputRoot: root, documents: expectedDocuments });
+      expect(fs.existsSync(path.join(root, ".routeledger", "events"))).toBe(false);
+      expect(await readRouteLedgerJsonDocuments(root)).toEqual(expectedDocuments);
+    } finally {
+      cleanupRoot(root);
+    }
+  });
+
+  it("fails closed when an operation envelope digest is changed", async () => {
+    const root = createTempRoot();
+
+    try {
+      const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
+      await writeRouteLedgerJsonDocuments({ outputRoot: root, documents });
+      await compactRouteLedgerAudit({ outputRoot: root });
+
+      const envelopePath = path.join(root, ".routeledger", "operations", "operation-1.json");
+      const envelope = JSON.parse(fs.readFileSync(envelopePath, "utf8")) as Record<string, unknown>;
+      envelope.digest = "sha256:tampered";
+      fs.writeFileSync(envelopePath, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
+
+      await expect(readRouteLedgerJsonDocuments(root)).rejects.toMatchObject({
+        code: "AUDIT_CONTAINER_INVALID"
+      });
+    } finally {
+      cleanupRoot(root);
+    }
+  });
+
+  it("packs audit records for an explicitly closed Version and preserves the pack on writes", async () => {
+    const root = createTempRoot();
+
+    try {
+      const snapshot = createJsonCodecSnapshot();
+      snapshot.versions = snapshot.versions.map((version) =>
+        version.id === "version-2"
+          ? {
+              ...version,
+              state: "close",
+              closedAt: "2026-06-28T00:00:00.000Z",
+              updatedAt: "2026-06-28T00:00:00.000Z"
+            }
+          : version
+      );
+      const expectedDocuments = encodeProjectAggregateToJsonDocuments(snapshot);
+      await writeRouteLedgerJsonDocuments({ outputRoot: root, documents: expectedDocuments });
+
+      const result = await compactRouteLedgerAudit({
+        outputRoot: root,
+        packClosedVersionId: "version-2"
+      });
+
+      expect(result.packedDocumentCount).toBe(3);
+      expect(result.auditPackCount).toBe(1);
+      expect(fs.existsSync(path.join(root, ".routeledger", "audit_packs", "version-2.json"))).toBe(true);
+      expect(fs.existsSync(path.join(root, ".routeledger", "pending_operations"))).toBe(false);
+      expect(await readRouteLedgerJsonDocuments(root)).toEqual(expectedDocuments);
+
+      await replaceRouteLedgerJsonDocuments({ outputRoot: root, documents: expectedDocuments });
+      expect(fs.existsSync(path.join(root, ".routeledger", "audit_packs", "version-2.json"))).toBe(true);
+
+      const changedDocuments = updateJsonDocument(
+        expectedDocuments,
+        (document) => document.path.includes("/pending_operations/"),
+        (value) => ({ ...value, reason: "attempted rewrite" })
+      );
+      await expect(
+        replaceRouteLedgerJsonDocuments({ outputRoot: root, documents: changedDocuments })
+      ).rejects.toMatchObject({ code: "AUDIT_CONTAINER_INVALID" });
     } finally {
       cleanupRoot(root);
     }

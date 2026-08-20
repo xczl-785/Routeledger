@@ -78,7 +78,9 @@ describe("binding tool registrations", () => {
       routeledgerRoot: "D:\\next\\ledger",
       previousBinding,
       bindingPlan,
-      requiresInit: false
+      requiresInit: false,
+      workspaceGitAttributesExisted: false,
+      dataGitAttributesExisted: false
     });
   });
 

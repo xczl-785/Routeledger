@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Canonical English agent protocol with user-controlled project content locale.",
   "author": {
     "name": "RouteLedger"

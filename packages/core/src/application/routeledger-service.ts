@@ -659,7 +659,7 @@ export type TransitionVersionStepAction = "set_current_version" | "start_version
 
 export interface TransitionVersionResult {
   mode: RouteOperationWorkflowMode;
-  status: "ready" | "blocked" | "noop";
+  status: "ready" | "blocked" | "noop" | "confirmation_required";
   projectId: string;
   versionId: string;
   currentVersionId: string | null;
@@ -671,6 +671,7 @@ export interface TransitionVersionResult {
   dueDeferredIds: string[];
   blockedConstraintIds: string[];
   followUpRequired: boolean;
+  proposalPersisted?: true;
   pendingOperationId?: string;
   operationDigest?: OperationDigest;
   humanReviewText?: string;
@@ -679,7 +680,7 @@ export interface TransitionVersionResult {
 
 export interface CloseVersionWorkflowResult {
   mode: RouteOperationWorkflowMode;
-  status: "ready" | "blocked";
+  status: "ready" | "blocked" | "confirmation_required";
   projectId: string;
   versionId: string;
   blockers: GateBlocker[];
@@ -687,6 +688,7 @@ export interface CloseVersionWorkflowResult {
   unresolvedUndoIds: string[];
   unresolvedDeferredIds: string[];
   blockedConstraintIds: string[];
+  proposalPersisted?: true;
   pendingOperationId?: string;
   operationDigest?: OperationDigest;
   humanReviewText?: string;
@@ -694,7 +696,7 @@ export interface CloseVersionWorkflowResult {
 
 export interface ShutdownVersionWorkflowResult {
   mode: RouteOperationWorkflowMode;
-  status: "ready" | "blocked" | "no_op";
+  status: "ready" | "blocked" | "no_op" | "confirmation_required";
   projectId: string;
   versionId: string;
   forced: true;
@@ -708,6 +710,7 @@ export interface ShutdownVersionWorkflowResult {
     unresolvedDeferredIds: string[];
     blockedConstraintIds: string[];
   };
+  proposalPersisted?: true;
   pendingOperationId?: string;
   operationDigest?: OperationDigest;
   humanReviewText?: string;
@@ -3525,7 +3528,10 @@ export class RouteLedgerService {
         idempotency: {
           protected: true as const,
           receiptId: receipt.id,
-          replayed: true
+          replayed: true,
+          resultScope: "original_commit" as const,
+          originalCommittedAt: receipt.committedAt,
+          currentStateRefreshed: false
         }
       };
     };
@@ -3573,7 +3579,10 @@ export class RouteLedgerService {
           idempotency: {
             protected: true,
             receiptId: receipt.id,
-            replayed: false
+            replayed: false,
+            resultScope: "original_commit",
+            originalCommittedAt: receipt.committedAt,
+            currentStateRefreshed: true
           }
         };
   }
@@ -4112,6 +4121,8 @@ export class RouteLedgerService {
 
     return {
       ...baseResult,
+      status: "confirmation_required",
+      proposalPersisted: true,
       pendingOperationId: proposal.id,
       operationDigest: proposal.digest,
       humanReviewText: makeHumanReviewText(proposal),
@@ -4160,6 +4171,8 @@ export class RouteLedgerService {
 
     return {
       ...baseResult,
+      status: "confirmation_required",
+      proposalPersisted: true,
       pendingOperationId: proposal.id,
       operationDigest: proposal.digest,
       humanReviewText: makeHumanReviewText(proposal)
@@ -4227,6 +4240,8 @@ export class RouteLedgerService {
 
     return {
       ...baseResult,
+      status: "confirmation_required",
+      proposalPersisted: true,
       pendingOperationId: proposal.id,
       operationDigest: proposal.digest,
       humanReviewText: makeHumanReviewText(proposal)

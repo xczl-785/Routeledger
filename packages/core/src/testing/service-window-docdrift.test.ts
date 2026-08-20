@@ -1310,7 +1310,7 @@ describe("route ledger service", () => {
     });
 
     expect(workflow).toMatchObject({
-      status: "ready",
+      status: "confirmation_required",
       forced: true,
       shutdownStateReason: "shutdown:emergency_stop"
     });

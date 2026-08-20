@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { defineTool } from "../registry/tool-contract.js";
 const stringSchema = (description) => ({
     type: "string",
@@ -71,9 +73,9 @@ export const createBindingAssistTools = (dependencies) => {
             meta: withCurrentRuntimeContextMeta({ data: null })
         })),
         defineTool("activate_routeledger_binding", {
-            what: "Activate an explicit MCP binding.",
+            what: "Activate an explicit MCP binding and ensure its workspace binding config exists.",
             parameter: "workspaceRoot",
-            warning: "switching an established Codex session requires confirmProjectSwitch=true"
+            warning: "may create .routeledger/config.json but never initializes canonical project data; switching an established Codex session requires confirmProjectSwitch=true"
         }, objectSchema({
             workspaceRoot: stringSchema("Required absolute host workspaceRoot."),
             routeledgerRoot: stringSchema("Optional absolute RouteLedger root inside workspaceRoot. Defaults to workspaceRoot."),
@@ -142,7 +144,9 @@ export const createBindingAssistTools = (dependencies) => {
                 routeledgerRoot: bindingPlan.targetBinding.routeledgerRoot,
                 previousBinding,
                 bindingPlan,
-                requiresInit: bindingPlan.requiresInit
+                requiresInit: bindingPlan.requiresInit,
+                workspaceGitAttributesExisted: fs.existsSync(path.join(bindingPlan.targetBinding.workspaceRoot, ".routeledger", ".gitattributes")),
+                dataGitAttributesExisted: fs.existsSync(path.join(bindingPlan.targetBinding.routeledgerRoot, ".routeledger", ".gitattributes"))
             };
             stagePendingSessionRebind(pending);
             return {

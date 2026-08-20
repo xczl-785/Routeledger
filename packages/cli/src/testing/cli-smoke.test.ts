@@ -1317,7 +1317,7 @@ describe("routeledger cli", () => {
       expect(commitStart.exitCode).toBe(0);
       expect(shutdownResult.exitCode).toBe(0);
       expect(shutdownResult.stdoutJson.data).toMatchObject({
-        status: "ready",
+        status: "confirmation_required",
         forced: true,
         shutdownStateReason: "shutdown:emergency_stop"
       });

@@ -28,6 +28,14 @@ export interface RuntimeIdentity {
   /** Immutable release tag expected to attest this plugin payload. */
   releaseTag: string | null;
   sourceTreeState: RuntimeSourceTreeState;
+  /**
+   * Scoped build-input provenance. This is additive to sourceTreeState so
+   * callers cannot mistake runtime build cleanliness for host-workspace Git state.
+   */
+  buildProvenance?: {
+    scope: "runtime_build_inputs";
+    sourceTreeState: RuntimeSourceTreeState;
+  };
   /** How callers can bind this runtime identity to immutable source/distribution evidence. */
   provenanceStatus?: RuntimeProvenanceStatus;
   /** Stable locator for the detached proof when provenanceStatus requires attestation. */

@@ -33,7 +33,9 @@ import {
   RouteLedgerJsonImportError,
   RouteLedgerJsonReviewSummaryError,
   RouteLedgerJsonWriteError,
+  buildProjectAuditSummary,
   buildProjectAggregateReviewSummary,
+  compactRouteLedgerAudit,
   encodeProjectAggregateToJsonDocuments,
   exportProjectAggregateToJsonDirectory,
   loadValidatedProjectAggregateFromJsonDirectory,
@@ -541,6 +543,29 @@ const loadSnapshotFromGitRef = async (
   } finally {
     fs.rmSync(archivePath, { force: true });
   }
+};
+
+const loadAuditDiffFiles = (
+  repoRoot: string,
+  baseRef: string,
+  headRef: string
+): Array<{ path: string; addedLines: number | null; deletedLines: number | null }> => {
+  const output = execFileSync(
+    "git",
+    ["diff", "--numstat", baseRef, headRef, "--", ".routeledger"],
+    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  return output
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [added = "-", deleted = "-", ...pathSegments] = line.split("\t");
+      return {
+        path: pathSegments.join("\t"),
+        addedLines: added === "-" ? null : Number.parseInt(added, 10),
+        deletedLines: deleted === "-" ? null : Number.parseInt(deleted, 10)
+      };
+    });
 };
 
 const parseBatchPreviousCurrentPolicyFlag = (
@@ -1572,10 +1597,57 @@ const handleCommand = async ({
         }
       }
 
+      if (subcommand === "audit-summary") {
+        const baseRef = requireFlagValue(argv, "--base-ref");
+        const headRef = requireFlagValue(argv, "--head-ref");
+        let baseLoaded:
+          | (Awaited<ReturnType<typeof loadSnapshotFromGitRef>> & { tempRoot: string })
+          | undefined;
+        let headLoaded:
+          | (Awaited<ReturnType<typeof loadSnapshotFromGitRef>> & { tempRoot: string })
+          | undefined;
+
+        try {
+          baseLoaded = await loadSnapshotFromGitRef(projectRoot, baseRef, "base");
+          headLoaded = await loadSnapshotFromGitRef(projectRoot, headRef, "head");
+          return {
+            ok: true,
+            data: buildProjectAuditSummary(
+              baseLoaded.snapshot,
+              headLoaded.snapshot,
+              loadAuditDiffFiles(projectRoot, baseRef, headRef),
+              { baseRef, headRef }
+            ),
+            meta: {
+              baseDocumentCount: baseLoaded.documentCount,
+              headDocumentCount: headLoaded.documentCount
+            }
+          };
+        } finally {
+          if (baseLoaded !== undefined) {
+            fs.rmSync(baseLoaded.tempRoot, { recursive: true, force: true });
+          }
+          if (headLoaded !== undefined) {
+            fs.rmSync(headLoaded.tempRoot, { recursive: true, force: true });
+          }
+        }
+      }
+
+      if (subcommand === "compact-audit") {
+        const inputRoot = getFlagValue(argv, "--input-dir") ?? projectRoot;
+        return {
+          ok: true,
+          data: await compactRouteLedgerAudit({
+            outputRoot: inputRoot,
+            packClosedVersionId: getFlagValue(argv, "--pack-closed-version-id")
+          })
+        };
+      }
+
       if (subcommand !== "export") {
         throw new ApplicationError(
           "ACTION_NOT_IMPLEMENTED",
-          "仅支持 json export/validate/import/merge-check/review-summary"
+          "仅支持 json export/validate/import/merge-check/review-summary/audit-summary/compact-audit"
         );
       }
 
@@ -1639,13 +1711,17 @@ const toCliError = (error: unknown): CliResponse => {
   }
 
   if (error instanceof RouteLedgerJsonWriteError) {
+    const codeByWriteError = {
+      DOCUMENT_ALREADY_EXISTS: "JSON_EXPORT_TARGET_EXISTS",
+      DOCUMENT_PATH_ESCAPE: "JSON_EXPORT_PATH_ESCAPE",
+      DOCUMENT_SET_INVALID: "JSON_VALIDATION_FAILED",
+      AUDIT_CONTAINER_INVALID: "JSON_AUDIT_CONTAINER_INVALID",
+      FILESYSTEM_RENAME_FAILED: "JSON_FILESYSTEM_RENAME_FAILED"
+    } as const;
     return {
       ok: false,
       error: {
-        code:
-          error.code === "DOCUMENT_ALREADY_EXISTS"
-            ? "JSON_EXPORT_TARGET_EXISTS"
-            : "JSON_EXPORT_PATH_ESCAPE",
+        code: codeByWriteError[error.code],
         message: error.message,
         details: error.details
       }

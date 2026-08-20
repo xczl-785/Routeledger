@@ -215,7 +215,10 @@ describe("JsonFirstStorageAdapter", () => {
         idempotency: {
           protected: true,
           receiptId: first.idempotency!.receiptId,
-          replayed: true
+          replayed: true,
+          resultScope: "original_commit",
+          originalCommittedAt: first.idempotency!.originalCommittedAt,
+          currentStateRefreshed: false
         }
       });
       expect(snapshot?.todos).toHaveLength(1);
@@ -482,6 +485,11 @@ describe("JsonFirstStorageAdapter", () => {
 
         const conflictingInspection = await storage.inspectRuntimeBinding();
         expect(conflictingInspection.storageMode).toBe("conflict");
+        expect(conflictingInspection.blockingIssue).toMatchObject({
+          kind: "json_sqlite_divergence",
+          source: "sqlite_read_model",
+          code: "JSON_SQLITE_CONFLICT"
+        });
         expect(conflictingInspection.conflict).toMatchObject({
           details: {
             differingDocumentPaths: [".routeledger/project.json"]
@@ -490,6 +498,38 @@ describe("JsonFirstStorageAdapter", () => {
       } finally {
         sqliteStorage.close();
       }
+    } finally {
+      storage.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("normalizes invalid canonical JSON into one blocking storage issue", async () => {
+    const projectRoot = createTempProjectRoot();
+    const { storage, service } = createJsonFirstService(projectRoot);
+
+    try {
+      await service.initProject({
+        contentLocale: "en",
+        name: "Invalid JSON diagnostics",
+        actor: { id: "primary-agent", type: "agent" }
+      });
+      fs.writeFileSync(
+        path.join(projectRoot, ".routeledger", "project.json"),
+        "<<<<<<< branch-a\n{}\n=======\n{}\n>>>>>>> branch-b\n",
+        "utf8"
+      );
+
+      const inspection = await storage.inspectRuntimeBinding();
+      expect(inspection).toMatchObject({
+        storageMode: "json_invalid",
+        conflict: null,
+        blockingIssue: {
+          kind: "canonical_json_invalid",
+          source: "canonical_json",
+          code: "JSON_SOURCE_INVALID"
+        }
+      });
     } finally {
       storage.close();
       cleanupProjectRoot(projectRoot);

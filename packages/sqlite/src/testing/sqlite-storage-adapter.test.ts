@@ -979,7 +979,10 @@ describe("sqlite storage adapter", () => {
       expect(replay.idempotency).toEqual({
         protected: true,
         receiptId: first.idempotency!.receiptId,
-        replayed: true
+        replayed: true,
+        resultScope: "original_commit",
+        originalCommittedAt: first.idempotency!.originalCommittedAt,
+        currentStateRefreshed: false
       });
       expect(loaded?.todos).toHaveLength(1);
       expect(loaded?.ordinaryWriteReceipts).toHaveLength(1);

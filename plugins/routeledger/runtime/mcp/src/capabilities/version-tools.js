@@ -27,9 +27,13 @@ const operationDigestOutputSchema = objectSchema({
     value: { type: "string" },
     payload: { type: "object", additionalProperties: true }
 }, ["algorithm", "value", "payload"]);
+const persistedProposalGuidanceOutputSchema = {
+    type: "array",
+    items: { type: "object", additionalProperties: true }
+};
 const previewOrProposeCloseOutputSchema = toolOutputSchema(objectSchema({
     mode: { type: "string", enum: ["dry_run", "propose"] },
-    status: { type: "string", enum: ["ready", "blocked"] },
+    status: { type: "string", enum: ["ready", "blocked", "confirmation_required"] },
     projectId: { type: "string" },
     versionId: { type: "string" },
     blockers: { type: "array", items: gateBlockerOutputSchema },
@@ -37,9 +41,11 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(objectSchema({
     unresolvedUndoIds: stringArrayOutputSchema,
     unresolvedDeferredIds: stringArrayOutputSchema,
     blockedConstraintIds: stringArrayOutputSchema,
+    proposalPersisted: { type: "boolean", const: true },
     pendingOperationId: { type: "string" },
     operationDigest: operationDigestOutputSchema,
-    humanReviewText: { type: "string" }
+    humanReviewText: { type: "string" },
+    recommendedNextActions: persistedProposalGuidanceOutputSchema
 }, [
     "mode",
     "status",
@@ -51,6 +57,30 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(objectSchema({
     "unresolvedDeferredIds",
     "blockedConstraintIds"
 ]));
+const withPersistedProposalGuidance = (result) => {
+    if (result.pendingOperationId === undefined)
+        return result;
+    const input = {
+        projectId: result.projectId,
+        pendingOperationId: result.pendingOperationId
+    };
+    return {
+        ...result,
+        recommendedNextActions: [
+            {
+                action: "approve",
+                tool: "approve_l3_operation",
+                input
+            },
+            {
+                action: "reject",
+                tool: "reject_l3_operation",
+                input,
+                requiredInputs: ["reason"]
+            }
+        ]
+    };
+};
 const batchCreateVersionsAnchorSchema = objectSchema({
     parentVersionId: {
         anyOf: [
@@ -169,13 +199,13 @@ export const createVersionWorkflowTools = (dependencies) => {
             reason: stringSchema("Optional proposal reason override.")
         }, ["projectId", "versionId"]), { title: "Preview or Propose Version Transition", riskLevel: "write" }, async (input) => ({
             ok: true,
-            data: await service.transitionVersion({
+            data: withPersistedProposalGuidance(await service.transitionVersion({
                 projectId: input.projectId,
                 versionId: input.versionId,
                 mode: parseRouteOperationWorkflowMode(input.mode),
                 reason: input.reason,
                 actor
-            })
+            }))
         })),
         defineTool("propose_version_advance", {
             what: "Atomically switch to and start the ready next Version.",
@@ -237,7 +267,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                     createsPendingProposal: result.pendingOperationId !== undefined
                 }
             });
-            return { ok: true, data: result };
+            return { ok: true, data: withPersistedProposalGuidance(result) };
         }),
         defineTool("preview_or_propose_forced_version_shutdown", {
             what: "Binding-sensitive forced-close preview or proposal.",
@@ -279,7 +309,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                     createsPendingProposal: result.pendingOperationId !== undefined
                 }
             });
-            return { ok: true, data: result };
+            return { ok: true, data: withPersistedProposalGuidance(result) };
         })
     ];
 };

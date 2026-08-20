@@ -16,6 +16,16 @@ import {
 export const WORKSPACE_CONFIG_VERSION = 1;
 export const WORKSPACE_CONFIG_FILENAME = "config.json";
 export const DEFAULT_WORKSPACE_DATA_DIR = ".";
+export const ROUTELEDGER_GIT_ATTRIBUTES_FILENAME = ".gitattributes";
+export const ROUTELEDGER_GIT_ATTRIBUTES_CONTENT =
+  "*.json text eol=lf\n" +
+  "**/*.json text eol=lf\n" +
+  "events/** linguist-generated=true\n" +
+  "ordinary_write_receipts/** linguist-generated=true\n" +
+  "approval_artifacts/** linguist-generated=true\n" +
+  "pending_operations/** linguist-generated=true\n" +
+  "operations/** linguist-generated=true\n" +
+  "audit_packs/** linguist-generated=true\n";
 
 export interface WorkspaceConfigDiagnostic {
   code: string;
@@ -74,6 +84,7 @@ const writeWorkspaceConfig = (workspaceRoot: string, dataDir: string): void => {
   const configPath = getWorkspaceConfigPath(workspaceRoot);
 
   fs.mkdirSync(configDirectory, { recursive: true });
+  ensureRouteLedgerGitAttributes(configDirectory);
 
   if (fs.existsSync(configPath)) {
     return;
@@ -89,6 +100,31 @@ const writeWorkspaceConfig = (workspaceRoot: string, dataDir: string): void => {
       null,
       2
     )}\n`,
+    "utf8"
+  );
+};
+
+export const ensureRouteLedgerGitAttributes = (routeledgerDirectory: string): void => {
+  fs.mkdirSync(routeledgerDirectory, { recursive: true });
+  const attributesPath = path.join(
+    routeledgerDirectory,
+    ROUTELEDGER_GIT_ATTRIBUTES_FILENAME
+  );
+  if (!fs.existsSync(attributesPath)) {
+    fs.writeFileSync(attributesPath, ROUTELEDGER_GIT_ATTRIBUTES_CONTENT, "utf8");
+    return;
+  }
+
+  const currentContent = fs.readFileSync(attributesPath, "utf8").replaceAll("\r\n", "\n");
+  const currentLines = new Set(currentContent.split("\n").filter((line) => line.length > 0));
+  const missingLines = ROUTELEDGER_GIT_ATTRIBUTES_CONTENT
+    .split("\n")
+    .filter((line) => line.length > 0 && !currentLines.has(line));
+  if (missingLines.length === 0) return;
+  const separator = currentContent.length === 0 || currentContent.endsWith("\n") ? "" : "\n";
+  fs.writeFileSync(
+    attributesPath,
+    `${currentContent}${separator}${missingLines.join("\n")}\n`,
     "utf8"
   );
 };
@@ -292,6 +328,10 @@ export const resolveWorkspaceConfigSync = (options: {
         ]
       );
     }
+  }
+
+  if (options.autoCreate === true) {
+    ensureRouteLedgerGitAttributes(getWorkspaceConfigDirectory(workspaceRoot));
   }
 
   try {

@@ -669,7 +669,7 @@ describe("route ledger service", () => {
     });
 
     expect(firstProposal).toMatchObject({
-      status: "ready",
+      status: "confirmation_required",
       proposedActionType: "set_current_version",
       pendingOperationId: expect.any(String)
     });

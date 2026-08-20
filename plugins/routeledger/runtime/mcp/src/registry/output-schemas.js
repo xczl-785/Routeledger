@@ -16,8 +16,23 @@ export const actorOutputSchema = objectSchema({
 export const idempotencyOutputSchema = objectSchema({
     protected: { type: "boolean", const: true },
     receiptId: stringSchema,
-    replayed: { type: "boolean" }
-}, ["protected", "receiptId", "replayed"]);
+    replayed: { type: "boolean" },
+    resultScope: { type: "string", const: "original_commit" },
+    originalCommittedAt: stringSchema,
+    currentStateRefreshed: { type: "boolean" },
+    recommendedNextAction: objectSchema({
+        type: { type: "string", const: "refresh_current_context" },
+        tool: { type: "string", const: "get_current_context" },
+        toolInput: objectSchema({ projectId: stringSchema }, ["projectId"])
+    }, ["type", "tool", "toolInput"])
+}, [
+    "protected",
+    "receiptId",
+    "replayed",
+    "resultScope",
+    "originalCommittedAt",
+    "currentStateRefreshed"
+]);
 export const todoOutputSchema = objectSchema({
     id: stringSchema,
     projectId: stringSchema,
