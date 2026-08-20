@@ -6236,6 +6236,7 @@ export class RouteLedgerService {
       data: await runDocDriftCheck({
         projectRoot: this.projectRoot,
         project: snapshot.project,
+        contentLocale: snapshot.project.settings.contentLocale,
         context,
         input
       })
