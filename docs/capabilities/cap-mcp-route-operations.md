@@ -34,6 +34,13 @@ rules.
    only when the same consumed artifact still matches the operation ID,
    action, target, and digest exactly; it returns `replayed: true` without
    creating canonical events. Every mismatch fails closed.
+   A persisted lifecycle or structure proposal can be resumed through
+   `execute_route_change(operation="execute_admitted_proposal")`. The public
+   input needs the project and pending-operation IDs, with the returned digest
+   accepted as an optional stale-client assertion. RouteLedger reloads the
+   canonical proposal and, only after host admission, internally authorizes and
+   commits it. This reduces the normal admitted lifecycle path to proposal plus
+   execution while preserving the explicit approve/reject/commit operations.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
 7. `inspect_route_progress(operation="next_action")` follows the version lifecycle: a current `wait` version

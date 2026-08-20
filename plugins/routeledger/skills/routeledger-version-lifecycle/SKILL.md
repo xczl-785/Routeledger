@@ -34,13 +34,15 @@ Use the bundled RouteLedger MCP server to inspect and change Version state or ro
 
 For closeout, inspect `summarize_version_closeout` or `plan_version_closeout`, clear the named blockers, and review residual work. Declare `{ status: "reviewed", items: [] }` only after confirming no residuals remain; otherwise include every routed item. A summary or plan is evidence, not approval.
 
-When a proposal is persisted successfully, treat `ok: true` with `data.status: "confirmation_required"` as a pending approval state, not as a failed proposal. Follow the returned exact next actions; do not recreate the proposal merely because execution has not occurred yet.
+When a proposal is persisted successfully, treat `ok: true` with `data.status: "confirmation_required"` as a pending approval state, not as a failed proposal. Prefer the returned `execute_route_change(operation="execute_admitted_proposal")` action. It resumes the persisted proposal by `pendingOperationId`, revalidates its exact digest and live state, and completes authorization plus commit when the host admits the high-risk call. Keep the explicit approve/reject/commit operations for hosts that require fine-grained decisions or for diagnostics; do not recreate the proposal merely because execution has not occurred yet.
 
 Do not insert before closed history, reorder it, change its parent, or add a child beneath it. Append the next real top-level successor when continuing from a closed tail.
 
 ## Execute an admitted change
 
 Use the proposal and execution inputs returned by RouteLedger without weakening their project, root, target, action, or digest bindings.
+
+Do not insert repeated `inspect_runtime` calls between a persisted proposal and `execute_admitted_proposal`. The execution call performs binding preflight and reloads the canonical proposal. Reinspect only when the returned recovery action says the proposal or live route is stale, blocked, missing, or otherwise requires new context.
 
 Codex decides whether a high-risk `execute_route_change` call reaches the plugin. Do not reproduce that permission decision in the Skill, infer approval from chat, or manage Codex authorization. Once an admitted call arrives, RouteLedger validates the exact operation and current state, then executes or rejects it.
 

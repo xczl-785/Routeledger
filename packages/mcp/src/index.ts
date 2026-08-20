@@ -821,6 +821,17 @@ const buildPersistedProposalResponse = (
         : {}),
       recommendedNextActions: [
         {
+          action: "execute_if_admitted",
+          tool: "execute_route_change",
+          input: {
+            operation: "execute_admitted_proposal",
+            ...nextActionInput,
+            ...(typeof error.details.digest === "string"
+              ? { expectedOperationDigest: error.details.digest }
+              : {})
+          }
+        },
+        {
           action: "approve",
           tool: "approve_l3_operation",
           input: nextActionInput

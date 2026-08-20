@@ -119,23 +119,44 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(
   )
 );
 
-const withPersistedProposalGuidance = <
-  TResult extends {
-    projectId: string;
-    pendingOperationId?: string;
-  }
->(result: TResult): TResult & {
+const withPersistedProposalGuidance = <TResult extends object>(
+  result: TResult,
+  fallbackProjectId?: string
+): TResult & {
   recommendedNextActions?: Array<Record<string, unknown>>;
 } => {
-  if (result.pendingOperationId === undefined) return result;
+  const proposalResult = result as TResult & {
+    projectId?: string;
+    pendingOperationId?: string;
+    digest?: string;
+    operationDigest?: { value: string };
+    proposal?: { digest?: { value?: string } };
+  };
+  const projectId = proposalResult.projectId ?? fallbackProjectId;
+  if (proposalResult.pendingOperationId === undefined || projectId === undefined) {
+    return result;
+  }
 
   const input = {
-    projectId: result.projectId,
-    pendingOperationId: result.pendingOperationId
+    projectId,
+    pendingOperationId: proposalResult.pendingOperationId
   };
+  const expectedOperationDigest =
+    proposalResult.digest ??
+    proposalResult.operationDigest?.value ??
+    proposalResult.proposal?.digest?.value;
   return {
     ...result,
     recommendedNextActions: [
+      {
+        action: "execute_if_admitted",
+        tool: "execute_route_change",
+        input: {
+          operation: "execute_admitted_proposal",
+          ...input,
+          ...(expectedOperationDigest === undefined ? {} : { expectedOperationDigest })
+        }
+      },
       {
         action: "approve",
         tool: "approve_l3_operation",
@@ -292,24 +313,27 @@ export const createVersionWorkflowTools = (
       { title: "Preflight or Propose Version Batch", riskLevel: "write" },
       async (input) => ({
         ok: true,
-        data: await service.batchCreateVersions({
-          projectId: input.projectId,
-          mode: parseBatchCreateVersionsMode(input.mode),
-          partialAllowed: input.partialAllowed,
-          anchor: input.anchor,
-          items: input.items as Array<{
-            clientKey: string;
-            title: string;
-            description: string;
-            initialTodos: string[];
-          }>,
-          setCurrentTo: input.setCurrentTo,
-          previousCurrentPolicy: parseBatchPreviousCurrentPolicy(
-            input.previousCurrentPolicy
-          ),
-          reason: input.reason,
-          actor
-        })
+        data: withPersistedProposalGuidance(
+          await service.batchCreateVersions({
+            projectId: input.projectId,
+            mode: parseBatchCreateVersionsMode(input.mode),
+            partialAllowed: input.partialAllowed,
+            anchor: input.anchor,
+            items: input.items as Array<{
+              clientKey: string;
+              title: string;
+              description: string;
+              initialTodos: string[];
+            }>,
+            setCurrentTo: input.setCurrentTo,
+            previousCurrentPolicy: parseBatchPreviousCurrentPolicy(
+              input.previousCurrentPolicy
+            ),
+            reason: input.reason,
+            actor
+          }),
+          input.projectId
+        )
       })
     ),
     defineTool(
@@ -365,13 +389,15 @@ export const createVersionWorkflowTools = (
       { title: "Propose Version Advance", riskLevel: "write" },
       async (input) => ({
         ok: true,
-        data: await service.advanceToVersion({
-          projectId: input.projectId,
-          versionId: input.versionId,
-          fromVersionId: input.fromVersionId,
-          reason: input.reason,
-          actor
-        })
+        data: withPersistedProposalGuidance(
+          await service.advanceToVersion({
+            projectId: input.projectId,
+            versionId: input.versionId,
+            fromVersionId: input.fromVersionId,
+            reason: input.reason,
+            actor
+          })
+        )
       })
     ),
     defineTool(

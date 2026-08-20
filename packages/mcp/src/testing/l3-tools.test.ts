@@ -47,6 +47,7 @@ describe("L3 tool registrations", () => {
     ).toEqual([
       "propose_l3_operation",
       "execute_l3_operation",
+      "execute_admitted_proposal",
       "approve_l3_operation",
       "commit_l3_operation",
       "reject_l3_operation"
@@ -58,6 +59,14 @@ describe("L3 tool registrations", () => {
 
     expect(
       tools.find((tool) => tool.definition.name === "execute_l3_operation")
+        ?.definition._meta.routeledger
+    ).toMatchObject({
+      riskLevel: "high-risk",
+      destructive: true,
+      recommendedApprovalMode: "approve"
+    });
+    expect(
+      tools.find((tool) => tool.definition.name === "execute_admitted_proposal")
         ?.definition._meta.routeledger
     ).toMatchObject({
       riskLevel: "high-risk",

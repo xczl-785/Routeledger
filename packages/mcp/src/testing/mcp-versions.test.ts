@@ -104,6 +104,11 @@ describe("routeledger mcp registry", () => {
           pendingOperationId: expect.any(String),
           recommendedNextActions: [
             expect.objectContaining({
+              action: "execute_if_admitted",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "execute_admitted_proposal" })
+            }),
+            expect.objectContaining({
               action: "approve",
               tool: "execute_route_change",
               input: expect.objectContaining({ operation: "approve_l3_operation" })
@@ -145,6 +150,11 @@ describe("routeledger mcp registry", () => {
           pendingOperationId: expect.any(String),
           recommendedNextActions: [
             expect.objectContaining({
+              action: "execute_if_admitted",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "execute_admitted_proposal" })
+            }),
+            expect.objectContaining({
               action: "approve",
               tool: "execute_route_change",
               input: expect.objectContaining({ operation: "approve_l3_operation" })
@@ -183,6 +193,11 @@ describe("routeledger mcp registry", () => {
           digest: expect.any(String),
           humanReviewText: expect.any(String),
           recommendedNextActions: [
+            expect.objectContaining({
+              action: "execute_if_admitted",
+              tool: "execute_route_change",
+              input: expect.objectContaining({ operation: "execute_admitted_proposal" })
+            }),
             expect.objectContaining({
               action: "approve",
               tool: "execute_route_change",

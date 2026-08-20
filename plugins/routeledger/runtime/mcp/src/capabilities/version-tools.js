@@ -57,16 +57,31 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(objectSchema({
     "unresolvedDeferredIds",
     "blockedConstraintIds"
 ]));
-const withPersistedProposalGuidance = (result) => {
-    if (result.pendingOperationId === undefined)
+const withPersistedProposalGuidance = (result, fallbackProjectId) => {
+    const proposalResult = result;
+    const projectId = proposalResult.projectId ?? fallbackProjectId;
+    if (proposalResult.pendingOperationId === undefined || projectId === undefined) {
         return result;
+    }
     const input = {
-        projectId: result.projectId,
-        pendingOperationId: result.pendingOperationId
+        projectId,
+        pendingOperationId: proposalResult.pendingOperationId
     };
+    const expectedOperationDigest = proposalResult.digest ??
+        proposalResult.operationDigest?.value ??
+        proposalResult.proposal?.digest?.value;
     return {
         ...result,
         recommendedNextActions: [
+            {
+                action: "execute_if_admitted",
+                tool: "execute_route_change",
+                input: {
+                    operation: "execute_admitted_proposal",
+                    ...input,
+                    ...(expectedOperationDigest === undefined ? {} : { expectedOperationDigest })
+                }
+            },
             {
                 action: "approve",
                 tool: "approve_l3_operation",
@@ -173,7 +188,7 @@ export const createVersionWorkflowTools = (dependencies) => {
             reason: stringSchema("Optional proposal reason override.")
         }, ["projectId", "mode", "items"]), { title: "Preflight or Propose Version Batch", riskLevel: "write" }, async (input) => ({
             ok: true,
-            data: await service.batchCreateVersions({
+            data: withPersistedProposalGuidance(await service.batchCreateVersions({
                 projectId: input.projectId,
                 mode: parseBatchCreateVersionsMode(input.mode),
                 partialAllowed: input.partialAllowed,
@@ -183,7 +198,7 @@ export const createVersionWorkflowTools = (dependencies) => {
                 previousCurrentPolicy: parseBatchPreviousCurrentPolicy(input.previousCurrentPolicy),
                 reason: input.reason,
                 actor
-            })
+            }), input.projectId)
         })),
         defineTool("preview_or_propose_version_transition", {
             what: "Binding-sensitive transition preview or proposal.",
@@ -217,13 +232,13 @@ export const createVersionWorkflowTools = (dependencies) => {
             reason: stringSchema("Optional proposal reason override.")
         }, ["projectId", "versionId"]), { title: "Propose Version Advance", riskLevel: "write" }, async (input) => ({
             ok: true,
-            data: await service.advanceToVersion({
+            data: withPersistedProposalGuidance(await service.advanceToVersion({
                 projectId: input.projectId,
                 versionId: input.versionId,
                 fromVersionId: input.fromVersionId,
                 reason: input.reason,
                 actor
-            })
+            }))
         })),
         defineTool("preview_or_propose_version_close", {
             what: "Binding-sensitive close preview or proposal.",
