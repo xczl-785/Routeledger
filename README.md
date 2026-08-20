@@ -70,11 +70,11 @@ codex plugin add routeledger@routeledger-team --json
 1. 让 agent 先调用 `get_runtime_context` 确认当前绑定；
 2. 若未绑定到目标项目，调用 `activate_routeledger_binding` 绑定到当前项目根；
 3. `get_runtime_context` 会报告 `content_locale` 是否尚未确认；agent 必须让用户明确选择具体 BCP 47 locale（如 `zh-CN` 或 `en`）；
-4. 用明确的 `contentLocale` 调用 `configure_project(operation="initialize")`。默认只建立 Project 逻辑根，不创建真实 Version；如用户已经确认首个交付节点，可同时传入 `firstVersion`（标题、描述、初始 Todo）。`auto` 不被接受。
+4. 用明确的 `contentLocale` 调用 `configure_project(operation="initialize")`。默认只建立 Project 逻辑根，不创建真实 Version；如用户已经确认首个交付节点，可同时传入 `firstVersion`（标题、描述、初始 Todo）。`auto` 不被接受。初始化结果还会只读检查 README、AGENTS、CONTRIBUTING 等人类入口是否指向 `.routeledger/project.json`；缺失时返回本地化建议，不会自动改写文档。
 
 `content_locale` 控制 agent 后续生成并写入该项目内容时采用的语言，持久化在项目设置中，并供用户界面消费。旧项目缺少此字段时会读作 `null`：仍可检查，但写入前必须通过 `configure_project(operation="set_content_locale")` 补齐。面向 agent 的 MCP 工具名、字段名、枚举、错误码和系统说明统一使用英文。
 
-插件内置 JSON-only runtime，不依赖 SQLite。更多安装与运行细节见 [Codex plugin installation](docs/guides/codex-plugin-installation.md)。
+插件内置 JSON-only runtime，不依赖 SQLite。新初始化的 JSON-only 项目默认把同一 operation 的 Event 与 ordinary-write receipt 写入带摘要的 operation envelope；已有 loose-audit 项目保持原布局，只有显式执行 `json compact-audit` 才迁移。更多安装与运行细节见 [Codex plugin installation](docs/guides/codex-plugin-installation.md)。
 
 > npm 安装方式正在支持中（coming soon），目前不提供 `npm install @routeledger/...`。
 

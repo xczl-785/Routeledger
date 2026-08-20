@@ -17,7 +17,9 @@ import {
 } from "../../../core/src/testing/builders.js";
 import {
   acquireRouteLedgerJsonWriteLock,
-  getRouteLedgerJsonWriteLockInfo
+  getRouteLedgerJsonWriteLockInfo,
+  readRouteLedgerJsonDocuments,
+  writeRouteLedgerJsonDocuments
 } from "../../../json/src/index.js";
 import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
 import { JsonFirstStorageAdapter } from "../json-first-storage.js";
@@ -160,6 +162,77 @@ const createJsonFirstService = (
 };
 
 describe("JsonFirstStorageAdapter", () => {
+  it("creates new JSON-first projects with compact operation envelopes by default", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new JsonFirstStorageAdapter({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      sqliteReadModel: "disabled"
+    });
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "Compact by default",
+        actor: { id: "compact-default-agent", type: "agent" }
+      });
+
+      expect(
+        fs.existsSync(path.join(projectRoot, ".routeledger", "audit", "layout.json"))
+      ).toBe(true);
+      expect(fs.existsSync(path.join(projectRoot, ".routeledger", "events"))).toBe(false);
+      expect(
+        fs.readdirSync(path.join(projectRoot, ".routeledger", "operations"))
+      ).not.toHaveLength(0);
+      await expect(storage.loadProjectAggregate(created.project.id)).resolves.toMatchObject({
+        project: { id: created.project.id }
+      });
+    } finally {
+      storage.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("preserves an existing loose-audit JSON project until explicit migration", async () => {
+    const projectRoot = createTempProjectRoot();
+    const storage = new JsonFirstStorageAdapter({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      sqliteReadModel: "disabled"
+    });
+    const service = new RouteLedgerService({ storage, deps: createTestDependencies() });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "Legacy loose audit",
+        actor: { id: "loose-audit-agent", type: "agent" }
+      });
+      const logicalDocuments = await readRouteLedgerJsonDocuments(projectRoot);
+      fs.rmSync(path.join(projectRoot, ".routeledger"), { recursive: true, force: true });
+      await writeRouteLedgerJsonDocuments({
+        outputRoot: projectRoot,
+        documents: logicalDocuments
+      });
+
+      const snapshot = await storage.loadProjectAggregate(created.project.id);
+      expect(snapshot).not.toBeNull();
+      await storage.saveProjectAggregate(snapshot!);
+
+      expect(
+        fs.existsSync(path.join(projectRoot, ".routeledger", "audit", "layout.json"))
+      ).toBe(false);
+      expect(fs.existsSync(path.join(projectRoot, ".routeledger", "events"))).toBe(true);
+    } finally {
+      storage.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("replays a committed create_todo from canonical JSON after restart", async () => {
     const projectRoot = createTempProjectRoot();
     const actor = { id: "idempotent-agent", type: "agent" as const };

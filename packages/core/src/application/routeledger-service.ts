@@ -78,7 +78,10 @@ import {
   buildVersionsWindowResult
 } from "./current-context-query.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
-import { runDocDriftCheck } from "./doc-drift-query.js";
+import {
+  inspectEntryDocumentCoverage,
+  runDocDriftCheck
+} from "./doc-drift-query.js";
 import type { VersionCloseoutPlan } from "./version-closeout-planner.js";
 import {
   isSelfReferentialUndoForVersion
@@ -3635,11 +3638,20 @@ export class RouteLedgerService {
 
     await this.saveProjectAggregate(snapshot);
 
+    const documentation =
+      this.projectRoot === null
+        ? undefined
+        : await inspectEntryDocumentCoverage({
+            projectRoot: this.projectRoot,
+            contentLocale: created.project.settings.contentLocale ?? "en"
+          });
+
     return {
       ...created,
       workItems: snapshot.workItems,
       todos: snapshot.todos,
-      events: snapshot.events
+      events: snapshot.events,
+      ...(documentation === undefined ? {} : { documentation })
     };
   }
 

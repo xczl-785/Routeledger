@@ -1,5 +1,8 @@
 import { expect, it, describe } from "vitest";
 
+import fs from "node:fs";
+import path from "node:path";
+
 import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry } from "../index.js";
 import { createRouteLedgerStdioServer, type JsonRpcResponse } from "../stdio-server.js";
 
@@ -65,7 +68,22 @@ describe("routeledger mcp registry", () => {
         data: {
           project: { currentVersionId: null, initialVersionId: null },
           firstVersion: null,
-          todos: []
+          todos: [],
+          documentation: {
+            status: "no_human_entry_document",
+            entryFiles: [],
+            warning: {
+              code: "NO_HUMAN_ENTRY_DOCUMENT",
+              severity: "info"
+            },
+            recommendedAction: {
+              type: "create_or_update_entry_document",
+              entryFile: "README.md",
+              requiredPointer: ".routeledger/project.json",
+              templateLocale: "zh-CN",
+              template: expect.stringContaining("权威路线数据")
+            }
+          }
         }
       });
 
@@ -82,6 +100,90 @@ describe("routeledger mcp registry", () => {
           nextAction: { actionType: "create_version" }
         }
       });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("init_project reports an existing human entry document that already points to RouteLedger", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot
+    });
+    fs.writeFileSync(
+      path.join(projectRoot, "README.md"),
+      "# Project\n\nCanonical route: `.routeledger/project.json`\n",
+      "utf8"
+    );
+
+    try {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "Documented Route",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: projectRoot
+      });
+
+      expect(initialized).toMatchObject({
+        ok: true,
+        data: {
+          documentation: {
+            status: "covered",
+            entryFiles: [
+              { path: "README.md", containsRouteLedgerPointer: true }
+            ],
+            warning: null,
+            recommendedAction: null
+          }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("init_project suggests updating an existing entry document without rewriting it", async () => {
+    const projectRoot = createTempProjectRoot();
+    const readmePath = path.join(projectRoot, "README.md");
+    const originalReadme = "# Existing project\n";
+    fs.writeFileSync(readmePath, originalReadme, "utf8");
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot
+    });
+
+    try {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "Undocumented Route",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: projectRoot
+      });
+
+      expect(initialized).toMatchObject({
+        ok: true,
+        data: {
+          documentation: {
+            status: "missing_routeledger_pointer",
+            entryFiles: [
+              { path: "README.md", containsRouteLedgerPointer: false }
+            ],
+            warning: {
+              code: "MISSING_ROUTELEDGER_POINTER",
+              severity: "info"
+            },
+            recommendedAction: {
+              entryFile: "README.md",
+              templateLocale: "en",
+              template: expect.stringContaining("Canonical route data")
+            }
+          }
+        }
+      });
+      expect(fs.readFileSync(readmePath, "utf8")).toBe(originalReadme);
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);

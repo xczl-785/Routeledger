@@ -436,6 +436,7 @@ export class JsonFirstStorageAdapter implements StoragePort {
         await replaceRouteLedgerJsonDocuments({
           outputRoot: this.dataRoot,
           documents: encodedDocuments,
+          compactAudit: jsonSource === null && this.sqliteReadModel === "disabled",
           writeLockOwnerId: writerLock.ownerId ?? undefined,
           renewLock: writerLock.renew
         });

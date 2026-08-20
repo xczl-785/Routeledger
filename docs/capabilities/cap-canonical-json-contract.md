@@ -28,11 +28,15 @@ RouteLedger project.
    locale. Missing legacy values decode as `null` and produce a non-fatal
    `PROJECT_CONTENT_LOCALE_UNRESOLVED` warning; they are never inferred or
    silently stored as `auto`.
-7. Audit compaction is explicit and backward compatible. A compacted project
-   stores immutable events and ordinary-write receipts in one hashed operation
-   envelope per operation. Readers expand envelopes back into the same logical
-   canonical documents, while malformed or digest-mismatched containers fail
-   closed. Loose legacy documents remain readable.
+7. Audit compaction is backward compatible. A newly initialized JSON-only
+   project selects the compact layout on its first aggregate write and stores
+   immutable events and ordinary-write receipts in one hashed operation
+   envelope per operation. Existing loose-audit projects remain loose until an
+   explicit `json compact-audit` migration; they are never rewritten merely
+   because a newer runtime opens or updates them. Readers expand envelopes back
+   into the same logical canonical documents, while malformed or
+   digest-mismatched containers fail closed. Loose legacy documents remain
+   readable.
 8. `json compact-audit --pack-closed-version-id <id>` may seal audit records
    related to an already closed Version into a hashed pack. Packed records are
    immutable, survive later aggregate replacement, and remain visible through

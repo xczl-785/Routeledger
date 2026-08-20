@@ -88,6 +88,7 @@ export interface ExportProjectAggregateToJsonDirectoryOptions {
 export interface ReplaceRouteLedgerJsonDocumentsOptions {
   outputRoot: string;
   documents: Iterable<RouteLedgerJsonDocument>;
+  compactAudit?: boolean;
   writeLockOwnerId?: string;
   renewLock?: () => Promise<void>;
 }
@@ -1308,6 +1309,7 @@ const applyRouteLedgerJsonReplacement = async (
 export const replaceRouteLedgerJsonDocuments = async ({
   outputRoot,
   documents,
+  compactAudit = false,
   writeLockOwnerId,
   renewLock
 }: ReplaceRouteLedgerJsonDocumentsOptions): Promise<WriteRouteLedgerJsonDocumentsResult> => {
@@ -1317,7 +1319,8 @@ export const replaceRouteLedgerJsonDocuments = async ({
     content: document.content
   }));
   validatePreparedDocumentSet(normalizedDocuments);
-  const usesCompactAuditLayout = await auditLayoutExists(getAbsoluteJsonRoot(absoluteOutputRoot));
+  const usesCompactAuditLayout =
+    compactAudit || await auditLayoutExists(getAbsoluteJsonRoot(absoluteOutputRoot));
   let physicalDocuments: AuditPhysicalDocument[] = normalizedDocuments;
   if (usesCompactAuditLayout) {
     const preservedPacks = await readAuditPacks(

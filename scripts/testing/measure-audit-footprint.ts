@@ -3,10 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { MemoryExactAuthorizationStore } from "../../packages/core/src/index.js";
-import {
-  readRouteLedgerJsonDocuments,
-  type RouteLedgerJsonDocument
-} from "../../packages/json/src/index.js";
+import { type RouteLedgerJsonDocument } from "../../packages/json/src/index.js";
 import { createRouteLedgerMcpRegistry } from "../../packages/mcp/src/index.js";
 import { resolveDefaultRouteLedgerDataDir } from "../../packages/mcp/src/workspace-config.js";
 
@@ -78,12 +75,37 @@ const requireData = <T>(
   return response.data as T;
 };
 
+const readPhysicalDocuments = (dataRoot: string): RouteLedgerJsonDocument[] => {
+  const documents: RouteLedgerJsonDocument[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      documents.push({
+        path: path.posix.join(
+          ".routeledger",
+          path.relative(dataRoot, absolutePath).replaceAll("\\", "/")
+        ),
+        content: fs.readFileSync(absolutePath, "utf8")
+      });
+    }
+  };
+
+  visit(dataRoot);
+  return documents.sort((left, right) => left.path.localeCompare(right.path));
+};
+
 const main = async (): Promise<void> => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-footprint-"));
   const registry = createRouteLedgerMcpRegistry({
     workspaceRoot: projectRoot,
     routeledgerRoot: projectRoot,
     runtimeProfile: "json-only",
+    sqliteReadModel: "disabled",
     l3Authorization: {
       exactStore: new MemoryExactAuthorizationStore(),
       interaction: {
@@ -111,7 +133,7 @@ const main = async (): Promise<void> => {
       })
     );
     const dataRoot = resolveDefaultRouteLedgerDataDir(projectRoot);
-    const capture = () => readRouteLedgerJsonDocuments(dataRoot);
+    const capture = () => readPhysicalDocuments(path.join(dataRoot, ".routeledger"));
     const measurements: Record<string, FootprintDelta> = {};
 
     let before = await capture();
@@ -180,7 +202,19 @@ const main = async (): Promise<void> => {
     after = await capture();
     measurements.commitVersionProposal = measureDelta(before, after);
 
-    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, measurements }, null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          schemaVersion: 2,
+          measurementScope: "physical_repository_files",
+          runtimeProfile: "json-only",
+          sqliteReadModel: "disabled",
+          measurements
+        },
+        null,
+        2
+      )}\n`
+    );
   } finally {
     registry.close();
     fs.rmSync(projectRoot, { recursive: true, force: true });
