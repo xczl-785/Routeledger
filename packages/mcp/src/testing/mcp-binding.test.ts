@@ -7,13 +7,34 @@ import { expect, it, describe } from "vitest";
 import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments } from "../../../json/src/index.js";
 import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry, type RouteLedgerMcpRegistryOptions, type ToolResponse } from "../index.js";
 import { createRouteLedgerStdioServer, type JsonRpcMessage } from "../stdio-server.js";
-import { resolveWorkspaceConfigSync } from "../workspace-config.js";
+import { ensureRouteLedgerGitAttributes, resolveWorkspaceConfigSync } from "../workspace-config.js";
 import { resolveRouteLedgerBinding } from "../binding.js";
 import { isPhysicalPathContainedWithinSync } from "../physical-path.js";
 import { planRouteLedgerBinding, renderHostBindingConfig, writeHostBindingConfig } from "../binding-assist.js";
 
 import { createTempProjectRoot, toForwardSlashes, getDefaultWorkspaceConfigPath, createBindingRegistry, createRegistry, createProcessCwdRegistry, createCapturedServer, cleanupProjectRoot, initializeCanonicalProjectAtRoot, initializeServer, callTool, getStructuredData, expectSingleRootsListRequest, expectRouteLedgerRootGuardError } from "./mcp-test-helpers.js";
 describe("routeledger mcp registry", () => {
+  it("preserves custom attributes while adding missing RouteLedger managed rules", () => {
+    const workspaceRoot = createTempProjectRoot();
+    const routeledgerDirectory = path.join(workspaceRoot, ".routeledger");
+    fs.mkdirSync(routeledgerDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(routeledgerDirectory, ".gitattributes"),
+      "custom/** -diff\n*.json text eol=lf\n",
+      "utf8"
+    );
+
+    try {
+      ensureRouteLedgerGitAttributes(routeledgerDirectory);
+      const content = fs.readFileSync(path.join(routeledgerDirectory, ".gitattributes"), "utf8");
+      expect(content).toContain("custom/** -diff\n");
+      expect(content.split("\n").filter((line) => line === "*.json text eol=lf")).toHaveLength(1);
+      expect(content).toContain("operations/** linguist-generated=true\n");
+    } finally {
+      cleanupProjectRoot(workspaceRoot);
+    }
+  });
+
   it("split-root synthetic acceptance keeps binding, storage paths, and write guards aligned to routeledgerRoot", async () => {
     const workspaceRoot = createTempProjectRoot();
     const routeledgerRoot = path.join(workspaceRoot, "docs");
@@ -476,7 +497,16 @@ describe("routeledger mcp registry", () => {
       );
       expect(
         fs.readFileSync(path.join(workspaceRoot, ".routeledger", ".gitattributes"), "utf8")
-      ).toBe("*.json text eol=lf\n**/*.json text eol=lf\n");
+      ).toBe(
+        "*.json text eol=lf\n" +
+          "**/*.json text eol=lf\n" +
+          "events/** linguist-generated=true\n" +
+          "ordinary_write_receipts/** linguist-generated=true\n" +
+          "approval_artifacts/** linguist-generated=true\n" +
+          "pending_operations/** linguist-generated=true\n" +
+          "operations/** linguist-generated=true\n" +
+          "audit_packs/** linguist-generated=true\n"
+      );
     } finally {
       registry.close();
       registry.restore();

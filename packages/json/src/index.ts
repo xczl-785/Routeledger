@@ -12,10 +12,16 @@ export {
   type RouteLedgerJsonDocument
 } from "./codec.js";
 export {
+  buildProjectAuditSummary,
+  type AuditDiffFile,
+  type ProjectAuditSummary
+} from "./audit-summary.js";
+export {
   RouteLedgerJsonBusyError,
   RouteLedgerJsonWriteError,
   ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS,
   acquireRouteLedgerJsonWriteLock,
+  compactRouteLedgerAudit,
   exportProjectAggregateToJsonDirectory,
   getActiveRouteLedgerJsonWriteLockInfo,
   getRouteLedgerJsonWriteLockInfo,
@@ -26,6 +32,8 @@ export {
   setRouteLedgerJsonFilesystemTestHooks,
   writeRouteLedgerJsonDocuments,
   type AcquireRouteLedgerJsonWriteLockOptions,
+  type CompactRouteLedgerAuditOptions,
+  type CompactRouteLedgerAuditResult,
   type ExportProjectAggregateToJsonDirectoryOptions,
   type RecoverRouteLedgerJsonReplacementResult,
   type ReplaceRouteLedgerJsonDocumentsOptions,

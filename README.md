@@ -84,7 +84,7 @@ codex plugin add routeledger@routeledger-team --json
 
 - Deferred：`deferred create`、`deferred from-todo`、`deferred activate`、`deferred defer-again`、`deferred resolve`
 - Constraint：`constraint record`、`constraint retire`
-- JSON：`json import`、`json export`、`json merge-check`、`json review-summary`
+- JSON：`json import`、`json export`、`json merge-check`、`json review-summary`、`json audit-summary`、`json compact-audit`
 - 上下文：`context`
 - 项目语言：初始化时使用 `init_project --content-locale <BCP47>`；旧项目使用 `set_project_content_locale --content-locale <BCP47>` 补齐
 - 路线起点：`init_project` 默认建立空路线；可用 `--first-version <JSON>` 明确初始化首个节点

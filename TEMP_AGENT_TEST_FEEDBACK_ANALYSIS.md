@@ -331,4 +331,18 @@ storage.blockingIssue = {
 - runtime identity 增加 `buildProvenance.scope=runtime_build_inputs`，保留旧 `sourceTreeState` alias。
 - workspace/data 的 `.routeledger/.gitattributes` 自动托管 JSON LF 规则。
 - 新增 `pnpm measure:audit-footprint`，完成 Todo 与 Version L3 链路的首轮基线测量。
-- 源码、测试和 `plugins/routeledger/runtime` 已同步；本分支不做 merge、commit 或 push。
+- 源码、测试和 `plugins/routeledger/runtime` 已同步；本分支不做 merge，提交与推送按用户当前指示执行。
+
+## 8. 审计体积治理实施记录（2026-08-20）
+
+本轮采用“评审降噪、按 operation 聚合、关闭 Version 封存”三层方案：
+
+1. `.routeledger/.gitattributes` 将 Event、Receipt、Approval Artifact、Pending Operation、operation envelope 和 audit pack 标记为 GitHub Linguist generated，保留文件但降低默认 diff 噪声。
+2. `json audit-summary --base-ref <ref> --head-ref <ref>` 同时输出逻辑 operation 数、命令/Event 类型、语义变化以及物理文件/行数构成，避免用原始审计文件数代替业务变化量。
+3. `json compact-audit` 显式启用 operation envelope。旧仓库不会自动迁移；迁移后一个 operation 的 Event 与 ordinary-write receipt 进入一个带 SHA-256 摘要的物理 JSON，正常读取仍返回原来的逻辑文档集合。
+4. `json compact-audit --pack-closed-version-id <id>` 仅允许已关闭 Version，把与其关联的 Event、Pending Operation、Approval Artifact 和 Receipt 封存为带摘要的不可变 audit pack。后续写入保留 pack，尝试改写已封存记录会 fail closed。
+5. envelope/pack 不改变 codec、validator 或 SQLite 的逻辑 schema；物理布局兼容集中在 JSON filesystem 边界。全局 JSONL、tracked SQLite、忽略审计目录和 Git Notes 仍不采用，因为它们会放大冲突、削弱可移植性或破坏审计可见性。
+
+临时文档删除条件不变：功能进入正式 capability、测试和发布说明后删除本文件；本节的长期行为以 `docs/capabilities/cap-canonical-json-contract.md` 为准。
+
+在 `D:\Program\testproject` 的隔离副本上实测：原始 `.routeledger` 为 131 个文件、158,665 bytes；operation envelope 后为 80 个文件、157,133 bytes；再封存两个已关闭 Version 后为 37 个文件、145,892 bytes。文件数分别下降 38.9% 和 71.8%，最终字节数下降 8.0%。全过程 130 个逻辑 canonical 文档读回逐字一致，原测试工程保持 clean。该数据仅用于本临时分支验收，不是长期产品预算。

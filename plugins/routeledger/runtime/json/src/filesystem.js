@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ROUTELEDGER_JSON_ROOT } from "./constants.js";
-import { encodeProjectAggregateToJsonDocuments } from "./codec.js";
+import { decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments } from "./codec.js";
 import { validateRouteLedgerJsonDocuments } from "./validator.js";
+import { auditLayoutExists, auditPackDocumentPath, buildAuditPhysicalDocuments, createClosedVersionAuditPack, readAuditPacks, readOperationEnvelopeDocuments } from "./audit-storage.js";
 export class RouteLedgerJsonWriteError extends Error {
     code;
     details;
@@ -55,7 +56,10 @@ const ROUTELEDGER_CANONICAL_TOP_LEVEL_ENTRIES = [
     "events",
     "pending_operations",
     "approval_artifacts",
-    "ordinary_write_receipts"
+    "ordinary_write_receipts",
+    "audit",
+    "operations",
+    "audit_packs"
 ];
 const REPLACEMENT_DIRECTORY_NAME = ".canonical-replace";
 const REPLACEMENT_MANIFEST_FILENAME = "manifest.json";
@@ -154,7 +158,19 @@ const readCanonicalDocumentsFromJsonRoot = async (absoluteJsonRoot) => {
         return documents;
     };
     try {
-        const documents = await visit(absoluteJsonRoot, "");
+        const packs = await readAuditPacks(absoluteJsonRoot, (message, details) => new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", message, details));
+        const documents = [
+            ...(await visit(absoluteJsonRoot, "")),
+            ...(await readOperationEnvelopeDocuments(absoluteJsonRoot, (message, details) => new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", message, details))),
+            ...packs.flatMap((pack) => pack.logicalDocuments)
+        ];
+        const paths = new Set();
+        for (const document of documents) {
+            if (paths.has(document.path)) {
+                throw new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", `audit container duplicates logical document path: ${document.path}`, { path: document.path });
+            }
+            paths.add(document.path);
+        }
         return documents.sort((left, right) => compareByString(left.path, right.path));
     }
     catch (error) {
@@ -463,10 +479,10 @@ const tryReadValidCanonicalDocuments = async (outputRoot) => {
         throw error;
     }
 };
-const stageReplacementDocumentSet = async (outputRoot, documents) => {
+const stageReplacementDocumentSet = async (outputRoot, physicalDocuments, expectedLogicalDocuments) => {
     const nextRoot = getReplacementNextRoot(outputRoot);
     await fs.rm(nextRoot, { recursive: true, force: true });
-    for (const document of documents) {
+    for (const document of physicalDocuments) {
         const replacementRelativePath = toReplacementRelativePath(document.path);
         const absolutePath = path.join(nextRoot, ...replacementRelativePath.split("/"));
         await fs.mkdir(path.dirname(absolutePath), { recursive: true });
@@ -474,9 +490,9 @@ const stageReplacementDocumentSet = async (outputRoot, documents) => {
     }
     const stagedDocuments = await readCanonicalDocumentsFromJsonRoot(nextRoot);
     validatePreparedDocumentSet(stagedDocuments);
-    if (stagedDocuments.length !== documents.length) {
+    if (stagedDocuments.length !== expectedLogicalDocuments.length) {
         throw new RouteLedgerJsonWriteError("DOCUMENT_SET_INVALID", "staged canonical JSON document set is incomplete", {
-            expectedDocumentCount: documents.length,
+            expectedDocumentCount: expectedLogicalDocuments.length,
             stagedDocumentCount: stagedDocuments.length
         });
     }
@@ -785,13 +801,7 @@ export const writeRouteLedgerJsonDocuments = async ({ outputRoot, documents, ove
         paths: preparedDocuments.map((document) => document.relativePath)
     };
 };
-export const replaceRouteLedgerJsonDocuments = async ({ outputRoot, documents, writeLockOwnerId, renewLock }) => {
-    const absoluteOutputRoot = path.resolve(outputRoot);
-    const normalizedDocuments = [...documents].map((document) => ({
-        path: normalizeDocumentPath(document.path),
-        content: document.content
-    }));
-    validatePreparedDocumentSet(normalizedDocuments);
+const applyRouteLedgerJsonReplacement = async (absoluteOutputRoot, normalizedDocuments, physicalDocuments, writeLockOwnerId, renewLock) => {
     await recoverRouteLedgerJsonReplacement(absoluteOutputRoot, {
         writeLockOwnerId
     });
@@ -806,7 +816,7 @@ export const replaceRouteLedgerJsonDocuments = async ({ outputRoot, documents, w
         paths: normalizedDocuments.map((document) => document.path)
     };
     await writeReplacementManifest(absoluteOutputRoot, manifestBase);
-    await stageReplacementDocumentSet(absoluteOutputRoot, normalizedDocuments);
+    await stageReplacementDocumentSet(absoluteOutputRoot, physicalDocuments, normalizedDocuments);
     await renewLock?.();
     await moveExistingCanonicalEntriesToBackup(absoluteOutputRoot);
     await writeReplacementManifest(absoluteOutputRoot, {
@@ -828,6 +838,57 @@ export const replaceRouteLedgerJsonDocuments = async ({ outputRoot, documents, w
         jsonRoot: path.join(absoluteOutputRoot, ROUTELEDGER_JSON_ROOT),
         documentCount: normalizedDocuments.length,
         paths: normalizedDocuments.map((document) => document.path)
+    };
+};
+export const replaceRouteLedgerJsonDocuments = async ({ outputRoot, documents, writeLockOwnerId, renewLock }) => {
+    const absoluteOutputRoot = path.resolve(outputRoot);
+    const normalizedDocuments = [...documents].map((document) => ({
+        path: normalizeDocumentPath(document.path),
+        content: document.content
+    }));
+    validatePreparedDocumentSet(normalizedDocuments);
+    const usesCompactAuditLayout = await auditLayoutExists(getAbsoluteJsonRoot(absoluteOutputRoot));
+    let physicalDocuments = normalizedDocuments;
+    if (usesCompactAuditLayout) {
+        const preservedPacks = await readAuditPacks(getAbsoluteJsonRoot(absoluteOutputRoot), (message, details) => new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", message, details));
+        try {
+            physicalDocuments = buildAuditPhysicalDocuments(normalizedDocuments, preservedPacks).documents;
+        }
+        catch (error) {
+            throw new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", error instanceof Error ? error.message : "packed audit document is immutable", {});
+        }
+    }
+    return applyRouteLedgerJsonReplacement(absoluteOutputRoot, normalizedDocuments, physicalDocuments, writeLockOwnerId, renewLock);
+};
+export const compactRouteLedgerAudit = async ({ outputRoot, writeLockOwnerId, packClosedVersionId }) => {
+    const absoluteOutputRoot = path.resolve(outputRoot);
+    const logicalDocuments = await readRouteLedgerJsonDocuments(absoluteOutputRoot, {
+        writeLockOwnerId
+    });
+    validatePreparedDocumentSet(logicalDocuments);
+    const existingPacks = await readAuditPacks(getAbsoluteJsonRoot(absoluteOutputRoot), (message, details) => new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", message, details));
+    const packs = [...existingPacks];
+    if (packClosedVersionId !== undefined) {
+        if (existingPacks.some((pack) => pack.physicalDocument.path === auditPackDocumentPath(packClosedVersionId))) {
+            throw new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", `audit pack already exists for Version ${packClosedVersionId}`, { versionId: packClosedVersionId });
+        }
+        const snapshot = decodeProjectAggregateFromJsonDocuments(logicalDocuments);
+        const version = snapshot.versions.find((candidate) => candidate.id === packClosedVersionId);
+        if (version === undefined || version.state !== "close" || version.closedAt === null) {
+            throw new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", `Version must be closed before its audit records can be packed: ${packClosedVersionId}`, { versionId: packClosedVersionId });
+        }
+        const alreadyPackedPaths = new Set(existingPacks.flatMap((pack) => pack.logicalDocuments.map((document) => document.path)));
+        packs.push(createClosedVersionAuditPack(logicalDocuments.filter((document) => !alreadyPackedPaths.has(document.path)), packClosedVersionId, version.closedAt));
+    }
+    const physical = buildAuditPhysicalDocuments(logicalDocuments, packs);
+    await applyRouteLedgerJsonReplacement(absoluteOutputRoot, logicalDocuments, physical.documents, writeLockOwnerId);
+    return {
+        outputRoot: absoluteOutputRoot,
+        logicalDocumentCount: logicalDocuments.length,
+        physicalDocumentCount: physical.documents.length,
+        operationEnvelopeCount: physical.operationEnvelopeCount,
+        auditPackCount: packs.length,
+        packedDocumentCount: packs.reduce((count, pack) => count + pack.logicalDocuments.length, 0)
     };
 };
 export const exportProjectAggregateToJsonDirectory = async ({ outputRoot, snapshot, overwrite = false }) => writeRouteLedgerJsonDocuments({

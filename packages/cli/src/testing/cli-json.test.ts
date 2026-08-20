@@ -869,6 +869,26 @@ describe("routeledger cli", () => {
           expect.stringContaining("Legacy compatibility")
         ])
       );
+
+      const auditSummaryResult = await runCliJsonWithFirstVersion(projectRoot, [
+        "json",
+        "audit-summary",
+        "--base-ref",
+        "HEAD~1",
+        "--head-ref",
+        "HEAD"
+      ]);
+      expect(auditSummaryResult.exitCode).toBe(0);
+      expect(auditSummaryResult.stdoutJson.data.overview).toMatchObject({
+        baseRef: "HEAD~1",
+        headRef: "HEAD",
+        projectId
+      });
+      expect(auditSummaryResult.stdoutJson.data.overview.logicalOperationCount).toBeGreaterThan(0);
+      expect(auditSummaryResult.stdoutJson.data.operations.byCommand.create_todo).toBe(1);
+      expect(auditSummaryResult.stdoutJson.data.physical.changedFileCount).toBeGreaterThan(0);
+      expect(auditSummaryResult.stdoutJson.data.physical.byArea.events).toBeGreaterThan(0);
+      expect(auditSummaryResult.stdoutJson.data.semantic.todos.createdCount).toBe(1);
     } finally {
       cleanupProjectRoot(projectRoot);
     }
