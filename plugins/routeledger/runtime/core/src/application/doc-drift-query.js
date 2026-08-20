@@ -2,6 +2,82 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DomainError } from "../domain/errors.js";
 import { validateAssetPath } from "../services/asset-service.js";
+const HUMAN_ENTRY_DOCUMENT_CANDIDATES = [
+    "README.md",
+    "README.zh-CN.md",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "docs/index.md"
+];
+const ROUTELEDGER_PROJECT_POINTER = ".routeledger/project.json";
+const entryDocumentTemplate = (locale) => locale === "zh-CN"
+    ? [
+        "## 项目路线",
+        "",
+        "本项目使用 RouteLedger 管理 Version 与工作项。",
+        "",
+        "- 权威路线数据：`.routeledger/project.json`",
+        "- 当前 Version：通过 RouteLedger Mission Control 或 RouteLedger MCP 工具查看。"
+    ].join("\n")
+    : [
+        "## Project route",
+        "",
+        "This project uses RouteLedger for Version and work tracking.",
+        "",
+        "- Canonical route data: `.routeledger/project.json`",
+        "- Current Version: use RouteLedger Mission Control or the RouteLedger MCP tools."
+    ].join("\n");
+export const inspectEntryDocumentCoverage = async (options) => {
+    const entryFiles = [];
+    for (const candidate of HUMAN_ENTRY_DOCUMENT_CANDIDATES) {
+        try {
+            const content = await fs.readFile(path.join(options.projectRoot, candidate), "utf8");
+            entryFiles.push({
+                path: candidate,
+                containsRouteLedgerPointer: content.includes(ROUTELEDGER_PROJECT_POINTER)
+            });
+        }
+        catch (error) {
+            if (error.code !== "ENOENT") {
+                continue;
+            }
+        }
+    }
+    if (entryFiles.some((entry) => entry.containsRouteLedgerPointer)) {
+        return {
+            status: "covered",
+            entryFiles,
+            warning: null,
+            recommendedAction: null
+        };
+    }
+    const templateLocale = options.contentLocale.toLowerCase().startsWith("zh")
+        ? "zh-CN"
+        : "en";
+    const hasEntryDocument = entryFiles.length > 0;
+    return {
+        status: hasEntryDocument
+            ? "missing_routeledger_pointer"
+            : "no_human_entry_document",
+        entryFiles,
+        warning: {
+            code: hasEntryDocument
+                ? "MISSING_ROUTELEDGER_POINTER"
+                : "NO_HUMAN_ENTRY_DOCUMENT",
+            severity: "info",
+            summary: hasEntryDocument
+                ? "Human entry documents exist but do not point to .routeledger/project.json."
+                : "No common human entry document was found in the workspace."
+        },
+        recommendedAction: {
+            type: "create_or_update_entry_document",
+            entryFile: entryFiles[0]?.path ?? "README.md",
+            requiredPointer: ROUTELEDGER_PROJECT_POINTER,
+            templateLocale,
+            template: entryDocumentTemplate(templateLocale)
+        }
+    };
+};
 const CURRENT_VERSION_ASSERTION_KINDS = [
     "current_version_id",
     "current_version_title",

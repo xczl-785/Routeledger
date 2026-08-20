@@ -273,7 +273,16 @@ export type CurrentContextNextActionType =
   | "advance_to_version"
   | "start_version"
   | "review_context"
+  | "decision_required"
   | "none";
+
+export interface CurrentContextNextActionChoice {
+  actionType: "create_todo" | "mark_version_complete";
+  when: string;
+  recommendedTool: "create_todo" | "mark_version_complete";
+  toolInput: Record<string, unknown>;
+  requiredInputs: string[];
+}
 
 export interface CurrentContextNextAction {
   actionType: CurrentContextNextActionType;
@@ -285,4 +294,5 @@ export interface CurrentContextNextAction {
   requiresL3Approval: boolean;
   recordIds: string[];
   blockingRiskCodes: string[];
+  choices?: CurrentContextNextActionChoice[];
 }

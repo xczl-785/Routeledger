@@ -130,7 +130,8 @@ const nextActionOutputSchema = objectSchema(
     targetId: nullableStringOutputSchema,
     requiresL3Approval: { type: "boolean" },
     recordIds: stringArrayOutputSchema,
-    blockingRiskCodes: stringArrayOutputSchema
+    blockingRiskCodes: stringArrayOutputSchema,
+    choices: flexibleObjectArrayOutputSchema
   },
   [
     "actionType",

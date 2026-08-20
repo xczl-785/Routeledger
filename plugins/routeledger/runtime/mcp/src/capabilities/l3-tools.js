@@ -386,7 +386,7 @@ const createL3DecisionAdapter = (dependencies, proposal) => {
         })
     });
 };
-const executeExistingL3Proposal = async (dependencies, proposal, idempotencyKey) => {
+const executeExistingL3Proposal = async (dependencies, proposal, idempotencyKey, debugToolName = "execute_l3_operation") => {
     const { service, actor, appendDebugLog } = dependencies;
     if (proposal.status === "committed" && proposal.approvalArtifactId !== null) {
         const committed = await service.commitL3Operation({
@@ -447,7 +447,7 @@ const executeExistingL3Proposal = async (dependencies, proposal, idempotencyKey)
         }
     });
     if (result.status === "committed") {
-        await appendDebugLog("execute_l3_operation", {
+        await appendDebugLog(debugToolName, {
             type: "l3.commit",
             projectId: proposal.projectId,
             versionId: proposal.targetId,
@@ -476,6 +476,28 @@ const executeExistingL3Proposal = async (dependencies, proposal, idempotencyKey)
 export const createL3OperationTools = (dependencies) => {
     const { service, actor, hostProfile, initialBinding, options, digestRouteLedgerRoot, appendDebugLog } = dependencies;
     const executionRequests = new Map();
+    const admittedProposalExecutions = new Map();
+    const assertExecutionControlPlaneAvailable = () => {
+        if (options.l3Authorization === undefined) {
+            throw new ApplicationError("AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE", "This MCP connection has no trusted L3 authorization control plane");
+        }
+        if (options.l3Authorization.profile?.status === "disabled") {
+            throw new ApplicationError("AUTHORIZATION_PROFILE_DISABLED", "The bound L3 authorization profile is disabled", {
+                profileId: options.l3Authorization.profile.profileId,
+                modeEpoch: options.l3Authorization.profile.modeEpoch
+            });
+        }
+        if (hostProfile === "codex" &&
+            options.hostPermissionContext?.status === "resolved" &&
+            options.l3Authorization.profile !== undefined &&
+            options.l3Authorization.profile.mode !== options.hostPermissionContext.mode) {
+            throw new ApplicationError("AUTHORIZATION_PROFILE_DISABLED", "The bound RouteLedger authorization profile does not match the effective Codex permission mode", {
+                reason: "CODEX_ROUTELEDGER_MODE_MISMATCH",
+                effectiveMode: options.hostPermissionContext.mode,
+                configuredMode: options.l3Authorization.profile.mode
+            });
+        }
+    };
     return [
         defineTool("propose_l3_operation", {
             what: "Create a pending L3 proposal.",
@@ -515,25 +537,7 @@ export const createL3OperationTools = (dependencies) => {
             idempotent: true,
             recommendedApprovalMode: "approve"
         }, async (input) => {
-            if (options.l3Authorization === undefined) {
-                throw new ApplicationError("AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE", "This MCP connection has no trusted L3 authorization control plane");
-            }
-            if (options.l3Authorization.profile?.status === "disabled") {
-                throw new ApplicationError("AUTHORIZATION_PROFILE_DISABLED", "The bound L3 authorization profile is disabled", {
-                    profileId: options.l3Authorization.profile.profileId,
-                    modeEpoch: options.l3Authorization.profile.modeEpoch
-                });
-            }
-            if (hostProfile === "codex" &&
-                options.hostPermissionContext?.status === "resolved" &&
-                options.l3Authorization.profile !== undefined &&
-                options.l3Authorization.profile.mode !== options.hostPermissionContext.mode) {
-                throw new ApplicationError("AUTHORIZATION_PROFILE_DISABLED", "The bound RouteLedger authorization profile does not match the effective Codex permission mode", {
-                    reason: "CODEX_ROUTELEDGER_MODE_MISMATCH",
-                    effectiveMode: options.hostPermissionContext.mode,
-                    configuredMode: options.l3Authorization.profile.mode
-                });
-            }
+            assertExecutionControlPlaneAvailable();
             if (input.idempotencyKey.trim().length === 0) {
                 throw new InvalidToolInputError("idempotencyKey must be non-empty", {
                     toolName: "execute_l3_operation",
@@ -606,6 +610,48 @@ export const createL3OperationTools = (dependencies) => {
             finally {
                 if (entry.inFlight === inFlight)
                     delete entry.inFlight;
+            }
+        }),
+        defineTool("execute_admitted_proposal", {
+            what: "Execute one existing exact L3 proposal end to end after host admission.",
+            parameter: "pendingOperationId",
+            warning: "reloads and revalidates the persisted proposal before authorization"
+        }, objectSchema({
+            projectId: stringSchema("RouteLedger project ID."),
+            pendingOperationId: stringSchema("Persisted pending operation ID."),
+            expectedOperationDigest: stringSchema("Optional exact proposal digest returned by the proposal call.")
+        }, ["projectId", "pendingOperationId"]), {
+            title: "Execute Admitted Proposal",
+            riskLevel: "high-risk",
+            destructive: true,
+            idempotent: true,
+            recommendedApprovalMode: "approve"
+        }, async (input) => {
+            const proposal = await service.getL3Proposal(input.projectId, input.pendingOperationId);
+            if (input.expectedOperationDigest !== undefined &&
+                input.expectedOperationDigest !== proposal.digest.value) {
+                throw new InvalidToolInputError("expectedOperationDigest does not match the persisted proposal", {
+                    toolName: "execute_admitted_proposal",
+                    path: "$.expectedOperationDigest",
+                    reason: "EXPECTED_OPERATION_DIGEST_MISMATCH",
+                    pendingOperationId: proposal.id
+                });
+            }
+            if (proposal.status === "pending")
+                assertExecutionControlPlaneAvailable();
+            const executionKey = `${proposal.projectId}:${proposal.id}`;
+            let inFlight = admittedProposalExecutions.get(executionKey);
+            if (inFlight === undefined) {
+                inFlight = executeExistingL3Proposal(dependencies, proposal, proposal.id, "execute_admitted_proposal");
+                admittedProposalExecutions.set(executionKey, inFlight);
+            }
+            try {
+                return await inFlight;
+            }
+            finally {
+                if (admittedProposalExecutions.get(executionKey) === inFlight) {
+                    admittedProposalExecutions.delete(executionKey);
+                }
             }
         }),
         defineTool("approve_l3_operation", {

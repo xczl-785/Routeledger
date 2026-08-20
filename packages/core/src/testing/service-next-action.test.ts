@@ -377,6 +377,72 @@ describe("route ledger service", () => {
     });
   });
 
+  it("running current version without open work returns a localized decision branch", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const currentVersion = createVersionFixture({
+      id: "version-running-empty",
+      title: "V1.0",
+      state: "running",
+      isCurrent: true,
+      order: 1
+    });
+    const project = createProjectFixture({
+      id: "project-1",
+      currentVersionId: currentVersion.id
+    });
+    project.settings.contentLocale = "zh-CN";
+
+    await storage.saveProjectAggregate({
+      project,
+      versions: [currentVersion],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+
+    const nextAction = await service.getNextAction({ projectId: "project-1" });
+
+    expect(nextAction.data).toMatchObject({
+      nextAction: {
+        actionType: "decision_required",
+        summary: "当前 Version 正在运行，但没有开放工作项。",
+        targetId: currentVersion.id,
+        requiresL3Approval: false,
+        recordIds: [currentVersion.id],
+        choices: [
+          {
+            actionType: "create_todo",
+            recommendedTool: "create_todo",
+            toolInput: {
+              projectId: "project-1",
+              versionId: currentVersion.id
+            },
+            requiredInputs: ["title", "idempotencyKey"]
+          },
+          {
+            actionType: "mark_version_complete",
+            recommendedTool: "mark_version_complete",
+            toolInput: {
+              projectId: "project-1",
+              versionId: currentVersion.id
+            },
+            requiredInputs: []
+          }
+        ]
+      }
+    });
+  });
+
   it("closed current version does not expose a pre-close gate", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({

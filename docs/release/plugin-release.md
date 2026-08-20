@@ -64,7 +64,7 @@ For each future release, create that tag on the final release commit in
 pnpm check:codex-plugin-release --require-tag-ref
 ```
 
-The latest published plugin release is `routeledger-plugin-v0.10.1`;
+The latest published plugin release is `routeledger-plugin-v0.10.2`;
 `codex-marketplace` remains the historical 0.3.3 branch anchor. `main` is the
 release branch: merge each verified distribution to `main`, create the
 immutable version tag on that commit, and never reuse or move an existing tag.

@@ -275,7 +275,7 @@ const buildStatusRisks = (options) => {
     return risks;
 };
 const buildNextAction = (options) => {
-    const { projectId, currentVersion, nextVersion, currentVersionOpenTodos, currentVersionOpenUndos, pendingProposals, statusRisks, runningVersionPointerDrift, startGate, closeGate } = options;
+    const { projectId, contentLocale, currentVersion, nextVersion, currentVersionOpenTodos, currentVersionOpenUndos, pendingProposals, statusRisks, runningVersionPointerDrift, startGate, closeGate } = options;
     const blockingRiskCodes = buildBlockingRiskCodes(statusRisks);
     if (pendingProposals.length > 0) {
         const proposal = pendingProposals[0];
@@ -326,6 +326,46 @@ const buildNextAction = (options) => {
             requiresL3Approval: false,
             recordIds: currentVersionOpenTodos.map((item) => item.id),
             blockingRiskCodes
+        };
+    }
+    if (currentVersion?.state === "running" &&
+        currentVersionOpenTodos.length === 0 &&
+        blockingRiskCodes.length === 0) {
+        const usesChinese = contentLocale?.toLowerCase().startsWith("zh") === true;
+        return {
+            actionType: "decision_required",
+            summary: usesChinese
+                ? "当前 Version 正在运行，但没有开放工作项。"
+                : "The current Version is running but has no open work.",
+            reason: usesChinese
+                ? "请判断当前阶段是否仍有工作需要记录，或实现是否确已完成。"
+                : "Decide whether more work must be recorded or implementation is actually complete.",
+            targetId: currentVersion.id,
+            requiresL3Approval: false,
+            recordIds: [currentVersion.id],
+            blockingRiskCodes,
+            choices: [
+                {
+                    actionType: "create_todo",
+                    when: usesChinese ? "当前阶段仍有实现工作。" : "Implementation work remains.",
+                    recommendedTool: "create_todo",
+                    toolInput: {
+                        projectId,
+                        versionId: currentVersion.id
+                    },
+                    requiredInputs: ["title", "idempotencyKey"]
+                },
+                {
+                    actionType: "mark_version_complete",
+                    when: usesChinese ? "当前阶段实现确已完成。" : "Implementation is actually complete.",
+                    recommendedTool: "mark_version_complete",
+                    toolInput: {
+                        projectId,
+                        versionId: currentVersion.id
+                    },
+                    requiredInputs: []
+                }
+            ]
         };
     }
     if (currentVersion?.state === "complete" && currentVersionOpenTodos.length > 0) {
@@ -701,6 +741,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
     });
     const nextAction = buildNextAction({
         projectId: snapshot.project.id,
+        contentLocale: snapshot.project.settings.contentLocale,
         currentVersion,
         nextVersion,
         currentVersionOpenTodos,

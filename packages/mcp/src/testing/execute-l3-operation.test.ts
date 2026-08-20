@@ -14,6 +14,108 @@ import {
 } from "./mcp-test-helpers.js";
 
 describe("execute_route_change operation=execute_l3_operation", () => {
+  it("executes a persisted lifecycle proposal after a registry restart using only its pending ID", async () => {
+    const projectRoot = createTempProjectRoot();
+    const codexAdmission = {
+      hostProfile: "codex",
+      hostPermissionContext: {
+        status: "unavailable" as const,
+        code: "CODEX_PERMISSION_CONTEXT_UNAVAILABLE",
+        codexPermissionProfile: null,
+        reason: "Codex admits the high-risk execution call"
+      }
+    };
+    let registry = createRegistry(projectRoot, codexAdmission);
+
+    try {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "Persisted admitted proposal",
+        contentLocale: "en",
+        firstVersion: null,
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const projectId = (initialized.data as { project: { id: string } }).project.id;
+      const proposed = await registry.invoke("propose_version_structure_change", {
+        operation: "propose_version_creation",
+        projectId,
+        title: "First delivery",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      const proposal = proposed.data as {
+        pendingOperationId: string;
+        proposal: { digest: { value: string } };
+        recommendedNextActions: Array<Record<string, unknown>>;
+      };
+      const operationDigest = proposal.proposal.digest.value;
+
+      expect(proposal.recommendedNextActions[0]).toMatchObject({
+        action: "execute_if_admitted",
+        tool: "execute_route_change",
+        input: {
+          operation: "execute_admitted_proposal",
+          projectId,
+          pendingOperationId: proposal.pendingOperationId,
+          expectedOperationDigest: operationDigest
+        }
+      });
+
+      const mismatchedDigest = await registry.invoke("execute_route_change", {
+        operation: "execute_admitted_proposal",
+        projectId,
+        pendingOperationId: proposal.pendingOperationId,
+        expectedOperationDigest: "stale-digest",
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(mismatchedDigest).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_TOOL_INPUT",
+          details: { reason: "EXPECTED_OPERATION_DIGEST_MISMATCH" }
+        }
+      });
+
+      registry.close();
+      registry = createRegistry(projectRoot, codexAdmission);
+      const committed = await registry.invoke("execute_route_change", {
+        operation: "execute_admitted_proposal",
+        projectId,
+        pendingOperationId: proposal.pendingOperationId,
+        expectedOperationDigest: operationDigest,
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(committed).toMatchObject({
+        ok: true,
+        data: {
+          status: "committed",
+          proposalId: proposal.pendingOperationId,
+          commit: {
+            replayed: false,
+            pendingOperation: { status: "committed", actionType: "create_version" }
+          }
+        }
+      });
+
+      const replay = await registry.invoke("execute_route_change", {
+        operation: "execute_admitted_proposal",
+        projectId,
+        pendingOperationId: proposal.pendingOperationId,
+        expectedRouteLedgerRoot: projectRoot
+      });
+      expect(replay).toMatchObject({
+        ok: true,
+        data: {
+          status: "committed",
+          proposalId: proposal.pendingOperationId,
+          commit: { replayed: true }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("completes one automatic external call and replays the exact idempotent request", async () => {
     const projectRoot = createTempProjectRoot();
     let delegatedCalls = 0;
@@ -210,6 +312,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
       expect(operations).toEqual([
         "force_shutdown",
         "execute_l3_operation",
+        "execute_admitted_proposal",
         "approve_l3_operation",
         "commit_l3_operation",
         "reject_l3_operation"
@@ -217,6 +320,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
       for (const removedName of [
         "propose_l3_operation",
         "execute_l3_operation",
+        "execute_admitted_proposal",
         "approve_l3_operation",
         "reject_l3_operation",
         "commit_l3_operation"

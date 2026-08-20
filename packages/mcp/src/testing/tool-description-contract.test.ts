@@ -78,7 +78,7 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   propose_version_structure_change: "fe496e73d3f4c44299325ad47f264dd8c77e3f06d1285cd63cd30dbafd52ddbb",
   propose_l3_route_change: "f0282666db2aa87b05f6f1b4c396fac24375b4f1e4dc5096af4318516980160c",
   set_version_state: "010290bc44f5f1071bef65b76ccf4c42ad3f8aaa29d426d3ac1e4a0f72c80ce0",
-  execute_route_change: "c6a766809184bec923851b59b0e5d419c0fecf8ae90cf6390cd268dd63122b1d",
+  execute_route_change: "f3cb6e695c0229a7bfbee2ba4658d5fff70311b0c49c958eaa8b9ff3f6bbea8f",
   manage_mission_control: "5cb46a058edec62a79aff7ac5273c15b37468714b9a2b158ad8b543dd3e8ee69"
 } as const;
 

@@ -840,14 +840,14 @@ const applyRouteLedgerJsonReplacement = async (absoluteOutputRoot, normalizedDoc
         paths: normalizedDocuments.map((document) => document.path)
     };
 };
-export const replaceRouteLedgerJsonDocuments = async ({ outputRoot, documents, writeLockOwnerId, renewLock }) => {
+export const replaceRouteLedgerJsonDocuments = async ({ outputRoot, documents, compactAudit = false, writeLockOwnerId, renewLock }) => {
     const absoluteOutputRoot = path.resolve(outputRoot);
     const normalizedDocuments = [...documents].map((document) => ({
         path: normalizeDocumentPath(document.path),
         content: document.content
     }));
     validatePreparedDocumentSet(normalizedDocuments);
-    const usesCompactAuditLayout = await auditLayoutExists(getAbsoluteJsonRoot(absoluteOutputRoot));
+    const usesCompactAuditLayout = compactAudit || await auditLayoutExists(getAbsoluteJsonRoot(absoluteOutputRoot));
     let physicalDocuments = normalizedDocuments;
     if (usesCompactAuditLayout) {
         const preservedPacks = await readAuditPacks(getAbsoluteJsonRoot(absoluteOutputRoot), (message, details) => new RouteLedgerJsonWriteError("AUDIT_CONTAINER_INVALID", message, details));

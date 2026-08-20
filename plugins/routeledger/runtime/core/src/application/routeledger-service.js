@@ -12,7 +12,7 @@ import { closeTodo as closeTodoDomain, createTodo as createTodoDomain } from "..
 import { deferWork as deferWorkWorkflow, recordConstraint as recordConstraintWorkflow, retireRecordedConstraint, reviewDeferred as reviewDeferredWorkflow } from "../services/workflow-service.js";
 import { ApplicationError } from "./errors.js";
 import { buildCurrentContextResult, buildDerivedCurrentContextData, buildNextActionResult, buildVersionsWindowResult } from "./current-context-query.js";
-import { runDocDriftCheck } from "./doc-drift-query.js";
+import { inspectEntryDocumentCoverage, runDocDriftCheck } from "./doc-drift-query.js";
 import { isSelfReferentialUndoForVersion } from "./version-closeout-query.js";
 import { planVersionCloseoutApplication, summarizeVersionCloseoutApplication } from "./version-closeout-application.js";
 import { buildBalancedL3AuthorizationPolicy } from "./l3-authorization.js";
@@ -2050,11 +2050,18 @@ export class RouteLedgerService {
             }
         }
         await this.saveProjectAggregate(snapshot);
+        const documentation = this.projectRoot === null
+            ? undefined
+            : await inspectEntryDocumentCoverage({
+                projectRoot: this.projectRoot,
+                contentLocale: created.project.settings.contentLocale ?? "en"
+            });
         return {
             ...created,
             workItems: snapshot.workItems,
             todos: snapshot.todos,
-            events: snapshot.events
+            events: snapshot.events,
+            ...(documentation === undefined ? {} : { documentation })
         };
     }
     async setProjectContentLocale(input) {

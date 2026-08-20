@@ -34,12 +34,22 @@ rules.
    only when the same consumed artifact still matches the operation ID,
    action, target, and digest exactly; it returns `replayed: true` without
    creating canonical events. Every mismatch fails closed.
+   A persisted lifecycle or structure proposal can be resumed through
+   `execute_route_change(operation="execute_admitted_proposal")`. The public
+   input needs the project and pending-operation IDs, with the returned digest
+   accepted as an optional stale-client assertion. RouteLedger reloads the
+   canonical proposal and, only after host admission, internally authorizes and
+   commits it. This reduces the normal admitted lifecycle path to proposal plus
+   execution while preserving the explicit approve/reject/commit operations.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
 7. `inspect_route_progress(operation="next_action")` follows the version lifecycle: a current `wait` version
    recommends `set_version_state(operation="prepare")`, while a current `ready` version with a passing
    start gate recommends `start_version`. Gate blockers, due Deferred work,
    pending proposals, shutdown state, and pointer drift retain higher priority.
+   A running current Version with no open Todo and no blocking risk returns a
+   localized `decision_required` branch: create a Todo when work remains, or
+   mark the Version complete only when implementation is actually complete.
 8. Ordinary version close requires explicit residual-audit evidence. New MCP
    callers use `{ status: "reviewed", items: [] }` to declare a reviewed-empty
    audit; a legacy non-empty item array remains readable, while omitted,
@@ -69,6 +79,11 @@ rules.
     Omitting `firstVersion` creates a valid empty route with nullable current
     and legacy-initial pointers. An explicit `firstVersion` creates the first
     current `wait` node and its `initialTodos` in the same aggregate write.
+    Initialization also performs a read-only check for common human entry
+    documents. It reports whether one points to `.routeledger/project.json`
+    and returns a locale-matched, non-blocking template when coverage is
+    missing; it never creates or rewrites README, AGENTS, CONTRIBUTING, or
+    `docs/index.md` automatically.
 14. On an empty route, the first approved `propose_version_structure_change(operation="propose_version_creation")` commit creates the
     node and assigns it as current atomically. Batch creation requires an
     explicit `setCurrentTo`. A closed top-level tail may receive an append-only

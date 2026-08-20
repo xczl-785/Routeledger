@@ -66,6 +66,8 @@ tombstone.
 
 - The 0.7.2 Codex explicit `propose -> approve -> commit` flow remains a golden behavior.
 - The 0.7.2 Codex one-call `execute_l3_operation` flow remains a golden behavior.
+- A dedicated lifecycle proposal can resume after process reconstruction through
+  `execute_admitted_proposal(pendingOperationId)` without weakening exact authorization.
 - Exact digest binding, single consumption, commit claim, live validation, atomic save, finalize,
   replay, rejection, expiry, stale-proposal handling, and audit remain mandatory.
 - The v2 generic input schema in `exact-authorization-contract.ts` is the target oracle: it has no

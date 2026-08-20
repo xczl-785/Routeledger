@@ -42,7 +42,12 @@ describe("version tool registrations", () => {
   });
 
   it("delegates one workflow and one mutation handler with the registry actor", async () => {
-    const transitionVersion = vi.fn().mockResolvedValue({ status: "ready" });
+    const transitionVersion = vi.fn().mockResolvedValue({
+      status: "confirmation_required",
+      projectId: "project",
+      pendingOperationId: "proposal",
+      digest: "proposal-digest"
+    });
     const prepareVersion = vi.fn().mockResolvedValue({ state: "ready" });
     const dependencies = {
       service: { transitionVersion, prepareVersion } as never,
@@ -52,7 +57,7 @@ describe("version tool registrations", () => {
     const workflowTools = createVersionWorkflowTools(dependencies);
     const mutationTools = createVersionMutationTools(dependencies);
 
-    await workflowTools
+    const transition = await workflowTools
       .find(
         (tool) => tool.definition.name === "preview_or_propose_version_transition"
       )!
@@ -67,6 +72,25 @@ describe("version tool registrations", () => {
       mode: "dry_run",
       reason: undefined,
       actor
+    });
+    expect(transition).toMatchObject({
+      ok: true,
+      data: {
+        recommendedNextActions: [
+          {
+            action: "execute_if_admitted",
+            tool: "execute_route_change",
+            input: {
+              operation: "execute_admitted_proposal",
+              projectId: "project",
+              pendingOperationId: "proposal",
+              expectedOperationDigest: "proposal-digest"
+            }
+          },
+          expect.objectContaining({ action: "approve" }),
+          expect.objectContaining({ action: "reject" })
+        ]
+      }
     });
     expect(prepareVersion).toHaveBeenCalledWith({
       projectId: "project",

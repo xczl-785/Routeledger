@@ -48,7 +48,10 @@ selected the first real node, pass its title, description, and explicit
 `initialTodos` in `firstVersion`. New projects still persist
 `initialVersionId: null`: that field is a legacy canonical pointer retained for
 older projects, while the Project itself is the route root and
-`currentVersionId` identifies the selected node. For an
+`currentVersionId` identifies the selected node. Initialization also reports
+whether a common human entry document points to `.routeledger/project.json`.
+Missing coverage is non-blocking and includes a locale-matched suggested
+snippet; RouteLedger does not create or rewrite the entry document. For an
 existing canonical data set, read it before writing. When JSON and SQLite
 disagree, stop on `JSON_SQLITE_CONFLICT`; do not delete either store to force
 a result.
@@ -62,7 +65,9 @@ for generated project content and user-facing consumers.
 
 Canonical JSON is the MCP runtime authority. SQLite is a rebuildable read
 model when enabled. The JSON-only plugin runtime disables that read model and
-does not create a database.
+does not create a database. A newly initialized JSON-only project uses hashed
+operation envelopes by default. Existing loose-audit projects remain in their
+current physical layout until an explicit `json compact-audit` migration.
 
 ## Multiple projects
 
@@ -75,7 +80,12 @@ single entry to alternate roots between calls.
 
 Read-only inspection may be automated according to host policy. Keep normal
 writes prompted, and require the strongest available confirmation for
-`commit_l3_operation`. The server independently checks binding preflight,
+`execute_admitted_proposal` and `commit_l3_operation`. After a dedicated
+lifecycle or structure proposal is persisted, hosts should prefer
+`execute_route_change(operation="execute_admitted_proposal")`; it resumes by
+`pendingOperationId` and performs exact authorization plus commit inside one
+admitted call. The explicit approve/reject/commit operations remain available
+for fine-grained host workflows. The server independently checks binding preflight,
 `expectedRouteLedgerRoot`, canonical storage rules, and approval artifacts;
 host approval UI does not replace those checks. `approve_l3_operation` also
 requires either MCP structured elicitation, Codex native admission, or an
