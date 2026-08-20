@@ -519,24 +519,47 @@ const findCurrentVersionAssertions = (
 };
 
 const buildDocDriftSuggestedTodos = (
-  warnings: CheckDocDriftWarning[]
+  warnings: CheckDocDriftWarning[],
+  contentLocale: string | null
 ): CheckDocDriftSuggestedTodo[] => {
   const suggestionsByKey = new Map<string, CheckDocDriftSuggestedTodo>();
   const suggestedTodos: CheckDocDriftSuggestedTodo[] = [];
+  const usesChinese = contentLocale?.toLowerCase().startsWith("zh") === true;
+  const localizedWarningSummary = (warning: CheckDocDriftWarning): string => {
+    if (usesChinese) {
+      return warning.summary;
+    }
+    const file = warning.file ?? "An entry document";
+    if (warning.code === "STALE_CURRENT_VERSION") {
+      return warning.assertionKind === undefined
+        ? `${file} mentions the current route without an explicit comparable current-Version ID, title, or state declaration.`
+        : `${file} declares ${warning.assertionKind} inconsistently with the current RouteLedger truth.`;
+    }
+    if (warning.code === "STALE_TRUTH_SOURCE") {
+      return `${file} presents SQLite as the source of truth without identifying .routeledger canonical JSON as the current source.`;
+    }
+    if (warning.code === "MISSING_EXPECTED_POINTER") {
+      return `No entry document points to the expected path ${warning.expected ?? "expected pointer"}.`;
+    }
+    return warning.summary;
+  };
 
   for (const warning of warnings) {
     if (warning.code === "STALE_CURRENT_VERSION") {
       const key = `${warning.code}:${warning.file ?? "project"}`;
       const existing = suggestionsByKey.get(key);
+      const localizedReason = localizedWarningSummary(warning);
       if (existing !== undefined) {
-        if (!existing.reason.includes(warning.summary)) {
-          existing.reason = `${existing.reason}\n${warning.summary}`;
+        if (!existing.reason.includes(localizedReason)) {
+          existing.reason = `${existing.reason}\n${localizedReason}`;
         }
         continue;
       }
       const suggestion = {
-        title: `同步 ${warning.file ?? "入口文档"} 的 current version 指针`,
-        reason: warning.summary,
+        title: usesChinese
+          ? `同步 ${warning.file ?? "入口文档"} 的 current version 指针`
+          : `Synchronize the current Version declaration in ${warning.file ?? "the entry document"}`,
+        reason: localizedReason,
         file: warning.file
       };
       suggestionsByKey.set(key, suggestion);
@@ -550,8 +573,10 @@ const buildDocDriftSuggestedTodos = (
         continue;
       }
       const suggestion = {
-        title: `修正文档真源表述：${warning.file ?? "入口文档"}`,
-        reason: warning.summary,
+        title: usesChinese
+          ? `修正文档真源表述：${warning.file ?? "入口文档"}`
+          : `Correct the source-of-truth statement in ${warning.file ?? "the entry document"}`,
+        reason: localizedWarningSummary(warning),
         file: warning.file
       };
       suggestionsByKey.set(key, suggestion);
@@ -565,8 +590,10 @@ const buildDocDriftSuggestedTodos = (
         continue;
       }
       const suggestion = {
-        title: `补入口文档指针：${warning.expected ?? "expected pointer"}`,
-        reason: warning.summary,
+        title: usesChinese
+          ? `补入口文档指针：${warning.expected ?? "expected pointer"}`
+          : `Add the entry-document pointer: ${warning.expected ?? "expected pointer"}`,
+        reason: localizedWarningSummary(warning),
         file: warning.file
       };
       suggestionsByKey.set(key, suggestion);
@@ -613,10 +640,11 @@ export const runDocDriftCheck = async (options: {
     name: string;
     currentVersionId: string | null;
   };
+  contentLocale: string | null;
   context: CheckDocDriftRouteContext;
   input: CheckDocDriftInput;
 }): Promise<CheckDocDriftResult> => {
-  const { projectRoot, project, context, input } = options;
+  const { projectRoot, project, contentLocale, context, input } = options;
   const currentVersion = context.currentVersion;
   const currentVersionId = currentVersion?.id ?? null;
   const currentVersionOpenTodos =
@@ -847,7 +875,7 @@ export const runDocDriftCheck = async (options: {
     checkedAssertions,
     coverage,
     warnings,
-    suggestedTodos: buildDocDriftSuggestedTodos(warnings),
+    suggestedTodos: buildDocDriftSuggestedTodos(warnings, contentLocale),
     summaryText: buildDocDriftSummaryText({
       status,
       coverageLevel: coverage.level,

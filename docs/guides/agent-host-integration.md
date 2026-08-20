@@ -61,7 +61,9 @@ An older project without `settings.content_locale` decodes as unresolved
 `set_project_content_locale` records a user-confirmed concrete value. Agent-facing
 MCP messages, tool names, object keys, enums, and error codes use one canonical
 English protocol. The persisted `contentLocale` remains the language contract
-for generated project content and user-facing consumers.
+for generated project content and user-facing consumers. This includes candidate
+Todo titles and reasons returned by document-drift checks; their surrounding
+diagnostics, coverage limitations, and summaries remain canonical English.
 
 Canonical JSON is the MCP runtime authority. SQLite is a rebuildable read
 model when enabled. The JSON-only plugin runtime disables that read model and

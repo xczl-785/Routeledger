@@ -5,8 +5,8 @@ local build. A release requires a rebuilt plugin distribution, passing smoke
 and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
-`routeledger@routeledger-team` version 0.10.2 is the latest published Git
-marketplace release candidate, intended to be fixed by `routeledger-plugin-v0.10.2` after
+`routeledger@routeledger-team` version 0.10.3 is the latest published Git
+marketplace release candidate, intended to be fixed by `routeledger-plugin-v0.10.3` after
 host testing. It reduces canonical audit repository noise and lets admitted
 lifecycle proposals resume through one exact execution call.
 `main` is the release branch;

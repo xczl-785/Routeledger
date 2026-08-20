@@ -470,14 +470,17 @@ describe("route ledger service", () => {
       expect(result.data.suggestedTodos).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            title: expect.stringContaining("README.md"),
+            title: "Synchronize the current Version declaration in README.md",
             file: "README.md",
-            reason: expect.stringContaining("current")
+            reason: expect.stringContaining(
+              "inconsistently with the current RouteLedger truth"
+            )
           }),
           expect.objectContaining({
-            title: expect.stringContaining("docs/qa/current-checklist.md"),
+            title: "Add the entry-document pointer: docs/qa/current-checklist.md",
             file: null,
-            reason: expect.stringContaining("docs/qa/current-checklist.md")
+            reason:
+              "No entry document points to the expected path docs/qa/current-checklist.md."
           })
         ])
       );

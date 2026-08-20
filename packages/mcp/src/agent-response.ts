@@ -19,11 +19,35 @@ const AGENT_CODE_MESSAGES: Record<string, string> = {
   TARGET_VERSION_NOT_READY: "Only a Version in the `ready` state can be started.",
   MISSING_RESIDUAL_AUDIT: "A residual audit is required before the Version can be closed.",
   OPEN_TODOS: "Open Todos remain.",
+  OPEN_UNDOS: "Legacy work remains and requires explicit audit before the Version can be closed.",
+  OPEN_DUE_UNDOS: "Due legacy work requires explicit audit before the target Version can start.",
+  SELF_REFERENTIAL_UNDO_BLOCKS_START:
+    "Self-referential legacy work blocks the target Version from starting.",
+  LEGACY_WORK_REQUIRES_AUDIT:
+    "Legacy work blocks this operation and requires an explicit legacy audit.",
+  LEGACY_BLOCKERS_REQUIRE_AUDIT:
+    "Legacy blockers require an explicit legacy audit.",
   OPEN_TODOS_BLOCK_CLOSE: "Open Todos block the current Version from closing.",
   UNRESOLVED_DEFERRED_BLOCKS_CLOSE:
     "Improperly routed Deferred work blocks the current Version from closing.",
+  DEFERRED_ROUTE_TARGET_REQUIRED: "The Deferred route requires a target Version.",
+  DEFERRED_ROUTE_TARGET_SELF: "Deferred work cannot be routed back to its source Version.",
+  DEFERRED_ROUTE_CONTEXT_REQUIRED:
+    "Validating the Deferred route requires the complete known-Version context.",
+  DEFERRED_ROUTE_TARGET_UNKNOWN: "The Deferred route target Version does not exist.",
+  DEFERRED_ROUTE_TARGET_CROSS_PROJECT:
+    "The Deferred route target Version belongs to a different Project.",
+  DEFERRED_ROUTE_TARGET_NOT_DOWNSTREAM:
+    "The Deferred route target must be downstream from its source Version.",
   DUE_DEFERRED_REQUIRES_REVIEW:
     "Due Deferred work must be reviewed before the target Version can start.",
+  MISSING_DECISION_REFS: "Required route-decision references are missing.",
+  INVALID_RESIDUAL_AUDIT_DESTINATION:
+    "Every residual-audit item requires a structured destination.",
+  UNKNOWN_CONSTRAINT_GATE_CHECK:
+    "The gate references a Constraint that does not exist.",
+  MISMATCHED_CONSTRAINT_GATE_CHECK:
+    "The Constraint gate check does not match the target Project or Version scope.",
   CONSTRAINT_VIOLATED: "A Constraint is explicitly violated.",
   CONSTRAINT_EVIDENCE_MISSING: "Evidence required by a Constraint is missing.",
   PENDING_L3_PROPOSAL_NEEDS_DECISION:
@@ -102,6 +126,10 @@ const AGENT_NEXT_ACTIONS: Record<string, { summary: string; reason: string }> = 
     summary: "Prepare the residual audit, then close the current Version.",
     reason: "The current Version is complete but not closed."
   },
+  decision_required: {
+    summary: "Decide whether the running Version needs more recorded work.",
+    reason: "The current Version is running but has no open Todo."
+  },
   prepare_version: {
     summary: "Prepare the target Version.",
     reason: "The target Version is still in `wait`."
@@ -111,12 +139,16 @@ const AGENT_NEXT_ACTIONS: Record<string, { summary: string; reason: string }> = 
     reason: "The current gate or route state requires further handling."
   },
   review_deferred: {
-    summary: "Review due Deferred work first.",
-    reason: "Due Deferred work blocks the target Version from starting."
+    summary: "Review the blocking Deferred work first.",
+    reason: "The Deferred state prevents the current route operation."
   },
   review_pending_proposal: {
     summary: "Resolve the pending L3 proposal first.",
     reason: "The pending proposal affects subsequent route decisions."
+  },
+  review_residual_audit: {
+    summary: "Review and declare the residual audit first.",
+    reason: "The ordinary close gate has no reviewed residual-audit declaration."
   },
   set_current_version: {
     summary: "Repair the current Version pointer.",
@@ -136,6 +168,11 @@ const AGENT_NEXT_ACTIONS: Record<string, { summary: string; reason: string }> = 
     summary: "There is no single clear next action.",
     reason: "Review the complete context before deciding what to do next."
   }
+};
+
+const AGENT_CHOICE_WHEN: Record<string, string> = {
+  create_todo: "Implementation work remains.",
+  mark_version_complete: "Implementation is actually complete."
 };
 
 const AGENT_TRANSITION_LABELS: Record<string, string> = {
@@ -213,9 +250,8 @@ const canonicalCodeMessage = (code: string): string =>
   AGENT_CODE_MESSAGES[code] ?? `RouteLedger reported ${code}; inspect the structured details.`;
 
 const isCodedPresentationPath = (toolName: string, path: string[]): boolean =>
-  path[0] === "error"
-    ? SYSTEM_CODE_COLLECTION_KEYS.has(path.at(-1) ?? "")
-    : (CODED_PRESENTATION_PATHS[toolName]?.has(path.join(".")) ?? false);
+  SYSTEM_CODE_COLLECTION_KEYS.has(path.at(-1) ?? "") ||
+  (path[0] !== "error" && (CODED_PRESENTATION_PATHS[toolName]?.has(path.join(".")) ?? false));
 
 const normalizeDocDriftPresentation = (record: Record<string, unknown>): void => {
   const project = record.project as Record<string, unknown> | undefined;
@@ -238,7 +274,7 @@ const normalizeDocDriftPresentation = (record: Record<string, unknown>): void =>
       currentVersionText,
       `The current route has ${Number(routeTruth?.openTodoCount ?? 0)} open Todos, ${Number(routeTruth?.openUndoCount ?? 0)} open Undos, and ${Number(routeTruth?.pendingProposalCount ?? 0)} pending proposals.`,
       `Found ${warnings.length} warnings and ${unreadableFiles.length} unreadable files.`,
-      `Coverage is partial: ${Number(coverage?.recognizedAssertionCount ?? 0)} explicit current-Version declarations were recognized and ${Number(coverage?.notDetectedAssertionCount ?? 0)} declaration fields were not detected.`
+      `Coverage is ${String(coverage?.level ?? "partial")}: ${Number(coverage?.recognizedAssertionCount ?? 0)} explicit current-Version declarations were recognized and ${Number(coverage?.notDetectedAssertionCount ?? 0)} declaration fields were not detected.`
     ].join(" ");
   }
 
@@ -259,28 +295,8 @@ const normalizeDocDriftPresentation = (record: Record<string, unknown>): void =>
     } else if (warning.code === "MISSING_EXPECTED_POINTER") {
       warning.summary = `No entry document points to the expected path ${String(warning.expected ?? "")}.`;
       warning.actual = "No checked entry file contains the expected pointer path.";
-    }
-  }
-
-  const suggestedTodos = Array.isArray(record.suggestedTodos)
-    ? (record.suggestedTodos as Array<Record<string, unknown>>)
-    : [];
-  for (const todo of suggestedTodos) {
-    const matching = warnings.filter((warning) => warning.file === todo.file);
-    const staleCurrent = matching.filter((warning) => warning.code === "STALE_CURRENT_VERSION");
-    const staleTruth = matching.find((warning) => warning.code === "STALE_TRUTH_SOURCE");
-    const missingPointer = warnings.find(
-      (warning) => warning.code === "MISSING_EXPECTED_POINTER" && warning.expected === todo.file
-    );
-    if (staleCurrent.length > 0) {
-      todo.title = `Synchronize the current Version declaration in ${String(todo.file ?? "the entry document")}`;
-      todo.reason = staleCurrent.map((warning) => warning.summary).join("\n");
-    } else if (staleTruth !== undefined) {
-      todo.title = `Correct the source-of-truth statement in ${String(todo.file ?? "the entry document")}`;
-      todo.reason = staleTruth.summary;
-    } else if (missingPointer !== undefined) {
-      todo.title = `Add the entry-document pointer: ${String(missingPointer.expected ?? "")}`;
-      todo.reason = missingPointer.summary;
+    } else if (warning.code === "UNREADABLE_ENTRY_FILE") {
+      warning.summary = `${file ?? "An entry document"} could not be read, so its drift check was not completed.`;
     }
   }
 
@@ -392,6 +408,14 @@ const normalizeSystemValue = (value: unknown, path: string[], toolName: string):
         record.reason = action.reason;
       }
     }
+  }
+  if (
+    typeof record.actionType === "string" &&
+    path.at(-1) === "choices" &&
+    typeof record.when === "string" &&
+    AGENT_CHOICE_WHEN[record.actionType] !== undefined
+  ) {
+    record.when = AGENT_CHOICE_WHEN[record.actionType];
   }
   if (toolName === "get_version_structure" && path.at(-1) === "legalOperations") {
     normalizeVersionStructureOperation(record);

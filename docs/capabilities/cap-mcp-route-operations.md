@@ -48,7 +48,7 @@ rules.
    start gate recommends `start_version`. Gate blockers, due Deferred work,
    pending proposals, shutdown state, and pointer drift retain higher priority.
    A running current Version with no open Todo and no blocking risk returns a
-   localized `decision_required` branch: create a Todo when work remains, or
+   canonical-English `decision_required` branch: create a Todo when work remains, or
    mark the Version complete only when implementation is actually complete.
 8. Ordinary version close requires explicit residual-audit evidence. New MCP
    callers use `{ status: "reviewed", items: [] }` to declare a reviewed-empty
@@ -58,6 +58,10 @@ rules.
    gates, closeout summaries/plans, guides, close proposals, and approval
    digests.
 9. Agent-facing MCP messages and protocol identifiers use canonical English.
+   Coded blockers use one message catalog across current context, gate inspection,
+   and legal-operation projections; next-action summaries, reasons, and choice
+   conditions do not vary with project locale. Candidate Todo text and document
+   templates are project content and continue to follow `contentLocale`.
    `inspect_runtime(operation="runtime")` reports an unresolved project
    `contentLocale` without inferring a value from the agent or host language;
    initialization requires user confirmation and an explicit value. `auto` is
