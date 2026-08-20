@@ -6,6 +6,8 @@ import { isPhysicalPathContainedWithinSync } from "./physical-path.js";
 export const WORKSPACE_CONFIG_VERSION = 1;
 export const WORKSPACE_CONFIG_FILENAME = "config.json";
 export const DEFAULT_WORKSPACE_DATA_DIR = ".";
+export const ROUTELEDGER_GIT_ATTRIBUTES_FILENAME = ".gitattributes";
+export const ROUTELEDGER_GIT_ATTRIBUTES_CONTENT = "*.json text eol=lf\n**/*.json text eol=lf\n";
 const normalizeWorkspaceRoot = (workspaceRoot) => workspaceRoot;
 export const getWorkspaceConfigDirectory = (workspaceRoot) => path.join(normalizeWorkspaceRoot(workspaceRoot), ROUTELEDGER_DIRECTORY);
 export const getWorkspaceConfigPath = (workspaceRoot) => path.join(getWorkspaceConfigDirectory(workspaceRoot), WORKSPACE_CONFIG_FILENAME);
@@ -25,6 +27,7 @@ const writeWorkspaceConfig = (workspaceRoot, dataDir) => {
     const configDirectory = getWorkspaceConfigDirectory(workspaceRoot);
     const configPath = getWorkspaceConfigPath(workspaceRoot);
     fs.mkdirSync(configDirectory, { recursive: true });
+    ensureRouteLedgerGitAttributes(configDirectory);
     if (fs.existsSync(configPath)) {
         return;
     }
@@ -32,6 +35,13 @@ const writeWorkspaceConfig = (workspaceRoot, dataDir) => {
         version: WORKSPACE_CONFIG_VERSION,
         dataDir
     }, null, 2)}\n`, "utf8");
+};
+export const ensureRouteLedgerGitAttributes = (routeledgerDirectory) => {
+    fs.mkdirSync(routeledgerDirectory, { recursive: true });
+    const attributesPath = path.join(routeledgerDirectory, ROUTELEDGER_GIT_ATTRIBUTES_FILENAME);
+    if (fs.existsSync(attributesPath))
+        return;
+    fs.writeFileSync(attributesPath, ROUTELEDGER_GIT_ATTRIBUTES_CONTENT, "utf8");
 };
 const toInvalidResolution = (workspaceRoot, diagnostics) => buildResolution(workspaceRoot, resolveDefaultRouteLedgerDataDir(workspaceRoot), null, "invalid", diagnostics);
 const parseWorkspaceConfig = (workspaceRoot, rawContent) => {
@@ -180,6 +190,9 @@ export const resolveWorkspaceConfigSync = (options) => {
                 }
             ]);
         }
+    }
+    if (options.autoCreate === true) {
+        ensureRouteLedgerGitAttributes(getWorkspaceConfigDirectory(workspaceRoot));
     }
     try {
         const content = fs.readFileSync(configPath, "utf8");

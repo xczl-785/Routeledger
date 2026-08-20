@@ -71,7 +71,10 @@ describe("work tool registrations", () => {
         idempotency: {
           protected: true,
           receiptId: "receipt",
-          replayed: false
+          replayed: false,
+          resultScope: "original_commit",
+          originalCommittedAt: "2026-08-18T00:00:00.000Z",
+          currentStateRefreshed: true
         }
       }
     };

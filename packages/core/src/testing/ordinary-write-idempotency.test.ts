@@ -49,7 +49,10 @@ describe("ordinary write idempotency", () => {
     expect(replay.idempotency).toEqual({
       protected: true,
       receiptId: first.idempotency!.receiptId,
-      replayed: true
+      replayed: true,
+      resultScope: "original_commit",
+      originalCommittedAt: expect.any(String),
+      currentStateRefreshed: false
     });
     await expect(
       service.createTodo({ ...command, title: "Different input" })
@@ -57,6 +60,42 @@ describe("ordinary write idempotency", () => {
     const snapshot = await storage.loadProjectAggregate(ids.projectId);
     expect(snapshot?.todos).toHaveLength(1);
     expect(snapshot?.ordinaryWriteReceipts).toHaveLength(1);
+  });
+
+  it("marks a replayed create result as historical after the resource changes", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const ids = await createProject(service);
+    const createCommand = {
+      ...ids,
+      title: "Historical create result",
+      idempotencyKey: "historical-create-result",
+      actor: TEST_ACTOR
+    };
+
+    const created = await service.createTodo(createCommand);
+    await service.closeTodo({
+      projectId: ids.projectId,
+      todoId: created.todo.id,
+      reason: "done",
+      note: "closed after creation",
+      idempotencyKey: "close-historical-create-result",
+      actor: TEST_ACTOR
+    });
+    const replay = await service.createTodo(createCommand);
+    const snapshot = await storage.loadProjectAggregate(ids.projectId);
+
+    expect(replay.todo.status).toBe("wait");
+    expect(snapshot?.todos.find((todo) => todo.id === created.todo.id)?.status).toBe("closed");
+    expect(replay.idempotency).toMatchObject({
+      replayed: true,
+      resultScope: "original_commit",
+      originalCommittedAt: expect.any(String),
+      currentStateRefreshed: false
+    });
   });
 
   it("recovers a same-command concurrent stale save by replaying the committed receipt", async () => {

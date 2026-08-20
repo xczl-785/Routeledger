@@ -4,7 +4,7 @@ import path from "node:path";
 import { attachProjectAggregateHeadRevision, getProjectAggregateHeadRevision } from "./core/src/index.js";
 import { RouteLedgerJsonBusyError, RouteLedgerJsonImportError, RouteLedgerJsonWriteError, PROJECT_DOCUMENT_PATH, SCHEMA_DOCUMENT_PATH, acquireRouteLedgerJsonWriteLock, decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments, getActiveRouteLedgerJsonWriteLockInfo, isCanonicalRouteLedgerJsonPath, loadValidatedProjectAggregateFromJsonDirectory, replaceRouteLedgerJsonDocuments, validateRouteLedgerJsonDocuments } from "./json/src/index.js";
 import { ROUTELEDGER_DIRECTORY } from "./storage-paths.js";
-import { resolveWorkspaceConfigSync } from "./workspace-config.js";
+import { ensureRouteLedgerGitAttributes, resolveWorkspaceConfigSync } from "./workspace-config.js";
 export class JsonFirstStorageError extends Error {
     code;
     details;
@@ -136,6 +136,7 @@ export class JsonFirstStorageAdapter {
         this.workspaceConfigPath = workspaceConfig.workspaceConfigPath;
         this.dataRoot = workspaceConfig.dataRoot;
         this.routeledgerDir = workspaceConfig.routeledgerDir;
+        ensureRouteLedgerGitAttributes(this.routeledgerDir);
         this.jsonProjectPath = workspaceConfig.jsonProjectPath;
         this.databasePath = workspaceConfig.sqliteDbPath;
         this.sqliteReadModel = resolveSqliteReadModelMode(options.sqliteReadModel);
@@ -269,6 +270,17 @@ export class JsonFirstStorageAdapter {
             : sqliteState.kind === "single" && sqliteState.snapshot !== null
                 ? this.toActiveProject(sqliteState.snapshot, "sqlite")
                 : null;
+        const storageMode = this.determineRuntimeBindingStorageMode({
+            hasCanonicalJson,
+            hasSqlite,
+            writeLockInfo,
+            jsonSource,
+            jsonError,
+            sqliteState,
+            conflict
+        });
+        const normalizedJsonError = jsonError === null ? null : this.toInspectionError(jsonError);
+        const normalizedSqliteError = sqliteState.kind === "unavailable" ? formatUnknownError(sqliteState.error) : null;
         return {
             workspaceRoot: this.workspaceRoot,
             routeledgerRoot: this.routeledgerRoot,
@@ -279,21 +291,21 @@ export class JsonFirstStorageAdapter {
             jsonProjectPath: this.jsonProjectPath,
             sqliteDbPath: this.databasePath,
             sqliteReadModel: this.sqliteReadModel,
-            storageMode: this.determineRuntimeBindingStorageMode({
-                hasCanonicalJson,
-                hasSqlite,
-                writeLockInfo,
-                jsonSource,
-                jsonError,
-                sqliteState,
-                conflict
-            }),
+            storageMode,
             hasCanonicalJson,
             hasSqlite,
             activeProject,
+            blockingIssue: this.toBlockingIssue({
+                storageMode,
+                jsonError: normalizedJsonError,
+                sqliteError: normalizedSqliteError,
+                conflict,
+                sqliteState,
+                writeLockInfo
+            }),
             conflict,
-            jsonError: jsonError === null ? null : this.toInspectionError(jsonError),
-            sqliteError: sqliteState.kind === "unavailable" ? formatUnknownError(sqliteState.error) : null,
+            jsonError: normalizedJsonError,
+            sqliteError: normalizedSqliteError,
             writeLock: writeLockInfo
         };
     }
@@ -520,6 +532,60 @@ export class JsonFirstStorageAdapter {
             message: error.message,
             details: error.details ?? null
         };
+    }
+    toBlockingIssue(options) {
+        if (options.storageMode === "json_invalid" && options.jsonError !== null) {
+            return {
+                kind: "canonical_json_invalid",
+                source: "canonical_json",
+                code: String(options.jsonError.code ?? "JSON_SOURCE_INVALID"),
+                message: String(options.jsonError.message ?? "Canonical RouteLedger JSON is invalid."),
+                details: options.jsonError.details !== null && typeof options.jsonError.details === "object"
+                    ? options.jsonError.details
+                    : null
+            };
+        }
+        if (options.storageMode === "conflict") {
+            if (options.conflict !== null) {
+                return {
+                    kind: "json_sqlite_divergence",
+                    source: "sqlite_read_model",
+                    code: "JSON_SQLITE_CONFLICT",
+                    message: String(options.conflict.message ?? "Canonical JSON and SQLite differ."),
+                    details: options.conflict.details !== null && typeof options.conflict.details === "object"
+                        ? options.conflict.details
+                        : null
+                };
+            }
+            if (options.sqliteState.kind === "multiple") {
+                return {
+                    kind: "multiple_sqlite_projects",
+                    source: "sqlite_read_model",
+                    code: "MULTIPLE_SQLITE_PROJECTS",
+                    message: "The SQLite read model contains multiple RouteLedger projects.",
+                    details: { projectIds: options.sqliteState.projectIds }
+                };
+            }
+        }
+        if (options.storageMode === "sqlite_unavailable" && options.sqliteError !== null) {
+            return {
+                kind: "sqlite_read_model_unavailable",
+                source: "sqlite_read_model",
+                code: "SQLITE_READ_MODEL_UNAVAILABLE",
+                message: String(options.sqliteError.message ?? "The SQLite read model is unavailable."),
+                details: options.sqliteError
+            };
+        }
+        if (options.storageMode === "write_in_progress") {
+            return {
+                kind: "write_in_progress",
+                source: "writer_lock",
+                code: "WRITE_IN_PROGRESS",
+                message: "A canonical RouteLedger JSON write is in progress.",
+                details: options.writeLockInfo
+            };
+        }
+        return null;
     }
     async pathExists(candidatePath) {
         try {

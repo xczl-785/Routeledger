@@ -16,6 +16,9 @@ import {
 export const WORKSPACE_CONFIG_VERSION = 1;
 export const WORKSPACE_CONFIG_FILENAME = "config.json";
 export const DEFAULT_WORKSPACE_DATA_DIR = ".";
+export const ROUTELEDGER_GIT_ATTRIBUTES_FILENAME = ".gitattributes";
+export const ROUTELEDGER_GIT_ATTRIBUTES_CONTENT =
+  "*.json text eol=lf\n**/*.json text eol=lf\n";
 
 export interface WorkspaceConfigDiagnostic {
   code: string;
@@ -74,6 +77,7 @@ const writeWorkspaceConfig = (workspaceRoot: string, dataDir: string): void => {
   const configPath = getWorkspaceConfigPath(workspaceRoot);
 
   fs.mkdirSync(configDirectory, { recursive: true });
+  ensureRouteLedgerGitAttributes(configDirectory);
 
   if (fs.existsSync(configPath)) {
     return;
@@ -91,6 +95,16 @@ const writeWorkspaceConfig = (workspaceRoot: string, dataDir: string): void => {
     )}\n`,
     "utf8"
   );
+};
+
+export const ensureRouteLedgerGitAttributes = (routeledgerDirectory: string): void => {
+  fs.mkdirSync(routeledgerDirectory, { recursive: true });
+  const attributesPath = path.join(
+    routeledgerDirectory,
+    ROUTELEDGER_GIT_ATTRIBUTES_FILENAME
+  );
+  if (fs.existsSync(attributesPath)) return;
+  fs.writeFileSync(attributesPath, ROUTELEDGER_GIT_ATTRIBUTES_CONTENT, "utf8");
 };
 
 const toInvalidResolution = (
@@ -292,6 +306,10 @@ export const resolveWorkspaceConfigSync = (options: {
         ]
       );
     }
+  }
+
+  if (options.autoCreate === true) {
+    ensureRouteLedgerGitAttributes(getWorkspaceConfigDirectory(workspaceRoot));
   }
 
   try {

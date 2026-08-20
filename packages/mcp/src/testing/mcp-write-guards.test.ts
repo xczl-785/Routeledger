@@ -51,7 +51,18 @@ describe("routeledger mcp registry", () => {
             protected: true,
             receiptId: (first.data as { idempotency: { receiptId: string } })
               .idempotency.receiptId,
-            replayed: true
+            replayed: true,
+            resultScope: "original_commit",
+            originalCommittedAt: expect.any(String),
+            currentStateRefreshed: false,
+            recommendedNextAction: {
+              type: "refresh_current_context",
+              tool: "inspect_route_progress",
+              toolInput: {
+                operation: "get_current_context",
+                projectId: data.project.id
+              }
+            }
           }
         }
       });

@@ -28,4 +28,7 @@ export interface IdempotencyResultMetadata {
   protected: true;
   receiptId: string;
   replayed: boolean;
+  resultScope: "original_commit";
+  originalCommittedAt: string;
+  currentStateRefreshed: boolean;
 }

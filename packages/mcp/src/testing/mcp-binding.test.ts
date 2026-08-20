@@ -446,7 +446,20 @@ describe("routeledger mcp registry", () => {
           activeBinding: {
             workspaceRoot,
             status: "uninitialized"
-          }
+          },
+          filesystemEffects: [
+            {
+              kind: "workspace_binding_config",
+              path: path.join(workspaceRoot, ".routeledger", "config.json"),
+              effect: "created"
+            },
+            {
+              kind: "routeledger_git_attributes",
+              path: path.join(workspaceRoot, ".routeledger", ".gitattributes"),
+              effect: "created"
+            }
+          ],
+          canonicalProjectCreated: false
         },
         meta: {
           runtimeContext: {
@@ -461,6 +474,9 @@ describe("routeledger mcp registry", () => {
       expect((activation.data as { activeBinding: unknown }).activeBinding).toEqual(
         (context.data as { binding: unknown }).binding
       );
+      expect(
+        fs.readFileSync(path.join(workspaceRoot, ".routeledger", ".gitattributes"), "utf8")
+      ).toBe("*.json text eol=lf\n**/*.json text eol=lf\n");
     } finally {
       registry.close();
       registry.restore();

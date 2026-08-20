@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
 
 import {
   ApplicationError,
@@ -181,6 +182,8 @@ export interface RouteLedgerPendingSessionRebind {
   previousBinding: RouteLedgerBindingSummary;
   bindingPlan: RouteLedgerBindingPlanResult;
   requiresInit: boolean;
+  workspaceGitAttributesExisted: boolean;
+  dataGitAttributesExisted: boolean;
 }
 
 type DebugLogDraft = {
@@ -738,6 +741,46 @@ const projectPublicToolReferences = (value: unknown): unknown => {
   return record;
 };
 
+const attachIdempotencyReplayGuidance = (
+  response: ToolResponse,
+  input: Record<string, any> | null | undefined
+): ToolResponse => {
+  if (
+    !response.ok ||
+    response.data === null ||
+    typeof response.data !== "object" ||
+    Array.isArray(response.data)
+  ) {
+    return response;
+  }
+  const data = response.data as Record<string, unknown>;
+  const idempotency = data.idempotency;
+  const projectId = readStringField(input, "projectId");
+  if (
+    idempotency === null ||
+    typeof idempotency !== "object" ||
+    Array.isArray(idempotency) ||
+    (idempotency as Record<string, unknown>).replayed !== true ||
+    projectId === undefined
+  ) {
+    return response;
+  }
+  return {
+    ...response,
+    data: {
+      ...data,
+      idempotency: {
+        ...(idempotency as Record<string, unknown>),
+        recommendedNextAction: {
+          type: "refresh_current_context",
+          tool: "get_current_context",
+          toolInput: { projectId }
+        }
+      }
+    }
+  };
+};
+
 const buildPersistedProposalResponse = (
   error: unknown,
   context: ToolErrorContext
@@ -1178,6 +1221,10 @@ export const createRouteLedgerMcpRegistry = (
   const configuredRuntimeIdentity = options.runtimeIdentity ?? resolveRuntimeIdentity(runtimeProfile);
   const runtimeIdentity: RuntimeIdentity = {
     ...configuredRuntimeIdentity,
+    buildProvenance: {
+      scope: "runtime_build_inputs",
+      sourceTreeState: configuredRuntimeIdentity.sourceTreeState
+    },
     // Caller-selected profile governs the executable capability surface; do not
     // let a stale injected identity misreport it after a direct registry call.
     runtimeProfile
@@ -1367,6 +1414,7 @@ export const createRouteLedgerMcpRegistry = (
         dataRoot: storageInspection?.dataRoot ?? binding.dataRoot ?? null,
         jsonProjectPath: storageInspection?.jsonProjectPath ?? null,
         sqliteDbPath: storageInspection?.sqliteDbPath ?? null,
+        blockingIssue: storageInspection?.blockingIssue ?? null,
         conflict: storageInspection?.conflict ?? null,
         jsonError: storageInspection?.jsonError ?? null,
         sqliteError: storageInspection?.sqliteError ?? null,
@@ -1717,6 +1765,38 @@ export const createRouteLedgerMcpRegistry = (
   ): Promise<ToolResponse> => {
     const binding = readBinding();
     const runtimeContext = await getRuntimeContextData(binding);
+    const workspaceConfigEffect = pendingRebind.bindingPlan.checks.some(
+      (check) => check.code === "WORKSPACE_CONFIG_NOT_FOUND"
+    )
+      ? "created"
+      : "existing";
+    const workspaceAttributesPath = path.join(
+      path.dirname(runtimeContext.binding.workspaceConfigPath!),
+      ".gitattributes"
+    );
+    const dataAttributesPath = path.join(
+      runtimeContext.binding.routeledgerDir!,
+      ".gitattributes"
+    );
+    const filesystemEffects: Array<Record<string, unknown>> = [
+      {
+        kind: "workspace_binding_config",
+        path: runtimeContext.binding.workspaceConfigPath,
+        effect: workspaceConfigEffect
+      },
+      {
+        kind: "routeledger_git_attributes",
+        path: workspaceAttributesPath,
+        effect: pendingRebind.workspaceGitAttributesExisted ? "existing" : "created"
+      }
+    ];
+    if (dataAttributesPath !== workspaceAttributesPath) {
+      filesystemEffects.push({
+        kind: "routeledger_git_attributes",
+        path: dataAttributesPath,
+        effect: pendingRebind.dataGitAttributesExisted ? "existing" : "created"
+      });
+    }
     const activatedBindingPlan: RouteLedgerBindingPlanResult = {
       ...pendingRebind.bindingPlan,
       status: pendingRebind.requiresInit ? "needs_init" : "ready",
@@ -1764,9 +1844,11 @@ export const createRouteLedgerMcpRegistry = (
         status: "activated",
         rebound: true,
         previousBinding: pendingRebind.previousBinding,
-        activeBinding: runtimeContext.binding,
-        requiresInit: pendingRebind.requiresInit,
-        bindingPlan: activatedBindingPlan
+          activeBinding: runtimeContext.binding,
+          requiresInit: pendingRebind.requiresInit,
+          filesystemEffects,
+          canonicalProjectCreated: false,
+          bindingPlan: activatedBindingPlan
       },
       meta: withRuntimeContextMeta({
         data:
@@ -1864,9 +1946,13 @@ export const createRouteLedgerMcpRegistry = (
           toolName === "configure_binding"
             ? await activatePendingRebindForDirectRegistry()
             : null;
+        const responseWithReplayGuidance = attachIdempotencyReplayGuidance(
+          activationResponse ?? response,
+          input
+        );
         return normalizeAgentToolResponse(
           projectPublicToolReferences(
-            await attachRuntimeContextToError(activationResponse ?? response)
+            await attachRuntimeContextToError(responseWithReplayGuidance)
           ) as ToolResponse,
           toolName
         );

@@ -1954,7 +1954,10 @@ export class RouteLedgerService {
                 idempotency: {
                     protected: true,
                     receiptId: receipt.id,
-                    replayed: true
+                    replayed: true,
+                    resultScope: "original_commit",
+                    originalCommittedAt: receipt.committedAt,
+                    currentStateRefreshed: false
                 }
             };
         };
@@ -1999,7 +2002,10 @@ export class RouteLedgerService {
                 idempotency: {
                     protected: true,
                     receiptId: receipt.id,
-                    replayed: false
+                    replayed: false,
+                    resultScope: "original_commit",
+                    originalCommittedAt: receipt.committedAt,
+                    currentStateRefreshed: true
                 }
             };
     }
@@ -2437,6 +2443,8 @@ export class RouteLedgerService {
             });
         return {
             ...baseResult,
+            status: "confirmation_required",
+            proposalPersisted: true,
             pendingOperationId: proposal.id,
             operationDigest: proposal.digest,
             humanReviewText: makeHumanReviewText(proposal),
@@ -2474,6 +2482,8 @@ export class RouteLedgerService {
         });
         return {
             ...baseResult,
+            status: "confirmation_required",
+            proposalPersisted: true,
             pendingOperationId: proposal.id,
             operationDigest: proposal.digest,
             humanReviewText: makeHumanReviewText(proposal)
@@ -2521,6 +2531,8 @@ export class RouteLedgerService {
         });
         return {
             ...baseResult,
+            status: "confirmation_required",
+            proposalPersisted: true,
             pendingOperationId: proposal.id,
             operationDigest: proposal.digest,
             humanReviewText: makeHumanReviewText(proposal)

@@ -318,6 +318,13 @@ describe("routeledger mcp registry", () => {
             sqliteDbPath: getDefaultSqliteDbPath(projectRoot)
           },
           activeProject: null,
+          runtimeIdentity: {
+            sourceTreeState: "unavailable",
+            buildProvenance: {
+              scope: "runtime_build_inputs",
+              sourceTreeState: "unavailable"
+            }
+          },
           hostProfile: "generic",
           actor: {
             id: "mcp-agent",

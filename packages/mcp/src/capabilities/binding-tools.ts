@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import type { Actor, RouteLedgerService } from "@routeledger/core";
 
 import type { RouteLedgerBindingPlanResult } from "../binding-assist.js";
@@ -12,6 +15,8 @@ export interface PendingSessionRebind {
   previousBinding: RouteLedgerBindingSummary;
   bindingPlan: RouteLedgerBindingPlanResult;
   requiresInit: boolean;
+  workspaceGitAttributesExisted: boolean;
+  dataGitAttributesExisted: boolean;
 }
 
 type BindingOperations = {
@@ -177,10 +182,11 @@ export const createBindingAssistTools = (
     defineTool(
       "activate_routeledger_binding",
       {
-        what: "Activate an explicit MCP binding.",
+        what:
+          "Activate an explicit MCP binding and ensure its workspace binding config exists.",
         parameter: "workspaceRoot",
         warning:
-          "switching an established Codex session requires confirmProjectSwitch=true"
+          "may create .routeledger/config.json but never initializes canonical project data; switching an established Codex session requires confirmProjectSwitch=true"
       },
       objectSchema(
         {
@@ -268,7 +274,21 @@ export const createBindingAssistTools = (
           routeledgerRoot: bindingPlan.targetBinding.routeledgerRoot,
           previousBinding,
           bindingPlan,
-          requiresInit: bindingPlan.requiresInit
+          requiresInit: bindingPlan.requiresInit,
+          workspaceGitAttributesExisted: fs.existsSync(
+            path.join(
+              bindingPlan.targetBinding.workspaceRoot,
+              ".routeledger",
+              ".gitattributes"
+            )
+          ),
+          dataGitAttributesExisted: fs.existsSync(
+            path.join(
+              bindingPlan.targetBinding.routeledgerRoot,
+              ".routeledger",
+              ".gitattributes"
+            )
+          )
         };
         stagePendingSessionRebind(pending);
         return {
