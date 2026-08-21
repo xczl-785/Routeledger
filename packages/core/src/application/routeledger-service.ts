@@ -91,11 +91,18 @@ import {
   type L3ProposalReadUseCases,
   type RecommendBalancedL3AuthorizationPolicyInput
 } from "./l3-proposal-read-service.js";
+import {
+  rebuildCanonicalL3ProposalDigest,
+  rebuildLegacyL3ProposalDigest
+} from "./l3-proposal-security-port.js";
 import type {
-  L3CanonicalDigestMaterial,
   L3ProposalSecurityDescription,
   L3ProposalSecurityPort
 } from "./l3-proposal-security-port.js";
+import {
+  L3ProposalWriteService,
+  type L3ProposalWriteUseCases
+} from "./l3-proposal-write-service.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
   inspectEntryDocumentCoverage,
@@ -2123,106 +2130,6 @@ const buildNoopGateSnapshot = (evaluatedAt: string): NoopGateSnapshot => ({
   blockers: []
 });
 
-const buildDigestGateSnapshot = (
-  gateSnapshot: GateSnapshot,
-  includeExtendedGateState: boolean
-): Record<string, unknown> => {
-  if (gateSnapshot.kind === "start") {
-    return {
-      kind: gateSnapshot.kind,
-      allowed: gateSnapshot.allowed,
-      blockers: gateSnapshot.blockers,
-      openTodoIds: gateSnapshot.openTodoIds,
-      dueUndoIds: gateSnapshot.dueUndoIds,
-      ...(includeExtendedGateState
-        ? {
-            dueDeferredIds: gateSnapshot.dueDeferredIds,
-            blockedConstraintIds: gateSnapshot.blockedConstraintIds
-          }
-        : {}),
-      missingDecisionRefs: gateSnapshot.missingDecisionRefs
-    };
-  }
-
-  if (gateSnapshot.kind === "close") {
-    return {
-      kind: gateSnapshot.kind,
-      allowed: gateSnapshot.allowed,
-      blockers: gateSnapshot.blockers,
-      unresolvedTodoIds: gateSnapshot.unresolvedTodoIds,
-      unresolvedUndoIds: gateSnapshot.unresolvedUndoIds,
-      ...(includeExtendedGateState
-        ? {
-            unresolvedDeferredIds: gateSnapshot.unresolvedDeferredIds,
-            blockedConstraintIds: gateSnapshot.blockedConstraintIds
-          }
-        : {}),
-      residualAudit: gateSnapshot.residualAudit,
-      residualAuditReviewed: gateSnapshot.residualAuditReviewed === true
-    };
-  }
-
-  if (gateSnapshot.kind === "shutdown") {
-    return {
-      kind: gateSnapshot.kind,
-      allowed: gateSnapshot.allowed,
-      blockers: gateSnapshot.blockers,
-      forced: gateSnapshot.forced,
-      stateReason: gateSnapshot.stateReason,
-      ordinaryCloseGate: {
-        allowed: gateSnapshot.ordinaryCloseGate.allowed,
-        blockers: gateSnapshot.ordinaryCloseGate.blockers,
-        unresolvedTodoIds:
-          gateSnapshot.ordinaryCloseGate.unresolvedTodoIds,
-        unresolvedUndoIds:
-          gateSnapshot.ordinaryCloseGate.unresolvedUndoIds,
-        ...(includeExtendedGateState
-          ? {
-              unresolvedDeferredIds:
-                gateSnapshot.ordinaryCloseGate.unresolvedDeferredIds,
-              blockedConstraintIds:
-                gateSnapshot.ordinaryCloseGate.blockedConstraintIds
-            }
-          : {})
-      }
-    };
-  }
-
-  return {
-    kind: gateSnapshot.kind,
-    allowed: gateSnapshot.allowed,
-    blockers: gateSnapshot.blockers
-  };
-};
-
-const buildDigestWithGateFormat = (
-  projectId: string,
-  actionType: L3ActionType,
-  targetId: string,
-  payload: PendingOperationPayload,
-  gateSnapshot: GateSnapshot,
-  includeExtendedGateState: boolean
-): OperationDigest => {
-  const digestGateSnapshot = buildDigestGateSnapshot(
-    gateSnapshot,
-    includeExtendedGateState
-  );
-  const digestPayload = {
-    projectId,
-    actionType,
-    targetId,
-    payload,
-    gateSnapshot: digestGateSnapshot
-  };
-  const canonical = stableStringify(digestPayload);
-
-  return {
-    algorithm: "sha256",
-    value: crypto.createHash("sha256").update(canonical).digest("hex"),
-    payload: digestPayload
-  };
-};
-
 const buildDigest = (
   projectId: string,
   actionType: L3ActionType,
@@ -2230,14 +2137,7 @@ const buildDigest = (
   payload: PendingOperationPayload,
   gateSnapshot: GateSnapshot
 ): OperationDigest =>
-  buildDigestWithGateFormat(
-    projectId,
-    actionType,
-    targetId,
-    payload,
-    gateSnapshot,
-    true
-  );
+  rebuildCanonicalL3ProposalDigest({ projectId, actionType, targetId, payload, gateSnapshot });
 
 const buildLegacyDigest = (
   projectId: string,
@@ -2246,14 +2146,7 @@ const buildLegacyDigest = (
   payload: PendingOperationPayload,
   gateSnapshot: GateSnapshot
 ): OperationDigest =>
-  buildDigestWithGateFormat(
-    projectId,
-    actionType,
-    targetId,
-    payload,
-    gateSnapshot,
-    false
-  );
+  rebuildLegacyL3ProposalDigest({ projectId, actionType, targetId, payload, gateSnapshot });
 
 const summarizeGateForStaleProposal = (
   gateSnapshot: GateSnapshot
@@ -2760,25 +2653,6 @@ const createL3ProposalSecurityPort = (): L3ProposalSecurityPort => ({
     )
 });
 
-const rebuildCanonicalL3ProposalDigest = (
-  material: L3CanonicalDigestMaterial
-): OperationDigest =>
-  buildDigest(
-    material.projectId,
-    material.actionType,
-    material.targetId,
-    material.payload,
-    material.gateSnapshot
-  );
-
-const applyPendingOperation = (
-  snapshot: ProjectAggregateSnapshot,
-  operation: PendingOperation
-): ProjectAggregateSnapshot => ({
-  ...snapshot,
-  pendingOperations: appendRecord(snapshot.pendingOperations, operation)
-});
-
 const buildCloseGateResult = (
   snapshot: ProjectAggregateSnapshot,
   versionId: string,
@@ -2840,7 +2714,7 @@ export class RouteLedgerService {
 
   private readonly l3ProposalReadService: L3ProposalReadUseCases;
 
-  private readonly l3ProposalSecurityPort: L3ProposalSecurityPort;
+  private readonly l3ProposalWriteService: L3ProposalWriteUseCases;
 
   private readonly projectRoot: string | null;
 
@@ -2875,7 +2749,12 @@ export class RouteLedgerService {
     this.l3ProposalReadService =
       options.l3ProposalReadService ??
       new L3ProposalReadService({ storage: options.storage, clock: options.deps.clock });
-    this.l3ProposalSecurityPort = createL3ProposalSecurityPort();
+    const l3ProposalSecurityPort = createL3ProposalSecurityPort();
+    this.l3ProposalWriteService = new L3ProposalWriteService({
+      storage: options.storage,
+      deps: options.deps,
+      securityPort: l3ProposalSecurityPort
+    });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3794,150 +3673,7 @@ export class RouteLedgerService {
   }
 
   async proposeL3Operation(input: ProposeL3OperationInput): Promise<PendingOperation> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const now = this.deps.clock.now();
-    const description = this.l3ProposalSecurityPort.describe({
-      snapshot,
-      actionType: input.actionType,
-      targetId: input.targetId,
-      payload: input.payload ?? {},
-      evaluatedAt: now
-    });
-
-    if (input.requirePassingGate === true && !description.gateSnapshot.allowed) {
-      throw new ApplicationError(
-        "START_GATE_FAILED",
-        "L3 operation gate 校验失败，未创建 pending proposal",
-        {
-          projectId: input.projectId,
-          actionType: description.actionType,
-          targetId: description.targetId,
-          blockers: description.gateSnapshot.blockers
-        }
-      );
-    }
-    const proposal: PendingOperation = {
-      id: this.deps.idGenerator.nextId(),
-      projectId: input.projectId,
-      actionType: description.actionType,
-      targetId: description.targetId,
-      status: "pending",
-      reason: input.reason,
-      gateSnapshot: description.gateSnapshot,
-      digest: description.digest,
-      payload: description.payload,
-      createdBy: input.actor,
-      createdAt: now,
-      updatedAt: now,
-      committedAt: null,
-      rejectedAt: null,
-      rejectionReason: null,
-      approvalArtifactId: null
-    };
-    const context = createDomainContext(this.deps, input.actor);
-    const proposalEvents = createAuditEvents(
-      [
-        {
-          targetType: "pending_operation",
-          targetId: proposal.id,
-          eventType: "pending_operation.proposed",
-          toState: proposal.status,
-          note: proposal.reason,
-          metadata: {
-            actionType: proposal.actionType,
-            targetId: proposal.targetId,
-            digest: proposal.digest.value
-          }
-        }
-      ],
-      snapshot.project.id,
-      input.actor,
-      now,
-      context.operationId,
-      this.deps
-    );
-
-    const updatedSnapshot = applyPendingOperation(snapshot, proposal);
-    updatedSnapshot.events = updatedSnapshot.events.concat(proposalEvents);
-    await this.saveProjectAggregate(updatedSnapshot);
-
-    const savedHeadRevision = getProjectAggregateHeadRevision(updatedSnapshot);
-    const persistedSnapshot = await requireProject(this.storage, input.projectId);
-    const persistedProposal = persistedSnapshot.pendingOperations.find(
-      (operation) => operation.id === proposal.id
-    );
-    const rebuiltDigest =
-      persistedProposal === undefined
-        ? null
-        : rebuildCanonicalL3ProposalDigest({
-            projectId: persistedSnapshot.project.id,
-            actionType: persistedProposal.actionType,
-            targetId: persistedProposal.targetId,
-            payload: persistedProposal.payload,
-            gateSnapshot: persistedProposal.gateSnapshot
-          });
-    const persistenceIsSelfConsistent =
-      persistedProposal !== undefined &&
-      persistedProposal.projectId === proposal.projectId &&
-      persistedProposal.actionType === proposal.actionType &&
-      persistedProposal.targetId === proposal.targetId &&
-      persistedProposal.digest.value === proposal.digest.value &&
-      rebuiltDigest?.value === persistedProposal.digest.value;
-
-    if (!persistenceIsSelfConsistent) {
-      const persistedHeadRevision = getProjectAggregateHeadRevision(persistedSnapshot);
-      const proposalEventIds = new Set(proposalEvents.map((event) => event.id));
-      const linkedApprovalArtifactIds = persistedSnapshot.approvalArtifacts
-        .filter((artifact) => artifact.pendingOperationId === proposal.id)
-        .map((artifact) => artifact.id);
-      const rollbackSnapshot = cloneSnapshot(persistedSnapshot);
-      rollbackSnapshot.pendingOperations = rollbackSnapshot.pendingOperations.filter(
-        (operation) => operation.id !== proposal.id
-      );
-      rollbackSnapshot.events = rollbackSnapshot.events.filter(
-        (event) => !proposalEventIds.has(event.id)
-      );
-
-      const headStillMatchesOwnWrite =
-        savedHeadRevision !== undefined && persistedHeadRevision === savedHeadRevision;
-      const unrevisionedRemainderMatchesOriginal =
-        savedHeadRevision === undefined &&
-        stableStringify(rollbackSnapshot) === stableStringify(snapshot);
-      const canRollbackSafely =
-        linkedApprovalArtifactIds.length === 0 &&
-        (headStillMatchesOwnWrite || unrevisionedRemainderMatchesOriginal);
-      let rollbackStatus: "rolled_back" | "skipped_concurrent_change" | "failed" =
-        "skipped_concurrent_change";
-      let rollbackError: string | null = null;
-
-      if (canRollbackSafely) {
-        try {
-          await this.saveProjectAggregate(rollbackSnapshot);
-          rollbackStatus = "rolled_back";
-        } catch (error) {
-          rollbackStatus = "failed";
-          rollbackError = error instanceof Error ? error.message : String(error);
-        }
-      }
-
-      throw new ApplicationError(
-        "PENDING_OPERATION_PERSISTENCE_MISMATCH",
-        rollbackStatus === "rolled_back"
-          ? "pending operation 持久化后与原始 proposal/digest 不自洽，已回滚 proposal"
-          : "pending operation 持久化后与原始 proposal/digest 不自洽；检测到并发变化或补偿失败，未覆盖当前数据",
-        {
-          pendingOperationId: proposal.id,
-          proposedDigest: proposal.digest.value,
-          persistedDigest: persistedProposal?.digest.value ?? null,
-          rebuiltDigest: rebuiltDigest?.value ?? null,
-          rollbackStatus,
-          rollbackError,
-          linkedApprovalArtifactIds
-        }
-      );
-    }
-
-    return persistedProposal;
+    return this.l3ProposalWriteService.proposeL3Operation(input);
   }
 
   async listL3Proposals(projectId: string): Promise<PendingOperation[]> {
