@@ -12,6 +12,12 @@ import {
   buildVersionsWindowResult
 } from "./current-context-query.js";
 import { ApplicationError } from "./errors.js";
+import {
+  planVersionCloseoutApplication,
+  summarizeVersionCloseoutApplication,
+  type PlanVersionCloseoutInput,
+  type SummarizeVersionCloseoutInput
+} from "./version-closeout-application.js";
 
 export interface ListVersionsWindowQueryInput {
   projectId: string;
@@ -34,6 +40,12 @@ export interface RouteLedgerVersionQueryUseCases {
   listVersionsWindow(input: ListVersionsWindowQueryInput): Promise<ReturnType<typeof buildVersionsWindowResult>>;
   getCurrentContext(input: CurrentContextQueryInput): Promise<ReturnType<typeof buildCurrentContextResult>>;
   getNextAction(input: CurrentContextQueryInput): Promise<ReturnType<typeof buildNextActionResult>>;
+  summarizeVersionCloseout(
+    input: SummarizeVersionCloseoutInput
+  ): Promise<ReturnType<typeof summarizeVersionCloseoutApplication>>;
+  planVersionCloseout(
+    input: PlanVersionCloseoutInput
+  ): Promise<ReturnType<typeof planVersionCloseoutApplication>>;
 }
 
 type ProjectSnapshotReader = Pick<StoragePort, "loadProjectAggregate">;
@@ -94,5 +106,15 @@ export class RouteLedgerQueryService implements RouteLedgerVersionQueryUseCases 
   async getNextAction(input: CurrentContextQueryInput) {
     const snapshot = await loadRequiredProject(this.storage, input.projectId);
     return buildNextActionResult(snapshot, input);
+  }
+
+  async summarizeVersionCloseout(input: SummarizeVersionCloseoutInput) {
+    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    return summarizeVersionCloseoutApplication(snapshot, input);
+  }
+
+  async planVersionCloseout(input: PlanVersionCloseoutInput) {
+    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    return planVersionCloseoutApplication(snapshot, input);
   }
 }

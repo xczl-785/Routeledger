@@ -148,4 +148,38 @@ describe("RouteLedgerService query delegation", () => {
       }
     });
   });
+
+  it("delegates Version closeout queries", async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({ currentVersionId: "version-1" }),
+      versions: [createVersionFixture({ id: "version-1", isCurrent: true })],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+    const queryService = new RouteLedgerQueryService({ storage });
+    const summarizeVersionCloseout = vi.spyOn(queryService, "summarizeVersionCloseout");
+    const planVersionCloseout = vi.spyOn(queryService, "planVersionCloseout");
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies(),
+      queryService
+    });
+    const input = { projectId: "project-1", versionId: "version-1" };
+
+    const summary = await service.summarizeVersionCloseout(input);
+    const plan = await service.planVersionCloseout(input);
+
+    expect(summarizeVersionCloseout).toHaveBeenCalledWith(input);
+    expect(planVersionCloseout).toHaveBeenCalledWith(input);
+    expect(summary.data.version.id).toBe("version-1");
+    expect(plan.data.version.id).toBe("version-1");
+  });
 });

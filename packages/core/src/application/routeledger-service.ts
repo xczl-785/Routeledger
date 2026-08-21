@@ -92,11 +92,9 @@ import {
   isSelfReferentialUndoForVersion
 } from "./version-closeout-query.js";
 import type { VersionCloseoutSummary } from "./version-closeout-query.js";
-import {
-  planVersionCloseoutApplication,
-  summarizeVersionCloseoutApplication,
-  type PlanVersionCloseoutInput,
-  type SummarizeVersionCloseoutInput
+import type {
+  PlanVersionCloseoutInput,
+  SummarizeVersionCloseoutInput
 } from "./version-closeout-application.js";
 import {
   buildBalancedL3AuthorizationPolicy,
@@ -4387,15 +4385,13 @@ export class RouteLedgerService {
   async summarizeVersionCloseout(
     input: SummarizeVersionCloseoutInput
   ): Promise<{ data: VersionCloseoutSummary; meta: Record<string, unknown> }> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    return summarizeVersionCloseoutApplication(snapshot, input);
+    return this.queryService.summarizeVersionCloseout(input);
   }
 
   async planVersionCloseout(
     input: PlanVersionCloseoutInput
   ): Promise<{ data: VersionCloseoutPlan; meta: Record<string, unknown> }> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    return planVersionCloseoutApplication(snapshot, input);
+    return this.queryService.planVersionCloseout(input);
   }
 
   async batchCreateVersions(input: BatchCreateVersionsInput): Promise<BatchCreateVersionsResult> {
