@@ -3,14 +3,14 @@
 Status: active  
 Last updated: 2026-08-21  
 Working branch: `refactor/code-health-roadmap`  
-Implementation base at handoff: `f711d89`
+Implementation base at handoff: `4e94b0f`
 Detailed roadmap: [`CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md`](./CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md)
 
 ## Handoff summary
 
-Gates A and B are closed. Stage 5 is active: read-only L3 proposal access and
-the atomic proposal-security boundary are complete. Continue from R5.4; do not
-repeat completed R5.1-R5.3 work or split the proposal write lifecycle.
+Gates A and B are closed. Stage 5 is active: proposal reads, the atomic
+proposal-security boundary, and the complete proposal write lifecycle are
+extracted. Continue from R5.5; do not repeat completed R5.1-R5.4 work.
 
 The current architectural direction is deliberately incremental:
 
@@ -33,8 +33,8 @@ The current architectural direction is deliberately incremental:
 | R5.1 | C | Extract L3 proposal reads | Done | `2a3a381` adds `L3ProposalReadService` and delegates list/get. | Proposal ordering and not-found contracts pass; no write path moved. |
 | R5.2 | C | Complete read-only L3 application projection | Done | `98c445d` moves authorization evaluation context and balanced-policy projection behind the read service. | Snapshot-reader and clock are the only dependencies; persisted gate/digest projection and no-save behavior are covered. |
 | R5.3 | C | Define one L3 proposal security port | Done | `f711d89` adds one atomic `describe` port and keeps post-save canonical verification non-injectable. | Lossy payload and gate persistence are rejected and safely rolled back; self-signing digest injection is not exposed. |
-| R5.4 | C | Extract L3 proposal write lifecycle | Next | Move propose persistence, audit event, persistence self-check, and safe rollback together. | Proposal persistence/digest/rollback suites pass unchanged. |
-| R5.5 | C | Extract approval, authorization, rejection, and commit orchestration | Todo | Move in small cohesive slices. Keep exact authorization, coordinator lease/fencing, receipt claim/finalize, and live re-evaluation together. | Full L3 protocol, recovery, replay, and authorization suites stay green. |
+| R5.4 | C | Extract L3 proposal write lifecycle | Done | `4e94b0f` moves proposal creation, audit, canonical persistence self-check, and concurrency-aware rollback into one internal service. | 68 focused and adjacent tests pass; lossy payload/gate and linked-approval rollback guards are explicit. |
+| R5.5 | C | Extract approval, authorization, rejection, and commit orchestration | Next | Move in small cohesive slices. Keep exact authorization, coordinator lease/fencing, receipt claim/finalize, and live re-evaluation together. | Full L3 protocol, recovery, replay, and authorization suites stay green. |
 | R6 | C | Build MCP middleware pipeline | Todo | Centralize `validate -> bind -> authorize -> execute -> project response -> map error`. | Tool contracts and response-detail behavior remain stable. |
 | R7 | C | Introduce document-source port | Todo | Remove direct filesystem reads from Core decisions; implement host adapter. | Core runs with in-memory document source; host integration passes. |
 | G-C | C | Combined Gate C audit | Todo | Run once after R5-R7, not after each slice. | Full workspace gates plus one focused architecture audit. |
@@ -45,19 +45,19 @@ The current architectural direction is deliberately incremental:
 
 ## Immediate next work
 
-Start with R5.4. Extract the proposal write lifecycle as one cohesive
-application service while keeping `RouteLedgerService` as the compatibility
-facade. Move these behaviors together:
+Start with R5.5 and keep each slice cohesive:
 
-- atomic security description consumption;
-- pending proposal and audit-event construction;
-- canonical persistence and reload;
-- non-injectable digest self-consistency verification;
-- concurrency-aware safe rollback after a mismatch.
+1. Map approval, exact authorization, rejection, and commit responsibilities
+   and freeze their facade contracts with delegation tests.
+2. Extract approval/rejection only where they do not split exact-authorization
+   ownership or receipt state.
+3. Move commit orchestration only as one complete chain: exact authorization,
+   lease renewal, fencing assertion, receipt claim, live re-evaluation,
+   canonical save, receipt finalization, and owner-checked release.
 
-Do not move approval, authorization, rejection, receipt, fencing, or commit
-orchestration in this slice. Preserve the R5.3 lossy-storage regression tests
-and the existing persistence/digest/rollback suites.
+Do not expose injectable security or commit implementations through the public
+package root. Preserve replay, crash-window, authorization, and migration
+evidence throughout the extraction.
 
 ## L3 safety constraints
 
