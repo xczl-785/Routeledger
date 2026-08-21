@@ -5,6 +5,8 @@ export interface ExactCommitOwnerIdentity {
   readonly instanceId: string;
 }
 
+export type ExactCommitProcessIdentity = Omit<ExactCommitOwnerIdentity, "attemptId">;
+
 export interface ExactCommitCoordinationRecord {
   readonly commitKey: string;
   readonly owner: ExactCommitOwnerIdentity;
@@ -36,19 +38,17 @@ export type ExactCommitRenewResult =
 export interface ExactCommitCoordinator {
   acquire(input: {
     readonly commitKey: string;
-    readonly owner: ExactCommitOwnerIdentity;
-    readonly leaseDurationMs: number;
+    readonly attemptId: string;
   }): Promise<ExactCommitAcquireResult>;
   assertOwned(token: ExactCommitOwnershipToken): Promise<boolean>;
-  renew(
-    token: ExactCommitOwnershipToken,
-    leaseDurationMs: number
-  ): Promise<ExactCommitRenewResult>;
+  renew(token: ExactCommitOwnershipToken): Promise<ExactCommitRenewResult>;
   release(token: ExactCommitOwnershipToken): Promise<void>;
 }
 
 interface MemoryExactCommitCoordinatorOptions {
   readonly state?: ExactCommitCoordinatorState;
+  readonly currentProcess: ExactCommitProcessIdentity;
+  readonly leaseDurationMs: number;
   readonly now: () => string;
   readonly resolveOwnerLiveness: (
     owner: ExactCommitOwnerIdentity
@@ -149,9 +149,17 @@ export class MemoryExactCommitCoordinator implements ExactCommitCoordinator {
     owner: ExactCommitOwnerIdentity
   ) => Promise<ExactCommitOwnerLiveness>;
 
+  private readonly currentProcess: ExactCommitProcessIdentity;
+
+  private readonly leaseDurationMs: number;
+
   constructor(options: MemoryExactCommitCoordinatorOptions) {
     this.now = options.now;
     this.resolveOwnerLiveness = options.resolveOwnerLiveness;
+    validateOwner({ ...options.currentProcess, attemptId: "process-validation" });
+    this.currentProcess = clone(options.currentProcess);
+    requireLeaseDuration(options.leaseDurationMs);
+    this.leaseDurationMs = options.leaseDurationMs;
     for (const [key, record] of Object.entries(options.state?.records ?? {})) {
       validateRecord(key, record);
       this.records.set(key, clone(record));
@@ -160,12 +168,14 @@ export class MemoryExactCommitCoordinator implements ExactCommitCoordinator {
 
   async acquire(input: {
     readonly commitKey: string;
-    readonly owner: ExactCommitOwnerIdentity;
-    readonly leaseDurationMs: number;
+    readonly attemptId: string;
   }): Promise<ExactCommitAcquireResult> {
     requireNonEmpty(input.commitKey, "commitKey");
-    validateOwner(input.owner);
-    requireLeaseDuration(input.leaseDurationMs);
+    const owner: ExactCommitOwnerIdentity = {
+      ...this.currentProcess,
+      attemptId: input.attemptId
+    };
+    validateOwner(owner);
 
     const now = this.now();
     requireTimestamp(now, "current time");
@@ -195,9 +205,9 @@ export class MemoryExactCommitCoordinator implements ExactCommitCoordinator {
 
     const token: ExactCommitOwnershipToken = {
       commitKey: input.commitKey,
-      owner: clone(input.owner),
+      owner,
       generation,
-      leaseExpiresAt: buildLeaseExpiry(now, input.leaseDurationMs),
+      leaseExpiresAt: buildLeaseExpiry(now, this.leaseDurationMs),
       status: "owned",
       releasedAt: null
     };
@@ -217,12 +227,8 @@ export class MemoryExactCommitCoordinator implements ExactCommitCoordinator {
     );
   }
 
-  async renew(
-    token: ExactCommitOwnershipToken,
-    leaseDurationMs: number
-  ): Promise<ExactCommitRenewResult> {
+  async renew(token: ExactCommitOwnershipToken): Promise<ExactCommitRenewResult> {
     validateRecord(token.commitKey, token);
-    requireLeaseDuration(leaseDurationMs);
     const current = this.records.get(token.commitKey);
     if (current === undefined || !ownershipMatches(current, token)) {
       return { ok: false, code: "COMMIT_OWNERSHIP_LOST" };
@@ -231,7 +237,7 @@ export class MemoryExactCommitCoordinator implements ExactCommitCoordinator {
     requireTimestamp(now, "current time");
     const renewed: ExactCommitOwnershipToken = {
       ...current,
-      leaseExpiresAt: buildLeaseExpiry(now, leaseDurationMs)
+      leaseExpiresAt: buildLeaseExpiry(now, this.leaseDurationMs)
     };
     this.records.set(token.commitKey, clone(renewed));
     return { ok: true, token: renewed };

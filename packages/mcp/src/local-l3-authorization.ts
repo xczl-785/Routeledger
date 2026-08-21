@@ -523,6 +523,12 @@ const parseState = (value: unknown): LocalL3AuthorityState => {
             [commitKey]: record as unknown as ExactCommitCoordinationRecord
           }
         },
+        currentProcess: {
+          processId: 1,
+          processStartedAt: "1970-01-01T00:00:00.000Z",
+          instanceId: "state-validator"
+        },
+        leaseDurationMs: 30_000,
         now: () => new Date().toISOString(),
         resolveOwnerLiveness: async () => "unknown"
       });

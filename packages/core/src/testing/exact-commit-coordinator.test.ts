@@ -31,18 +31,18 @@ describe("MemoryExactCommitCoordinator", () => {
     const coordinator = new MemoryExactCommitCoordinator({
       state,
       now: () => "2026-08-21T08:02:00.000Z",
-      resolveOwnerLiveness
+      leaseDurationMs: 30_000,
+      resolveOwnerLiveness,
+      currentProcess: {
+        processId: 202,
+        processStartedAt: "2026-08-21T08:01:30.000Z",
+        instanceId: "instance-2"
+      }
     });
 
     const acquired = await coordinator.acquire({
       commitKey,
-      owner: {
-        attemptId: "attempt-2",
-        processId: 202,
-        processStartedAt: "2026-08-21T08:01:30.000Z",
-        instanceId: "instance-2"
-      },
-      leaseDurationMs: 30_000
+      attemptId: "attempt-2"
     });
 
     expect(resolveOwnerLiveness).toHaveBeenCalledOnce();
@@ -81,19 +81,19 @@ describe("MemoryExactCommitCoordinator", () => {
         }
       },
       now: () => "2026-08-21T08:02:00.000Z",
-      resolveOwnerLiveness: async () => liveness
+      leaseDurationMs: 30_000,
+      resolveOwnerLiveness: async () => liveness,
+      currentProcess: {
+        processId: 202,
+        processStartedAt: "2026-08-21T08:01:30.000Z",
+        instanceId: "instance-2"
+      }
     });
 
     await expect(
       coordinator.acquire({
         commitKey,
-        owner: {
-          attemptId: "attempt-2",
-          processId: 202,
-          processStartedAt: "2026-08-21T08:01:30.000Z",
-          instanceId: "instance-2"
-        },
-        leaseDurationMs: 30_000
+        attemptId: "attempt-2"
       })
     ).resolves.toEqual({ ok: false, code });
     expect(coordinator.exportState().records[commitKey]).toMatchObject({
@@ -121,18 +121,18 @@ describe("MemoryExactCommitCoordinator", () => {
     const coordinator = new MemoryExactCommitCoordinator({
       state: { records: { [commitKey]: oldToken } },
       now: () => "2026-08-21T08:02:00.000Z",
-      resolveOwnerLiveness: async () => "dead"
+      leaseDurationMs: 30_000,
+      resolveOwnerLiveness: async () => "dead",
+      currentProcess: {
+        processId: 202,
+        processStartedAt: "2026-08-21T08:01:30.000Z",
+        instanceId: "instance-2"
+      }
     });
 
     await coordinator.acquire({
       commitKey,
-      owner: {
-        attemptId: "attempt-2",
-        processId: 202,
-        processStartedAt: "2026-08-21T08:01:30.000Z",
-        instanceId: "instance-2"
-      },
-      leaseDurationMs: 30_000
+      attemptId: "attempt-2"
     });
     await coordinator.release(oldToken);
 
@@ -151,17 +151,17 @@ describe("MemoryExactCommitCoordinator", () => {
     const commitKey = "project-1/pending-operation-1";
     const coordinator = new MemoryExactCommitCoordinator({
       now: () => "2026-08-21T08:00:00.000Z",
-      resolveOwnerLiveness: async () => "unknown"
-    });
-    const first = await coordinator.acquire({
-      commitKey,
-      owner: {
-        attemptId: "attempt-1",
+      leaseDurationMs: 30_000,
+      resolveOwnerLiveness: async () => "unknown",
+      currentProcess: {
         processId: 101,
         processStartedAt: "2026-08-21T07:59:00.000Z",
         instanceId: "instance-1"
-      },
-      leaseDurationMs: 30_000
+      }
+    });
+    const first = await coordinator.acquire({
+      commitKey,
+      attemptId: "attempt-1"
     });
     if (!first.ok) throw new Error(`Expected first ownership: ${first.code}`);
 
@@ -204,21 +204,22 @@ describe("MemoryExactCommitCoordinator", () => {
         }
       },
       now: () => "2026-08-21T08:02:00.000Z",
-      resolveOwnerLiveness
+      leaseDurationMs: 30_000,
+      resolveOwnerLiveness,
+      currentProcess: {
+        processId: 202,
+        processStartedAt: "2026-08-21T08:01:30.000Z",
+        instanceId: "instance-2"
+      }
     });
-    const acquire = (attemptId: string, processId: number) =>
+    const acquire = (attemptId: string) =>
       coordinator.acquire({
         commitKey,
-        owner: {
-          attemptId,
-          processId,
-          processStartedAt: "2026-08-21T08:01:30.000Z",
-          instanceId: `instance-${processId}`
-        },
-        leaseDurationMs: 30_000
-      });
+        attemptId
+    });
 
-    const attempts = [acquire("attempt-2", 202), acquire("attempt-3", 303)];
+    const attempts = [acquire("attempt-2"), acquire("attempt-3")];
+    for (const attempt of attempts) void attempt.catch(() => undefined);
     await vi.waitFor(() => expect(resolveOwnerLiveness).toHaveBeenCalledTimes(2));
     reportDead("dead");
     const results = await Promise.all(attempts);
@@ -247,27 +248,27 @@ describe("MemoryExactCommitCoordinator", () => {
     const coordinator = new MemoryExactCommitCoordinator({
       state: { records: { [commitKey]: oldToken } },
       now: () => "2026-08-21T08:02:00.000Z",
-      resolveOwnerLiveness: async () => "dead"
-    });
-    const takeover = await coordinator.acquire({
-      commitKey,
-      owner: {
-        attemptId: "attempt-2",
+      leaseDurationMs: 60_000,
+      resolveOwnerLiveness: async () => "dead",
+      currentProcess: {
         processId: 202,
         processStartedAt: "2026-08-21T08:01:30.000Z",
         instanceId: "instance-2"
-      },
-      leaseDurationMs: 30_000
+      }
+    });
+    const takeover = await coordinator.acquire({
+      commitKey,
+      attemptId: "attempt-2"
     });
     if (!takeover.ok) throw new Error(`Expected takeover: ${takeover.code}`);
 
     await expect(coordinator.assertOwned(oldToken)).resolves.toBe(false);
     await expect(coordinator.assertOwned(takeover.token)).resolves.toBe(true);
-    await expect(coordinator.renew(oldToken, 60_000)).resolves.toEqual({
+    await expect(coordinator.renew(oldToken)).resolves.toEqual({
       ok: false,
       code: "COMMIT_OWNERSHIP_LOST"
     });
-    await expect(coordinator.renew(takeover.token, 60_000)).resolves.toMatchObject({
+    await expect(coordinator.renew(takeover.token)).resolves.toMatchObject({
       ok: true,
       token: {
         generation: 2,
