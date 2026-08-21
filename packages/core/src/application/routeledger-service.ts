@@ -85,6 +85,10 @@ import {
   VersionCommandService,
   type VersionCommandUseCases
 } from "./version-command-service.js";
+import {
+  L3ProposalReadService,
+  type L3ProposalReadUseCases
+} from "./l3-proposal-read-service.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
   inspectEntryDocumentCoverage,
@@ -173,6 +177,7 @@ export interface RouteLedgerServiceOptions {
   queryService?: RouteLedgerVersionQueryUseCases;
   versionCommandService?: VersionCommandUseCases;
   batchCreateVersionsUseCase?: BatchCreateVersionsExecutor;
+  l3ProposalReadService?: L3ProposalReadUseCases;
   projectRoot?: string;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
@@ -2817,6 +2822,8 @@ export class RouteLedgerService {
 
   private readonly batchCreateVersionsUseCase: BatchCreateVersionsExecutor;
 
+  private readonly l3ProposalReadService: L3ProposalReadUseCases;
+
   private readonly projectRoot: string | null;
 
   private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
@@ -2847,6 +2854,9 @@ export class RouteLedgerService {
           ),
         propose: (input) => this.proposeL3Operation(input)
       });
+    this.l3ProposalReadService =
+      options.l3ProposalReadService ??
+      new L3ProposalReadService({ storage: options.storage });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3912,17 +3922,11 @@ export class RouteLedgerService {
   }
 
   async listL3Proposals(projectId: string): Promise<PendingOperation[]> {
-    const snapshot = await requireProject(this.storage, projectId);
-
-    return snapshot.pendingOperations
-      .slice()
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    return this.l3ProposalReadService.listL3Proposals(projectId);
   }
 
   async getL3Proposal(projectId: string, pendingOperationId: string): Promise<PendingOperation> {
-    const snapshot = await requireProject(this.storage, projectId);
-
-    return requirePendingOperation(snapshot, pendingOperationId);
+    return this.l3ProposalReadService.getL3Proposal(projectId, pendingOperationId);
   }
 
   async getL3AuthorizationEvaluationContext(input: {

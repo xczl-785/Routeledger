@@ -22,6 +22,7 @@ export * from "./application/exact-authorization-contract.js";
 export * from "./application/exact-authorization-store.js";
 export * from "./application/l3-decision.js";
 export * from "./application/l3-operation-orchestrator.js";
+export * from "./application/l3-proposal-read-service.js";
 export * from "./application/ordinary-write-idempotency.js";
 export * from "./application/routeledger-query-service.js";
 export * from "./application/batch-create-versions-use-case.js";
