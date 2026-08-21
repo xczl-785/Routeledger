@@ -65,21 +65,21 @@ const REMOVED_TOOL_CONTRACT_DIGESTS = {
 } as const;
 
 const EXPECTED_TOOL_CONTRACT_DIGESTS = {
-  inspect_runtime: "a128a28c3122613882c00aece3dcf708afa05ce17679b95cb521fc790aa73d27",
-  configure_binding: "173959152c3d331efe756d3769d6ceabcc2faccb0f01b8e67ee787b14289c502",
-  configure_project: "ddd2a20a2363aa134d36fbbb6c2f0ef13d98c701542ce2c24a645461ac30a523",
-  inspect_route_progress: "ee33a6b9a05701ad6a50843bcc1b906a8f430b75399823ef4ffb226f164e2428",
-  inspect_versions: "8682fbb8b7185fd962ed06acdf0aafed966bedb543c7d7903d7c270b21665b82",
-  inspect_l3_route_operations: "f9243542802191e88544e525aeffd559eaa8bd1dfb8af24fb6b705c69ae4d8d2",
-  manage_todo: "d37cac76e6bdf10dd20708d009c70e9c28606cb90b9ffad19b70fc566fdff721",
-  manage_deferred: "91167954936757b98814b60408e2bb4e2e16860349402a43c83f3358e231962d",
-  manage_constraint: "40b20ddeef6faabb3f1377ab86dc2f0d821c4eeca1381c3c558dc3d536508f2c",
-  propose_version_lifecycle_change: "937f21d9fbc73b5f878f0917842286cb4d879bfbd6b1121835cea0e42c42a3ac",
-  propose_version_structure_change: "fe496e73d3f4c44299325ad47f264dd8c77e3f06d1285cd63cd30dbafd52ddbb",
-  propose_l3_route_change: "f0282666db2aa87b05f6f1b4c396fac24375b4f1e4dc5096af4318516980160c",
-  set_version_state: "010290bc44f5f1071bef65b76ccf4c42ad3f8aaa29d426d3ac1e4a0f72c80ce0",
-  execute_route_change: "f3cb6e695c0229a7bfbee2ba4658d5fff70311b0c49c958eaa8b9ff3f6bbea8f",
-  manage_mission_control: "5cb46a058edec62a79aff7ac5273c15b37468714b9a2b158ad8b543dd3e8ee69"
+  inspect_runtime: "7cf83bf424929fe0cabd7494362f7a5510bcc2ac2f13d624af39484d8cb82896",
+  configure_binding: "c29110103adc70d2a09d99333b24df0be7a70452eeed1d7444ee8e4d145f899a",
+  configure_project: "6051b3a33ebe6f7805d7a7439e6f52f3704336e4e0d46c9180271b649dc531e9",
+  inspect_route_progress: "a7aa7d052dffba17f97734074d5fdb33061de83e35a5a524e24e36251357e7ed",
+  inspect_versions: "80678914abea7583a112d590045b355b4c03b6a80d412241a77ce941fad1e762",
+  inspect_l3_route_operations: "39b657927f844f5f3bf5c5cbdc25401d1ffa679e0e0118609ff188f32c44a757",
+  manage_todo: "3c8ca1c0c87d72b4b1fc39558c3e5a3c4b25f25ba2d9b0b8d7be08184074d010",
+  manage_deferred: "07d6b9fcae2d19807fd3bc90547b759110ccc9c88b6930e51d2028184813c184",
+  manage_constraint: "99597c205e5cbb3452e8e697f44c74860d7601ca6df9c0cb177ddcfaf69d6997",
+  propose_version_lifecycle_change: "83320a77caecc3833851c3f4f12d86989ee7acae589e789d6793dbfd81a6c37d",
+  propose_version_structure_change: "59f73895a080862b1de52e832cc58e3d377844e98cf2683090d3a7dd01d45ed8",
+  propose_l3_route_change: "308d72df78a6bd4fa7167d09a42c949a11893202731f268fe26e1b62ee8d63dc",
+  set_version_state: "b844b6ab10ea1988f8161e81fc0a7302541ed6072d0cc1852326750ab7fdba06",
+  execute_route_change: "a9145a2012571d204c0c8263115417045fc950835796f6d8a5e3713970fd8162",
+  manage_mission_control: "95cca65c6dcd640ffcea75a1c90f175ba30b3118d9e0ca05729e08e1b5ee11f4"
 } as const;
 
 const sortKeys = (value: unknown): unknown => {
@@ -145,8 +145,12 @@ describe("MCP tool description contract", () => {
       expect(highRisk).toHaveLength(1);
       expect(writes.concat(highRisk)).toHaveLength(11);
       for (const tool of tools) {
-        const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
-        expect(properties).not.toHaveProperty("responseLocale");
+        const serializedSchema = JSON.stringify(tool.inputSchema);
+        expect(serializedSchema).not.toContain("responseLocale");
+        expect(serializedSchema).toContain('"detail"');
+        expect(serializedSchema).toContain('"compact"');
+        expect(serializedSchema).toContain('"standard"');
+        expect(serializedSchema).toContain('"audit"');
       }
       for (const tool of writes.concat(highRisk)) {
         const required = (tool.inputSchema.required ?? []) as string[];
@@ -202,6 +206,10 @@ describe("MCP tool description contract", () => {
     try {
       expect(registry.instructions).toContain("inspect_runtime with operation=runtime");
       expect(registry.instructions).toContain("manage_mission_control with operation=open");
+      expect(registry.instructions).toContain(
+        "Use the project's contentLocale when paraphrasing the stable English notice"
+      );
+      expect(registry.instructions).not.toContain("surface its localized notice");
       expect(registry.instructions).not.toMatch(/(?:^|\s)action=/u);
     } finally {
       registry.close();
@@ -340,6 +348,12 @@ describe("MCP tool description contract", () => {
       );
       expect(registry.instructions).toContain(
         "execute_route_change preserves the exact proposal, decision, artifact, and commit chain"
+      );
+      expect(registry.instructions).toContain(
+        "Use detail=compact for routine Agent action loops"
+      );
+      expect(registry.instructions).toContain(
+        "Compact responses report omittedSections and preserve executable next actions"
       );
       expect(registry.instructions).toContain("Project files are never authorization authority");
     } finally {

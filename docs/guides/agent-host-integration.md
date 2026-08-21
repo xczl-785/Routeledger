@@ -71,6 +71,21 @@ does not create a database. A newly initialized JSON-only project uses hashed
 operation envelopes by default. Existing loose-audit projects remain in their
 current physical layout until an explicit `json compact-audit` migration.
 
+## Response detail
+
+Use `detail: "compact"` for routine Agent action loops. Compact responses keep
+the state, IDs, blockers, executable recommended actions, idempotency/replay
+state, and exact L3 proposal/digest/artifact identifiers needed for the next
+call. Audit-heavy payload bodies, verbose runtime identity, and full event
+records are omitted or summarized; `meta.omittedSections` states exactly what
+was removed and `meta.hasMore` indicates whether a `standard` or `audit` read
+can provide more.
+
+Omitting `detail` uses `standard` and preserves the compatibility response.
+Use `detail: "audit"` only when complete diagnostic, proposal-payload, event,
+or authorization evidence is needed. Selecting response detail does not change
+the operation, persisted state, digest, or idempotency fingerprint.
+
 ## Multiple projects
 
 Run one entry per managed project, for example `routeledger_project_a` and

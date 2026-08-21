@@ -121,6 +121,9 @@ const assertPluginFiles = async () => {
     "configure_binding",
     "manage_todo",
     "routeledger-version-lifecycle",
+    "Use the project's `contentLocale` when paraphrasing it",
+    "It does not localize MCP control-plane messages",
+    "interactionProfile: agent_only",
     "Never edit canonical RouteLedger JSON directly"
   ]) {
     if (!operatorSkill.includes(requiredGuidance)) {
@@ -464,12 +467,17 @@ const runPluginStdioSmoke = async () => {
       throw new Error("Bundled runtime did not initialize JSON-only storage after the explicit session rebound.");
     }
     if (
+      initializedRuntimeContext?.interactionProfile !== "agent_only" ||
       initializedRuntimeContext?.missionControl?.status !== "stopped" ||
       initializedRuntimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
-      initializedRuntimeContext?.missionControl?.recommendedAction?.tool !== "manage_mission_control" ||
-      initializedRuntimeContext?.missionControl?.recommendedAction?.arguments?.operation !== "open"
+      initializedRuntimeContext?.missionControl?.recommendedAction !== null ||
+      initializedRuntimeContext?.missionControl?.recommendationLevel !== "advisory" ||
+      initializedRuntimeContext?.missionControl?.advisoryAction?.tool !== "manage_mission_control" ||
+      initializedRuntimeContext?.missionControl?.advisoryAction?.arguments?.operation !== "open"
     ) {
-      throw new Error("Bundled runtime did not expose executable Mission Control startup guidance.");
+      throw new Error(
+        "Bundled runtime did not keep Mission Control startup advisory for the agent-only Codex profile."
+      );
     }
     if (JSON.stringify(initializedRuntimeContext?.runtimeIdentity) !== JSON.stringify(initializeIdentity)) {
       throw new Error("Bundled runtime initialize and inspect_runtime reported different identities.");

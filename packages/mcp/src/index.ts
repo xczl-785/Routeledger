@@ -40,10 +40,16 @@ import {
 import { RouteLedgerDebugLogger } from "./debug-log.js";
 import { InvalidToolInputError } from "./input-adapter.js";
 import {
+  resolveInteractionProfile,
+  type RouteLedgerInteractionProfile
+} from "./interaction-profile.js";
+export type { RouteLedgerInteractionProfile } from "./interaction-profile.js";
+import {
   resolveRuntimeIdentity,
   type RuntimeIdentity
 } from "./runtime-identity.js";
 import { normalizeAgentToolResponse } from "./agent-response.js";
+import { applyAgentResponseDetail, parseAgentResponseDetail } from "./response-detail.js";
 import {
   defineTool,
   type ToolDefinition,
@@ -124,6 +130,7 @@ export interface RouteLedgerMcpRegistryOptions {
   routeledgerRoot?: string;
   mcpRoots?: string[];
   hostProfile?: RouteLedgerHostProfileName;
+  interactionProfile?: RouteLedgerInteractionProfile;
   runtimeProfile?: RouteLedgerMcpRuntimeProfile;
   /** Build/package-provided identity. Source execution uses the local default. */
   runtimeIdentity?: RuntimeIdentity;
@@ -205,6 +212,7 @@ export type RouteLedgerMcpRegistry = {
     };
   };
   readonly hostProfile: RouteLedgerHostProfileName;
+  readonly interactionProfile: RouteLedgerInteractionProfile;
   readonly runtimeProfile: RouteLedgerMcpRuntimeProfile;
   readonly runtimeIdentity: RuntimeIdentity;
   readonly instructions: string;
@@ -250,6 +258,12 @@ const DEFAULT_APPROVER: Actor = {
   id: "mcp-user",
   type: "user",
   displayName: "routeledger-mcp-user"
+};
+
+const CODEX_HOST_AUTHORITY: Actor = {
+  id: "codex-host-authority",
+  type: "system",
+  displayName: "Codex host admission"
 };
 
 const serverCapabilities = {
@@ -445,9 +459,10 @@ const createInstructions = (options: {
   return [
     "RouteLedger exposes project state and route transitions through MCP tools.",
     "Before route operations, call inspect_runtime with operation=runtime to verify workspaceRoot and routeledgerRoot.",
-    "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
+    "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface the Mission Control decision once. Use the project's contentLocale when paraphrasing the stable English notice. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
     "If binding is missing, invalid, or low-confidence, use inspect_runtime to discover and plan the target, then call configure_binding; never treat the MCP process cwd as an initialization target.",
     "Use inspect_route_progress for current context, next actions, document drift, and closeout planning; use inspect_versions for version lists, structure, gates, and transition guidance; use inspect_l3_route_operations for L3 authorization and proposal state.",
+    "Use detail=compact for routine Agent action loops, standard for the compatibility response, and audit only when complete diagnostic or authorization material is required. Compact responses report omittedSections and preserve executable next actions plus exact L3 identifiers and digests.",
     "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
     "Use manage_todo, manage_deferred, and manage_constraint for current work. Legacy Undo records remain audit-only and are available only through inspect_route_progress when explicitly requested.",
     "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
@@ -687,6 +702,18 @@ const PUBLIC_TOOL_REFERENCE_MAP: Record<string, { tool: string; operation?: stri
   reject_l3_operation: { tool: "execute_route_change", operation: "reject_l3_operation" }
 };
 
+const PUBLIC_TOOLS_REQUIRING_ROUTELEDGER_ROOT = new Set([
+  "configure_project",
+  "manage_todo",
+  "manage_deferred",
+  "manage_constraint",
+  "set_version_state",
+  "propose_version_lifecycle_change",
+  "propose_version_structure_change",
+  "propose_l3_route_change",
+  "execute_route_change"
+]);
+
 for (const [publicTool, operations] of [
   ["inspect_route_progress", ["get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout", "plan_version_closeout"]],
   ["inspect_versions", ["list_versions_window", "list_versions", "check_start_gate", "check_close_gate", "get_version_structure", "get_version_transition_guide"]],
@@ -697,13 +724,18 @@ for (const [publicTool, operations] of [
   }
 }
 
-const projectPublicToolReferences = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(projectPublicToolReferences);
+const projectPublicToolReferences = (
+  value: unknown,
+  expectedRouteLedgerRoot: string | null = null
+): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => projectPublicToolReferences(item, expectedRouteLedgerRoot));
+  }
   if (value === null || typeof value !== "object") return value;
   const record = Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, child]) => [
       key,
-      projectPublicToolReferences(child)
+      projectPublicToolReferences(child, expectedRouteLedgerRoot)
     ])
   );
   const mapped = typeof record.tool === "string" ? PUBLIC_TOOL_REFERENCE_MAP[record.tool] : undefined;
@@ -736,6 +768,45 @@ const projectPublicToolReferences = (value: unknown): unknown => {
           ? (record.toolInput as Record<string, unknown>)
           : {})
       };
+    }
+  }
+  const projectedTool =
+    typeof record.tool === "string"
+      ? record.tool
+      : typeof record.recommendedTool === "string"
+        ? record.recommendedTool
+        : null;
+  if (
+    projectedTool !== null &&
+    PUBLIC_TOOLS_REQUIRING_ROUTELEDGER_ROOT.has(projectedTool)
+  ) {
+    const carrierKeys = ["toolInput", "arguments", "input"].filter(
+      (key) =>
+        record[key] !== null &&
+        typeof record[key] === "object" &&
+        !Array.isArray(record[key])
+    );
+    for (const key of carrierKeys.length > 0 ? carrierKeys : ["toolInput"]) {
+      const carrier = (record[key] as Record<string, unknown> | undefined) ?? {};
+      if (expectedRouteLedgerRoot !== null) {
+        record[key] = {
+          ...carrier,
+          expectedRouteLedgerRoot:
+            typeof carrier.expectedRouteLedgerRoot === "string"
+              ? carrier.expectedRouteLedgerRoot
+              : expectedRouteLedgerRoot
+        };
+      } else {
+        record[key] = carrier;
+        const bindings = Array.isArray(record.requiredRuntimeBindings)
+          ? record.requiredRuntimeBindings.filter(
+              (item): item is string => typeof item === "string"
+            )
+          : [];
+        record.requiredRuntimeBindings = [
+          ...new Set([...bindings, "expectedRouteLedgerRoot"])
+        ];
+      }
     }
   }
   return record;
@@ -1183,6 +1254,16 @@ const resolveMissionControlRoots = (
 export const createRouteLedgerMcpRegistry = (
   options: RouteLedgerMcpRegistryOptions
 ): RouteLedgerMcpRegistry => {
+  const hostProfile = options.hostProfile ?? "generic";
+  const interactionProfile = resolveInteractionProfile(
+    hostProfile,
+    options.interactionProfile
+  );
+  const actor = resolveActor(DEFAULT_ACTOR, options.actor);
+  const approver = resolveActor(
+    hostProfile === "codex" ? CODEX_HOST_AUTHORITY : DEFAULT_APPROVER,
+    options.approver
+  );
   const bindingConfig = {
     workspaceRoot: options.workspaceRoot,
     workspaceRootSource: options.workspaceRootSource,
@@ -1211,8 +1292,8 @@ export const createRouteLedgerMcpRegistry = (
                 ...(options.l3Authorization.trustedClientId === undefined
                   ? {}
                   : { clientId: options.l3Authorization.trustedClientId }),
-                subjectId: resolveActor(DEFAULT_APPROVER, options.approver).id,
-                hostKind: options.hostProfile ?? "generic"
+                subjectId: approver.id,
+                hostKind: hostProfile
               }
         );
   const service = runtime?.service ?? (null as unknown as RouteLedgerService);
@@ -1225,9 +1306,6 @@ export const createRouteLedgerMcpRegistry = (
           projectRoot: initialBinding.routeledgerRoot,
           enabled: options.debugLog?.enabled
         });
-  const actor = resolveActor(DEFAULT_ACTOR, options.actor);
-  const approver = resolveActor(DEFAULT_APPROVER, options.approver);
-  const hostProfile = options.hostProfile ?? "generic";
   const runtimeProfile = options.runtimeProfile ?? "full";
   const configuredRuntimeIdentity = options.runtimeIdentity ?? resolveRuntimeIdentity(runtimeProfile);
   const runtimeIdentity: RuntimeIdentity = {
@@ -1302,7 +1380,7 @@ export const createRouteLedgerMcpRegistry = (
     const suggestedContentLocale = null;
     const contentLocaleEffectiveScopes = [
       "project_setting",
-      "agent_content_default",
+      "agent_authored_project_content_default",
       "write_integrity_gate"
     ] as const;
     const contentLocale =
@@ -1393,7 +1471,7 @@ export const createRouteLedgerMcpRegistry = (
           routeledgerRoot: roots.routeledgerRoot,
           expectedRuntimeIdentity: runtimeIdentity
         });
-        return buildMissionControlRuntimeContext(status);
+        return buildMissionControlRuntimeContext(status, interactionProfile);
       } catch (error) {
         return buildMissionControlRuntimeContextError(error);
       }
@@ -1403,6 +1481,7 @@ export const createRouteLedgerMcpRegistry = (
       binding: summarizeRuntimeBinding(binding),
       processCwd: binding.processCwd,
       hostProfile,
+      interactionProfile,
       runtimeProfile,
       runtimeIdentity,
       actor: {
@@ -1539,7 +1618,11 @@ export const createRouteLedgerMcpRegistry = (
       runtimeIdentity,
       withCurrentRuntimeContextMeta
     });
-  const projectBootstrapTools = createProjectBootstrapTools({ service, actor });
+  const projectBootstrapTools = createProjectBootstrapTools({
+      service,
+      actor,
+      interactionProfile
+    });
   const contextTools = createContextTools({
       service,
       actor,
@@ -1926,6 +2009,7 @@ export const createRouteLedgerMcpRegistry = (
     serverInfo,
     serverCapabilities,
     hostProfile,
+    interactionProfile,
     runtimeProfile,
     runtimeIdentity,
     instructions,
@@ -1937,17 +2021,33 @@ export const createRouteLedgerMcpRegistry = (
         return reboundRegistry.invoke(toolName, input);
       }
       const handler = handlers.get(toolName);
+      const finalizeResponse = (response: ToolResponse): ToolResponse => {
+        const requestedDetail = parseAgentResponseDetail(input?.detail);
+        const definition = toolDefinitions.find((tool) => tool.name === toolName);
+        return applyAgentResponseDetail(response, {
+          detail: requestedDetail ?? "standard",
+          explicit: requestedDetail !== null,
+          toolName,
+          ...(typeof input?.operation === "string" ? { operation: input.operation } : {}),
+          riskLevel: definition?._meta.routeledger.riskLevel ?? "read-only"
+        });
+      };
 
       if (handler === undefined) {
-        return normalizeAgentToolResponse(
-          projectPublicToolReferences(await attachRuntimeContextToError({
-            ok: false,
-            error: {
-              code: "ACTION_NOT_IMPLEMENTED",
-              message: `unknown tool ${toolName}`
-            }
-          })) as ToolResponse,
-          toolName
+        return finalizeResponse(
+          normalizeAgentToolResponse(
+            projectPublicToolReferences(
+              await attachRuntimeContextToError({
+                ok: false,
+                error: {
+                  code: "ACTION_NOT_IMPLEMENTED",
+                  message: `unknown tool ${toolName}`
+                }
+              }),
+              readBinding().routeledgerRoot
+            ) as ToolResponse,
+            toolName
+          )
         );
       }
 
@@ -1961,11 +2061,14 @@ export const createRouteLedgerMcpRegistry = (
           activationResponse ?? response,
           input
         );
-        return normalizeAgentToolResponse(
-          projectPublicToolReferences(
-            await attachRuntimeContextToError(responseWithReplayGuidance)
-          ) as ToolResponse,
-          toolName
+        return finalizeResponse(
+          normalizeAgentToolResponse(
+            projectPublicToolReferences(
+              await attachRuntimeContextToError(responseWithReplayGuidance),
+              readBinding().routeledgerRoot
+            ) as ToolResponse,
+            toolName
+          )
         );
       } catch (error) {
         const errorContext = {
@@ -1988,11 +2091,14 @@ export const createRouteLedgerMcpRegistry = (
             inputKeys: Object.keys(input ?? {}).sort()
           }
         });
-        return normalizeAgentToolResponse(
-          projectPublicToolReferences(
-            await attachRuntimeContextToError(response)
-          ) as ToolResponse,
-          toolName
+        return finalizeResponse(
+          normalizeAgentToolResponse(
+            projectPublicToolReferences(
+              await attachRuntimeContextToError(response),
+              readBinding().routeledgerRoot
+            ) as ToolResponse,
+            toolName
+          )
         );
       }
     },

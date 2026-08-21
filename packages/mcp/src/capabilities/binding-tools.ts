@@ -5,6 +5,7 @@ import type { Actor, RouteLedgerService } from "@routeledger/core";
 
 import type { RouteLedgerBindingPlanResult } from "../binding-assist.js";
 import type { RouteLedgerBindingSummary } from "../binding.js";
+import type { RouteLedgerInteractionProfile } from "../interaction-profile.js";
 import { defineTool, type ToolRegistration } from "../registry/tool-contract.js";
 
 type HostProfile = "generic" | "codex" | "claude-code" | "cursor";
@@ -65,6 +66,7 @@ type BootstrapService = Pick<
 export interface ProjectBootstrapToolDependencies {
   service: BootstrapService;
   actor: Actor;
+  interactionProfile?: RouteLedgerInteractionProfile;
 }
 
 const stringSchema = (description: string): Record<string, unknown> => ({
@@ -399,6 +401,8 @@ export const createProjectBootstrapTools = (
   dependencies: ProjectBootstrapToolDependencies
 ): ToolRegistration[] => {
   const { service, actor } = dependencies;
+  const interactionProfile =
+    dependencies.interactionProfile ?? "agent_with_human_review";
 
   return [
     defineTool(
@@ -420,16 +424,33 @@ export const createProjectBootstrapTools = (
         riskLevel: "write",
         toolKind: "bootstrap"
       },
-      async (input) => ({
-        ok: true,
-        data: await service.initProject({
+      async (input) => {
+        const result = await service.initProject({
           name: input.name,
           description: input.description,
           contentLocale: input.contentLocale,
           firstVersion: input.firstVersion ?? null,
           actor
-        })
-      })
+        });
+        const documentation = result.documentation;
+        return {
+          ok: true,
+          data:
+            interactionProfile === "agent_only" &&
+            documentation?.recommendedAction !== null &&
+            documentation?.recommendedAction !== undefined
+              ? {
+                  ...result,
+                  documentation: {
+                    ...documentation,
+                    recommendedAction: null,
+                    advisoryAction: documentation.recommendedAction,
+                    recommendationLevel: "advisory"
+                  }
+                }
+              : result
+        };
+      }
     ),
     defineTool(
       "set_project_content_locale",

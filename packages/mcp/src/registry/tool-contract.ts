@@ -85,6 +85,53 @@ const expectedRouteLedgerRootSchema = {
     "Runtime-required absolute routeledgerRoot assertion for write/high-risk tools, including dry_run previews. It must exactly match the MCP server routeledgerRoot."
 };
 
+const responseDetailSchema = {
+  type: "string",
+  enum: ["compact", "standard", "audit"],
+  description:
+    "Response detail: compact for agent action loops, standard for the compatibility response, or audit for complete diagnostic and authorization material. Defaults to standard."
+};
+
+const withResponseDetailInputSchema = (
+  inputSchema: Record<string, unknown>
+): Record<string, unknown> => {
+  const properties =
+    inputSchema.properties !== null && typeof inputSchema.properties === "object"
+      ? (inputSchema.properties as Record<string, unknown>)
+      : null;
+  const oneOf = Array.isArray(inputSchema.oneOf)
+    ? inputSchema.oneOf.map((branch) =>
+        branch !== null && typeof branch === "object" && !Array.isArray(branch)
+          ? withResponseDetailInputSchema(branch as Record<string, unknown>)
+          : branch
+      )
+    : undefined;
+  if (properties === null) {
+    return { ...inputSchema, ...(oneOf === undefined ? {} : { oneOf }) };
+  }
+  const existing =
+    properties.detail !== null && typeof properties.detail === "object"
+      ? (properties.detail as Record<string, unknown>)
+      : null;
+  const existingEnum = Array.isArray(existing?.enum)
+    ? existing.enum.filter((value): value is string => typeof value === "string")
+    : [];
+  return {
+    ...inputSchema,
+    ...(oneOf === undefined ? {} : { oneOf }),
+    properties: {
+      ...properties,
+      detail:
+        existing === null
+          ? responseDetailSchema
+          : {
+              ...existing,
+              enum: [...new Set([...existingEnum, ...responseDetailSchema.enum])]
+            }
+    }
+  };
+};
+
 const approvalModeForRisk = (
   riskLevel: RouteLedgerToolRiskLevel
 ): RouteLedgerApprovalMode => {
@@ -173,7 +220,10 @@ export const defineTool = (
   definition: {
     name,
     description: formatToolNarrative(narrative),
-    inputSchema: withExpectedRouteLedgerRootInputSchema(inputSchema, options.riskLevel),
+    inputSchema: withExpectedRouteLedgerRootInputSchema(
+      withResponseDetailInputSchema(inputSchema),
+      options.riskLevel
+    ),
     ...(options.outputSchema === undefined
       ? {}
       : { outputSchema: options.outputSchema }),

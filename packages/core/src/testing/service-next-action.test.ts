@@ -377,7 +377,7 @@ describe("route ledger service", () => {
     });
   });
 
-  it("running current version without open work returns a localized decision branch", async () => {
+  it("running current version without open work keeps control-plane guidance in stable English", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
@@ -415,13 +415,15 @@ describe("route ledger service", () => {
     expect(nextAction.data).toMatchObject({
       nextAction: {
         actionType: "decision_required",
-        summary: "当前 Version 正在运行，但没有开放工作项。",
+        summary: "The current Version is running but has no open work.",
+        reason: "Decide whether more work must be recorded or implementation is actually complete.",
         targetId: currentVersion.id,
         requiresL3Approval: false,
         recordIds: [currentVersion.id],
         choices: [
           {
             actionType: "create_todo",
+            when: "Implementation work remains.",
             recommendedTool: "create_todo",
             toolInput: {
               projectId: "project-1",
@@ -431,6 +433,7 @@ describe("route ledger service", () => {
           },
           {
             actionType: "mark_version_complete",
+            when: "Implementation is actually complete.",
             recommendedTool: "mark_version_complete",
             toolInput: {
               projectId: "project-1",

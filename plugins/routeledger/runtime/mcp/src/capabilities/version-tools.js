@@ -44,7 +44,10 @@ const previewOrProposeCloseOutputSchema = toolOutputSchema(objectSchema({
     proposalPersisted: { type: "boolean", const: true },
     pendingOperationId: { type: "string" },
     operationDigest: operationDigestOutputSchema,
-    humanReviewText: { type: "string" },
+    humanReviewText: {
+        type: "string",
+        description: "Stable human-review material for the agent to interpret or paraphrase; it is not localized user-facing project content."
+    },
     recommendedNextActions: persistedProposalGuidanceOutputSchema
 }, [
     "mode",

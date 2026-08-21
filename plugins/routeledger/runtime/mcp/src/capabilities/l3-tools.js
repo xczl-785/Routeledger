@@ -147,7 +147,7 @@ export const createL3AuthorizationTools = (dependencies) => {
                                     ruleCount: profile.delegatedPolicy.rules.length,
                                     alwaysPrompt: profile.delegatedPolicy.alwaysPrompt
                                 },
-                            ...(input.detail === "internal"
+                            ...(input.detail === "internal" || input.detail === "audit"
                                 ? {
                                     internal: {
                                         profileId: profile.profileId,

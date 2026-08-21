@@ -75,6 +75,12 @@ describe("MCP tool contract construction", () => {
         type: "object",
         properties: {
           value: { type: "string" },
+          detail: {
+            type: "string",
+            enum: ["compact", "standard", "audit"],
+            description:
+              "Response detail: compact for agent action loops, standard for the compatibility response, or audit for complete diagnostic and authorization material. Defaults to standard."
+          },
           expectedRouteLedgerRoot: {
             type: "string",
             description:
@@ -105,6 +111,34 @@ describe("MCP tool contract construction", () => {
     await expect(registration.handler({ value: "x" })).resolves.toEqual({
       ok: true,
       data: { accepted: true }
+    });
+  });
+
+  it("adds response detail to every composite branch", () => {
+    const internalTool = defineTool(
+      "internal_read",
+      { what: "Read a fixture." },
+      { type: "object", properties: {}, additionalProperties: false },
+      { title: "Internal Read", riskLevel: "read-only" },
+      async () => ({ ok: true, data: { id: "fixture-1" } })
+    );
+    const composite = createCompositeTool(
+      "public_read",
+      "Public Read",
+      "Read a public fixture.",
+      [{ action: "read", tool: internalTool }],
+      { title: "Public Read", riskLevel: "read-only" }
+    );
+
+    expect(composite.definition.inputSchema).toMatchObject({
+      oneOf: [
+        {
+          properties: {
+            operation: { const: "read" },
+            detail: { enum: ["compact", "standard", "audit"] }
+          }
+        }
+      ]
     });
   });
 });

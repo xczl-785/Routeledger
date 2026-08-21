@@ -71,15 +71,28 @@ rules.
     concrete BCP 47 locale is persisted.
 11. `inspect_runtime(operation="runtime").contentLocale.effectiveScopes` reports the current
     bounded effect of `contentLocale`: the persisted project setting, the
-    default language agents should use for new project content, and the
+    `agent_authored_project_content_default` language agents should use for new project content, and the
     write-integrity gate. It does
     not claim translation of user-authored or existing project content.
-12. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
+    MCP diagnostics, blockers, next actions, state labels, and other control-plane
+    messages remain stable English. `humanReviewText` is stable review material
+    for an agent to interpret or paraphrase, not localized project content.
+12. Agent-facing recommended actions are projected to public task-level tools.
+    Write, proposal, and high-risk action inputs include the active binding's
+    `expectedRouteLedgerRoot`; when no trusted root exists, the action declares
+    `requiredRuntimeBindings` instead. Admitted proposal execution also carries
+    the exact operation digest.
+13. The MCP runtime exposes an `interactionProfile` without persisting it into
+    canonical project data. Codex, Claude Code, and Cursor default to
+    `agent_only`; generic MCP defaults to `agent_with_human_review`. Under
+    `agent_only`, Mission Control and human-entry setup remain available as
+    `advisoryAction` metadata rather than primary recommended actions.
+14. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
     current Version ID, title, and state. It returns every recognized,
     mismatched, and non-detected assertion under `checkedAssertions`, and its
     `coverage.level` remains `partial`; zero warnings never claims complete
     document coverage.
-13. `configure_project(operation="initialize")` distinguishes project initialization from route selection.
+15. `configure_project(operation="initialize")` distinguishes project initialization from route selection.
     Omitting `firstVersion` creates a valid empty route with nullable current
     and legacy-initial pointers. An explicit `firstVersion` creates the first
     current `wait` node and its `initialTodos` in the same aggregate write.
@@ -113,6 +126,17 @@ rules.
     `inspect_l3_route_operations`), 10 ordinary write tools, and one high-risk tool
     (`execute_route_change`). Host binding config rendering/writing remains an
     internal/CLI installation capability rather than an Agent-facing MCP tool.
+18. Every public operation accepts `detail: compact | standard | audit`.
+    Omission keeps the compatibility-preserving `standard` response.
+    `compact` is intended for routine Agent loops: it shortens runtime binding
+    metadata, summarizes events, caps long arrays, removes operation and digest
+    payload bodies, and adds structured `agentSummary` plus `delta`. Its metadata
+    reports `detailApplied`, `payloadBytes`, `hasMore`, and exact
+    `omittedSections`. Executable recommended-action inputs are never trimmed.
+    Exact proposal, target, digest, authorization, approval-artifact, replay,
+    and commit identifiers remain available so an Agent can complete L3 state
+    progression without requesting audit material. `audit` preserves the full
+    response and exposes L3 host-diagnostic authorization fields.
 
 ## Evidence
 

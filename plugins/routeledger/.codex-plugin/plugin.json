@@ -1,7 +1,7 @@
 {
   "name": "routeledger",
-  "version": "0.10.3",
-  "description": "Canonical English agent protocol with user-controlled project content locale.",
+  "version": "0.10.4",
+  "description": "Agent-first route control with compact, actionable MCP responses.",
   "author": {
     "name": "RouteLedger"
   },

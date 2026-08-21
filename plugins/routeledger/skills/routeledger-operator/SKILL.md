@@ -20,12 +20,16 @@ Use `routeledger-version-lifecycle` for Version lists, structure, gates, closeou
 ## Bind and initialize
 
 1. Call `inspect_runtime(operation="runtime")`. Confirm the workspace root, RouteLedger root, active project, storage mode, and `contentLocale`.
-2. Surface the localized Mission Control notice once per task. Open it only after an explicit user decision; declining the UI never blocks RouteLedger work.
+2. Surface the Mission Control decision to the user once per task. Use the project's `contentLocale` when paraphrasing it; the raw MCP notice may remain in stable English. Open it only after an explicit user decision; declining the UI never blocks RouteLedger work.
 3. If the binding reports `WORKSPACE_ROOT_UNTRUSTED` or `ROUTELEDGER_BINDING_REQUIRED`, obtain the host project's absolute `workspaceRoot`. Never infer it from the plugin cache or process `cwd`.
 4. Use `configure_binding` for an explicit binding. Before switching an established binding, show the old and new roots and require confirmation. Re-read runtime state after activation.
 5. Use `configure_project(operation="initialize")` only after binding. Include a confirmed concrete BCP 47 `contentLocale`; never send `auto`, `null`, or an invented placeholder Version.
 
 Before every write, pass the matching absolute `expectedRouteLedgerRoot` returned by runtime inspection. Treat binding failures as blockers, not as permission to guess a path.
+
+`contentLocale` applies to agent-authored project content intended for human consumption. It does not localize MCP control-plane messages, diagnostics, blockers, next actions, or state labels.
+
+When `inspect_runtime` reports `interactionProfile: agent_only`, treat Mission Control and human-entry-document actions as advisory. Do not let them replace the primary route action.
 
 ## Manage current work
 

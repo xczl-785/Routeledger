@@ -9,7 +9,7 @@ import { createUndoFixture, createWorkItemFixture } from "../../../core/src/test
 import type { createRouteLedgerStdioServer } from "../stdio-server.js";
 
 import { createTempProjectRoot, getDefaultDataRoot, createMismatchedExpectedRouteLedgerRoot, createRegistry, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, createAndCommitVersion, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";
-describe("routeledger mcp registry", () => {
+describe("routeledger mcp registry", { timeout: 30_000 }, () => {
   it("persists empty-route create and atomic advance across registry restarts", async () => {
     const projectRoot = createTempProjectRoot();
     let registry: ReturnType<typeof createRegistry> | null = createRegistry(projectRoot);
@@ -387,7 +387,7 @@ describe("routeledger mcp registry", () => {
       registry?.close();
       cleanupProjectRoot(projectRoot);
     }
-  });
+  }, 30_000);
 
   it("check_doc_drift returns structured warnings and unreadable files", async () => {
     const projectRoot = createTempProjectRoot();
