@@ -1,17 +1,18 @@
 # RouteLedger refactoring task board and handoff
 
-Status: active  
-Last updated: 2026-08-21  
+Status: implementation complete; merge and release not started
+Last updated: 2026-08-22
 Working branch: `refactor/code-health-roadmap`  
-Implementation base at handoff: `56d6cc1`
+Verified implementation base at handoff: `973df69`
 Detailed roadmap: [`CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md`](./CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md)
 
 ## Handoff summary
 
-Gates A, B, and C are closed. Stages 8-10 are implemented: WorkItem has an
-explicit lineage identity, UI process and coverage boundaries are executable CI
-gates, and aggregate revisions are public optimistic-concurrency tokens across
-JSON and SQLite. Gate D audit is next; do not repeat completed R5-R10 work.
+Gates A-D and stages R1-R10 are closed. WorkItem has an explicit lineage
+identity with legacy Undo read compatibility, UI process and coverage boundaries
+are executable CI gates, and aggregate revisions are public optimistic-concurrency
+tokens across JSON and SQLite. The tracked Codex plugin runtime is synchronized
+with the source implementation. Do not repeat completed R1-R10 work.
 
 The current architectural direction is deliberately incremental:
 
@@ -39,18 +40,18 @@ The current architectural direction is deliberately incremental:
 | R6 | C | Build MCP middleware pipeline | Done | `0dea7f4` introduces the pipeline; `1ad1726` moves known-tool schema validation ahead of bind and authorization. | 2025/2026 projection, broker, authorization, response-detail, and error behavior pass; malformed L3 input short-circuits before broker bind. |
 | R7 | C | Introduce document-source port | Done | `8fe9538` removes Core filesystem reads and injects a containment-safe JSON host adapter. | Core uses an in-memory source; JSON covers UTF-8, ENOENT, and symlink escape; CLI/MCP integration passes. |
 | G-C | C | Combined Gate C audit | Done | Independent audit found two blockers; both closed in `1ad1726`. No other medium/high-risk findings. | 90 test files; 773 passed, 1 skipped; typecheck, lint, package-boundary, and diff gates pass. |
-| R8 | D | Decide WorkItem identity | Done | `72c1a9c` records WorkItem as the Project aggregate's stable supporting lineage identity and enforces one active child. | ADR, Core, JSON, and SQLite tests agree; canonical schema remains unchanged. |
+| R8 | D | Decide WorkItem identity | Done | `72c1a9c` records WorkItem as the Project aggregate's stable supporting lineage identity; `8ec8030` preserves public legacy `Undo(wait)` audit history. | Current Todo/Deferred uniqueness, legacy Undo pointers, closed history, cross-Project rejection, JSON decode, and SQLite round trip pass; canonical schema remains unchanged. |
 | R9 | D | Add UI/process tests and coverage guard | Done | `5c95771` adds a real headless Hub lifecycle test and enforceable global/UI-server coverage floors in CI. | 91 files / 779 passed / 1 skipped at delivery; authenticated startup/shutdown and registry cleanup run without a browser. |
-| R10 | D | Evolve storage boundary | Done | `56d6cc1` replaces hidden Symbol metadata with explicit revisions, narrow reader/writer ports, and SQLite migration `0010`. | JSON hash and SQLite token domains, two-instance stale writes, migration prefixes, canonical bytes, and read-model sync pass. |
-| G-D | D | Combined Gate D and release audit | Audit | Run one independent audit across R8-R10 and close any blockers before push. | Full workspace: 92 files / 785 passed / 1 skipped; coverage, typecheck, lint, package boundaries, and release-sensitive scripts pass. |
+| R10 | D | Evolve storage boundary | Done | `56d6cc1` replaces hidden Symbol metadata with explicit revisions, narrow reader/writer ports, and SQLite migration `0010`; `8ec8030` makes successful writer revisions non-null and fail-closed at runtime. | JSON hash and SQLite token domains, two-instance stale writes, migration prefixes, canonical bytes, read-model sync, and invalid writer revision rejection pass. |
+| G-D | D | Combined Gate D and release audit | Done | Independent audit found two P1 blockers and one P2 contract gap; all closed in `8ec8030`, `39a08f9`, and `973df69`. | Full workspace: 92 files / 790 passed / 1 skipped; coverage, typecheck, lint, package boundaries, plugin idempotence, packaged-runtime smoke, bundled-plugin smoke, and release checks pass. |
 
 ## Immediate next work
 
-Run the single combined Gate D architecture and release audit over R8-R10.
-Focus on lineage compatibility, real process cleanup, effective coverage
-thresholds, revision-token isolation, atomic stale-write rejection, migration
-prefixes, and canonical-byte stability. Fix any blocker once, rerun the full
-workspace gates, then record the final implementation base and handoff state.
+The refactoring roadmap is implementation-complete. The next action requires
+explicit user authorization: review and merge `refactor/code-health-roadmap`,
+then separately decide whether to version, tag, publish, and install a new Codex
+plugin release. No merge, tag, release, upload, or installed-host mutation has
+been performed by this work.
 
 ## L3 safety constraints
 
@@ -108,8 +109,10 @@ pnpm lint
 pnpm check:package-boundaries
 ```
 
-The current pre-audit Gate D run passed 92 test files with 785 tests passed and 1
-skipped.
+The final Gate D run passed 92 test files with 790 tests passed and 1 skipped.
+Coverage passed at 86.07% statements/lines, 83.54% branches, and 94.03%
+functions; the UI server boundary passed at 49.30% statements/lines, 60.74%
+branches, and 55.71% functions.
 
 ## New-machine startup
 
@@ -160,13 +163,8 @@ refactoring scope, as previously requested.
 
 ## Known non-blocking observations
 
-During the package-boundary work, two standalone Mission Control smoke commands
-showed assertion drift before reaching the boundary being changed:
-
-- source smoke returned `ACTION_NOT_IMPLEMENTED` from `init_project`;
-- packaged JSON-only smoke received advisory Mission Control guidance where the
-  smoke expected executable guidance.
-
-The full repository test suite and bundled artifact import checks passed. Treat
-these smoke mismatches as separate test-maintenance work; do not silently change
-product behavior while continuing Stage 5.
+The repository-local packaged runtime and bundled plugin smokes pass. The
+installed-host acceptance smoke was not used as a delivery gate because this
+machine still has the prior `0.10.4` runtime payload cached; updating an installed
+plugin is a separate release/install action and was not authorized. Run that
+acceptance probe only after an explicitly authorized candidate installation.
