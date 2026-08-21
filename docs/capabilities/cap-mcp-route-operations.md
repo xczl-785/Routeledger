@@ -126,6 +126,17 @@ rules.
     `inspect_l3_route_operations`), 10 ordinary write tools, and one high-risk tool
     (`execute_route_change`). Host binding config rendering/writing remains an
     internal/CLI installation capability rather than an Agent-facing MCP tool.
+18. Every public operation accepts `detail: compact | standard | audit`.
+    Omission keeps the compatibility-preserving `standard` response.
+    `compact` is intended for routine Agent loops: it shortens runtime binding
+    metadata, summarizes events, caps long arrays, removes operation and digest
+    payload bodies, and adds structured `agentSummary` plus `delta`. Its metadata
+    reports `detailApplied`, `payloadBytes`, `hasMore`, and exact
+    `omittedSections`. Executable recommended-action inputs are never trimmed.
+    Exact proposal, target, digest, authorization, approval-artifact, replay,
+    and commit identifiers remain available so an Agent can complete L3 state
+    progression without requesting audit material. `audit` preserves the full
+    response and exposes L3 host-diagnostic authorization fields.
 
 ## Evidence
 

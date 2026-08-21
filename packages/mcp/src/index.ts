@@ -49,6 +49,7 @@ import {
   type RuntimeIdentity
 } from "./runtime-identity.js";
 import { normalizeAgentToolResponse } from "./agent-response.js";
+import { applyAgentResponseDetail, parseAgentResponseDetail } from "./response-detail.js";
 import {
   defineTool,
   type ToolDefinition,
@@ -461,6 +462,7 @@ const createInstructions = (options: {
     "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface the Mission Control decision once. Use the project's contentLocale when paraphrasing the stable English notice. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
     "If binding is missing, invalid, or low-confidence, use inspect_runtime to discover and plan the target, then call configure_binding; never treat the MCP process cwd as an initialization target.",
     "Use inspect_route_progress for current context, next actions, document drift, and closeout planning; use inspect_versions for version lists, structure, gates, and transition guidance; use inspect_l3_route_operations for L3 authorization and proposal state.",
+    "Use detail=compact for routine Agent action loops, standard for the compatibility response, and audit only when complete diagnostic or authorization material is required. Compact responses report omittedSections and preserve executable next actions plus exact L3 identifiers and digests.",
     "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
     "Use manage_todo, manage_deferred, and manage_constraint for current work. Legacy Undo records remain audit-only and are available only through inspect_route_progress when explicitly requested.",
     "Write tools update RouteLedger state through RouteLedgerService and never bypass the shared service boundary.",
@@ -2019,17 +2021,33 @@ export const createRouteLedgerMcpRegistry = (
         return reboundRegistry.invoke(toolName, input);
       }
       const handler = handlers.get(toolName);
+      const finalizeResponse = (response: ToolResponse): ToolResponse => {
+        const requestedDetail = parseAgentResponseDetail(input?.detail);
+        const definition = toolDefinitions.find((tool) => tool.name === toolName);
+        return applyAgentResponseDetail(response, {
+          detail: requestedDetail ?? "standard",
+          explicit: requestedDetail !== null,
+          toolName,
+          ...(typeof input?.operation === "string" ? { operation: input.operation } : {}),
+          riskLevel: definition?._meta.routeledger.riskLevel ?? "read-only"
+        });
+      };
 
       if (handler === undefined) {
-        return normalizeAgentToolResponse(
-          projectPublicToolReferences(await attachRuntimeContextToError({
-            ok: false,
-            error: {
-              code: "ACTION_NOT_IMPLEMENTED",
-              message: `unknown tool ${toolName}`
-            }
-          }), readBinding().routeledgerRoot) as ToolResponse,
-          toolName
+        return finalizeResponse(
+          normalizeAgentToolResponse(
+            projectPublicToolReferences(
+              await attachRuntimeContextToError({
+                ok: false,
+                error: {
+                  code: "ACTION_NOT_IMPLEMENTED",
+                  message: `unknown tool ${toolName}`
+                }
+              }),
+              readBinding().routeledgerRoot
+            ) as ToolResponse,
+            toolName
+          )
         );
       }
 
@@ -2043,12 +2061,14 @@ export const createRouteLedgerMcpRegistry = (
           activationResponse ?? response,
           input
         );
-        return normalizeAgentToolResponse(
-          projectPublicToolReferences(
-            await attachRuntimeContextToError(responseWithReplayGuidance),
-            readBinding().routeledgerRoot
-          ) as ToolResponse,
-          toolName
+        return finalizeResponse(
+          normalizeAgentToolResponse(
+            projectPublicToolReferences(
+              await attachRuntimeContextToError(responseWithReplayGuidance),
+              readBinding().routeledgerRoot
+            ) as ToolResponse,
+            toolName
+          )
         );
       } catch (error) {
         const errorContext = {
@@ -2071,12 +2091,14 @@ export const createRouteLedgerMcpRegistry = (
             inputKeys: Object.keys(input ?? {}).sort()
           }
         });
-        return normalizeAgentToolResponse(
-          projectPublicToolReferences(
-            await attachRuntimeContextToError(response),
-            readBinding().routeledgerRoot
-          ) as ToolResponse,
-          toolName
+        return finalizeResponse(
+          normalizeAgentToolResponse(
+            projectPublicToolReferences(
+              await attachRuntimeContextToError(response),
+              readBinding().routeledgerRoot
+            ) as ToolResponse,
+            toolName
+          )
         );
       }
     },

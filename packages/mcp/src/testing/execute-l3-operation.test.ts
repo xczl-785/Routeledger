@@ -40,6 +40,8 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         operation: "propose_version_creation",
         projectId,
         title: "First delivery",
+        description: "Detailed audit-only proposal context. ".repeat(120),
+        detail: "compact",
         expectedRouteLedgerRoot: projectRoot
       });
       const proposal = proposed.data as {
@@ -59,6 +61,39 @@ describe("execute_route_change operation=execute_l3_operation", () => {
           expectedOperationDigest: operationDigest
         }
       });
+      expect(proposed.meta).toMatchObject({
+        detailApplied: "compact",
+        payloadBytes: expect.any(Number),
+        omittedSections: expect.arrayContaining(["data.proposal.digest.payload"])
+      });
+
+      const auditProposal = await registry.invoke("inspect_l3_route_operations", {
+        operation: "get_l3_proposal",
+        projectId,
+        pendingOperationId: proposal.pendingOperationId,
+        detail: "audit"
+      });
+      const compactProposal = await registry.invoke("inspect_l3_route_operations", {
+        operation: "get_l3_proposal",
+        projectId,
+        pendingOperationId: proposal.pendingOperationId,
+        detail: "compact"
+      });
+      expect(compactProposal).toMatchObject({
+        ok: true,
+        data: {
+          id: proposal.pendingOperationId,
+          digest: { value: operationDigest },
+          agentSummary: { primaryId: proposal.pendingOperationId },
+          delta: { kind: "read" }
+        },
+        meta: {
+          detailApplied: "compact",
+          omittedSections: expect.arrayContaining(["data.digest.payload", "data.payload"])
+        }
+      });
+      expect(Buffer.byteLength(JSON.stringify(compactProposal), "utf8"))
+        .toBeLessThan(Buffer.byteLength(JSON.stringify(auditProposal), "utf8") / 2);
 
       const mismatchedDigest = await registry.invoke("execute_route_change", {
         operation: "execute_admitted_proposal",
@@ -82,6 +117,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         projectId,
         pendingOperationId: proposal.pendingOperationId,
         expectedOperationDigest: operationDigest,
+        detail: "compact",
         expectedRouteLedgerRoot: projectRoot
       });
       expect(committed).toMatchObject({
@@ -92,7 +128,19 @@ describe("execute_route_change operation=execute_l3_operation", () => {
           commit: {
             replayed: false,
             pendingOperation: { status: "committed", actionType: "create_version" }
+          },
+          agentSummary: {
+            outcome: "committed",
+            operation: "execute_admitted_proposal",
+            primaryId: proposal.pendingOperationId
+          },
+          delta: {
+            kind: "updated",
+            entityIds: expect.arrayContaining([proposal.pendingOperationId])
           }
+        },
+        meta: {
+          detailApplied: "compact"
         }
       });
 
@@ -100,6 +148,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         operation: "execute_admitted_proposal",
         projectId,
         pendingOperationId: proposal.pendingOperationId,
+        detail: "compact",
         expectedRouteLedgerRoot: projectRoot
       });
       expect(replay).toMatchObject({
