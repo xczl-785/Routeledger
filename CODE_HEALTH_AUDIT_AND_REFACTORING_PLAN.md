@@ -3,6 +3,7 @@
 Status: active roadmap  
 Audit baseline: `routeledger-plugin-v0.10.4` (`3a709745`)  
 Audit date: 2026-08-21
+Execution board and machine handoff: [`REFACTORING_TASK_BOARD.md`](./REFACTORING_TASK_BOARD.md)
 
 ## Purpose
 
