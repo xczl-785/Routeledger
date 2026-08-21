@@ -3,15 +3,15 @@
 Status: active  
 Last updated: 2026-08-21  
 Working branch: `refactor/code-health-roadmap`  
-Implementation base at handoff: `1ad1726`
+Implementation base at handoff: `56d6cc1`
 Detailed roadmap: [`CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md`](./CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md)
 
 ## Handoff summary
 
-Gates A, B, and C are closed. Stages 5-7 are complete: L3 application
-lifecycles now sit behind cohesive internal services, MCP tool calls run through
-one ordered middleware pipeline, and Core document drift reads through a host
-document-source port. Continue from R8; do not repeat completed R5-R7 work.
+Gates A, B, and C are closed. Stages 8-10 are implemented: WorkItem has an
+explicit lineage identity, UI process and coverage boundaries are executable CI
+gates, and aggregate revisions are public optimistic-concurrency tokens across
+JSON and SQLite. Gate D audit is next; do not repeat completed R5-R10 work.
 
 The current architectural direction is deliberately incremental:
 
@@ -39,22 +39,18 @@ The current architectural direction is deliberately incremental:
 | R6 | C | Build MCP middleware pipeline | Done | `0dea7f4` introduces the pipeline; `1ad1726` moves known-tool schema validation ahead of bind and authorization. | 2025/2026 projection, broker, authorization, response-detail, and error behavior pass; malformed L3 input short-circuits before broker bind. |
 | R7 | C | Introduce document-source port | Done | `8fe9538` removes Core filesystem reads and injects a containment-safe JSON host adapter. | Core uses an in-memory source; JSON covers UTF-8, ENOENT, and symlink escape; CLI/MCP integration passes. |
 | G-C | C | Combined Gate C audit | Done | Independent audit found two blockers; both closed in `1ad1726`. No other medium/high-risk findings. | 90 test files; 773 passed, 1 skipped; typecheck, lint, package-boundary, and diff gates pass. |
-| R8 | D | Decide WorkItem identity | Next | Recover the complete identity/aggregate target, record the ADR, then encode the chosen invariant. | ADR and domain/storage tests agree. |
-| R9 | D | Add UI/process tests and coverage guard | Todo | Protect native process and thin runtime paths; use coverage as regression guard only. | Agreed process scenarios and thresholds run in CI. |
-| R10 | D | Evolve storage boundary | Todo | Make revisions explicit and split broad read/write capabilities after use cases are narrow. | JSON/SQLite stale-write, migration, and compatibility suites pass. |
-| G-D | D | Combined Gate D and release audit | Todo | Run once after R8-R10. | Full workspace and release gates pass. |
+| R8 | D | Decide WorkItem identity | Done | `72c1a9c` records WorkItem as the Project aggregate's stable supporting lineage identity and enforces one active child. | ADR, Core, JSON, and SQLite tests agree; canonical schema remains unchanged. |
+| R9 | D | Add UI/process tests and coverage guard | Done | `5c95771` adds a real headless Hub lifecycle test and enforceable global/UI-server coverage floors in CI. | 91 files / 779 passed / 1 skipped at delivery; authenticated startup/shutdown and registry cleanup run without a browser. |
+| R10 | D | Evolve storage boundary | Done | `56d6cc1` replaces hidden Symbol metadata with explicit revisions, narrow reader/writer ports, and SQLite migration `0010`. | JSON hash and SQLite token domains, two-instance stale writes, migration prefixes, canonical bytes, and read-model sync pass. |
+| G-D | D | Combined Gate D and release audit | Audit | Run one independent audit across R8-R10 and close any blockers before push. | Full workspace: 92 files / 785 passed / 1 skipped; coverage, typecheck, lint, package boundaries, and release-sensitive scripts pass. |
 
 ## Immediate next work
 
-Start with R8. Work backward from the durable WorkItem identity and aggregate
-model before selecting a migration step. Record the decision and its rejected
-alternatives in an ADR, including compatibility, storage, and lifecycle
-consequences. Then implement only the smallest domain/storage slice that proves
-the chosen invariant without creating a second temporary identity model.
-
-Keep R9 process-test coverage and R10 storage-boundary evolution as separate
-implementation slices. Combine them only at Gate D for the full workspace and
-release audit.
+Run the single combined Gate D architecture and release audit over R8-R10.
+Focus on lineage compatibility, real process cleanup, effective coverage
+thresholds, revision-token isolation, atomic stale-write rejection, migration
+prefixes, and canonical-byte stability. Fix any blocker once, rerun the full
+workspace gates, then record the final implementation base and handoff state.
 
 ## L3 safety constraints
 
@@ -112,7 +108,7 @@ pnpm lint
 pnpm check:package-boundaries
 ```
 
-The last full Gate C run passed 90 test files with 773 tests passed and 1
+The current pre-audit Gate D run passed 92 test files with 785 tests passed and 1
 skipped.
 
 ## New-machine startup
