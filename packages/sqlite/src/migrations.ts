@@ -1007,6 +1007,13 @@ CREATE INDEX idx_ordinary_write_receipts_project_committed
   ON ordinary_write_receipts(project_id, committed_at, id);
 `;
 
+// Aggregate revisions are storage metadata, not canonical JSON schema.  A
+// monotonic counter gives SQLite writers an atomic optimistic-concurrency
+// token that survives process restarts and migration from all earlier DBs.
+const PROJECT_AGGREGATE_REVISION_SQL = `
+ALTER TABLE projects ADD COLUMN aggregate_revision INTEGER NOT NULL DEFAULT 0;
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -1043,6 +1050,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0009_ordinary_write_receipts",
     sql: ORDINARY_WRITE_RECEIPTS_SQL
+  },
+  {
+    id: "0010_project_aggregate_revision",
+    sql: PROJECT_AGGREGATE_REVISION_SQL
   }
 ];
 

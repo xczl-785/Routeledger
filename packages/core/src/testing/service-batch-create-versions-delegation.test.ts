@@ -14,6 +14,7 @@ describe("RouteLedgerService batch-create command delegation", () => {
   it("delegates batchCreateVersions without reshaping its input or preflight contract", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [createVersionFixture({ id: "version-1", isCurrent: true })],
       workItems: [],

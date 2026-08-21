@@ -1,24 +1,17 @@
 import {
-  attachProjectAggregateHeadRevision,
-  getProjectAggregateHeadRevision,
   type ProjectAggregateSnapshot,
-  type StoragePort
+  type ProjectSnapshotReader,
+  type ProjectSnapshotWriter
 } from "../ports/storage-port.js";
 
 import { ApplicationError } from "./errors.js";
 
-export type ProjectSnapshotReader = Pick<StoragePort, "loadProjectAggregate">;
-export type ProjectSnapshotWriter = Pick<StoragePort, "saveProjectAggregate">;
+export type { ProjectSnapshotReader, ProjectSnapshotWriter } from "../ports/storage-port.js";
 
 export const cloneProjectAggregateSnapshot = (
   snapshot: ProjectAggregateSnapshot
 ): ProjectAggregateSnapshot => {
-  const cloned = structuredClone(snapshot);
-  const headRevision = getProjectAggregateHeadRevision(snapshot);
-
-  return headRevision === undefined
-    ? cloned
-    : attachProjectAggregateHeadRevision(cloned, headRevision);
+  return structuredClone(snapshot);
 };
 
 export const loadRequiredProjectAggregate = async (
@@ -54,5 +47,5 @@ export const persistProjectAggregate = async (
     );
   }
 
-  await storage.saveProjectAggregate(snapshot);
+  snapshot.headRevision = await storage.saveProjectAggregate(snapshot);
 };

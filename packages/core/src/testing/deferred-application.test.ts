@@ -28,7 +28,7 @@ class TrackingStorage implements StoragePort {
       : null;
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
     this.saveCalls += 1;
 
     if (this.failNextSave) {
@@ -36,7 +36,21 @@ class TrackingStorage implements StoragePort {
       throw new Error("injected save failure");
     }
 
+    const actualHeadRevision = `tracking:${this.saveCalls - 1}`;
+    if (snapshot.headRevision !== actualHeadRevision && !(this.saveCalls === 1 && snapshot.headRevision === null)) {
+      throw Object.assign(new Error("tracking snapshot is stale"), {
+        code: "STALE_SNAPSHOT",
+        details: {
+          projectId: snapshot.project.id,
+          expectedHeadRevision: snapshot.headRevision,
+          actualHeadRevision
+        }
+      });
+    }
+    const headRevision = `tracking:${this.saveCalls}`;
+    snapshot.headRevision = headRevision;
     this.snapshot = structuredClone(snapshot);
+    return headRevision;
   }
 
   async read(): Promise<ProjectAggregateSnapshot> {
@@ -53,6 +67,7 @@ class TrackingStorage implements StoragePort {
 }
 
 const createSnapshot = (): ProjectAggregateSnapshot => ({
+  headRevision: null,
   project: createProjectFixture({
     currentVersionId: "version-1",
     initialVersionId: "version-1"

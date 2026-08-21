@@ -7,6 +7,7 @@ import {
 } from "../application/version-closeout-application.js";
 
 const createEmptyRouteSnapshot = () => ({
+  headRevision: null,
   project: createProjectFixture({ currentVersionId: null }),
   versions: [],
   workItems: [],

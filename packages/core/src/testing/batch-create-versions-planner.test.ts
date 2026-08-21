@@ -7,6 +7,7 @@ import { createProjectFixture, createVersionFixture } from "./builders.js";
 describe("batch create versions planner", () => {
   it("returns the normalized plan payload without owning digest construction", () => {
     const snapshot: ProjectAggregateSnapshot = {
+      headRevision: null,
       project: createProjectFixture(),
       versions: [createVersionFixture({ isCurrent: true })],
       workItems: [],

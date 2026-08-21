@@ -44,6 +44,7 @@ const storage: MissionControlStorageSummary = {
 };
 
 const createSnapshot = (includeLegacyUndo = true): ProjectAggregateSnapshot => ({
+  headRevision: null,
   project: {
     id: "project-1",
     name: "Mission Control",

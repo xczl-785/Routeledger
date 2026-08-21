@@ -242,6 +242,7 @@ export const createJsonCodecSnapshot = (): ProjectAggregateSnapshot => {
   };
 
   return {
+    headRevision: null,
     project,
     versions: [currentVersion, rootVersion],
     workItems: [workItem],

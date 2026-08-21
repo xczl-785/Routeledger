@@ -12,6 +12,7 @@ import type {
   RouteLedgerService,
   StoragePort
 } from "../index.js";
+import { ApplicationError } from "../application/errors.js";
 import {
   TEST_ACTOR
 } from "./builders.js";
@@ -19,14 +20,37 @@ import {
 export class MemoryStorageAdapter implements StoragePort {
   private snapshots = new Map<string, ProjectAggregateSnapshot>();
 
+  private revisions = new Map<string, number>();
+
   async loadProjectAggregate(projectId: string): Promise<ProjectAggregateSnapshot | null> {
     const snapshot = this.snapshots.get(projectId);
 
     return snapshot === undefined ? null : structuredClone(snapshot);
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
+    const currentRevision = this.revisions.get(snapshot.project.id);
+    const actualHeadRevision =
+      currentRevision === undefined ? null : `memory:${currentRevision}`;
+
+    if (snapshot.headRevision !== actualHeadRevision) {
+      throw new ApplicationError(
+        "STALE_SNAPSHOT",
+        "memory snapshot revision is stale",
+        {
+          projectId: snapshot.project.id,
+          expectedHeadRevision: snapshot.headRevision,
+          actualHeadRevision
+        }
+      );
+    }
+
+    const nextRevision = (currentRevision ?? 0) + 1;
+    const nextHeadRevision = `memory:${nextRevision}`;
+    snapshot.headRevision = nextHeadRevision;
+    this.revisions.set(snapshot.project.id, nextRevision);
     this.snapshots.set(snapshot.project.id, structuredClone(snapshot));
+    return nextHeadRevision;
   }
 
   async mutate(
@@ -39,7 +63,11 @@ export class MemoryStorageAdapter implements StoragePort {
       throw new Error(`missing project ${projectId}`);
     }
 
-    this.snapshots.set(projectId, structuredClone(updater(structuredClone(snapshot))));
+    const updated = updater(structuredClone(snapshot));
+    const nextRevision = (this.revisions.get(projectId) ?? 0) + 1;
+    updated.headRevision = `memory:${nextRevision}`;
+    this.revisions.set(projectId, nextRevision);
+    this.snapshots.set(projectId, structuredClone(updated));
   }
 }
 
@@ -84,18 +112,18 @@ export class FailOnSaveStorageAdapter extends MemoryStorageAdapter {
     this.failNextSave = true;
   }
 
-  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
     if (this.failNextSave) {
       this.failNextSave = false;
       throw new Error("injected save failure");
     }
 
-    await super.saveProjectAggregate(snapshot);
+    return super.saveProjectAggregate(snapshot);
   }
 }
 
 export class LossyPendingOperationStorageAdapter extends MemoryStorageAdapter {
-  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
     const lossySnapshot = structuredClone(snapshot);
 
     for (const operation of lossySnapshot.pendingOperations) {
@@ -103,19 +131,23 @@ export class LossyPendingOperationStorageAdapter extends MemoryStorageAdapter {
       delete operation.payload.setAsCurrent;
     }
 
-    await super.saveProjectAggregate(lossySnapshot);
+    const headRevision = await super.saveProjectAggregate(lossySnapshot);
+    snapshot.headRevision = headRevision;
+    return headRevision;
   }
 }
 
 export class MissingPendingOperationStorageAdapter extends MemoryStorageAdapter {
-  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  override async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
     const lossySnapshot = structuredClone(snapshot);
 
     if (lossySnapshot.pendingOperations.length > 0) {
       lossySnapshot.pendingOperations = [];
     }
 
-    await super.saveProjectAggregate(lossySnapshot);
+    const headRevision = await super.saveProjectAggregate(lossySnapshot);
+    snapshot.headRevision = headRevision;
+    return headRevision;
   }
 }
 

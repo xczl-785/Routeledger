@@ -2127,6 +2127,7 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (
   }
 
   return {
+    headRevision: null,
     project,
     versions,
     workItems,

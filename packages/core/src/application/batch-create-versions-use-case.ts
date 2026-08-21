@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 import type { Actor } from "../domain/actor.js";
-import { getProjectAggregateHeadRevision, type ProjectAggregateSnapshot, type StoragePort } from "../ports/storage-port.js";
+import type { ProjectAggregateSnapshot, ProjectSnapshotReader } from "../ports/storage-port.js";
 import type { DomainDependencies } from "../services/operation.js";
 
 import {
@@ -67,7 +67,7 @@ export type BatchCreateVersionsResult =
   | BatchCreateVersionsPreflightResult
   | BatchCreateVersionsProposeSuccess;
 
-type BatchCreateVersionsStorage = Pick<StoragePort, "loadProjectAggregate">;
+type BatchCreateVersionsStorage = ProjectSnapshotReader;
 
 type BatchDigestPreviewBuilder = (input: {
   snapshot: ProjectAggregateSnapshot;
@@ -164,7 +164,7 @@ export class BatchCreateVersionsUseCase implements BatchCreateVersionsExecutor {
     const mode = assertBatchCreateVersionsMode(input.mode);
     const previousCurrentPolicy = assertBatchPreviousCurrentPolicy(input.previousCurrentPolicy);
     const snapshot = await loadRequiredProjectAggregate(this.storage, input.projectId);
-    const headRevision = getProjectAggregateHeadRevision(snapshot) ?? null;
+    const headRevision = snapshot.headRevision;
     const evaluatedAt = this.deps.clock.now();
     const evaluated = evaluateBatchCreateVersions(
       snapshot,

@@ -195,14 +195,14 @@ class DelayCommitStorageAdapter extends MemoryStorageAdapter {
   arm(): void { this.armed = true; }
   release(): void { this.releaseGate?.(); }
 
-  override async saveProjectAggregate(snapshot: Parameters<MemoryStorageAdapter["saveProjectAggregate"]>[0]): Promise<void> {
+  override async saveProjectAggregate(snapshot: Parameters<MemoryStorageAdapter["saveProjectAggregate"]>[0]): Promise<string> {
     if (this.armed) {
       this.armed = false;
       this.delayedSaves += 1;
       this.startedGate?.();
       await this.released;
     }
-    await super.saveProjectAggregate(snapshot);
+    return super.saveProjectAggregate(snapshot);
   }
 }
 

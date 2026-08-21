@@ -88,6 +88,7 @@ const getIssueCodes = (documents: RouteLedgerJsonDocument[]): string[] =>
 
 const createSiblingGroupingEdgeCaseDocuments = (): RouteLedgerJsonDocument[] =>
   encodeProjectAggregateToJsonDocuments({
+    headRevision: null,
     project: createProjectFixture({
       currentVersionId: "version-2",
       initialVersionId: "version-1"

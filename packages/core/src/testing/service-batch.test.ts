@@ -153,7 +153,7 @@ describe("route ledger service", () => {
       })
     );
     expect(result.blockers).toEqual([]);
-    expect(result.headRevision).toBeNull();
+    expect(result.headRevision).toBe("memory:1");
     expect(result.digestPreview.value).toHaveLength(64);
 
     const snapshot = await storage.loadProjectAggregate(created.project.id);

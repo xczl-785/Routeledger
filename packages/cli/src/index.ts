@@ -14,6 +14,7 @@ import {
   projectDecisionArtifact,
   ROUTE_OPERATION_WORKFLOW_MODES,
   RouteLedgerService,
+  buildVersionTransitionGuide,
   type Actor,
   type BatchCreateVersionsMode,
   type BatchPreviousCurrentPolicy,
@@ -21,6 +22,7 @@ import {
   type DeferredItem,
   type ProjectAggregateSnapshot,
   type StoragePort,
+  type ProjectSnapshotReader,
   type Todo,
   isBatchCreateVersionsMode,
   isBatchPreviousCurrentPolicy,
@@ -363,7 +365,7 @@ const createStorage = (projectRoot: string): SQLiteStorageAdapter =>
     projectRoot
   });
 
-class ReadOnlySnapshotStorageAdapter implements StoragePort {
+class ReadOnlySnapshotStorageAdapter implements ProjectSnapshotReader {
   private readonly snapshot: ProjectAggregateSnapshot;
 
   constructor(snapshot: ProjectAggregateSnapshot) {
@@ -374,9 +376,6 @@ class ReadOnlySnapshotStorageAdapter implements StoragePort {
     return this.snapshot.project.id === projectId ? structuredClone(this.snapshot) : null;
   }
 
-  async saveProjectAggregate(): Promise<void> {
-    throw new Error("ReadOnlySnapshotStorageAdapter does not support writes");
-  }
 }
 
 const createService = (
@@ -836,11 +835,17 @@ const handleCommand = async ({
     }
     case "get_version_transition_guide": {
       const loaded = await loadValidatedProjectAggregateFromJsonDirectory(projectRoot);
-      const service = createService(new ReadOnlySnapshotStorageAdapter(loaded.snapshot));
+      const storage = new ReadOnlySnapshotStorageAdapter(loaded.snapshot);
+      const snapshot = await storage.loadProjectAggregate(requireFlagValue(argv, "--project-id"));
+      if (snapshot === null) {
+        throw new ApplicationError("PROJECT_NOT_FOUND", "project 不存在", {
+          projectId: requireFlagValue(argv, "--project-id")
+        });
+      }
 
       return {
         ok: true,
-        data: await service.getVersionTransitionGuide({
+        data: buildVersionTransitionGuide(snapshot, {
           projectId: requireFlagValue(argv, "--project-id"),
           fromVersionId: getFlagValue(argv, "--from-version-id"),
           targetVersionId: requireFlagValue(argv, "--target-version-id"),

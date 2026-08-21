@@ -18,9 +18,8 @@ import type { Undo } from "../domain/undo.js";
 import type { Version } from "../domain/version.js";
 import type { WorkItem } from "../domain/work-item.js";
 import {
-  attachProjectAggregateHeadRevision,
-  getProjectAggregateHeadRevision,
-  type StoragePort,
+  type ProjectSnapshotReader,
+  type ProjectSnapshotWriter,
   type ProjectAggregateSnapshot
 } from "../ports/storage-port.js";
 import type { DocumentSourcePort } from "../ports/document-source-port.js";
@@ -170,8 +169,10 @@ export type {
   SummarizeVersionCloseoutInput
 } from "./version-closeout-application.js";
 
+type RouteLedgerStorage = ProjectSnapshotReader & ProjectSnapshotWriter;
+
 export interface RouteLedgerServiceOptions {
-  storage: StoragePort;
+  storage: RouteLedgerStorage;
   deps: DomainDependencies;
   queryService?: RouteLedgerVersionQueryUseCases;
   versionCommandService?: VersionCommandUseCases;
@@ -190,6 +191,72 @@ export interface RouteLedgerServiceOptions {
     clientId?: string;
   };
 }
+
+/** Reader-only version-structure projection, shared by hosts that cannot write. */
+export const buildVersionStructureView = (
+  snapshot: ProjectAggregateSnapshot,
+  input: GetVersionStructureInput
+): VersionStructureView => {
+  const focusVersionId = input.versionId ?? snapshot.project.currentVersionId;
+
+  if (focusVersionId === null) {
+    throw new ApplicationError("VERSION_NOT_FOUND", "project 当前没有 current version", {
+      projectId: input.projectId
+    });
+  }
+
+  const focusVersion = requireVersion(snapshot, focusVersionId);
+  const currentVersion =
+    snapshot.project.currentVersionId === null
+      ? null
+      : requireVersion(snapshot, snapshot.project.currentVersionId);
+  const siblings = snapshot.versions
+    .filter((version) => version.parentVersionId === focusVersion.parentVersionId)
+    .sort((left, right) => left.order - right.order)
+    .map(summarizeVersion);
+  const childVersions = snapshot.versions
+    .filter((version) => version.parentVersionId === focusVersion.id)
+    .sort((left, right) => left.order - right.order)
+    .map(summarizeVersion);
+  const openTodos = snapshot.todos
+    .filter(
+      (todo) =>
+        todo.versionId === focusVersion.id &&
+        (todo.status === "wait" || todo.status === "running")
+    )
+    .map(summarizeOpenTodo);
+  const openWaitUndos = snapshot.undos
+    .filter((undo) => undo.status === "wait")
+    .map(summarizeVersionStructureUndo);
+
+  return {
+    project: {
+      id: snapshot.project.id,
+      currentVersionId: snapshot.project.currentVersionId
+    },
+    focusVersion: summarizeVersionStructureVersion(focusVersion),
+    currentVersion: currentVersion === null ? null : summarizeCurrentVersion(currentVersion),
+    parentVersion:
+      focusVersion.parentVersionId === null
+        ? null
+        : summarizeVersion(requireVersion(snapshot, focusVersion.parentVersionId)),
+    siblings,
+    childVersions,
+    openTodos,
+    openUndos: {
+      owned: openWaitUndos.filter((undo) => undo.versionId === focusVersion.id),
+      origin: openWaitUndos.filter((undo) => undo.originVersionId === focusVersion.id),
+      preferredResolution: openWaitUndos.filter(
+        (undo) => undo.preferredResolutionVersionId === focusVersion.id
+      )
+    },
+    legalOperations: buildVersionStructureLegalOperations(
+      snapshot,
+      focusVersion,
+      input.residualAudit
+    )
+  };
+};
 
 export interface InitProjectInput {
   name: string;
@@ -769,14 +836,8 @@ type ContextOpenUndoSummary = {
 
 const DIAGNOSTIC_VERSION_PATTERNS = [/_probe/i, /\bprobe\b/i, /diagnostic/i, /test-only/i];
 
-const cloneSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregateSnapshot => {
-  const cloned = structuredClone(snapshot);
-  const headRevision = getProjectAggregateHeadRevision(snapshot);
-
-  return headRevision === undefined
-    ? cloned
-    : attachProjectAggregateHeadRevision(cloned, headRevision);
-};
+const cloneSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregateSnapshot =>
+  structuredClone(snapshot);
 
 const sortKeys = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -1193,7 +1254,7 @@ const buildVersionStructureLegalOperations = (
   ];
 };
 
-const buildVersionTransitionGuide = (
+export const buildVersionTransitionGuide = (
   snapshot: ProjectAggregateSnapshot,
   input: GetVersionTransitionGuideInput
 ): VersionTransitionGuide => {
@@ -1747,7 +1808,7 @@ const buildVersionTransitionGuide = (
 };
 
 const requireProject = async (
-  storage: StoragePort,
+  storage: ProjectSnapshotReader,
   projectId: string
 ): Promise<ProjectAggregateSnapshot> => {
   const snapshot = await storage.loadProjectAggregate(projectId);
@@ -2399,7 +2460,7 @@ const buildCloseGateResult = (
 };
 
 export class RouteLedgerService {
-  private readonly storage: StoragePort;
+  private readonly storage: RouteLedgerStorage;
 
   private readonly deps: DomainDependencies;
 
@@ -2619,6 +2680,7 @@ export class RouteLedgerService {
       deps: this.deps
     });
     const snapshot: ProjectAggregateSnapshot = {
+      headRevision: null,
       project: created.project,
       versions: created.firstVersion === null ? [] : [created.firstVersion],
       workItems: [],
@@ -3242,65 +3304,7 @@ export class RouteLedgerService {
 
   async getVersionStructure(input: GetVersionStructureInput): Promise<VersionStructureView> {
     const snapshot = await requireProject(this.storage, input.projectId);
-    const focusVersionId = input.versionId ?? snapshot.project.currentVersionId;
-
-    if (focusVersionId === null) {
-      throw new ApplicationError("VERSION_NOT_FOUND", "project 当前没有 current version", {
-        projectId: input.projectId
-      });
-    }
-
-    const focusVersion = requireVersion(snapshot, focusVersionId);
-    const currentVersion =
-      snapshot.project.currentVersionId === null
-        ? null
-        : requireVersion(snapshot, snapshot.project.currentVersionId);
-    const siblings = snapshot.versions
-      .filter((version) => version.parentVersionId === focusVersion.parentVersionId)
-      .sort((left, right) => left.order - right.order)
-      .map(summarizeVersion);
-    const childVersions = snapshot.versions
-      .filter((version) => version.parentVersionId === focusVersion.id)
-      .sort((left, right) => left.order - right.order)
-      .map(summarizeVersion);
-    const openTodos = snapshot.todos
-      .filter(
-        (todo) =>
-          todo.versionId === focusVersion.id &&
-          (todo.status === "wait" || todo.status === "running")
-      )
-      .map(summarizeOpenTodo);
-    const openWaitUndos = snapshot.undos
-      .filter((undo) => undo.status === "wait")
-      .map(summarizeVersionStructureUndo);
-
-    return {
-      project: {
-        id: snapshot.project.id,
-        currentVersionId: snapshot.project.currentVersionId
-      },
-      focusVersion: summarizeVersionStructureVersion(focusVersion),
-      currentVersion: currentVersion === null ? null : summarizeCurrentVersion(currentVersion),
-      parentVersion:
-        focusVersion.parentVersionId === null
-          ? null
-          : summarizeVersion(requireVersion(snapshot, focusVersion.parentVersionId)),
-      siblings,
-      childVersions,
-      openTodos,
-      openUndos: {
-        owned: openWaitUndos.filter((undo) => undo.versionId === focusVersion.id),
-        origin: openWaitUndos.filter((undo) => undo.originVersionId === focusVersion.id),
-        preferredResolution: openWaitUndos.filter(
-          (undo) => undo.preferredResolutionVersionId === focusVersion.id
-        )
-      },
-      legalOperations: buildVersionStructureLegalOperations(
-        snapshot,
-        focusVersion,
-        input.residualAudit
-      )
-    };
+    return buildVersionStructureView(snapshot, input);
   }
 
   async checkStartGate(input: VersionCommandInput): Promise<StartGateResult> {

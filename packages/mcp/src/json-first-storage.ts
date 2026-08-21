@@ -3,9 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import {
-  attachProjectAggregateHeadRevision,
-  getProjectAggregateHeadRevision,
   type ProjectAggregateSnapshot,
+  type ProjectAggregateHeadRevision,
   type StoragePort
 } from "@routeledger/core";
 import {
@@ -123,7 +122,7 @@ type SQLiteStorageAdapter = {
   };
   close: () => void;
   loadProjectAggregate: (projectId: string) => Promise<ProjectAggregateSnapshot | null>;
-  saveProjectAggregate: (snapshot: ProjectAggregateSnapshot) => Promise<void>;
+  saveProjectAggregate: (snapshot: ProjectAggregateSnapshot) => Promise<ProjectAggregateHeadRevision>;
 };
 
 export class JsonFirstStorageError extends Error {
@@ -359,8 +358,7 @@ export class JsonFirstStorageAdapter implements StoragePort {
         return null;
       }
 
-      const snapshot = await this.withSqliteAdapter((adapter) => adapter.loadProjectAggregate(projectId));
-      return snapshot === null ? null : attachProjectAggregateHeadRevision(snapshot, null);
+      return this.withSqliteAdapter((adapter) => adapter.loadProjectAggregate(projectId));
     }
 
     if (this.sqliteReadModel === "enabled") {
@@ -372,14 +370,16 @@ export class JsonFirstStorageAdapter implements StoragePort {
     }
 
     await this.rebuildSqliteReadModelIfNeeded(jsonSource);
-    return attachProjectAggregateHeadRevision(jsonSource.snapshot, jsonSource.headRevision);
+    jsonSource.snapshot.headRevision = jsonSource.headRevision;
+    return jsonSource.snapshot;
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateHeadRevision> {
     const writerLock = await this.acquireWriteLock(snapshot.project.id);
 
     try {
       const jsonSource = await this.loadJsonSourceIfPresent(writerLock.ownerId ?? undefined);
+      let sqliteFallbackHeadRevision: ProjectAggregateHeadRevision = null;
 
       if (jsonSource !== null) {
         if (jsonSource.snapshot.project.id !== snapshot.project.id) {
@@ -422,12 +422,17 @@ export class JsonFirstStorageAdapter implements StoragePort {
               }
             );
           }
+
+          if (sqliteState.kind === "single") {
+            sqliteFallbackHeadRevision = sqliteState.snapshot?.headRevision ?? null;
+          }
         }
       }
 
       this.assertExpectedHeadRevision({
         snapshot,
-        jsonSource
+        jsonSource,
+        sqliteFallbackHeadRevision
       });
 
       const encodedDocuments = encodeProjectAggregateToJsonDocuments(snapshot);
@@ -462,10 +467,11 @@ export class JsonFirstStorageAdapter implements StoragePort {
       }
 
       const headRevision = this.computeHeadRevision(encodedDocuments);
-      attachProjectAggregateHeadRevision(snapshot, headRevision);
+      snapshot.headRevision = headRevision;
       if (this.sqliteReadModel === "enabled") {
         await this.syncJsonSnapshotToSqlite(snapshot);
       }
+      return headRevision;
     } finally {
       await writerLock.release();
     }
@@ -982,15 +988,12 @@ export class JsonFirstStorageAdapter implements StoragePort {
   private assertExpectedHeadRevision(options: {
     snapshot: ProjectAggregateSnapshot;
     jsonSource: JsonSourceState | null;
+    sqliteFallbackHeadRevision: ProjectAggregateHeadRevision;
   }): void {
-    const expectedHeadRevision = getProjectAggregateHeadRevision(options.snapshot);
-
-    if (expectedHeadRevision === undefined) {
-      return;
-    }
+    const expectedHeadRevision = options.snapshot.headRevision;
 
     if (expectedHeadRevision === null) {
-      if (options.jsonSource === null) {
+      if (options.jsonSource === null && options.sqliteFallbackHeadRevision === null) {
         return;
       }
 
@@ -1002,12 +1005,20 @@ export class JsonFirstStorageAdapter implements StoragePort {
           routeledgerRoot: this.routeledgerRoot,
           projectId: options.snapshot.project.id,
           expectedHeadRevision,
-          actualHeadRevision: options.jsonSource.headRevision
+          actualHeadRevision:
+            options.jsonSource?.headRevision ?? options.sqliteFallbackHeadRevision,
+          expectedRevision: expectedHeadRevision,
+          actualRevision:
+            options.jsonSource?.headRevision ?? options.sqliteFallbackHeadRevision
         }
       );
     }
 
     if (options.jsonSource === null) {
+      if (expectedHeadRevision === options.sqliteFallbackHeadRevision) {
+        return;
+      }
+
       throw new JsonFirstStorageError(
         "STALE_SNAPSHOT",
         "当前 canonical JSON head 已变化，拒绝用过期 snapshot 覆盖",
@@ -1016,7 +1027,9 @@ export class JsonFirstStorageAdapter implements StoragePort {
           routeledgerRoot: this.routeledgerRoot,
           projectId: options.snapshot.project.id,
           expectedHeadRevision,
-          actualHeadRevision: null
+          actualHeadRevision: options.sqliteFallbackHeadRevision,
+          expectedRevision: expectedHeadRevision,
+          actualRevision: options.sqliteFallbackHeadRevision
         }
       );
     }
@@ -1030,7 +1043,9 @@ export class JsonFirstStorageAdapter implements StoragePort {
           routeledgerRoot: this.routeledgerRoot,
           projectId: options.snapshot.project.id,
           expectedHeadRevision,
-          actualHeadRevision: options.jsonSource.headRevision
+          actualHeadRevision: options.jsonSource.headRevision,
+          expectedRevision: expectedHeadRevision,
+          actualRevision: options.jsonSource.headRevision
         }
       );
     }
@@ -1083,13 +1098,25 @@ export class JsonFirstStorageAdapter implements StoragePort {
 
   private async syncJsonSnapshotToSqlite(snapshot: ProjectAggregateSnapshot): Promise<void> {
     try {
-      await this.withSqliteAdapter((adapter) => adapter.saveProjectAggregate(snapshot));
+      await this.withSqliteAdapter(async (adapter) => {
+        const sqliteSnapshot = structuredClone(snapshot);
+        const existing = await adapter.loadProjectAggregate(snapshot.project.id);
+        // The SQLite projection owns its own monotonic revision. The canonical
+        // JSON hash must never be used as SQLite's expected token.
+        sqliteSnapshot.headRevision = existing?.headRevision ?? null;
+        await adapter.saveProjectAggregate(sqliteSnapshot);
+      });
       return;
     } catch (error) {
       await this.resetSqliteReadModelFiles();
 
       try {
-        await this.withSqliteAdapter((adapter) => adapter.saveProjectAggregate(snapshot));
+        await this.withSqliteAdapter(async (adapter) => {
+          const sqliteSnapshot = structuredClone(snapshot);
+          const existing = await adapter.loadProjectAggregate(snapshot.project.id);
+          sqliteSnapshot.headRevision = existing?.headRevision ?? null;
+          await adapter.saveProjectAggregate(sqliteSnapshot);
+        });
       } catch (syncError) {
         console.warn(
           "[routeledger-mcp] failed to sync sqlite read model from canonical JSON",

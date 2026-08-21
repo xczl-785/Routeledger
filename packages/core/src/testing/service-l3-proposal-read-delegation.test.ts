@@ -43,6 +43,7 @@ describe("RouteLedgerService L3 proposal read delegation", () => {
   it("delegates proposal reads while preserving ordering and not-found errors", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [createVersionFixture({ id: "version-1", isCurrent: true })],
       workItems: [],
@@ -117,6 +118,7 @@ describe("RouteLedgerService L3 proposal read delegation", () => {
       payload: { intentionally: "not rebuilt" }
     };
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [
         createVersionFixture({ id: "version-1", isCurrent: true, nextVersionId: "version-2" }),

@@ -388,6 +388,7 @@ export const rewriteJsonFile = (
 };
 
 export const createValidateSnapshot = (): ProjectAggregateSnapshot => ({
+  headRevision: null,
   project: {
     id: "project-1",
     name: "RouteLedger",

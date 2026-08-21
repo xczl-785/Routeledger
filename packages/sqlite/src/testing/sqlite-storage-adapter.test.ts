@@ -71,6 +71,7 @@ const createEmptyAggregate = (): ProjectAggregateSnapshot => {
   });
 
   return {
+    headRevision: null,
     project: creation.project,
     versions: [creation.firstVersion!],
     workItems: [],
@@ -200,6 +201,7 @@ const createAggregateWithRetainedHistory = (): ProjectAggregateSnapshot => {
   });
 
   return {
+    headRevision: null,
     project: created.project,
     versions: [created.firstVersion!],
     workItems: [workItem],
@@ -275,7 +277,7 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-      expect(migrationCount.count).toBe(9);
+      expect(migrationCount.count).toBe(10);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
@@ -285,7 +287,7 @@ describe("sqlite storage adapter", () => {
     }
   });
 
-  it("upgrades every real migration prefix through 0009 and rejects future histories", () => {
+  it("upgrades every real migration prefix through 0010 and rejects future histories", () => {
     for (let prefixLength = 0; prefixLength <= SQLITE_MIGRATIONS.length; prefixLength += 1) {
       const db = new BetterSqlite3(":memory:");
       try {
@@ -304,6 +306,10 @@ describe("sqlite storage adapter", () => {
           (db.prepare("PRAGMA table_info(approval_artifacts)").all() as Array<{ name: string }>)
             .map(({ name }) => name)
         ).toContain("authorization_record_json");
+        expect(
+          (db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>)
+            .map(({ name }) => name)
+        ).toContain("aggregate_revision");
       } finally {
         db.close();
       }
@@ -591,7 +597,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(9);
+      ).toBe(10);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -909,6 +915,60 @@ describe("sqlite storage adapter", () => {
     }
   });
 
+  it("uses a persisted revision to reject a stale writer from another adapter instance", async () => {
+    const projectRoot = createTempProjectRoot();
+    const primary = new SQLiteStorageAdapter({ projectRoot });
+    const competitor = new SQLiteStorageAdapter({ projectRoot });
+
+    try {
+      const created = createEmptyAggregate();
+      await expect(primary.saveProjectAggregate(created)).resolves.toBe("sqlite:1");
+      expect(created.headRevision).toBe("sqlite:1");
+
+      const current = await primary.loadProjectAggregate(created.project.id);
+      const stale = await competitor.loadProjectAggregate(created.project.id);
+      expect(current?.headRevision).toBe("sqlite:1");
+      expect(stale?.headRevision).toBe("sqlite:1");
+
+      current!.project.description = "primary update";
+      current!.events.push({
+        id: "event-concurrent-update",
+        projectId: created.project.id,
+        operationId: "operation-concurrent-update",
+        operationSeq: 1,
+        targetType: "project",
+        targetId: created.project.id,
+        eventType: "project.concurrent_update",
+        fromState: null,
+        toState: null,
+        note: null,
+        actorId: TEST_ACTOR.id,
+        actorType: TEST_ACTOR.type,
+        actorDisplayName: TEST_ACTOR.displayName ?? null,
+        createdAt: "2026-08-22T00:00:00.000Z",
+        metadata: {}
+      });
+      await expect(primary.saveProjectAggregate(current!)).resolves.toBe("sqlite:2");
+
+      stale!.project.description = "stale update";
+      await expect(competitor.saveProjectAggregate(stale!)).rejects.toMatchObject({
+        code: "STALE_SNAPSHOT",
+        details: {
+          expectedRevision: "sqlite:1",
+          actualRevision: "sqlite:2"
+        }
+      });
+
+      const reloaded = await primary.loadProjectAggregate(created.project.id);
+      expect(reloaded?.project.description).toBe("primary update");
+      expect(reloaded?.headRevision).toBe("sqlite:2");
+    } finally {
+      primary.close();
+      competitor.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("Project 逻辑根可在零 Version、零 current 状态下 round-trip", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -1036,6 +1096,7 @@ describe("sqlite storage adapter", () => {
         deps
       });
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: created.project,
         versions: [created.firstVersion!],
         workItems: [deferredCreation.workItem],
@@ -1206,6 +1267,7 @@ describe("sqlite storage adapter", () => {
         deps
       });
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: created.project,
         versions: [created.firstVersion!],
         workItems: [activated.workItem, resolved.workItem],
@@ -1466,6 +1528,7 @@ describe("sqlite storage adapter", () => {
       const closed = closeVersion(completed.version, closeGate, { actor: TEST_ACTOR, now: deps.clock.now(), operationId: "op_close" }, deps);
 
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: created.project,
         versions: [closed.version],
         workItems: [],
@@ -1538,6 +1601,7 @@ describe("sqlite storage adapter", () => {
       });
 
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: switched.project,
         versions: [switched.currentVersion!, switched.nextVersion],
         workItems: [],
@@ -1591,6 +1655,7 @@ describe("sqlite storage adapter", () => {
       });
 
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: created.project,
         versions: [created.firstVersion!],
         workItems: [todoCreation.workItem],
@@ -1662,6 +1727,7 @@ describe("sqlite storage adapter", () => {
       };
 
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: created.project,
         versions: [created.firstVersion!],
         workItems: [todoCreation.workItem],
@@ -2003,6 +2069,7 @@ describe("sqlite storage adapter", () => {
       );
 
       const aggregate: ProjectAggregateSnapshot = {
+        headRevision: null,
         project: created.project,
         versions: [created.firstVersion!],
         workItems: [workItem],

@@ -1,6 +1,6 @@
 import type { Actor } from "../domain/actor.js";
 import type { Version } from "../domain/version.js";
-import type { StoragePort } from "../ports/storage-port.js";
+import type { ProjectSnapshotReader, ProjectSnapshotWriter } from "../ports/storage-port.js";
 import { evaluateCloseGate, resolveResidualAudit } from "../services/gate-service.js";
 import { createDomainContext, type DomainDependencies } from "../services/operation.js";
 import {
@@ -42,10 +42,7 @@ export interface VersionCommandUseCases {
   }>;
 }
 
-type VersionCommandStorage = Pick<
-  StoragePort,
-  "loadProjectAggregate" | "saveProjectAggregate"
->;
+type VersionCommandStorage = ProjectSnapshotReader & ProjectSnapshotWriter;
 
 const requireVersion = (
   versions: Version[],

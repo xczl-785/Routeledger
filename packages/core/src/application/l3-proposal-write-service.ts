@@ -15,10 +15,7 @@ import {
   type ProjectSnapshotReader,
   type ProjectSnapshotWriter
 } from "./project-aggregate-access.js";
-import {
-  getProjectAggregateHeadRevision,
-  type ProjectAggregateSnapshot
-} from "../ports/storage-port.js";
+import type { ProjectAggregateSnapshot } from "../ports/storage-port.js";
 import type { L3ActionType, PendingOperation, PendingOperationPayload } from "./types.js";
 
 export interface L3ProposalWriteInput {
@@ -41,23 +38,6 @@ const appendRecord = <T extends { id: string }>(records: T[], nextRecord: T): T[
   records.some((record) => record.id === nextRecord.id)
     ? records.map((record) => (record.id === nextRecord.id ? nextRecord : record))
     : records.concat(nextRecord);
-
-const sortKeys = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sortKeys);
-
-  if (value !== null && typeof value === "object") {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((accumulator, key) => {
-        accumulator[key] = sortKeys((value as Record<string, unknown>)[key]);
-        return accumulator;
-      }, {});
-  }
-
-  return value;
-};
-
-const stableStringify = (value: unknown): string => JSON.stringify(sortKeys(value));
 
 const applyPendingOperation = (
   snapshot: ProjectAggregateSnapshot,
@@ -147,7 +127,7 @@ export class L3ProposalWriteService implements L3ProposalWriteUseCases {
     updatedSnapshot.events = updatedSnapshot.events.concat(proposalEvents);
     await persistProjectAggregate(this.options.storage, updatedSnapshot);
 
-    const savedHeadRevision = getProjectAggregateHeadRevision(updatedSnapshot);
+    const savedHeadRevision = updatedSnapshot.headRevision;
     const persistedSnapshot = await loadRequiredProjectAggregate(this.options.storage, input.projectId);
     const persistedProposal = persistedSnapshot.pendingOperations.find(
       (operation) => operation.id === proposal.id
@@ -171,7 +151,7 @@ export class L3ProposalWriteService implements L3ProposalWriteUseCases {
       rebuiltDigest?.value === persistedProposal.digest.value;
 
     if (!persistenceIsSelfConsistent) {
-      const persistedHeadRevision = getProjectAggregateHeadRevision(persistedSnapshot);
+      const persistedHeadRevision = persistedSnapshot.headRevision;
       const proposalEventIds = new Set(proposalEvents.map((event) => event.id));
       const linkedApprovalArtifactIds = persistedSnapshot.approvalArtifacts
         .filter((artifact) => artifact.pendingOperationId === proposal.id)
@@ -185,13 +165,10 @@ export class L3ProposalWriteService implements L3ProposalWriteUseCases {
       );
 
       const headStillMatchesOwnWrite =
-        savedHeadRevision !== undefined && persistedHeadRevision === savedHeadRevision;
-      const unrevisionedRemainderMatchesOriginal =
-        savedHeadRevision === undefined &&
-        stableStringify(rollbackSnapshot) === stableStringify(snapshot);
+        savedHeadRevision !== null && persistedHeadRevision === savedHeadRevision;
       const canRollbackSafely =
         linkedApprovalArtifactIds.length === 0 &&
-        (headStillMatchesOwnWrite || unrevisionedRemainderMatchesOriginal);
+        headStillMatchesOwnWrite;
       let rollbackStatus: "rolled_back" | "skipped_concurrent_change" | "failed" =
         "skipped_concurrent_change";
       let rollbackError: string | null = null;

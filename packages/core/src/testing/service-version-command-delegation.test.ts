@@ -14,6 +14,7 @@ describe("RouteLedgerService version command delegation", () => {
   it("delegates prepareVersion without reshaping its input or return contract", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [
         createVersionFixture({ id: "version-1", isCurrent: true, state: "wait" })
@@ -67,6 +68,7 @@ describe("RouteLedgerService version command delegation", () => {
   it("delegates markVersionComplete without reshaping its input or close-readiness contract", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [
         createVersionFixture({ id: "version-1", isCurrent: true, state: "running" })

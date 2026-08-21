@@ -11,6 +11,7 @@ import type {
   PendingOperation,
   Project,
   ProjectAggregateSnapshot,
+  ProjectAggregateHeadRevision,
   StoragePort,
   Todo,
   TransitionEvent,
@@ -19,6 +20,7 @@ import type {
   WorkItem
 } from "@routeledger/core";
 import {
+  ApplicationError,
   collectConstraintInvariantViolations,
   collectDeferredItemInvariantViolations,
   validateWorkItemLineage
@@ -511,6 +513,7 @@ export interface SQLiteStorageAdapterOptions {
 
 interface ProjectRow {
   id: string;
+  aggregate_revision: number;
   name: string;
   description: string;
   status: Project["status"];
@@ -853,6 +856,7 @@ export class SQLiteStorageAdapter implements StoragePort {
       .prepare<string[], ProjectRow>(
         `SELECT
           id,
+          aggregate_revision,
           name,
           description,
           status,
@@ -1398,6 +1402,7 @@ export class SQLiteStorageAdapter implements StoragePort {
       );
 
     const snapshot: ProjectAggregateSnapshot = {
+      headRevision: `sqlite:${projectRow.aggregate_revision}`,
       project,
       versions,
       workItems,
@@ -1416,13 +1421,13 @@ export class SQLiteStorageAdapter implements StoragePort {
     return snapshot;
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateHeadRevision> {
     const persistedSnapshot = await this.loadProjectAggregate(snapshot.project.id);
-    assertCompleteAggregateSnapshot(snapshot, persistedSnapshot);
 
     const upsertProject = this.db.prepare(`
       INSERT INTO projects (
         id,
+        aggregate_revision,
         schema_version,
         name,
         description,
@@ -1438,6 +1443,7 @@ export class SQLiteStorageAdapter implements StoragePort {
         settings_json
       ) VALUES (
         @id,
+        @aggregate_revision,
         @schema_version,
         @name,
         @description,
@@ -1454,6 +1460,7 @@ export class SQLiteStorageAdapter implements StoragePort {
       )
       ON CONFLICT(id) DO UPDATE SET
         schema_version = excluded.schema_version,
+        aggregate_revision = excluded.aggregate_revision,
         name = excluded.name,
         description = excluded.description,
         status = excluded.status,
@@ -1938,9 +1945,28 @@ export class SQLiteStorageAdapter implements StoragePort {
 
     // D1 keeps saveProjectAggregate as a full-project replace inside one transaction.
     // Callers must pass the complete aggregate snapshot instead of a partial patch.
+    const readAggregateRevision = this.db.prepare<string[], { aggregate_revision: number }>(
+      "SELECT aggregate_revision FROM projects WHERE id = ?"
+    );
+
     const persistCompleteAggregate = this.db.transaction((aggregate: ProjectAggregateSnapshot) => {
+      const persistedRevision = readAggregateRevision.get(aggregate.project.id)?.aggregate_revision;
+      const actualHeadRevision =
+        persistedRevision === undefined ? null : `sqlite:${persistedRevision}`;
+      if (aggregate.headRevision !== actualHeadRevision) {
+        throw new ApplicationError("STALE_SNAPSHOT", "SQLite aggregate snapshot is stale", {
+          projectId: aggregate.project.id,
+          expectedHeadRevision: aggregate.headRevision,
+          actualHeadRevision,
+          expectedRevision: aggregate.headRevision,
+          actualRevision: actualHeadRevision
+        });
+      }
+      assertCompleteAggregateSnapshot(aggregate, persistedSnapshot);
+      const nextHeadRevision = `sqlite:${(persistedRevision ?? 0) + 1}`;
       upsertProject.run({
         id: aggregate.project.id,
+        aggregate_revision: (persistedRevision ?? 0) + 1,
         schema_version: SCHEMA_VERSION,
         name: aggregate.project.name,
         description: aggregate.project.description,
@@ -2218,9 +2244,13 @@ export class SQLiteStorageAdapter implements StoragePort {
           committed_at: receipt.committedAt
         });
       }
-    });
 
-    persistCompleteAggregate(snapshot);
+      return nextHeadRevision;
+    }).immediate;
+
+    const nextHeadRevision = persistCompleteAggregate(snapshot);
+    snapshot.headRevision = nextHeadRevision;
+    return nextHeadRevision;
   }
 
   async listTransitionEventsByOperationId(operationId: string): Promise<TransitionEvent[]> {

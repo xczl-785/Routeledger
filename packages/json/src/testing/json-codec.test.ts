@@ -112,13 +112,31 @@ const normalizeSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregate
 class MemoryStorageAdapter implements StoragePort {
   private snapshots = new Map<string, ProjectAggregateSnapshot>();
 
+  private revisions = new Map<string, number>();
+
   async loadProjectAggregate(projectId: string): Promise<ProjectAggregateSnapshot | null> {
     const snapshot = this.snapshots.get(projectId);
     return snapshot === undefined ? null : structuredClone(snapshot);
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
+    const revision = this.revisions.get(snapshot.project.id);
+    const actualHeadRevision = revision === undefined ? null : `memory:${revision}`;
+    if (snapshot.headRevision !== actualHeadRevision) {
+      throw Object.assign(new Error("memory snapshot is stale"), {
+        code: "STALE_SNAPSHOT",
+        details: {
+          projectId: snapshot.project.id,
+          expectedHeadRevision: snapshot.headRevision,
+          actualHeadRevision
+        }
+      });
+    }
+    const nextHeadRevision = `memory:${(revision ?? 0) + 1}`;
+    snapshot.headRevision = nextHeadRevision;
+    this.revisions.set(snapshot.project.id, (revision ?? 0) + 1);
     this.snapshots.set(snapshot.project.id, structuredClone(snapshot));
+    return nextHeadRevision;
   }
 }
 
@@ -216,6 +234,18 @@ describe("@routeledger/json canonical codec", () => {
     ]) {
       expect(eventMetadataKeys).toContain(snakeCaseKey);
     }
+  });
+
+  it("does not serialize storage-owned headRevision into canonical JSON bytes", () => {
+    const withoutRuntimeRevision = createJsonCodecSnapshot();
+    const withRuntimeRevision: ProjectAggregateSnapshot = {
+      ...withoutRuntimeRevision,
+      headRevision: "runtime-only-revision"
+    };
+
+    expect(encodeProjectAggregateToJsonDocuments(withRuntimeRevision)).toEqual(
+      encodeProjectAggregateToJsonDocuments(withoutRuntimeRevision)
+    );
   });
 
   it("repeated encode is byte-stable across collection ordering", () => {
@@ -769,6 +799,9 @@ describe("@routeledger/json canonical codec", () => {
     const beforeRoundtrip = await storage.loadProjectAggregate(created.project.id);
     const documents = encodeProjectAggregateToJsonDocuments(beforeRoundtrip!);
     const decodedSnapshot = decodeProjectAggregateFromJsonDocuments(documents);
+    // Codec decode intentionally has no storage context. Reattach the runtime
+    // revision a production host reader would provide before writing it back.
+    decodedSnapshot.headRevision = beforeRoundtrip!.headRevision;
 
     await storage.saveProjectAggregate(decodedSnapshot);
     await service.commitL3Operation({

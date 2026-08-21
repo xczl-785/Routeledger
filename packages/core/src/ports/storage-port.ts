@@ -11,6 +11,15 @@ import type { ApprovalArtifact, PendingOperation } from "../application/types.js
 import type { OrdinaryWriteReceipt } from "../application/ordinary-write-idempotency.js";
 
 export interface ProjectAggregateSnapshot {
+  /**
+   * Storage-owned optimistic-concurrency token for this complete aggregate.
+   *
+   * This is deliberately runtime metadata: codecs must neither serialize it nor
+   * include it in canonical document bytes. `null` means the caller expects no
+   * persisted aggregate yet. Production readers return a concrete token for an
+   * existing aggregate.
+   */
+  headRevision: ProjectAggregateHeadRevision;
   project: Project;
   versions: Version[];
   workItems: WorkItem[];
@@ -26,36 +35,35 @@ export interface ProjectAggregateSnapshot {
   ordinaryWriteReceipts?: OrdinaryWriteReceipt[];
 }
 
-const SNAPSHOT_HEAD_REVISION = Symbol("routeledger.snapshotHeadRevision");
-
 export type ProjectAggregateHeadRevision = string | null;
 
+/** @deprecated Read the public `snapshot.headRevision` field directly. */
 export const attachProjectAggregateHeadRevision = <T extends ProjectAggregateSnapshot>(
   snapshot: T,
   headRevision: ProjectAggregateHeadRevision
 ): T => {
-  Object.defineProperty(snapshot, SNAPSHOT_HEAD_REVISION, {
-    value: headRevision,
-    enumerable: true,
-    writable: true,
-    configurable: true
-  });
-
+  snapshot.headRevision = headRevision;
   return snapshot;
 };
 
+/** @deprecated Read the public `snapshot.headRevision` field directly. */
 export const getProjectAggregateHeadRevision = (
   snapshot: ProjectAggregateSnapshot
-): ProjectAggregateHeadRevision | undefined =>
-  (snapshot as ProjectAggregateSnapshot & {
-    [SNAPSHOT_HEAD_REVISION]?: ProjectAggregateHeadRevision;
-  })[SNAPSHOT_HEAD_REVISION];
+): ProjectAggregateHeadRevision => snapshot.headRevision;
 
-export interface StoragePort {
+export interface ProjectSnapshotReader {
   loadProjectAggregate(projectId: string): Promise<ProjectAggregateSnapshot | null>;
-  /**
-   * Persists the complete project aggregate snapshot.
-   * Callers must pass the full aggregate for the project instead of a partial patch.
-   */
-  saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void>;
 }
+
+export interface ProjectSnapshotWriter {
+  /**
+   * Persists the complete project aggregate with `snapshot.headRevision` as the
+   * expected revision and returns the concrete revision that was committed.
+   * Implementations also update `snapshot.headRevision` after a successful
+   * save so direct adapter callers and `persistProjectAggregate` agree.
+   */
+  saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateHeadRevision>;
+}
+
+/** Compatibility facade for hosts that need both storage directions. */
+export interface StoragePort extends ProjectSnapshotReader, ProjectSnapshotWriter {}

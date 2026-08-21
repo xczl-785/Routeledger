@@ -22,6 +22,15 @@ state, serializes writes, and treats the optional SQLite read model.
 5. A write lock and canonical-head revision protect save operations. Active
    competing reads/writes return `WRITE_IN_PROGRESS`; an obsolete snapshot save
    returns `STALE_SNAPSHOT`.
+6. `ProjectAggregateSnapshot.headRevision` is explicit runtime storage metadata,
+   never a canonical JSON field. JSON decode starts it at `null`; a production
+   load of an existing canonical aggregate supplies its SHA-256 document-set
+   hash. A successful save returns and updates that new hash. `null` is only
+   the expected revision for a new aggregate.
+7. Storage is split into `ProjectSnapshotReader` and `ProjectSnapshotWriter`.
+   A reader-only host need not provide a failing write implementation. Writers
+   compare the snapshot token under the writer lock and return `STALE_SNAPSHOT`
+   with expected and actual revisions on mismatch.
 
 ## Evidence
 

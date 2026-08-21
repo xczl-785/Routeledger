@@ -234,6 +234,72 @@ describe("JsonFirstStorageAdapter", () => {
     }
   });
 
+  it("keeps canonical JSON hashes and SQLite read-model revisions in their own token domains", async () => {
+    const projectRoot = createTempProjectRoot();
+    const { storage, service } = createJsonFirstService(projectRoot);
+    const sqlite = new SQLiteStorageAdapter({ projectRoot });
+
+    try {
+      const created = await service.initProject({
+        contentLocale: "en",
+        name: "Revision domains",
+        actor: { id: "revision-agent", type: "agent" }
+      });
+      const jsonSnapshot = await storage.loadProjectAggregate(created.project.id);
+      const sqliteSnapshot = await sqlite.loadProjectAggregate(created.project.id);
+
+      expect(jsonSnapshot?.headRevision).toMatch(/^[a-f0-9]{64}$/);
+      expect(sqliteSnapshot?.headRevision).toBe("sqlite:1");
+
+      jsonSnapshot!.project.description = "canonical update";
+      const jsonRevision = await storage.saveProjectAggregate(jsonSnapshot!);
+      const syncedSqliteSnapshot = await sqlite.loadProjectAggregate(created.project.id);
+
+      expect(jsonSnapshot?.headRevision).toBe(jsonRevision);
+      expect(jsonRevision).toMatch(/^[a-f0-9]{64}$/);
+      expect(syncedSqliteSnapshot?.headRevision).toBe("sqlite:2");
+      expect(syncedSqliteSnapshot?.headRevision).not.toBe(jsonRevision);
+    } finally {
+      sqlite.close();
+      storage.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("returns SQLite's real revision for a legacy SQLite-only fallback", async () => {
+    const projectRoot = createTempProjectRoot();
+    const sqlite = new SQLiteStorageAdapter({ projectRoot });
+
+    try {
+      const sqliteService = new RouteLedgerService({
+        storage: sqlite,
+        deps: createTestDependencies()
+      });
+      const created = await sqliteService.initProject({
+        contentLocale: "en",
+        name: "SQLite-only fallback",
+        actor: { id: "sqlite-agent", type: "agent" }
+      });
+      const storage = new JsonFirstStorageAdapter({
+        workspaceRoot: projectRoot,
+        routeledgerRoot: projectRoot
+      });
+
+      try {
+        const fallback = await storage.loadProjectAggregate(created.project.id);
+        expect(fallback?.headRevision).toBe("sqlite:1");
+        fallback!.project.description = "materialized from SQLite";
+        await expect(storage.saveProjectAggregate(fallback!)).resolves.toMatch(/^[a-f0-9]{64}$/);
+        expect(fallback?.headRevision).toMatch(/^[a-f0-9]{64}$/);
+      } finally {
+        storage.close();
+      }
+    } finally {
+      sqlite.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("replays a committed create_todo from canonical JSON after restart", async () => {
     const projectRoot = createTempProjectRoot();
     const actor = { id: "idempotent-agent", type: "agent" as const };
@@ -1140,7 +1206,7 @@ describe("JsonFirstStorageAdapter", () => {
       expect(await getRouteLedgerJsonWriteLockInfo(projectRoot)).toBeNull();
 
       recoveredSnapshot!.project.description = "post-stale-lock write";
-      await expect(storage.saveProjectAggregate(recoveredSnapshot!)).resolves.toBeUndefined();
+      await expect(storage.saveProjectAggregate(recoveredSnapshot!)).resolves.toEqual(expect.any(String));
     } finally {
       storage.close();
       cleanupProjectRoot(projectRoot);
@@ -1179,7 +1245,7 @@ describe("JsonFirstStorageAdapter", () => {
       expect(await getRouteLedgerJsonWriteLockInfo(projectRoot)).toBeNull();
 
       recoveredSnapshot!.project.description = "post-corrupt-lock write";
-      await expect(storage.saveProjectAggregate(recoveredSnapshot!)).resolves.toBeUndefined();
+      await expect(storage.saveProjectAggregate(recoveredSnapshot!)).resolves.toEqual(expect.any(String));
     } finally {
       storage.close();
       cleanupProjectRoot(projectRoot);

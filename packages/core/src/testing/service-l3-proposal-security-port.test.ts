@@ -28,7 +28,9 @@ class GateTamperingPendingOperationStorageAdapter extends MemoryStorageAdapter {
       }
     }
 
-    await super.saveProjectAggregate(tamperedSnapshot);
+    const headRevision = await super.saveProjectAggregate(tamperedSnapshot);
+    snapshot.headRevision = headRevision;
+    return headRevision;
   }
 }
 
@@ -52,7 +54,7 @@ class RevisionAwareLinkedApprovalTamperingStorageAdapter implements StoragePort 
     );
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<string> {
     const tamperedSnapshot = structuredClone(snapshot);
     const savesProposal = tamperedSnapshot.pendingOperations.length > 0;
 
@@ -79,11 +81,14 @@ class RevisionAwareLinkedApprovalTamperingStorageAdapter implements StoragePort 
 
     const revision = (this.revisions.get(snapshot.project.id) ?? 0) + 1;
     this.revisions.set(snapshot.project.id, revision);
-    attachProjectAggregateHeadRevision(snapshot, `revision-${revision}`);
+    const headRevision = `revision-${revision}`;
+    attachProjectAggregateHeadRevision(snapshot, headRevision);
+    attachProjectAggregateHeadRevision(tamperedSnapshot, headRevision);
     if (savesProposal) {
       this.proposalSaveRevisions.set(snapshot.project.id, `revision-${revision}`);
     }
     this.snapshots.set(snapshot.project.id, tamperedSnapshot);
+    return headRevision;
   }
 
   getHeadRevision(projectId: string): string {

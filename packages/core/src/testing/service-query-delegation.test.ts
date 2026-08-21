@@ -13,6 +13,7 @@ describe("RouteLedgerService query delegation", () => {
   it("delegates version list queries while preserving their public contracts", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-2" }),
       versions: [
         createVersionFixture({ id: "version-3", order: 3 }),
@@ -84,6 +85,7 @@ describe("RouteLedgerService query delegation", () => {
   it("delegates current-context and next-action queries without reshaping their contracts", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({
         currentVersionId: null,
         initialVersionId: null
@@ -152,6 +154,7 @@ describe("RouteLedgerService query delegation", () => {
   it("delegates Version closeout queries", async () => {
     const storage = new MemoryStorageAdapter();
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [createVersionFixture({ id: "version-1", isCurrent: true })],
       workItems: [],

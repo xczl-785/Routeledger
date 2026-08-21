@@ -24,6 +24,7 @@ describe("route ledger service", () => {
     );
 
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({
         id: "project-1",
         currentVersionId: "version-4"
@@ -131,6 +132,7 @@ describe("route ledger service", () => {
     ];
 
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions,
       workItems: [],
@@ -180,6 +182,7 @@ describe("route ledger service", () => {
     });
 
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({ currentVersionId: "version-1" }),
       versions: [
         createVersionFixture({ id: "version-1", state: "close", order: 1, isCurrent: true }),
@@ -228,6 +231,7 @@ describe("route ledger service", () => {
     );
 
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({
         id: "project-1",
         currentVersionId: "version-4"
@@ -290,6 +294,7 @@ describe("route ledger service", () => {
     });
 
     await storage.saveProjectAggregate({
+      headRevision: null,
       project: createProjectFixture({
         id: "project-1",
         currentVersionId: "version-1"
