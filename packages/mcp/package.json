@@ -23,6 +23,7 @@
     "@routeledger/codex": "workspace:*",
     "@routeledger/core": "workspace:*",
     "@routeledger/json": "workspace:*",
-    "@routeledger/sqlite": "workspace:*"
+    "@routeledger/sqlite": "workspace:*",
+    "@routeledger/ui": "workspace:*"
   }
 }

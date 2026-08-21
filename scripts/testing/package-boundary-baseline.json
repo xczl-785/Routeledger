@@ -28,7 +28,6 @@
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/json/src/testing/json-codec.test.ts|../../../core/src/testing/builders.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/json/src/testing/json-validate.test.ts|../../../core/src/testing/builders.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/json/src/testing/review-summary.test.ts|../../../core/src/testing/builders.js",
-    "CROSS_PACKAGE_RELATIVE_IMPORT|packages/mcp/src/index.ts|../../ui/src/server/launcher.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/mcp/src/testing/json-first-storage.test.ts|../../../core/src/index.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/mcp/src/testing/json-first-storage.test.ts|../../../core/src/testing/builders.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/mcp/src/testing/json-first-storage.test.ts|../../../json/src/index.js",
@@ -44,7 +43,6 @@
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/mcp/src/testing/mcp-versions.test.ts|../../../core/src/testing/builders.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/mcp/src/testing/mcp-write-guards.test.ts|../../../json/src/index.js",
     "CROSS_PACKAGE_RELATIVE_IMPORT|packages/sqlite/src/testing/sqlite-storage-adapter.test.ts|../../../core/src/index.js",
-    "CROSS_PACKAGE_RELATIVE_IMPORT|packages/sqlite/src/testing/sqlite-storage-adapter.test.ts|../../../core/src/testing/builders.js",
-    "UNDECLARED_BARE_DEPENDENCY|packages/ui/src/server/launcher.ts|vite"
+    "CROSS_PACKAGE_RELATIVE_IMPORT|packages/sqlite/src/testing/sqlite-storage-adapter.test.ts|../../../core/src/testing/builders.js"
   ]
 }

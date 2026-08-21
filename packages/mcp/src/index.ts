@@ -1194,7 +1194,7 @@ const readDebugPendingOperationId = (
 ): string | undefined => readStringField(input, "pendingOperationId");
 
 const loadMissionControlSourceModule = async (): Promise<MissionControlSourceModule> =>
-  (await import("../../ui/src/server/launcher.js")) as MissionControlSourceModule;
+  (await import("@routeledger/ui/server")) as MissionControlSourceModule;
 
 const resolveMissionControlRoots = (
   input: Record<string, any>,

@@ -91,7 +91,8 @@ const createWorkspaceEntryTargets = (outDir) => ({
   "@routeledger/codex": path.join(outDir, "codex/src/index.js"),
   "@routeledger/core": path.join(outDir, "core/src/index.js"),
   "@routeledger/json": path.join(outDir, "json/src/index.js"),
-  "@routeledger/sqlite": path.join(outDir, "sqlite/src/index.js")
+  "@routeledger/sqlite": path.join(outDir, "sqlite/src/index.js"),
+  "@routeledger/ui/server": path.join(outDir, "ui/src/server/launcher.js")
 });
 
 const createEmittedWorkspaceRelativeTargets = (outDir) => ({
