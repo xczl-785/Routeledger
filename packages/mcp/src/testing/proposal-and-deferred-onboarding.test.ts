@@ -36,14 +36,29 @@ describe("proposal and Deferred onboarding contracts", () => {
           },
           recommendedNextActions: expect.arrayContaining([
             expect.objectContaining({
+              action: "execute_if_admitted",
+              tool: "execute_route_change",
+              input: expect.objectContaining({
+                operation: "execute_admitted_proposal",
+                expectedRouteLedgerRoot: projectRoot,
+                expectedOperationDigest: expect.any(String)
+              })
+            }),
+            expect.objectContaining({
               action: "approve",
               tool: "execute_route_change",
-              input: expect.objectContaining({ operation: "approve_l3_operation" })
+              input: expect.objectContaining({
+                operation: "approve_l3_operation",
+                expectedRouteLedgerRoot: projectRoot
+              })
             }),
             expect.objectContaining({
               action: "reject",
               tool: "execute_route_change",
-              input: expect.objectContaining({ operation: "reject_l3_operation" })
+              input: expect.objectContaining({
+                operation: "reject_l3_operation",
+                expectedRouteLedgerRoot: projectRoot
+              })
             })
           ])
         }
@@ -65,6 +80,51 @@ describe("proposal and Deferred onboarding contracts", () => {
               projectId,
               pendingOperationId: (proposed.data as { pendingOperationId: string })
                 .pendingOperationId
+            }
+          }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("returns an executable write next action with the active RouteLedger root", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRegistry(projectRoot);
+
+    try {
+      const initialized = await registry.invoke("init_project", {
+        name: "Executable next action",
+        contentLocale: "en",
+        firstVersion: {
+          title: "Current version",
+          description: "",
+          initialTodos: []
+        }
+      });
+      const data = initialized.data as {
+        project: { id: string };
+        firstVersion: { id: string };
+      };
+
+      const nextAction = await registry.invoke("inspect_route_progress", {
+        operation: "next_action",
+        projectId: data.project.id
+      });
+
+      expect(nextAction).toMatchObject({
+        ok: true,
+        data: {
+          nextAction: {
+            actionType: "prepare_version",
+            recommendedTool: "set_version_state",
+            toolInput: {
+              operation: "prepare",
+              projectId: data.project.id,
+              versionId: data.firstVersion.id,
+              expectedRouteLedgerRoot: projectRoot
             }
           }
         }
@@ -124,7 +184,8 @@ describe("proposal and Deferred onboarding contracts", () => {
                 tool: "propose_version_structure_change",
                 toolInput: {
                   operation: "propose_version_creation",
-                  projectId: data.project.id
+                  projectId: data.project.id,
+                  expectedRouteLedgerRoot: projectRoot
                 },
                 requiredInputs: ["title"]
               })

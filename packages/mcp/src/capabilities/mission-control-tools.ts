@@ -1,4 +1,5 @@
 import { defineTool, type ToolRegistration } from "../registry/tool-contract.js";
+import type { RouteLedgerInteractionProfile } from "../interaction-profile.js";
 
 export type MissionControlOpenResult = {
   url: string;
@@ -53,6 +54,13 @@ export type MissionControlRuntimeContext = {
     arguments: Record<string, never>;
     requiresUserDecision: true;
   } | null;
+  advisoryAction: {
+    type: "open_mission_control";
+    tool: "open_mission_control";
+    arguments: Record<string, never>;
+    requiresUserDecision: true;
+  } | null;
+  recommendationLevel: "primary" | "advisory" | "none";
   unavailableReason?: "binding_unavailable" | "project_uninitialized";
   diagnostic?: string;
 };
@@ -111,7 +119,8 @@ const notice = (
 });
 
 export const buildMissionControlRuntimeContext = (
-  status: MissionControlStatusResult
+  status: MissionControlStatusResult,
+  interactionProfile: RouteLedgerInteractionProfile = "agent_with_human_review"
 ): MissionControlRuntimeContext => {
   const currentProjectRegistered = status.matchingProject !== null;
   const shared = {
@@ -120,6 +129,20 @@ export const buildMissionControlRuntimeContext = (
     currentProjectRegistered,
     projectCount: status.projects.length,
     accessUrl: status.accessUrl
+  };
+  const optionalOpenAction = () => {
+    const action = openMissionControlAction();
+    return interactionProfile === "agent_only"
+      ? {
+          recommendedAction: null,
+          advisoryAction: action,
+          recommendationLevel: "advisory" as const
+        }
+      : {
+          recommendedAction: action,
+          advisoryAction: null,
+          recommendationLevel: "primary" as const
+        };
   };
 
   if (!status.healthy || status.hub === null) {
@@ -131,7 +154,7 @@ export const buildMissionControlRuntimeContext = (
         "RouteLedger Mission Control is not running. Would you like to start it and open the current project?",
         true
       ),
-      recommendedAction: openMissionControlAction()
+      ...optionalOpenAction()
     };
   }
 
@@ -145,7 +168,7 @@ export const buildMissionControlRuntimeContext = (
         "An incompatible RouteLedger Mission Control is running. Would you like to replace it with the current runtime and open the current project?",
         true
       ),
-      recommendedAction: openMissionControlAction()
+      ...optionalOpenAction()
     };
   }
 
@@ -159,7 +182,7 @@ export const buildMissionControlRuntimeContext = (
         "RouteLedger Mission Control is running, but the current project is not registered. Would you like to add and open it?",
         true
       ),
-      recommendedAction: openMissionControlAction()
+      ...optionalOpenAction()
     };
   }
 
@@ -172,7 +195,9 @@ export const buildMissionControlRuntimeContext = (
       false,
       status.accessUrl
     ),
-    recommendedAction: null
+    recommendedAction: null,
+    advisoryAction: null,
+    recommendationLevel: "none"
   };
 };
 
@@ -187,6 +212,8 @@ export const buildUnavailableMissionControlRuntimeContext = (
   accessUrl: null,
   notice: null,
   recommendedAction: null,
+  advisoryAction: null,
+  recommendationLevel: "none",
   unavailableReason
 });
 
@@ -203,6 +230,8 @@ export const buildMissionControlRuntimeContextError = (error: unknown): MissionC
     false
   ),
   recommendedAction: null,
+  advisoryAction: null,
+  recommendationLevel: "none",
   diagnostic: error instanceof Error ? error.message : String(error)
 });
 

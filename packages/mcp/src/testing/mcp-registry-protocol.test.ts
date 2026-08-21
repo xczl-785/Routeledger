@@ -106,6 +106,41 @@ describe("routeledger mcp registry", () => {
     }
   });
 
+  it("keeps human-entry setup as advisory metadata for Codex agent-only initialization", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRouteLedgerMcpRegistry({
+      workspaceRoot: projectRoot,
+      routeledgerRoot: projectRoot,
+      hostProfile: "codex"
+    });
+
+    try {
+      const initialized = await registry.invoke("configure_project", {
+        operation: "initialize",
+        name: "Agent-only route",
+        contentLocale: "en",
+        expectedRouteLedgerRoot: projectRoot
+      });
+
+      expect(initialized).toMatchObject({
+        ok: true,
+        data: {
+          documentation: {
+            recommendationLevel: "advisory",
+            recommendedAction: null,
+            advisoryAction: {
+              type: "create_or_update_entry_document",
+              entryFile: "README.md"
+            }
+          }
+        }
+      });
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("init_project reports an existing human entry document that already points to RouteLedger", async () => {
     const projectRoot = createTempProjectRoot();
     const registry = createRouteLedgerMcpRegistry({

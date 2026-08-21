@@ -397,6 +397,7 @@ describe("routeledger mcp registry", () => {
         ok: true,
         data: {
           hostProfile: "codex",
+          interactionProfile: "agent_only",
           approver: {
             id: "codex-host-authority",
             displayName: "Codex host admission"

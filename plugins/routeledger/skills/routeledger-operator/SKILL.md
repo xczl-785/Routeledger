@@ -29,6 +29,8 @@ Before every write, pass the matching absolute `expectedRouteLedgerRoot` returne
 
 `contentLocale` applies to agent-authored project content intended for human consumption. It does not localize MCP control-plane messages, diagnostics, blockers, next actions, or state labels.
 
+When `inspect_runtime` reports `interactionProfile: agent_only`, treat Mission Control and human-entry-document actions as advisory. Do not let them replace the primary route action.
+
 ## Manage current work
 
 Read `inspect_route_progress(operation="get_current_context")` before changing work. Use `currentTodos` for the active Version; `todos` covers all open route Todos and declares that scope under `todoScopes`.

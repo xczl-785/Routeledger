@@ -40,6 +40,11 @@ import {
 import { RouteLedgerDebugLogger } from "./debug-log.js";
 import { InvalidToolInputError } from "./input-adapter.js";
 import {
+  resolveInteractionProfile,
+  type RouteLedgerInteractionProfile
+} from "./interaction-profile.js";
+export type { RouteLedgerInteractionProfile } from "./interaction-profile.js";
+import {
   resolveRuntimeIdentity,
   type RuntimeIdentity
 } from "./runtime-identity.js";
@@ -124,6 +129,7 @@ export interface RouteLedgerMcpRegistryOptions {
   routeledgerRoot?: string;
   mcpRoots?: string[];
   hostProfile?: RouteLedgerHostProfileName;
+  interactionProfile?: RouteLedgerInteractionProfile;
   runtimeProfile?: RouteLedgerMcpRuntimeProfile;
   /** Build/package-provided identity. Source execution uses the local default. */
   runtimeIdentity?: RuntimeIdentity;
@@ -205,6 +211,7 @@ export type RouteLedgerMcpRegistry = {
     };
   };
   readonly hostProfile: RouteLedgerHostProfileName;
+  readonly interactionProfile: RouteLedgerInteractionProfile;
   readonly runtimeProfile: RouteLedgerMcpRuntimeProfile;
   readonly runtimeIdentity: RuntimeIdentity;
   readonly instructions: string;
@@ -693,6 +700,18 @@ const PUBLIC_TOOL_REFERENCE_MAP: Record<string, { tool: string; operation?: stri
   reject_l3_operation: { tool: "execute_route_change", operation: "reject_l3_operation" }
 };
 
+const PUBLIC_TOOLS_REQUIRING_ROUTELEDGER_ROOT = new Set([
+  "configure_project",
+  "manage_todo",
+  "manage_deferred",
+  "manage_constraint",
+  "set_version_state",
+  "propose_version_lifecycle_change",
+  "propose_version_structure_change",
+  "propose_l3_route_change",
+  "execute_route_change"
+]);
+
 for (const [publicTool, operations] of [
   ["inspect_route_progress", ["get_current_context", "next_action", "check_doc_drift", "summarize_version_closeout", "plan_version_closeout"]],
   ["inspect_versions", ["list_versions_window", "list_versions", "check_start_gate", "check_close_gate", "get_version_structure", "get_version_transition_guide"]],
@@ -703,13 +722,18 @@ for (const [publicTool, operations] of [
   }
 }
 
-const projectPublicToolReferences = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(projectPublicToolReferences);
+const projectPublicToolReferences = (
+  value: unknown,
+  expectedRouteLedgerRoot: string | null = null
+): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => projectPublicToolReferences(item, expectedRouteLedgerRoot));
+  }
   if (value === null || typeof value !== "object") return value;
   const record = Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, child]) => [
       key,
-      projectPublicToolReferences(child)
+      projectPublicToolReferences(child, expectedRouteLedgerRoot)
     ])
   );
   const mapped = typeof record.tool === "string" ? PUBLIC_TOOL_REFERENCE_MAP[record.tool] : undefined;
@@ -742,6 +766,45 @@ const projectPublicToolReferences = (value: unknown): unknown => {
           ? (record.toolInput as Record<string, unknown>)
           : {})
       };
+    }
+  }
+  const projectedTool =
+    typeof record.tool === "string"
+      ? record.tool
+      : typeof record.recommendedTool === "string"
+        ? record.recommendedTool
+        : null;
+  if (
+    projectedTool !== null &&
+    PUBLIC_TOOLS_REQUIRING_ROUTELEDGER_ROOT.has(projectedTool)
+  ) {
+    const carrierKeys = ["toolInput", "arguments", "input"].filter(
+      (key) =>
+        record[key] !== null &&
+        typeof record[key] === "object" &&
+        !Array.isArray(record[key])
+    );
+    for (const key of carrierKeys.length > 0 ? carrierKeys : ["toolInput"]) {
+      const carrier = (record[key] as Record<string, unknown> | undefined) ?? {};
+      if (expectedRouteLedgerRoot !== null) {
+        record[key] = {
+          ...carrier,
+          expectedRouteLedgerRoot:
+            typeof carrier.expectedRouteLedgerRoot === "string"
+              ? carrier.expectedRouteLedgerRoot
+              : expectedRouteLedgerRoot
+        };
+      } else {
+        record[key] = carrier;
+        const bindings = Array.isArray(record.requiredRuntimeBindings)
+          ? record.requiredRuntimeBindings.filter(
+              (item): item is string => typeof item === "string"
+            )
+          : [];
+        record.requiredRuntimeBindings = [
+          ...new Set([...bindings, "expectedRouteLedgerRoot"])
+        ];
+      }
     }
   }
   return record;
@@ -1190,6 +1253,10 @@ export const createRouteLedgerMcpRegistry = (
   options: RouteLedgerMcpRegistryOptions
 ): RouteLedgerMcpRegistry => {
   const hostProfile = options.hostProfile ?? "generic";
+  const interactionProfile = resolveInteractionProfile(
+    hostProfile,
+    options.interactionProfile
+  );
   const actor = resolveActor(DEFAULT_ACTOR, options.actor);
   const approver = resolveActor(
     hostProfile === "codex" ? CODEX_HOST_AUTHORITY : DEFAULT_APPROVER,
@@ -1402,7 +1469,7 @@ export const createRouteLedgerMcpRegistry = (
           routeledgerRoot: roots.routeledgerRoot,
           expectedRuntimeIdentity: runtimeIdentity
         });
-        return buildMissionControlRuntimeContext(status);
+        return buildMissionControlRuntimeContext(status, interactionProfile);
       } catch (error) {
         return buildMissionControlRuntimeContextError(error);
       }
@@ -1412,6 +1479,7 @@ export const createRouteLedgerMcpRegistry = (
       binding: summarizeRuntimeBinding(binding),
       processCwd: binding.processCwd,
       hostProfile,
+      interactionProfile,
       runtimeProfile,
       runtimeIdentity,
       actor: {
@@ -1548,7 +1616,11 @@ export const createRouteLedgerMcpRegistry = (
       runtimeIdentity,
       withCurrentRuntimeContextMeta
     });
-  const projectBootstrapTools = createProjectBootstrapTools({ service, actor });
+  const projectBootstrapTools = createProjectBootstrapTools({
+      service,
+      actor,
+      interactionProfile
+    });
   const contextTools = createContextTools({
       service,
       actor,
@@ -1935,6 +2007,7 @@ export const createRouteLedgerMcpRegistry = (
     serverInfo,
     serverCapabilities,
     hostProfile,
+    interactionProfile,
     runtimeProfile,
     runtimeIdentity,
     instructions,
@@ -1955,7 +2028,7 @@ export const createRouteLedgerMcpRegistry = (
               code: "ACTION_NOT_IMPLEMENTED",
               message: `unknown tool ${toolName}`
             }
-          })) as ToolResponse,
+          }), readBinding().routeledgerRoot) as ToolResponse,
           toolName
         );
       }
@@ -1972,7 +2045,8 @@ export const createRouteLedgerMcpRegistry = (
         );
         return normalizeAgentToolResponse(
           projectPublicToolReferences(
-            await attachRuntimeContextToError(responseWithReplayGuidance)
+            await attachRuntimeContextToError(responseWithReplayGuidance),
+            readBinding().routeledgerRoot
           ) as ToolResponse,
           toolName
         );
@@ -1999,7 +2073,8 @@ export const createRouteLedgerMcpRegistry = (
         });
         return normalizeAgentToolResponse(
           projectPublicToolReferences(
-            await attachRuntimeContextToError(response)
+            await attachRuntimeContextToError(response),
+            readBinding().routeledgerRoot
           ) as ToolResponse,
           toolName
         );

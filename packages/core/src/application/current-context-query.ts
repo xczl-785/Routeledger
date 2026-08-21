@@ -767,6 +767,11 @@ const buildNextAction = (options: {
   if (currentVersion?.state === "wait") {
     return {
       actionType: "prepare_version",
+      recommendedTool: "prepare_version",
+      toolInput: {
+        projectId,
+        versionId: currentVersion.id
+      },
       summary: "准备当前 version。",
       reason: `current version ${currentVersion.id} 仍处于 wait，需先 prepare_version。`,
       targetId: currentVersion.id,
@@ -779,6 +784,11 @@ const buildNextAction = (options: {
   if (currentVersion?.state === "close" && nextVersion?.state === "wait") {
     return {
       actionType: "prepare_version",
+      recommendedTool: "prepare_version",
+      toolInput: {
+        projectId,
+        versionId: nextVersion.id
+      },
       summary: "准备下一个 version。",
       reason: `当前边界已关闭，下一个 version ${nextVersion.id} 仍处于 wait。`,
       targetId: nextVersion.id,

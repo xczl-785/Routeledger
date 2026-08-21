@@ -171,4 +171,30 @@ describe("Mission Control tool registrations", () => {
       recommendedAction: null
     });
   });
+
+  it("downgrades Mission Control startup to advisory guidance for agent-only hosts", () => {
+    const context = buildMissionControlRuntimeContext(
+      {
+        registryPath: "/tmp/hub.json",
+        projectId: null,
+        projects: [],
+        matchingProject: null,
+        hub: null,
+        healthy: false,
+        runtimeCompatible: null,
+        accessUrl: null
+      },
+      "agent_only"
+    );
+
+    expect(context).toMatchObject({
+      recommendationLevel: "advisory",
+      recommendedAction: null,
+      advisoryAction: {
+        tool: "open_mission_control",
+        arguments: {},
+        requiresUserDecision: true
+      }
+    });
+  });
 });

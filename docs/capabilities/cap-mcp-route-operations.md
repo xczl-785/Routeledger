@@ -77,12 +77,22 @@ rules.
     MCP diagnostics, blockers, next actions, state labels, and other control-plane
     messages remain stable English. `humanReviewText` is stable review material
     for an agent to interpret or paraphrase, not localized project content.
-12. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
+12. Agent-facing recommended actions are projected to public task-level tools.
+    Write, proposal, and high-risk action inputs include the active binding's
+    `expectedRouteLedgerRoot`; when no trusted root exists, the action declares
+    `requiredRuntimeBindings` instead. Admitted proposal execution also carries
+    the exact operation digest.
+13. The MCP runtime exposes an `interactionProfile` without persisting it into
+    canonical project data. Codex, Claude Code, and Cursor default to
+    `agent_only`; generic MCP defaults to `agent_with_human_review`. Under
+    `agent_only`, Mission Control and human-entry setup remain available as
+    `advisoryAction` metadata rather than primary recommended actions.
+14. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
     current Version ID, title, and state. It returns every recognized,
     mismatched, and non-detected assertion under `checkedAssertions`, and its
     `coverage.level` remains `partial`; zero warnings never claims complete
     document coverage.
-13. `configure_project(operation="initialize")` distinguishes project initialization from route selection.
+15. `configure_project(operation="initialize")` distinguishes project initialization from route selection.
     Omitting `firstVersion` creates a valid empty route with nullable current
     and legacy-initial pointers. An explicit `firstVersion` creates the first
     current `wait` node and its `initialTodos` in the same aggregate write.
