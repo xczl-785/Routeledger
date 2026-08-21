@@ -3,14 +3,14 @@
 Status: active  
 Last updated: 2026-08-21  
 Working branch: `refactor/code-health-roadmap`  
-Implementation base at handoff: `4e94b0f`
+Implementation base at handoff: `989ac36`
 Detailed roadmap: [`CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md`](./CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md)
 
 ## Handoff summary
 
-Gates A and B are closed. Stage 5 is active: proposal reads, the atomic
-proposal-security boundary, and the complete proposal write lifecycle are
-extracted. Continue from R5.5; do not repeat completed R5.1-R5.4 work.
+Gates A and B are closed. Stage 5 is complete: proposal reads, proposal writes,
+legacy decisions, exact authorization, and commit orchestration now sit behind
+cohesive internal services. Continue from R6; do not repeat completed R5 work.
 
 The current architectural direction is deliberately incremental:
 
@@ -34,8 +34,8 @@ The current architectural direction is deliberately incremental:
 | R5.2 | C | Complete read-only L3 application projection | Done | `98c445d` moves authorization evaluation context and balanced-policy projection behind the read service. | Snapshot-reader and clock are the only dependencies; persisted gate/digest projection and no-save behavior are covered. |
 | R5.3 | C | Define one L3 proposal security port | Done | `f711d89` adds one atomic `describe` port and keeps post-save canonical verification non-injectable. | Lossy payload and gate persistence are rejected and safely rolled back; self-signing digest injection is not exposed. |
 | R5.4 | C | Extract L3 proposal write lifecycle | Done | `4e94b0f` moves proposal creation, audit, canonical persistence self-check, and concurrency-aware rollback into one internal service. | 68 focused and adjacent tests pass; lossy payload/gate and linked-approval rollback guards are explicit. |
-| R5.5 | C | Extract approval, authorization, rejection, and commit orchestration | Next | Move in small cohesive slices. Keep exact authorization, coordinator lease/fencing, receipt claim/finalize, and live re-evaluation together. | Full L3 protocol, recovery, replay, and authorization suites stay green. |
-| R6 | C | Build MCP middleware pipeline | Todo | Centralize `validate -> bind -> authorize -> execute -> project response -> map error`. | Tool contracts and response-detail behavior remain stable. |
+| R5.5 | C | Extract approval, authorization, rejection, and commit orchestration | Done | `bbf680b` extracts legacy approval/rejection; `989ac36` extracts exact authorization and the complete commit/fencing/receipt/live-re-evaluation chain. | Core 39 files / 334 tests pass; independent audit found no security behavior regression and its code-health finding was corrected. |
+| R6 | C | Build MCP middleware pipeline | Next | Centralize `validate -> bind -> authorize -> execute -> project response -> map error`. | Tool contracts and response-detail behavior remain stable. |
 | R7 | C | Introduce document-source port | Todo | Remove direct filesystem reads from Core decisions; implement host adapter. | Core runs with in-memory document source; host integration passes. |
 | G-C | C | Combined Gate C audit | Todo | Run once after R5-R7, not after each slice. | Full workspace gates plus one focused architecture audit. |
 | R8 | D | Decide WorkItem identity | Todo | Record ADR, then encode the chosen aggregate/identity invariant. | ADR and domain/storage tests agree. |
@@ -45,19 +45,16 @@ The current architectural direction is deliberately incremental:
 
 ## Immediate next work
 
-Start with R5.5 and keep each slice cohesive:
+Start with R6. Introduce one MCP middleware pipeline for the shared transport
+sequence while leaving domain-specific capability handlers responsible for
+their own inputs and results:
 
-1. Map approval, exact authorization, rejection, and commit responsibilities
-   and freeze their facade contracts with delegation tests.
-2. Extract approval/rejection only where they do not split exact-authorization
-   ownership or receipt state.
-3. Move commit orchestration only as one complete chain: exact authorization,
-   lease renewal, fencing assertion, receipt claim, live re-evaluation,
-   canonical save, receipt finalization, and owner-checked release.
+`validate -> bind -> authorize -> execute -> project response -> map error`
 
-Do not expose injectable security or commit implementations through the public
-package root. Preserve replay, crash-window, authorization, and migration
-evidence throughout the extraction.
+Preserve tool schemas, response-detail projection, binding diagnostics,
+authorization admission, logging, and JSON-RPC error behavior. Do not combine
+R6 with generated runtime updates or R7 document-source work during focused
+implementation; they join only at the combined Gate C verification wave.
 
 ## L3 safety constraints
 
