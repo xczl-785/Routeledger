@@ -3,14 +3,14 @@
 Status: active  
 Last updated: 2026-08-21  
 Working branch: `refactor/code-health-roadmap`  
-Implementation base at handoff: `2a3a381`  
+Implementation base at handoff: `f711d89`
 Detailed roadmap: [`CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md`](./CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md)
 
 ## Handoff summary
 
-The refactoring branch is pushed and clean. Gates A and B are closed. Stage 5
-has started with the safe extraction of read-only L3 proposal access. Continue
-from Stage 5; do not repeat completed Stage 1-4 work.
+Gates A and B are closed. Stage 5 is active: read-only L3 proposal access and
+the atomic proposal-security boundary are complete. Continue from R5.4; do not
+repeat completed R5.1-R5.3 work or split the proposal write lifecycle.
 
 The current architectural direction is deliberately incremental:
 
@@ -31,9 +31,9 @@ The current architectural direction is deliberately incremental:
 | R4 | B | Extract query, Batch, and Version use cases | Done | `1f2c48d` through `4995a7c`. | Facade delegates query, Batch, prepare, and completion paths; aggregate revision and digest behavior preserved. |
 | G-B | B | Combined Gate B audit | Done | `fa38a9c`. Blocking: 0; correctness findings: 0. | 83 test files; 757 passed, 1 skipped; typecheck, lint, and package-boundary gate passed. |
 | R5.1 | C | Extract L3 proposal reads | Done | `2a3a381` adds `L3ProposalReadService` and delegates list/get. | Proposal ordering and not-found contracts pass; no write path moved. |
-| R5.2 | C | Complete read-only L3 application projection | Next | Move `getL3AuthorizationEvaluationContext` and `recommendBalancedL3AuthorizationPolicy` into the read service. Inject only snapshot reader and clock. | Existing evaluation-context and policy tests pass; service performs no save and does not rebuild live gate/digest. |
-| R5.3 | C | Define one L3 proposal security port | Todo | Introduce one port returning the complete normalized description: payload, gate snapshot, and digest. Do not expose separate gate/digest callbacks. | Contract tests prove gate, payload, and digest cannot diverge. |
-| R5.4 | C | Extract L3 proposal write lifecycle | Todo | After R5.3, move propose persistence, audit event, persistence self-check, and safe rollback together. | Proposal persistence/digest/rollback suites pass unchanged. |
+| R5.2 | C | Complete read-only L3 application projection | Done | `98c445d` moves authorization evaluation context and balanced-policy projection behind the read service. | Snapshot-reader and clock are the only dependencies; persisted gate/digest projection and no-save behavior are covered. |
+| R5.3 | C | Define one L3 proposal security port | Done | `f711d89` adds one atomic `describe` port and keeps post-save canonical verification non-injectable. | Lossy payload and gate persistence are rejected and safely rolled back; self-signing digest injection is not exposed. |
+| R5.4 | C | Extract L3 proposal write lifecycle | Next | Move propose persistence, audit event, persistence self-check, and safe rollback together. | Proposal persistence/digest/rollback suites pass unchanged. |
 | R5.5 | C | Extract approval, authorization, rejection, and commit orchestration | Todo | Move in small cohesive slices. Keep exact authorization, coordinator lease/fencing, receipt claim/finalize, and live re-evaluation together. | Full L3 protocol, recovery, replay, and authorization suites stay green. |
 | R6 | C | Build MCP middleware pipeline | Todo | Centralize `validate -> bind -> authorize -> execute -> project response -> map error`. | Tool contracts and response-detail behavior remain stable. |
 | R7 | C | Introduce document-source port | Todo | Remove direct filesystem reads from Core decisions; implement host adapter. | Core runs with in-memory document source; host integration passes. |
@@ -45,29 +45,19 @@ The current architectural direction is deliberately incremental:
 
 ## Immediate next work
 
-Start with R5.2. The intended method group is:
+Start with R5.4. Extract the proposal write lifecycle as one cohesive
+application service while keeping `RouteLedgerService` as the compatibility
+facade. Move these behaviors together:
 
-- `listL3Proposals` — already moved;
-- `getL3Proposal` — already moved;
-- `getL3AuthorizationEvaluationContext` — move next;
-- `recommendBalancedL3AuthorizationPolicy` — move with its evaluation context.
+- atomic security description consumption;
+- pending proposal and audit-event construction;
+- canonical persistence and reload;
+- non-injectable digest self-consistency verification;
+- concurrency-aware safe rollback after a mismatch.
 
-Keep this service read-only. Its dependencies should remain equivalent to:
-
-```ts
-{
-  storage: ProjectSnapshotReader;
-  clock: ClockPort;
-}
-```
-
-The next focused TDD case should use a current Version and its legal successor,
-then assert:
-
-- `targetRelation === "legal-successor"`;
-- gate snapshot and digest are projected from the persisted proposal unchanged;
-- `now` comes from the injected clock;
-- no aggregate save occurs.
+Do not move approval, authorization, rejection, receipt, fencing, or commit
+orchestration in this slice. Preserve the R5.3 lossy-storage regression tests
+and the existing persistence/digest/rollback suites.
 
 ## L3 safety constraints
 
