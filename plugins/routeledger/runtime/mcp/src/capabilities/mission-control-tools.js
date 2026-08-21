@@ -11,7 +11,7 @@ const notice = (code, message, requiresUserDecision, accessUrl = null) => ({
     requiresUserDecision,
     accessUrl
 });
-export const buildMissionControlRuntimeContext = (status) => {
+export const buildMissionControlRuntimeContext = (status, interactionProfile = "agent_with_human_review") => {
     const currentProjectRegistered = status.matchingProject !== null;
     const shared = {
         healthy: status.healthy,
@@ -20,12 +20,26 @@ export const buildMissionControlRuntimeContext = (status) => {
         projectCount: status.projects.length,
         accessUrl: status.accessUrl
     };
+    const optionalOpenAction = () => {
+        const action = openMissionControlAction();
+        return interactionProfile === "agent_only"
+            ? {
+                recommendedAction: null,
+                advisoryAction: action,
+                recommendationLevel: "advisory"
+            }
+            : {
+                recommendedAction: action,
+                advisoryAction: null,
+                recommendationLevel: "primary"
+            };
+    };
     if (!status.healthy || status.hub === null) {
         return {
             status: "stopped",
             ...shared,
             notice: notice("MISSION_CONTROL_STOPPED", "RouteLedger Mission Control is not running. Would you like to start it and open the current project?", true),
-            recommendedAction: openMissionControlAction()
+            ...optionalOpenAction()
         };
     }
     if (status.runtimeCompatible === false) {
@@ -34,7 +48,7 @@ export const buildMissionControlRuntimeContext = (status) => {
             ...shared,
             accessUrl: null,
             notice: notice("MISSION_CONTROL_INCOMPATIBLE", "An incompatible RouteLedger Mission Control is running. Would you like to replace it with the current runtime and open the current project?", true),
-            recommendedAction: openMissionControlAction()
+            ...optionalOpenAction()
         };
     }
     if (!currentProjectRegistered) {
@@ -43,14 +57,16 @@ export const buildMissionControlRuntimeContext = (status) => {
             ...shared,
             accessUrl: null,
             notice: notice("MISSION_CONTROL_PROJECT_UNREGISTERED", "RouteLedger Mission Control is running, but the current project is not registered. Would you like to add and open it?", true),
-            recommendedAction: openMissionControlAction()
+            ...optionalOpenAction()
         };
     }
     return {
         status: "running",
         ...shared,
         notice: notice("MISSION_CONTROL_RUNNING", `RouteLedger Mission Control is running. Open it at: ${status.accessUrl}`, false, status.accessUrl),
-        recommendedAction: null
+        recommendedAction: null,
+        advisoryAction: null,
+        recommendationLevel: "none"
     };
 };
 export const buildUnavailableMissionControlRuntimeContext = (unavailableReason) => ({
@@ -62,6 +78,8 @@ export const buildUnavailableMissionControlRuntimeContext = (unavailableReason) 
     accessUrl: null,
     notice: null,
     recommendedAction: null,
+    advisoryAction: null,
+    recommendationLevel: "none",
     unavailableReason
 });
 export const buildMissionControlRuntimeContextError = (error) => ({
@@ -73,6 +91,8 @@ export const buildMissionControlRuntimeContextError = (error) => ({
     accessUrl: null,
     notice: notice("MISSION_CONTROL_STATUS_ERROR", "RouteLedger could not inspect Mission Control status. Route work can continue.", false),
     recommendedAction: null,
+    advisoryAction: null,
+    recommendationLevel: "none",
     diagnostic: error instanceof Error ? error.message : String(error)
 });
 const stringSchema = (description) => ({

@@ -221,6 +221,7 @@ export const createBindingAssistTools = (dependencies) => {
 };
 export const createProjectBootstrapTools = (dependencies) => {
     const { service, actor } = dependencies;
+    const interactionProfile = dependencies.interactionProfile ?? "agent_with_human_review";
     return [
         defineTool("init_project", { what: "Initialize canonical RouteLedger project data." }, objectSchema({
             name: stringSchema("Project name."),
@@ -231,16 +232,32 @@ export const createProjectBootstrapTools = (dependencies) => {
             title: "Init Project",
             riskLevel: "write",
             toolKind: "bootstrap"
-        }, async (input) => ({
-            ok: true,
-            data: await service.initProject({
+        }, async (input) => {
+            const result = await service.initProject({
                 name: input.name,
                 description: input.description,
                 contentLocale: input.contentLocale,
                 firstVersion: input.firstVersion ?? null,
                 actor
-            })
-        })),
+            });
+            const documentation = result.documentation;
+            return {
+                ok: true,
+                data: interactionProfile === "agent_only" &&
+                    documentation?.recommendedAction !== null &&
+                    documentation?.recommendedAction !== undefined
+                    ? {
+                        ...result,
+                        documentation: {
+                            ...documentation,
+                            recommendedAction: null,
+                            advisoryAction: documentation.recommendedAction,
+                            recommendationLevel: "advisory"
+                        }
+                    }
+                    : result
+            };
+        }),
         defineTool("set_project_content_locale", {
             what: "Set a user-confirmed content locale for an existing project.",
             parameter: "projectId, contentLocale, reason",

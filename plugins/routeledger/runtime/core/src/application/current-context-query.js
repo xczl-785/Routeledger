@@ -275,7 +275,7 @@ const buildStatusRisks = (options) => {
     return risks;
 };
 const buildNextAction = (options) => {
-    const { projectId, contentLocale, currentVersion, nextVersion, currentVersionOpenTodos, currentVersionOpenUndos, pendingProposals, statusRisks, runningVersionPointerDrift, startGate, closeGate } = options;
+    const { projectId, currentVersion, nextVersion, currentVersionOpenTodos, currentVersionOpenUndos, pendingProposals, statusRisks, runningVersionPointerDrift, startGate, closeGate } = options;
     const blockingRiskCodes = buildBlockingRiskCodes(statusRisks);
     if (pendingProposals.length > 0) {
         const proposal = pendingProposals[0];
@@ -331,15 +331,10 @@ const buildNextAction = (options) => {
     if (currentVersion?.state === "running" &&
         currentVersionOpenTodos.length === 0 &&
         blockingRiskCodes.length === 0) {
-        const usesChinese = contentLocale?.toLowerCase().startsWith("zh") === true;
         return {
             actionType: "decision_required",
-            summary: usesChinese
-                ? "当前 Version 正在运行，但没有开放工作项。"
-                : "The current Version is running but has no open work.",
-            reason: usesChinese
-                ? "请判断当前阶段是否仍有工作需要记录，或实现是否确已完成。"
-                : "Decide whether more work must be recorded or implementation is actually complete.",
+            summary: "The current Version is running but has no open work.",
+            reason: "Decide whether more work must be recorded or implementation is actually complete.",
             targetId: currentVersion.id,
             requiresL3Approval: false,
             recordIds: [currentVersion.id],
@@ -347,7 +342,7 @@ const buildNextAction = (options) => {
             choices: [
                 {
                     actionType: "create_todo",
-                    when: usesChinese ? "当前阶段仍有实现工作。" : "Implementation work remains.",
+                    when: "Implementation work remains.",
                     recommendedTool: "create_todo",
                     toolInput: {
                         projectId,
@@ -357,7 +352,7 @@ const buildNextAction = (options) => {
                 },
                 {
                     actionType: "mark_version_complete",
-                    when: usesChinese ? "当前阶段实现确已完成。" : "Implementation is actually complete.",
+                    when: "Implementation is actually complete.",
                     recommendedTool: "mark_version_complete",
                     toolInput: {
                         projectId,
@@ -468,6 +463,11 @@ const buildNextAction = (options) => {
     if (currentVersion?.state === "wait") {
         return {
             actionType: "prepare_version",
+            recommendedTool: "prepare_version",
+            toolInput: {
+                projectId,
+                versionId: currentVersion.id
+            },
             summary: "准备当前 version。",
             reason: `current version ${currentVersion.id} 仍处于 wait，需先 prepare_version。`,
             targetId: currentVersion.id,
@@ -479,6 +479,11 @@ const buildNextAction = (options) => {
     if (currentVersion?.state === "close" && nextVersion?.state === "wait") {
         return {
             actionType: "prepare_version",
+            recommendedTool: "prepare_version",
+            toolInput: {
+                projectId,
+                versionId: nextVersion.id
+            },
             summary: "准备下一个 version。",
             reason: `当前边界已关闭，下一个 version ${nextVersion.id} 仍处于 wait。`,
             targetId: nextVersion.id,
@@ -741,7 +746,6 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
     });
     const nextAction = buildNextAction({
         projectId: snapshot.project.id,
-        contentLocale: snapshot.project.settings.contentLocale,
         currentVersion,
         nextVersion,
         currentVersionOpenTodos,
