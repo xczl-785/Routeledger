@@ -150,18 +150,41 @@ independently addressed entity, or a projection of other workflow state.
 
 ## Ordered refactoring program
 
-| Order | Stage | Primary outcome | Exit gate |
-| ---: | --- | --- | --- |
-| 1 | L3 crash recovery | Recover abandoned commit ownership without widening exact authorization. | Crash-window, restart, fencing, migration, and concurrent replay tests pass. |
-| 2 | Canonical JSON descriptors | Remove repeated codec/validator structure and the type-only cycle incrementally. | Existing canonical bytes and validation results remain unchanged. |
-| 3 | Package boundary enforcement | Make forbidden source imports and undeclared dependencies visible. | CI check passes without broad cross-package source inclusion. |
-| 4 | Extract query, batch, and Version use cases | Reduce `RouteLedgerService` responsibilities behind compatible APIs. | Existing public API and behavior tests pass; facade delegates to narrow services. |
-| 5 | Extract L3 application service | Isolate security-sensitive orchestration after recovery semantics stabilize. | L3 protocol, recovery, replay, and authorization suites remain green. |
-| 6 | MCP middleware pipeline | Centralize cross-cutting transport policy. | Tool contract snapshots and agent response behavior remain stable. |
-| 7 | Introduce document-source port | Remove direct filesystem access from core domain decisions. | Core tests run with an in-memory port; host adapters pass integration tests. |
-| 8 | Decide WorkItem identity | Record and enforce aggregate/identity ownership. | ADR accepted and domain/storage tests express the chosen invariant. |
-| 9 | UI/process tests and coverage guard | Protect currently thin runtime boundaries. | Agreed thresholds and native process scenarios run in CI. |
-| 10 | Evolve storage boundary | Expose explicit revisions and narrower read/write capabilities. | JSON and SQLite adapters pass stale-write, migration, and compatibility suites. |
+| Order | Audit group | Stage | Primary outcome | Stage verification |
+| ---: | :---: | --- | --- | --- |
+| 1 | A | L3 crash recovery | Recover abandoned commit ownership without widening exact authorization. | Crash-window, restart, fencing, migration, and concurrent replay tests pass. |
+| 2 | B | Canonical JSON descriptors | Remove repeated codec/validator structure and the type-only cycle incrementally. | Existing canonical bytes and validation results remain unchanged. |
+| 3 | B | Package boundary enforcement | Make forbidden source imports and undeclared dependencies visible. | CI check passes without broad cross-package source inclusion. |
+| 4 | B | Extract query, batch, and Version use cases | Reduce `RouteLedgerService` responsibilities behind compatible APIs. | Existing public API and behavior tests pass; facade delegates to narrow services. |
+| 5 | C | Extract L3 application service | Isolate security-sensitive orchestration after recovery semantics stabilize. | L3 protocol, recovery, replay, and authorization suites remain green. |
+| 6 | C | MCP middleware pipeline | Centralize cross-cutting transport policy. | Tool contract snapshots and agent response behavior remain stable. |
+| 7 | C | Introduce document-source port | Remove direct filesystem access from core domain decisions. | Core tests run with an in-memory port; host adapters pass integration tests. |
+| 8 | D | Decide WorkItem identity | Record and enforce aggregate/identity ownership. | ADR accepted and domain/storage tests express the chosen invariant. |
+| 9 | D | UI/process tests and coverage guard | Protect currently thin runtime boundaries. | Agreed thresholds and native process scenarios run in CI. |
+| 10 | D | Evolve storage boundary | Expose explicit revisions and narrower read/write capabilities. | JSON and SQLite adapters pass stale-write, migration, and compatibility suites. |
+
+## Combined audit gates
+
+Stage verification and architecture audit are separate activities. Each stage
+keeps the nearest useful automated checks, but a scheduled independent audit
+runs only after its audit group is complete. Small commits and incremental
+delivery remain encouraged; they do not create additional approval gates.
+
+| Gate | Included stages | One-time audit focus | Repository gate |
+| :---: | --- | --- | --- |
+| A | 1 | Recovery safety, persisted-state migration, owner liveness, fencing, and fail-closed behavior. | Full workspace tests, typecheck, lint, and release-sensitive smoke checks at Stage 1 closure. |
+| B | 2-4 | Canonical-byte compatibility, dependency direction, package exports, and facade compatibility after use-case extraction. | Full workspace gates once after Stage 4. |
+| C | 5-7 | Application/transport/host boundaries, L3 invariant preservation, middleware consistency, and filesystem-port isolation. | Full workspace gates once after Stage 7. |
+| D | 8-10 | Domain identity, explicit revision semantics, storage migrations, adapter compatibility, and process-boundary regression protection. | Full workspace and release gates once after Stage 10. |
+
+This reduces the planned independent architecture audits from ten to four.
+Stages 2-7 are intentionally split across two gates: combining all six would
+make the review surface too broad to locate boundary regressions efficiently.
+
+An unscheduled focused audit is allowed only when implementation changes a
+persisted schema or migration rule, a public cross-package contract, or an L3
+fail-closed invariant. A failing test or unexpected cross-boundary regression
+may also trigger one. These are exception reviews, not new standing gates.
 
 ## Stage 1: L3 crash recovery delivery plan
 
@@ -229,10 +252,12 @@ not become canonical RouteLedger project data.
    movement.
 4. Record architectural decisions before introducing persisted schemas or
    cross-package contracts.
-5. Use focused tests during RED/GREEN, then run the affected package and full
-   repository gates before merging.
-6. Update this roadmap after each stage with the delivered commit/PR, evidence,
-   residual risk, and the next stage's entry conditions.
+5. Use focused tests during RED/GREEN and run the affected package before each
+   stage is considered verified. Run full repository gates at the combined
+   audit gate and before a release merge, rather than after every stage.
+6. Update this roadmap after each audit group with the delivered commits/PRs,
+   evidence, residual risk, and the next group's entry conditions. Individual
+   stage progress may be recorded without opening an audit.
 
 ## Proportional governance
 
@@ -247,10 +272,11 @@ depth is proportional to the boundary being changed:
   for each extracted class or file.
 - Mechanical moves, naming improvements, and private helper extraction require
   only the nearest useful tests and static checks.
-- Full-repository gates run at stage completion and before merge, not after
-  every small edit.
-- Subagent reviews are bounded to independent high-risk questions or final
-  stage review. They are not nested approval layers for routine implementation.
+- Full-repository gates run at combined audit-group completion and before a
+  release merge, not after every stage or small edit.
+- Scheduled subagent architecture reviews run once per combined audit group.
+  During implementation, subagents may still own bounded coding or test tasks,
+  but their completion is not an additional approval layer.
 
 Audit findings should identify actionable coupling or correctness risk at the
 module/use-case boundary. Line-by-line style observations and speculative
