@@ -11,7 +11,7 @@ import type {
   PendingOperation,
   Project,
   ProjectAggregateSnapshot,
-  ProjectAggregateHeadRevision,
+  ProjectAggregateCommittedRevision,
   StoragePort,
   Todo,
   TransitionEvent,
@@ -1421,7 +1421,7 @@ export class SQLiteStorageAdapter implements StoragePort {
     return snapshot;
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateHeadRevision> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateCommittedRevision> {
     const persistedSnapshot = await this.loadProjectAggregate(snapshot.project.id);
 
     const upsertProject = this.db.prepare(`

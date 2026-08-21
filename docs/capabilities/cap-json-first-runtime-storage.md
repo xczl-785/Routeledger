@@ -25,8 +25,9 @@ state, serializes writes, and treats the optional SQLite read model.
 6. `ProjectAggregateSnapshot.headRevision` is explicit runtime storage metadata,
    never a canonical JSON field. JSON decode starts it at `null`; a production
    load of an existing canonical aggregate supplies its SHA-256 document-set
-   hash. A successful save returns and updates that new hash. `null` is only
-   the expected revision for a new aggregate.
+   hash. A successful save returns and updates a non-empty committed revision.
+   `null` is only the expected revision for a new aggregate, never a successful
+   writer result; invalid runtime writer results fail closed.
 7. Storage is split into `ProjectSnapshotReader` and `ProjectSnapshotWriter`.
    A reader-only host need not provide a failing write implementation. Writers
    compare the snapshot token under the writer lock and return `STALE_SNAPSHOT`

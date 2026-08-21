@@ -23,7 +23,8 @@ JSON authority used by the MCP runtime.
 6. SQLite stores a monotonic `projects.aggregate_revision` (migration `0010`).
    Its load token is `sqlite:<revision>` and save compares/increments it in one
    immediate transaction, so two adapter instances cannot both commit a stale
-   aggregate. A new aggregate expects `null` and commits revision `sqlite:1`.
+   aggregate. A new aggregate expects `null` and commits non-empty revision
+   `sqlite:1`; `null` is never a successful writer result.
 7. Canonical JSON hashes and SQLite revisions are separate token domains. JSON
    to SQLite synchronization loads SQLite's current token before persisting the
    read model; it never sends the JSON hash as SQLite's expected revision or

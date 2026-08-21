@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   type ProjectAggregateSnapshot,
+  type ProjectAggregateCommittedRevision,
   type ProjectAggregateHeadRevision,
   type StoragePort
 } from "@routeledger/core";
@@ -122,7 +123,7 @@ type SQLiteStorageAdapter = {
   };
   close: () => void;
   loadProjectAggregate: (projectId: string) => Promise<ProjectAggregateSnapshot | null>;
-  saveProjectAggregate: (snapshot: ProjectAggregateSnapshot) => Promise<ProjectAggregateHeadRevision>;
+  saveProjectAggregate: (snapshot: ProjectAggregateSnapshot) => Promise<ProjectAggregateCommittedRevision>;
 };
 
 export class JsonFirstStorageError extends Error {
@@ -374,7 +375,7 @@ export class JsonFirstStorageAdapter implements StoragePort {
     return jsonSource.snapshot;
   }
 
-  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateHeadRevision> {
+  async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateCommittedRevision> {
     const writerLock = await this.acquireWriteLock(snapshot.project.id);
 
     try {

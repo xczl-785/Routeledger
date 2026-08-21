@@ -37,6 +37,9 @@ export interface ProjectAggregateSnapshot {
 
 export type ProjectAggregateHeadRevision = string | null;
 
+/** A concrete optimistic-concurrency token returned after a successful save. */
+export type ProjectAggregateCommittedRevision = string;
+
 /** @deprecated Read the public `snapshot.headRevision` field directly. */
 export const attachProjectAggregateHeadRevision = <T extends ProjectAggregateSnapshot>(
   snapshot: T,
@@ -62,7 +65,7 @@ export interface ProjectSnapshotWriter {
    * Implementations also update `snapshot.headRevision` after a successful
    * save so direct adapter callers and `persistProjectAggregate` agree.
    */
-  saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateHeadRevision>;
+  saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<ProjectAggregateCommittedRevision>;
 }
 
 /** Compatibility facade for hosts that need both storage directions. */

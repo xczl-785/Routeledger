@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   acquireRouteLedgerJsonWriteLock,
   compactRouteLedgerAudit,
+  decodeProjectAggregateFromJsonDocuments,
   encodeProjectAggregateToJsonDocuments,
   exportProjectAggregateToJsonDirectory,
   recoverRouteLedgerJsonReplacement,
@@ -311,7 +312,7 @@ describe("@routeledger/json validate", () => {
     });
   });
 
-  it("accepts the canonical D3.8-style document set", () => {
+  it("accepts and decodes the public canonical Todo wait + retained Undo wait fixture", () => {
     const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
     const result = validateRouteLedgerJsonDocuments(documents);
 
@@ -319,6 +320,14 @@ describe("@routeledger/json validate", () => {
       valid: true,
       issues: []
     });
+
+    const decoded = decodeProjectAggregateFromJsonDocuments(documents);
+    expect(decoded.workItems[0]).toMatchObject({
+      activeRecordType: "todo",
+      activeRecordId: "todo-1"
+    });
+    expect(decoded.todos[0]?.status).toBe("wait");
+    expect(decoded.undos[0]?.status).toBe("wait");
   });
 
   it("accepts a Project-root-only canonical set with no Version", () => {
@@ -1205,8 +1214,8 @@ describe("@routeledger/json validate", () => {
     expect(getIssueCodes(missingUndoDocuments)).toContain("WORK_ITEM_ACTIVE_INVALID");
   });
 
-  it("reports WorkItem lineage with multiple active children or closed active children", () => {
-    const multipleActiveChildren = updateJsonDocument(
+  it("accepts retained wait Undo beside the current Todo, but rejects closed current children", () => {
+    const retainedLegacyUndo = updateJsonDocument(
       encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()),
       (document) => document.path.endsWith("/undo-1.json"),
       (value) => ({
@@ -1218,7 +1227,7 @@ describe("@routeledger/json validate", () => {
       })
     );
 
-    expect(getIssueCodes(multipleActiveChildren)).toContain("WORK_ITEM_ACTIVE_INVALID");
+    expect(getIssueCodes(retainedLegacyUndo)).not.toContain("WORK_ITEM_ACTIVE_INVALID");
 
     const closedWithActiveChild = updateJsonDocument(
       encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()),

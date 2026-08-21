@@ -47,5 +47,15 @@ export const persistProjectAggregate = async (
     );
   }
 
-  snapshot.headRevision = await storage.saveProjectAggregate(snapshot);
+  const committedRevision = await storage.saveProjectAggregate(snapshot);
+
+  if (typeof committedRevision !== "string" || committedRevision.length === 0) {
+    throw new ApplicationError(
+      "STORAGE_REVISION_INVALID",
+      "storage 必须在成功保存后返回非空 aggregate revision",
+      { projectId: snapshot.project.id }
+    );
+  }
+
+  snapshot.headRevision = committedRevision;
 };

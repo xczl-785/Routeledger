@@ -237,8 +237,8 @@ describe("@routeledger/json review summary", () => {
     });
     expect(summary.legacyCompatibility.undos).toMatchObject({
       createdCount: 1,
-      closedCount: 0,
-      statusChangedCount: 0,
+      closedCount: 1,
+      statusChangedCount: 1,
       reassignedCount: 1
     });
     expect(summary.pendingOperations).toMatchObject({

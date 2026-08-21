@@ -1687,6 +1687,41 @@ describe("sqlite storage adapter", () => {
     }
   });
 
+  it("persists and reloads a Todo current pointer with retained legacy wait Undo", async () => {
+    const projectRoot = createTempProjectRoot();
+
+    try {
+      const adapter = new SQLiteStorageAdapter({ projectRoot });
+      const aggregate = createAggregateWithRetainedHistory();
+      const retainedUndo = createUndoFixture({
+        id: "undo-legacy-wait",
+        projectId: aggregate.project.id,
+        versionId: aggregate.versions[0]!.id,
+        originVersionId: aggregate.versions[0]!.id,
+        preferredResolutionVersionId: aggregate.versions[0]!.id,
+        workItemId: aggregate.workItems[0]!.id,
+        status: "wait"
+      });
+
+      await adapter.saveProjectAggregate({
+        ...aggregate,
+        undos: [...aggregate.undos, retainedUndo]
+      });
+      const reloaded = await adapter.loadProjectAggregate(aggregate.project.id);
+
+      expect(reloaded?.workItems[0]).toMatchObject({
+        activeRecordType: "todo",
+        activeRecordId: "todo-resumed"
+      });
+      expect(reloaded?.undos).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "undo-legacy-wait", status: "wait" })])
+      );
+      adapter.close();
+    } finally {
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
   it("Asset path/history/work_item_ids round trip", async () => {
     const projectRoot = createTempProjectRoot();
 
@@ -1898,23 +1933,21 @@ describe("sqlite storage adapter", () => {
         /active todo|active 指针/
       );
 
-      const multipleActiveChildrenAggregate: ProjectAggregateSnapshot = {
+      const multipleCurrentChildrenAggregate: ProjectAggregateSnapshot = {
         ...baseline,
-        undos: [
-          ...baseline.undos,
-          createUndoFixture({
-            id: "undo-active-duplicate",
+        todos: [
+          ...baseline.todos,
+          createTodoFixture({
+            id: "todo-active-duplicate",
             projectId: baseline.project.id,
             versionId: baseline.versions[0]!.id,
-            originVersionId: baseline.versions[0]!.id,
-            preferredResolutionVersionId: baseline.versions[0]!.id,
             workItemId: baseline.workItems[0]!.id,
             status: "wait"
           })
         ]
       };
 
-      await expect(adapter.saveProjectAggregate(multipleActiveChildrenAggregate)).rejects.toThrow(
+      await expect(adapter.saveProjectAggregate(multipleCurrentChildrenAggregate)).rejects.toThrow(
         /恰有一个 active 子记录/
       );
 

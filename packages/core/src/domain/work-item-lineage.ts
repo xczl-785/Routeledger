@@ -4,8 +4,8 @@ import type { Todo } from "./todo.js";
 import type { Undo } from "./undo.js";
 import type { ActiveRecordType, WorkItem } from "./work-item.js";
 
-interface ActiveChildRecord {
-  type: ActiveRecordType;
+interface CurrentActiveChildRecord {
+  type: Exclude<ActiveRecordType, "undo">;
   id: string;
 }
 
@@ -21,7 +21,11 @@ export const validateWorkItemLineage = (
   undos: readonly Undo[],
   deferredItems: readonly DeferredItem[] = []
 ): void => {
-  const activeChildren: ActiveChildRecord[] = [];
+  // Todo and Deferred are the current writable work records. Retained legacy
+  // Undo records are audit/gate history and therefore must not turn a current
+  // Todo/Deferred lineage into an invalid multi-active lineage merely because
+  // they remain in `wait`.
+  const currentActiveChildren: CurrentActiveChildRecord[] = [];
 
   for (const todo of todos) {
     if (todo.workItemId !== workItem.id) {
@@ -37,7 +41,7 @@ export const validateWorkItemLineage = (
     }
 
     if (todo.status === "wait" || todo.status === "running") {
-      activeChildren.push({ type: "todo", id: todo.id });
+      currentActiveChildren.push({ type: "todo", id: todo.id });
     }
   }
 
@@ -54,9 +58,6 @@ export const validateWorkItemLineage = (
       );
     }
 
-    if (undo.status === "wait") {
-      activeChildren.push({ type: "undo", id: undo.id });
-    }
   }
 
   for (const deferredItem of deferredItems) {
@@ -73,7 +74,7 @@ export const validateWorkItemLineage = (
     }
 
     if (deferredItem.status === "pending") {
-      activeChildren.push({ type: "deferred", id: deferredItem.id });
+      currentActiveChildren.push({ type: "deferred", id: deferredItem.id });
     }
   }
 
@@ -86,11 +87,11 @@ export const validateWorkItemLineage = (
       );
     }
 
-    if (activeChildren.length !== 0) {
+    if (currentActiveChildren.length !== 0) {
       throw new DomainError(
         "INVALID_WORK_ITEM_ACTIVE",
         "closed WorkItem 不应保留 active 子记录",
-        { workItemId: workItem.id, activeChildren }
+        { workItemId: workItem.id, activeChildren: currentActiveChildren }
       );
     }
 
@@ -105,15 +106,39 @@ export const validateWorkItemLineage = (
     );
   }
 
-  if (activeChildren.length !== 1) {
+  if (workItem.activeRecordType === "undo") {
+    const legacyActiveUndo = undos.find(
+      (undo) =>
+        undo.id === workItem.activeRecordId &&
+        undo.workItemId === workItem.id &&
+        undo.projectId === workItem.projectId &&
+        undo.status === "wait"
+    );
+
+    if (currentActiveChildren.length !== 0 || legacyActiveUndo === undefined) {
+      throw new DomainError(
+        "INVALID_WORK_ITEM_ACTIVE",
+        "legacy Undo 指针必须指向同 Project 的 wait Undo，且不得同时存在 current Todo/Deferred",
+        {
+          workItemId: workItem.id,
+          activeRecordId: workItem.activeRecordId,
+          currentActiveChildren
+        }
+      );
+    }
+
+    return;
+  }
+
+  if (currentActiveChildren.length !== 1) {
     throw new DomainError(
       "INVALID_WORK_ITEM_ACTIVE",
       "active WorkItem 必须恰有一个 active 子记录",
-      { workItemId: workItem.id, activeChildren }
+      { workItemId: workItem.id, activeChildren: currentActiveChildren }
     );
   }
 
-  const [activeChild] = activeChildren;
+  const [activeChild] = currentActiveChildren;
 
   if (
     activeChild!.type !== workItem.activeRecordType ||

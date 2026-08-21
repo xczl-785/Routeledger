@@ -145,6 +145,94 @@ describe("todo / undo / work item service", () => {
     ).toThrow(DomainError);
   });
 
+  it("retained legacy wait Undo 不参与当前 Todo/Deferred 指针的唯一性，也不阻止 closed WorkItem", () => {
+    const currentTodoWorkItem = createWorkItemFixture();
+    const retainedUndo = createUndoFixture();
+
+    expect(() =>
+      validateWorkItemActive(currentTodoWorkItem, [createTodoFixture()], [retainedUndo])
+    ).not.toThrow();
+
+    expect(() =>
+      validateWorkItemActive(
+        createWorkItemFixture({
+          status: "closed",
+          activeRecordType: null,
+          activeRecordId: null,
+          closedAt: "2026-06-27T01:00:00.000Z"
+        }),
+        [],
+        [retainedUndo]
+      )
+    ).not.toThrow();
+  });
+
+  it("legacy Undo 指针只接受同 WorkItem 的 wait Undo，且不能与 current 子记录共存", () => {
+    const workItem = createWorkItemFixture({
+      activeRecordType: "undo",
+      activeRecordId: "undo-1"
+    });
+    const activeUndo = createUndoFixture();
+
+    expect(() => validateWorkItemActive(workItem, [], [activeUndo])).not.toThrow();
+    expect(() =>
+      validateWorkItemActive(workItem, [], [{ ...activeUndo, status: "closed" }])
+    ).toThrow(DomainError);
+    expect(() =>
+      validateWorkItemActive(workItem, [createTodoFixture()], [activeUndo])
+    ).toThrow(DomainError);
+  });
+
+  it("对同一 WorkItemId 的 Todo、Deferred 与 retained Undo 都保持跨 Project 检查", () => {
+    const workItem = createWorkItemFixture();
+    const foreignProjectId = "project-other";
+
+    expect(() =>
+      validateWorkItemActive(
+        workItem,
+        [createTodoFixture(), createTodoFixture({ id: "todo-foreign", projectId: foreignProjectId })],
+        []
+      )
+    ).toThrow(DomainError);
+    expect(() =>
+      validateWorkItemActive(
+        workItem,
+        [createTodoFixture()],
+        [createUndoFixture({ id: "undo-foreign", projectId: foreignProjectId })]
+      )
+    ).toThrow(DomainError);
+    expect(() =>
+      validateWorkItemActive(
+        workItem,
+        [createTodoFixture()],
+        [],
+        [
+          {
+            workItemId: workItem.id,
+            projectId: foreignProjectId,
+            id: "deferred-foreign",
+            originVersionId: "version-1",
+            targetReviewVersionId: "version-2",
+            title: "foreign",
+            description: "",
+            status: "pending",
+            reason: "foreign",
+            reviewTrigger: "version_start",
+            resolutionOutcome: null,
+            resolutionReason: null,
+            resolutionNote: null,
+            decisionRef: null,
+            activatedTodoId: null,
+            createdBy: TEST_ACTOR,
+            createdAt: "2026-06-27T00:00:00.000Z",
+            updatedAt: "2026-06-27T00:00:00.000Z",
+            reviewedAt: null
+          }
+        ]
+      )
+    ).toThrow(DomainError);
+  });
+
   it("lineage 允许保留关闭和转换历史，但转换后 WorkItem ID 稳定", () => {
     const deps = createTestDependencies();
     const creation = createDeferred({

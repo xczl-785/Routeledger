@@ -22,14 +22,19 @@ records that represent the same work.
 
 ## Invariants
 
-1. An active WorkItem has exactly one active child record: Todo in `wait` or
-   `running`, legacy Undo in `wait`, or Deferred in `pending`. Its
-   `activeRecordType` and `activeRecordId` point to that record.
-2. A closed WorkItem has no active child record and both active-pointer fields
-   are `null`.
-3. Every child `workItemId` refers to a WorkItem in the same Project aggregate;
+1. An active WorkItem has exactly one current child record: Todo in `wait` or
+   `running`, or Deferred in `pending`. Its `activeRecordType` and
+   `activeRecordId` point to that record. Retained legacy Undo records may
+   independently remain in `wait` for audit and gates.
+2. The old `activeRecordType: "undo"` pointer form remains decodable: it must
+   point to its same-Project `wait` Undo and cannot coexist with a current
+   Todo or Deferred. Other retained `wait` Undo records do not participate in
+   pointer validation.
+3. A closed WorkItem has no current child record and both active-pointer fields
+   are `null`; retained legacy `wait` Undo audit history is allowed.
+4. Every child `workItemId` refers to a WorkItem in the same Project aggregate;
    aggregate project-scope and foreign-key validation remain mandatory.
-4. Closed, converted, activated, and resolved records are retained as history.
+5. Closed, converted, activated, and resolved records are retained as history.
    Conversion or reopen continues the existing WorkItem ID rather than creating
    a replacement identity.
 

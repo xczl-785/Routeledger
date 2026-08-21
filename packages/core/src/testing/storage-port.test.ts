@@ -48,4 +48,16 @@ describe("storage revision port", () => {
 
     expect(snapshot.headRevision).toBe("revision-1");
   });
+
+  it("fails closed when a runtime writer returns a non-committed revision", async () => {
+    const snapshot = createSnapshot();
+    const maliciousWriter = {
+      saveProjectAggregate: async () => null
+    } as unknown as ProjectSnapshotWriter;
+
+    await expect(persistProjectAggregate(maliciousWriter, snapshot)).rejects.toMatchObject({
+      code: "STORAGE_REVISION_INVALID"
+    });
+    expect(snapshot.headRevision).toBeNull();
+  });
 });

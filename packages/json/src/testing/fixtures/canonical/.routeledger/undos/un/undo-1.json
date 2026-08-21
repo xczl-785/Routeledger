@@ -11,7 +11,7 @@
   "source_id": null,
   "title": "Backfill validate",
   "description": "",
-  "status": "closed",
+  "status": "wait",
   "reason": "defer validate",
   "trigger_condition": null,
   "created_by": {
@@ -23,7 +23,7 @@
   "updated_at": "2026-06-27T00:00:00.000Z",
   "carried_forward_at": null,
   "carried_forward_to_version_id": null,
-  "closed_at": "2026-06-27T00:10:00.000Z",
-  "close_reason": "historical",
-  "close_note": "Retained as audit history"
+  "closed_at": null,
+  "close_reason": null,
+  "close_note": null
 }

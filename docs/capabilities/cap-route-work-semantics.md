@@ -24,9 +24,12 @@
    `get_current_context(includeLegacyUndo=true)` and still participate in gate
    evaluation, but there is no way to create, close, or route them anymore.
 5. WorkItem remains stable when the same work converts or reopens across Todo,
-   Deferred, and legacy Undo records. An active WorkItem has exactly one active
-   child record; a closed WorkItem has none. The records and their WorkItem are
-   changed and persisted atomically as one Project aggregate.
+   Deferred, and legacy Undo records. Current lineage is exactly one writable
+   Todo or Deferred; retained legacy Undo may independently stay `wait` for
+   audit and gates, including under a closed WorkItem. Only the old
+   pointer-to-Undo form participates in legacy pointer validation. The records
+   and their WorkItem are changed and persisted atomically as one Project
+   aggregate.
 
 ## Evidence
 
