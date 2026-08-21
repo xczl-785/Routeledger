@@ -53,7 +53,11 @@ import {
   ROUTELEDGER_SCHEMA_VERSION,
   SCHEMA_DOCUMENT_PATH
 } from "./constants.js";
-import type { RouteLedgerJsonDocument } from "./document-descriptors.js";
+import {
+  buildCanonicalIdDocumentPath,
+  buildTransitionEventDocumentPath,
+  type RouteLedgerJsonDocument
+} from "./document-descriptors.js";
 
 export type { RouteLedgerJsonDocument } from "./document-descriptors.js";
 
@@ -1119,48 +1123,42 @@ const createDocument = (path: string, payload: JsonDocumentPayload): RouteLedger
   content: createCanonicalContent(payload)
 });
 
-const getIdPrefix = (id: string): string => id.slice(0, 2).padEnd(2, "_");
-
 const getVersionDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/versions/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("version", id);
 
 const getWorkItemDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/work_items/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("work_item", id);
 
 const getTodoDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/todos/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("todo", id);
 
 const getUndoDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/undos/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("undo", id);
 
 const getDeferredItemDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/deferred_items/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("deferred_item", id);
 
 const getConstraintDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/constraints/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("constraint", id);
 
 const getAssetDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/assets/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("asset", id);
 
 const getPendingOperationDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/pending_operations/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("pending_operation", id);
 
 const getApprovalArtifactDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("approval_artifact", id);
 
 const getOrdinaryWriteReceiptDocumentPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("ordinary_write_receipt", id);
 
 const getEventDocumentPath = (event: Pick<TransitionEvent, "id" | "createdAt">): string => {
-  const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
-
-  if (match === null) {
+  const documentPath = buildTransitionEventDocumentPath(event);
+  if (documentPath === undefined) {
     throw new Error(`invalid event createdAt: ${event.createdAt}`);
   }
-
-  const [, year, month] = match;
-
-  return `${ROUTELEDGER_JSON_ROOT}/events/${year}/${month}/${event.id}.json`;
+  return documentPath;
 };
 
 const encodeProject = (project: Project): JsonProject => ({

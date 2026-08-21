@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildCanonicalIdDocumentPath,
+  buildTransitionEventDocumentPath,
   CANONICAL_DOCUMENT_DESCRIPTORS,
   matchCanonicalDocumentDescriptor,
   matchRouteLedgerDocumentContract
@@ -71,5 +73,21 @@ describe("canonical JSON document descriptors", () => {
       kind: "version",
       requireSchemaVersion: true
     });
+
+    expect(buildCanonicalIdDocumentPath("version", "v1")).toBe(
+      ".routeledger/versions/v1/v1.json"
+    );
+    expect(buildCanonicalIdDocumentPath("todo", "x")).toBe(
+      ".routeledger/todos/x_/x.json"
+    );
+    expect(
+      buildTransitionEventDocumentPath({
+        id: "event-1",
+        createdAt: "2026-08-21T12:00:00.000Z"
+      })
+    ).toBe(".routeledger/events/2026/08/event-1.json");
+    expect(
+      buildTransitionEventDocumentPath({ id: "event-1", createdAt: "invalid" })
+    ).toBeUndefined();
   });
 });

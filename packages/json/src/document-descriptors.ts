@@ -20,6 +20,18 @@ export interface CanonicalDocumentDescriptor {
   readonly includeInSchemaManifest: boolean;
 }
 
+export type CanonicalIdDocumentDescriptorId =
+  | "version"
+  | "work_item"
+  | "todo"
+  | "undo"
+  | "deferred_item"
+  | "constraint"
+  | "asset"
+  | "pending_operation"
+  | "approval_artifact"
+  | "ordinary_write_receipt";
+
 const exactPath = (value: string): RegExp =>
   new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 
@@ -98,3 +110,31 @@ export const matchRouteLedgerDocumentContract = (
       (descriptor.namespacePrefix !== undefined &&
         documentPath.startsWith(descriptor.namespacePrefix))
   );
+
+const getIdPrefix = (id: string): string => id.slice(0, 2).padEnd(2, "_");
+
+export const buildCanonicalIdDocumentPath = (
+  descriptorId: CanonicalIdDocumentDescriptorId,
+  entityId: string
+): string => {
+  const descriptor = CANONICAL_DOCUMENT_DESCRIPTORS.find(
+    (candidate) => candidate.id === descriptorId
+  );
+  if (descriptor?.namespacePrefix === undefined) {
+    throw new Error(`Canonical document descriptor has no ID namespace: ${descriptorId}`);
+  }
+  return `${descriptor.namespacePrefix}${getIdPrefix(entityId)}/${entityId}.json`;
+};
+
+export const buildTransitionEventDocumentPath = (event: {
+  readonly id: string;
+  readonly createdAt: string;
+}): string | undefined => {
+  const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
+  if (match === null) return undefined;
+  const [, year, month] = match;
+  const descriptor = CANONICAL_DOCUMENT_DESCRIPTORS.find(
+    (candidate) => candidate.id === "transition_event"
+  );
+  return `${descriptor!.namespacePrefix}${year}/${month}/${event.id}.json`;
+};

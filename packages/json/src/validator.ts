@@ -25,6 +25,8 @@ import {
   decodeProjectAggregateFromJsonDocumentsForValidation,
 } from "./codec.js";
 import {
+  buildCanonicalIdDocumentPath,
+  buildTransitionEventDocumentPath,
   matchRouteLedgerDocumentContract,
   type RouteLedgerJsonDocument
 } from "./document-descriptors.js";
@@ -134,50 +136,44 @@ const hasValidJsonActorShape = (value: unknown): boolean =>
   (value.type === "user" || value.type === "agent" || value.type === "system") &&
   (value.display_name === undefined || typeof value.display_name === "string");
 
-const getIdPrefix = (id: string): string => id.slice(0, 2).padEnd(2, "_");
 const getSafePathId = (id: unknown): string =>
   typeof id === "string" && id.trim().length > 0 ? id : "invalid";
 
 const getVersionPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/versions/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("version", id);
 
 const getWorkItemPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/work_items/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("work_item", id);
 
 const getTodoPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/todos/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("todo", id);
 
 const getUndoPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/undos/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("undo", id);
 
 const getDeferredItemPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/deferred_items/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("deferred_item", id);
 
 const getConstraintPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/constraints/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("constraint", id);
 
 const getAssetPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/assets/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("asset", id);
 
 const getPendingOperationPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/pending_operations/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("pending_operation", id);
 
 const getApprovalArtifactPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("approval_artifact", id);
 
 const getOrdinaryWriteReceiptPath = (id: string): string =>
-  `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
+  buildCanonicalIdDocumentPath("ordinary_write_receipt", id);
 
 const getEventPath = (event: Pick<TransitionEvent, "id" | "createdAt">): string => {
-  const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
-
-  if (match === null) {
-    return `${ROUTELEDGER_JSON_ROOT}/events/unknown/${event.id}.json`;
-  }
-
-  const [, year, month] = match;
-
-  return `${ROUTELEDGER_JSON_ROOT}/events/${year}/${month}/${event.id}.json`;
+  return (
+    buildTransitionEventDocumentPath(event) ??
+    `${ROUTELEDGER_JSON_ROOT}/events/unknown/${event.id}.json`
+  );
 };
 
 const sortKeysDeep = (value: unknown): unknown => {
