@@ -152,11 +152,11 @@ interface ValidatedToolCall {
   readonly params: Record<string, unknown>;
   readonly is2026Request: boolean;
   readonly toolCall: { name: string; arguments: Record<string, unknown> };
+  readonly toolDefinition: ToolDefinition;
 }
 
 interface BoundToolCall extends ValidatedToolCall {
   readonly registry: RouteLedgerMcpRegistry;
-  readonly toolDefinition: ToolDefinition;
 }
 
 interface AuthorizedToolCall extends BoundToolCall {
@@ -164,7 +164,6 @@ interface AuthorizedToolCall extends BoundToolCall {
 }
 
 interface ExecutedToolCall extends AuthorizedToolCall {
-  readonly validationError: ToolResponse | null;
   readonly toolResponse: ToolResponse;
 }
 
@@ -1153,7 +1152,8 @@ export const createRouteLedgerStdioServer = (
                 if (isJsonRpcErrorResponse(toolCall)) {
                   return { kind: "respond", response: toolCall };
                 }
-                if (activeRegistry.getTool(toolCall.name) === undefined) {
+                const toolDefinition = activeRegistry.getTool(toolCall.name);
+                if (toolDefinition === undefined) {
                   return {
                     kind: "respond",
                     response: errorResponse(
@@ -1163,7 +1163,25 @@ export const createRouteLedgerStdioServer = (
                     )
                   };
                 }
-                return { kind: "continue", value: { params, is2026Request, toolCall } };
+                const validationError = validateToolInput(toolDefinition, toolCall.arguments);
+                if (validationError !== null) {
+                  const toolResponse = {
+                    ...validationError,
+                    meta: await activeRegistry.getRuntimeContextMeta()
+                  };
+                  const callResult = toCallToolResult(activeRegistry, toolCall.name, toolResponse);
+                  return {
+                    kind: "respond",
+                    response: successResponse(
+                      request.id,
+                      is2026Request ? to2026Result(activeRegistry, callResult) : callResult
+                    )
+                  };
+                }
+                return {
+                  kind: "continue",
+                  value: { params, is2026Request, toolCall, toolDefinition }
+                };
               },
               bind: async (validated) => {
                 const brokerError = await ensureBrokerBinding();
@@ -1268,10 +1286,6 @@ export const createRouteLedgerStdioServer = (
                 return { kind: "continue", value: { ...bound, invocationArguments } };
               },
               execute: async (authorized) => {
-                const validationError = validateToolInput(
-                  authorized.toolDefinition,
-                  authorized.toolCall.arguments
-                );
                 activeMcpRequestContext = {
                   era: authorized.is2026Request ? "2026" : "2025",
                   ...(authorized.params.inputResponses === undefined
@@ -1280,24 +1294,17 @@ export const createRouteLedgerStdioServer = (
                 };
                 pendingMcpAuthorizationRequest = null;
                 try {
-                  const toolResponse =
-                    validationError === null
-                      ? await authorized.registry.invoke(
-                          authorized.toolCall.name,
-                          authorized.invocationArguments
-                        )
-                      : {
-                          ...validationError,
-                          meta: await authorized.registry.getRuntimeContextMeta()
-                        };
-                  return { kind: "continue", value: { ...authorized, validationError, toolResponse } };
+                  const toolResponse = await authorized.registry.invoke(
+                    authorized.toolCall.name,
+                    authorized.invocationArguments
+                  );
+                  return { kind: "continue", value: { ...authorized, toolResponse } };
                 } finally {
                   activeMcpRequestContext = null;
                 }
               },
               rebind: async (executed) => {
                 const rebindResponse =
-                  executed.validationError === null &&
                   executed.toolCall.name === "configure_binding"
                     ? await activatePendingSessionRebind(executed.registry)
                     : null;

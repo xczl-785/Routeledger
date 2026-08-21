@@ -59,14 +59,9 @@ describe("RouteLedgerService L3 proposal read delegation", () => {
       approvalArtifacts: []
     });
     const deps = createTestDependencies();
-    const l3ProposalReadService = new L3ProposalReadService({ storage, clock: deps.clock });
-    const listL3Proposals = vi.spyOn(l3ProposalReadService, "listL3Proposals");
-    const getL3Proposal = vi.spyOn(l3ProposalReadService, "getL3Proposal");
-    const service = new RouteLedgerService({
-      storage,
-      deps,
-      l3ProposalReadService
-    });
+    const listL3Proposals = vi.spyOn(L3ProposalReadService.prototype, "listL3Proposals");
+    const getL3Proposal = vi.spyOn(L3ProposalReadService.prototype, "getL3Proposal");
+    const service = new RouteLedgerService({ storage, deps });
 
     const proposals = await service.listL3Proposals("project-1");
     const proposal = await service.getL3Proposal("project-1", "proposal-late");
@@ -139,14 +134,16 @@ describe("RouteLedgerService L3 proposal read delegation", () => {
     });
     const deps = createTestDependencies();
     deps.clock = { now: () => "2026-06-27T03:00:00.000Z" };
-    const l3ProposalReadService = new L3ProposalReadService({ storage, clock: deps.clock });
-    const getContext = vi.spyOn(l3ProposalReadService, "getL3AuthorizationEvaluationContext");
+    const getContext = vi.spyOn(
+      L3ProposalReadService.prototype,
+      "getL3AuthorizationEvaluationContext"
+    );
     const recommendPolicy = vi.spyOn(
-      l3ProposalReadService,
+      L3ProposalReadService.prototype,
       "recommendBalancedL3AuthorizationPolicy"
     );
     const saveProjectAggregate = vi.spyOn(storage, "saveProjectAggregate");
-    const service = new RouteLedgerService({ storage, deps, l3ProposalReadService });
+    const service = new RouteLedgerService({ storage, deps });
 
     const context = await service.getL3AuthorizationEvaluationContext({
       projectId: "project-1",

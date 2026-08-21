@@ -69,7 +69,6 @@ import {
 import {
   L3ProposalReadService,
   type GetL3AuthorizationEvaluationContextInput,
-  type L3ProposalReadUseCases,
   type RecommendBalancedL3AuthorizationPolicyInput
 } from "./l3-proposal-read-service.js";
 import { rebuildCanonicalL3ProposalDigest } from "./l3-proposal-security-port.js";
@@ -177,7 +176,6 @@ export interface RouteLedgerServiceOptions {
   queryService?: RouteLedgerVersionQueryUseCases;
   versionCommandService?: VersionCommandUseCases;
   batchCreateVersionsUseCase?: BatchCreateVersionsExecutor;
-  l3ProposalReadService?: L3ProposalReadUseCases;
   documentSource?: DocumentSourcePort;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
@@ -2411,7 +2409,7 @@ export class RouteLedgerService {
 
   private readonly batchCreateVersionsUseCase: BatchCreateVersionsExecutor;
 
-  private readonly l3ProposalReadService: L3ProposalReadUseCases;
+  private readonly l3ProposalReadService: L3ProposalReadService;
 
   private readonly l3ProposalWriteService: L3ProposalWriteUseCases;
 
@@ -2445,9 +2443,10 @@ export class RouteLedgerService {
           ),
         propose: (input) => this.proposeL3Operation(input)
       });
-    this.l3ProposalReadService =
-      options.l3ProposalReadService ??
-      new L3ProposalReadService({ storage: options.storage, clock: options.deps.clock });
+    this.l3ProposalReadService = new L3ProposalReadService({
+      storage: options.storage,
+      clock: options.deps.clock
+    });
     const l3ProposalSecurityPort = createL3ProposalSecurityPort();
     this.l3ProposalWriteService = new L3ProposalWriteService({
       storage: options.storage,

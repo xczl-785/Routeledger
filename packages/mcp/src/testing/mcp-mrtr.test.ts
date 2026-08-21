@@ -6,6 +6,7 @@ import {
   sealMcpRequestState,
   verifyMcpRequestState
 } from "../mcp-request-state.js";
+import type { LocalL3AuthorityBroker } from "../local-l3-authority-broker.js";
 import { createRouteLedgerStdioServer } from "../stdio-server.js";
 import { cleanupProjectRoot, createTempProjectRoot } from "./mcp-test-helpers.js";
 
@@ -259,6 +260,65 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
       expect((structured(proposals).data as Array<{ status: string }>)).toMatchObject([
         { status: "pending" }
       ]);
+    } finally {
+      server.close();
+      cleanupProjectRoot(root);
+    }
+  });
+
+  it("validates malformed 2026 L3 calls before binding or authorization", async () => {
+    const root = createTempProjectRoot();
+    let bindCalls = 0;
+    const broker: LocalL3AuthorityBroker = {
+      identity: {
+        hostKind: "codex",
+        subjectId: "trusted-subject",
+        trustedClientId: "trusted-client"
+      },
+      bind: async () => {
+        bindCalls += 1;
+        return null;
+      },
+      installProfile: async () => {
+        throw new Error("installProfile must not run for malformed input.");
+      },
+      configureStandingPolicy: async () => {
+        throw new Error("configureStandingPolicy must not run for malformed input.");
+      },
+      revokeAccess: async () => {
+        throw new Error("revokeAccess must not run for malformed input.");
+      }
+    };
+    const server = createRouteLedgerStdioServer({
+      workspaceRoot: root,
+      routeledgerRoot: root,
+      l3AuthorityBroker: broker
+    });
+    try {
+      const response = await call(server, "malformed-l3", "execute_route_change", {
+        operation: "execute_l3_operation",
+        projectId: "project-1",
+        actionType: "start_version",
+        targetId: "version-1",
+        reason: "Missing the required idempotency key"
+      });
+
+      expect(response).toMatchObject({
+        jsonrpc: "2.0",
+        id: "malformed-l3",
+        result: {
+          resultType: "complete",
+          isError: true,
+          structuredContent: {
+            ok: false,
+            error: {
+              code: "INVALID_TOOL_INPUT",
+              details: { path: "$.idempotencyKey" }
+            }
+          }
+        }
+      });
+      expect(bindCalls).toBe(0);
     } finally {
       server.close();
       cleanupProjectRoot(root);
