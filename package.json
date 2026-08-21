@@ -7,6 +7,7 @@
     "test": "vitest run && node ./scripts/testing/check-agent-tool-surface.test.mjs && node ./scripts/testing/check-agent-tool-surface.mjs && node ./scripts/testing/check-codex-plugin-release.test.mjs && node ./scripts/testing/check-release-docs.test.mjs && node ./scripts/testing/create-codex-plugin-attestation.test.mjs && node ./scripts/testing/codex-plugin-workflow.test.mjs && node ./scripts/testing/codex-app-server-jsonl-client.test.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b --pretty false",
+    "check:package-boundaries": "node ./scripts/check-package-boundaries.mjs",
     "lint": "eslint . --ignore-pattern \"packages/*/dist/**\" --ignore-pattern \"packages/*/dist-plugin-runtime/**\" --ignore-pattern \"plugins/*/runtime/**\"",
     "measure:audit-footprint": "tsx ./scripts/testing/measure-audit-footprint.ts",
     "build:ui": "pnpm --filter @routeledger/ui run build",

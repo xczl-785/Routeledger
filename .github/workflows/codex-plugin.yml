@@ -118,7 +118,7 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
       - name: Run workspace quality checks
-        run: pnpm test && pnpm typecheck && pnpm lint
+        run: pnpm test && pnpm typecheck && pnpm lint && pnpm check:package-boundaries
       # Note: the UI Mission Control GUI launch (browser spawn) is not a CI
       # gate. Headless launcher logic (arg parsing, registry IO, view-model
       # build) is covered by the launcher and mission-control vitest suites,
