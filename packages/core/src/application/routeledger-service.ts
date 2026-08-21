@@ -87,7 +87,9 @@ import {
 } from "./version-command-service.js";
 import {
   L3ProposalReadService,
-  type L3ProposalReadUseCases
+  type GetL3AuthorizationEvaluationContextInput,
+  type L3ProposalReadUseCases,
+  type RecommendBalancedL3AuthorizationPolicyInput
 } from "./l3-proposal-read-service.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
@@ -103,11 +105,6 @@ import type {
   PlanVersionCloseoutInput,
   SummarizeVersionCloseoutInput
 } from "./version-closeout-application.js";
-import {
-  buildBalancedL3AuthorizationPolicy,
-  type L3AuthorizationEvaluationContext,
-  type L3AuthorizationPolicy
-} from "./l3-authorization.js";
 import {
   evaluateBatchCreateVersions
 } from "./batch-create-versions-planner.js";
@@ -2856,7 +2853,7 @@ export class RouteLedgerService {
       });
     this.l3ProposalReadService =
       options.l3ProposalReadService ??
-      new L3ProposalReadService({ storage: options.storage });
+      new L3ProposalReadService({ storage: options.storage, clock: options.deps.clock });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3929,71 +3926,14 @@ export class RouteLedgerService {
     return this.l3ProposalReadService.getL3Proposal(projectId, pendingOperationId);
   }
 
-  async getL3AuthorizationEvaluationContext(input: {
-    projectId: string;
-    pendingOperationId: string;
-    routeledgerRootDigest: string;
-    profileId?: string;
-    modeEpoch?: number;
-    profileDigest?: string;
-    subjectId?: string;
-    hostKind?: string;
-    clientId?: string;
-  }): Promise<L3AuthorizationEvaluationContext> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const proposal = requirePendingOperation(snapshot, input.pendingOperationId);
-    const currentVersion = snapshot.versions.find(
-      (version) => version.id === snapshot.project.currentVersionId
-    );
-    const targetRelation =
-      proposal.targetId === snapshot.project.currentVersionId
-        ? "current"
-        : currentVersion?.nextVersionId === proposal.targetId
-          ? "legal-successor"
-          : "other";
-
-    return {
-      projectId: input.projectId,
-      routeledgerRootDigest: input.routeledgerRootDigest,
-      ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
-      ...(input.modeEpoch === undefined ? {} : { modeEpoch: input.modeEpoch }),
-      ...(input.profileDigest === undefined ? {} : { profileDigest: input.profileDigest }),
-      actionType: proposal.actionType,
-      targetId: proposal.targetId,
-      currentVersionId: snapshot.project.currentVersionId,
-      targetRelation,
-      gateAllowed: proposal.gateSnapshot.allowed,
-      operationDigest: proposal.digest.value,
-      now: this.deps.clock.now(),
-      ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
-      ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
-      ...(input.clientId === undefined ? {} : { clientId: input.clientId })
-    };
+  async getL3AuthorizationEvaluationContext(input: GetL3AuthorizationEvaluationContextInput) {
+    return this.l3ProposalReadService.getL3AuthorizationEvaluationContext(input);
   }
 
-  async recommendBalancedL3AuthorizationPolicy(input: {
-    projectId: string;
-    policyId: string;
-    routeledgerRootDigest: string;
-    expiresAt: string;
-    decisionBudget: number;
-    subjectId?: string;
-    hostKind?: string;
-    clientId?: string;
-  }): Promise<L3AuthorizationPolicy> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    return buildBalancedL3AuthorizationPolicy({
-      policyId: input.policyId,
-      projectId: input.projectId,
-      routeledgerRootDigest: input.routeledgerRootDigest,
-      currentVersionId: snapshot.project.currentVersionId,
-      routeVersionIds: snapshot.versions.map((version) => version.id),
-      expiresAt: input.expiresAt,
-      decisionBudget: input.decisionBudget,
-      ...(input.subjectId === undefined ? {} : { subjectId: input.subjectId }),
-      ...(input.hostKind === undefined ? {} : { hostKind: input.hostKind }),
-      ...(input.clientId === undefined ? {} : { clientId: input.clientId })
-    });
+  async recommendBalancedL3AuthorizationPolicy(
+    input: RecommendBalancedL3AuthorizationPolicyInput
+  ) {
+    return this.l3ProposalReadService.recommendBalancedL3AuthorizationPolicy(input);
   }
 
   async approveL3Operation(input: ApproveL3OperationInput): Promise<ApprovalArtifact> {
