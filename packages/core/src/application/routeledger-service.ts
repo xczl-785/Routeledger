@@ -43,7 +43,6 @@ import {
 import { createTransitionEvents } from "../services/transition-event-service.js";
 import {
   closeVersion as closeVersionDomain,
-  markVersionComplete as markVersionCompleteDomain,
   reopenVersion as reopenVersionDomain,
   shutdownVersion as shutdownVersionDomain,
   startVersion as startVersionDomain
@@ -3110,42 +3109,7 @@ export class RouteLedgerService {
   }
 
   async markVersionComplete(input: VersionCommandInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const version = requireVersion(snapshot, input.versionId);
-    const context = createDomainContext(this.deps, input.actor);
-    const completed = markVersionCompleteDomain(version, context, this.deps);
-
-    snapshot.versions = replaceRecord(snapshot.versions, completed.version);
-    snapshot.events = snapshot.events.concat(completed.events);
-    await this.saveProjectAggregate(snapshot);
-
-    const closeReadiness = buildCloseGateResult(
-      snapshot,
-      input.versionId,
-      undefined,
-      this.deps.clock.now()
-    );
-
-    return {
-      ...completed,
-      closeReadiness,
-      warnings: closeReadiness.allowed
-        ? []
-        : [
-            {
-              code: "VERSION_COMPLETE_CLOSE_BLOCKED",
-              message:
-                "Version 已标记 complete，但 close gate 仍有阻断项；请在关闭前完成收口。",
-              blockerCodes: closeReadiness.blockers.map((blocker) => blocker.code),
-              recommendedTool: "check_close_gate",
-              toolInput: {
-                projectId: input.projectId,
-                versionId: input.versionId,
-                residualAudit: { status: "reviewed", items: [] }
-              }
-            }
-          ]
-    };
+    return this.versionCommandService.markVersionComplete(input);
   }
 
   async createTodo(input: CreateTodoCommandInput): Promise<CreateTodoCommandResult> {
