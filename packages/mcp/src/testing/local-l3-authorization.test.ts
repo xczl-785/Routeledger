@@ -202,6 +202,56 @@ describe("local L3 authorization runtime", () => {
     });
   });
 
+  it("persists exact commit ownership and retains its generation after release", async () => {
+    const fixture = await createFixture();
+    const runtime = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const commitKey = "project-1/pending-1";
+
+    const acquired = await runtime.commitCoordinator.acquire({
+      commitKey,
+      attemptId: "attempt-1"
+    });
+    if (!acquired.ok) throw new Error(`Expected ownership: ${acquired.code}`);
+    expect(JSON.parse(await fs.readFile(fixture.statePath, "utf8"))).toMatchObject({
+      schemaVersion: 3,
+      commitCoordinator: {
+        records: {
+          [commitKey]: {
+            commitKey,
+            owner: {
+              attemptId: "attempt-1",
+              processId: process.pid,
+              processStartedAt: expect.any(String),
+              instanceId: expect.any(String)
+            },
+            generation: 1,
+            status: "owned",
+            releasedAt: null
+          }
+        }
+      }
+    });
+
+    await runtime.commitCoordinator.release(acquired.token);
+    expect(JSON.parse(await fs.readFile(fixture.statePath, "utf8"))).toMatchObject({
+      commitCoordinator: {
+        records: {
+          [commitKey]: {
+            generation: 1,
+            status: "released",
+            releasedAt: expect.any(String)
+          }
+        }
+      }
+    });
+  });
+
   it("keeps exact duplicate issue and receipt writes idempotent across store implementations", async () => {
     const fixture = await createFixture();
     const runtime = await loadLocalL3AuthorityRuntime({

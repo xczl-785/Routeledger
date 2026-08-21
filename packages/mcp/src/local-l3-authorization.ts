@@ -16,7 +16,9 @@ import {
   type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
   type ExactAuthorizationStoreState,
-  type ExactCommitCoordinationRecord
+  type ExactCommitCoordinationRecord,
+  type ExactCommitCoordinator,
+  type ExactCommitOwnershipToken
 } from "@routeledger/core";
 
 import type {
@@ -45,6 +47,7 @@ export interface LocalL3AuthorityConfig {
 export interface LocalL3AuthorityRuntime {
   authority: RouteLedgerMcpDelegatedAuthorizationAuthority;
   exactStore: ExactAuthorizationStore;
+  commitCoordinator: ExactCommitCoordinator;
   trustedClientId?: string;
   configPath: string;
   statePath: string;
@@ -54,6 +57,7 @@ export interface LocalL3AuthorityRuntime {
 export interface LocalL3AuthorityProfileRuntime {
   profile: L3AuthorizationProfileV2;
   exactStore: ExactAuthorizationStore;
+  commitCoordinator: ExactCommitCoordinator;
   trustedClientId?: string;
   statePath: string;
   delegatedAuthority?: RouteLedgerMcpDelegatedAuthorizationAuthority;
@@ -156,6 +160,8 @@ const LOCK_WAIT_TIMEOUT_MS = 5_000;
 const LOCK_RETRY_MS = 20;
 const LOCK_HEARTBEAT_INTERVAL_MS = 5_000;
 const LOCK_RELEASE_RETRY_DELAYS_MS = [10, 30, 100] as const;
+const EXACT_COMMIT_LEASE_MS = 30_000;
+const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
 
 const emptyState = (): LocalL3AuthorityState => ({
   schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
@@ -984,6 +990,70 @@ class PersistentLocalExactAuthorizationStore implements ExactAuthorizationStore 
   }
 }
 
+class PersistentLocalExactCommitCoordinator implements ExactCommitCoordinator {
+  private readonly currentProcess = {
+    processId: process.pid,
+    processStartedAt: PROCESS_STARTED_AT,
+    instanceId: randomUUID()
+  };
+
+  constructor(private readonly stateFile: LocalL3AuthorityStateFile) {}
+
+  private async resolveOwnerLiveness(
+    owner: ExactCommitCoordinationRecord["owner"]
+  ): Promise<"alive" | "dead" | "unknown"> {
+    if (owner.processId === process.pid) return "alive";
+    try {
+      process.kill(owner.processId, 0);
+      return "alive";
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown";
+    }
+  }
+
+  private async run<T>(
+    operation: (coordinator: MemoryExactCommitCoordinator) => Promise<T>
+  ): Promise<T> {
+    return this.stateFile.transact(async (state) => {
+      const records: Record<string, ExactCommitCoordinationRecord> = {};
+      for (const [commitKey, record] of Object.entries(state.commitCoordinator.records)) {
+        if (record.status === "legacy_blocked") {
+          throw new Error(
+            "Local exact commit ownership is legacy-blocked; offline recovery is required."
+          );
+        }
+        records[commitKey] = record;
+      }
+      const coordinator = new MemoryExactCommitCoordinator({
+        state: { records },
+        currentProcess: this.currentProcess,
+        leaseDurationMs: EXACT_COMMIT_LEASE_MS,
+        now: () => new Date().toISOString(),
+        resolveOwnerLiveness: (owner) => this.resolveOwnerLiveness(owner)
+      });
+      const result = await operation(coordinator);
+      state.commitCoordinator = coordinator.exportState();
+      return result;
+    });
+  }
+
+  acquire(input: Parameters<ExactCommitCoordinator["acquire"]>[0]) {
+    return this.run((coordinator) => coordinator.acquire(input));
+  }
+
+  assertOwned(token: ExactCommitOwnershipToken) {
+    return this.run((coordinator) => coordinator.assertOwned(token));
+  }
+
+  renew(token: ExactCommitOwnershipToken) {
+    return this.run((coordinator) => coordinator.renew(token));
+  }
+
+  release(token: ExactCommitOwnershipToken) {
+    return this.run((coordinator) => coordinator.release(token));
+  }
+}
+
 const minimumIsoTimestamp = (...timestamps: string[]): string =>
   timestamps.reduce((minimum, candidate) =>
     Date.parse(candidate) < Date.parse(minimum) ? candidate : minimum
@@ -1075,6 +1145,7 @@ export const loadLocalL3AuthorityRuntime = async (
   const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
   await stateFile.initialize();
   const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
+  const commitCoordinator = new PersistentLocalExactCommitCoordinator(stateFile);
   const policyDigest = digestL3AuthorizationPolicy(config.policy);
   await stateFile.activatePolicy(
     config.authorityId,
@@ -1181,6 +1252,7 @@ export const loadLocalL3AuthorityRuntime = async (
   return {
     authority,
     exactStore,
+    commitCoordinator,
     ...(config.trustedClientId === undefined
       ? {}
       : { trustedClientId: config.trustedClientId }),
@@ -1214,9 +1286,11 @@ export const loadLocalL3AuthorityProfileRuntime = async (
   const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
   await stateFile.initialize();
   const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
+  const commitCoordinator = new PersistentLocalExactCommitCoordinator(stateFile);
   const baseRuntime = {
     profile: structuredClone(input.profile),
     exactStore,
+    commitCoordinator,
     ...(input.profile.binding.trustedClientId === null
       ? {}
       : { trustedClientId: input.profile.binding.trustedClientId }),
