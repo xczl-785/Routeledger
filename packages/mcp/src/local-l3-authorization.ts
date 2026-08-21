@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   digestL3AuthorizationPolicy,
   evaluateL3AuthorizationPolicy,
+  MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   validateL3AuthorizationProfile,
   validateL3AuthorizationPolicy,
@@ -14,7 +15,8 @@ import {
   type L3AuthorizationProfileV2,
   type ExactAuthorizationCandidate,
   type ExactAuthorizationStore,
-  type ExactAuthorizationStoreState
+  type ExactAuthorizationStoreState,
+  type ExactCommitCoordinationRecord
 } from "@routeledger/core";
 
 import type {
@@ -29,7 +31,7 @@ import {
 } from "./legacy-local-l3-authority-decoder.js";
 
 export const LOCAL_L3_AUTHORITY_SCHEMA_VERSION = 1 as const;
-export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 2 as const;
+export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 3 as const;
 
 export interface LocalL3AuthorityConfig {
   schemaVersion: typeof LOCAL_L3_AUTHORITY_SCHEMA_VERSION;
@@ -115,6 +117,17 @@ interface LocalL3AuthorityState {
     migratedAt: string;
   }>;
   exactStore: ExactAuthorizationStoreState;
+  commitCoordinator: {
+    records: Record<
+      string,
+      | ExactCommitCoordinationRecord
+      | {
+          commitKey: string;
+          status: "legacy_blocked";
+          legacyOwnerId: string;
+        }
+    >;
+  };
 }
 
 interface ActiveExactPolicyIdentity {
@@ -153,7 +166,8 @@ const emptyState = (): LocalL3AuthorityState => ({
   grants: {},
   receipts: {},
   legacyTombstones: {},
-  exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+  exactStore: { authorizations: {}, receipts: {}, commitOwners: {} },
+  commitCoordinator: { records: {} }
 });
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -310,7 +324,8 @@ const migrateLegacyState = (value: Record<string, unknown>): LocalL3AuthoritySta
     ...value,
     schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
     legacyTombstones: {},
-    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} },
+    commitCoordinator: { records: {} }
   });
   const migratedAt = new Date().toISOString();
   const tombstones: LocalL3AuthorityState["legacyTombstones"] = {};
@@ -332,7 +347,7 @@ const migrateLegacyState = (value: Record<string, unknown>): LocalL3AuthoritySta
     };
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
     revision: legacy.revision + 1,
     activePolicies: legacy.activePolicies,
     policyUsages: legacy.policyUsages,
@@ -340,8 +355,36 @@ const migrateLegacyState = (value: Record<string, unknown>): LocalL3AuthoritySta
     grants: revokedGrants as Record<string, LegacyL3AuthorizationGrant>,
     receipts: legacy.receipts,
     legacyTombstones: tombstones,
-    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} },
+    commitCoordinator: { records: {} }
   };
+};
+
+const migrateSchemaV2State = (value: Record<string, unknown>): LocalL3AuthorityState => {
+  if (!isObject(value.exactStore) || !isObject(value.exactStore.commitOwners)) {
+    throw new Error("Local exact authorization state is invalid and cannot be trusted.");
+  }
+  const exactStore = new MemoryExactAuthorizationStore(
+    value.exactStore as unknown as ExactAuthorizationStoreState
+  ).exportState();
+  const records: LocalL3AuthorityState["commitCoordinator"]["records"] = {};
+  for (const [commitKey, legacyOwnerId] of Object.entries(exactStore.commitOwners)) {
+    if (!isNonEmptyString(commitKey) || !isNonEmptyString(legacyOwnerId)) {
+      throw new Error("Local exact commit owner state is invalid and cannot be trusted.");
+    }
+    records[commitKey] = {
+      commitKey,
+      status: "legacy_blocked",
+      legacyOwnerId
+    };
+  }
+  return parseState({
+    ...value,
+    schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
+    revision: (value.revision as number) + 1,
+    exactStore: { ...exactStore, commitOwners: {} },
+    commitCoordinator: { records }
+  });
 };
 
 const parseState = (value: unknown): LocalL3AuthorityState => {
@@ -353,8 +396,11 @@ const parseState = (value: unknown): LocalL3AuthorityState => {
     !isObject(value.policyUsages) ||
     !isObject(value.reservedGrants) ||
     !isObject(value.grants) ||
-    !isObject(value.receipts)
-    || !isObject(value.legacyTombstones) || !isObject(value.exactStore)
+    !isObject(value.receipts) ||
+    !isObject(value.legacyTombstones) ||
+    !isObject(value.exactStore) ||
+    !isObject(value.commitCoordinator) ||
+    !isObject(value.commitCoordinator.records)
   ) {
     throw new Error("Local L3 authority state is invalid and cannot be trusted.");
   }
@@ -460,6 +506,30 @@ const parseState = (value: unknown): LocalL3AuthorityState => {
   } catch {
     throw new Error("Local exact authorization state is invalid and cannot be trusted.");
   }
+  for (const [commitKey, record] of Object.entries(value.commitCoordinator.records)) {
+    if (!isNonEmptyString(commitKey) || !isObject(record) || record.commitKey !== commitKey) {
+      throw new Error("Local exact commit coordination state is invalid and cannot be trusted.");
+    }
+    if (record.status === "legacy_blocked") {
+      if (!isNonEmptyString(record.legacyOwnerId)) {
+        throw new Error("Local legacy commit coordination state is invalid and cannot be trusted.");
+      }
+      continue;
+    }
+    try {
+      new MemoryExactCommitCoordinator({
+        state: {
+          records: {
+            [commitKey]: record as unknown as ExactCommitCoordinationRecord
+          }
+        },
+        now: () => new Date().toISOString(),
+        resolveOwnerLiveness: async () => "unknown"
+      });
+    } catch {
+      throw new Error("Local exact commit coordination state is invalid and cannot be trusted.");
+    }
+  }
   return value as unknown as LocalL3AuthorityState;
 };
 
@@ -491,12 +561,28 @@ class LocalL3AuthorityStateFile {
     try {
       await assertPrivateExistingFile(this.statePath, "Local L3 authority state");
       const raw = JSON.parse(await fs.readFile(this.statePath, "utf8")) as unknown;
+      let initializedState: LocalL3AuthorityState;
       if (isObject(raw) && raw.schemaVersion === 1) {
         const migrated = migrateLegacyState(raw);
         await lock.assertOwned();
         await this.writeAtomic(migrated);
+        initializedState = migrated;
+      } else if (isObject(raw) && raw.schemaVersion === 2) {
+        const migrated = migrateSchemaV2State(raw);
+        await lock.assertOwned();
+        await this.writeAtomic(migrated);
+        initializedState = migrated;
       } else {
-        parseState(raw);
+        initializedState = parseState(raw);
+      }
+      if (
+        Object.values(initializedState.commitCoordinator.records).some(
+          (record) => record.status === "legacy_blocked"
+        )
+      ) {
+        throw new Error(
+          "Local exact commit ownership is legacy-blocked; offline recovery is required."
+        );
       }
     } finally {
       await lock.release();

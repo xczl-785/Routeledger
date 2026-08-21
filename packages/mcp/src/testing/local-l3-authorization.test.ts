@@ -566,7 +566,7 @@ describe("local L3 authorization runtime", () => {
       grants: Record<string, { status: string; revokedAt?: string }>;
       legacyTombstones: Record<string, { reason: string }>;
     };
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(migrated.reservedGrants).toEqual({});
     expect(migrated.grants[issued.authorization.authorizationId]).toMatchObject({
       status: "revoked",
@@ -585,6 +585,92 @@ describe("local L3 authorization runtime", () => {
       subjectId: "mcp-user"
     });
     expect(await fs.readFile(fixture.statePath, "utf8")).toBe(migratedText);
+  });
+
+  it("atomically migrates schema-v2 state without commit owners to an empty coordinator", async () => {
+    const fixture = await createFixture();
+    await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const legacy = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as {
+      schemaVersion: number;
+      exactStore: { commitOwners: Record<string, string> };
+      commitCoordinator?: unknown;
+    };
+    legacy.schemaVersion = 2;
+    legacy.exactStore.commitOwners = {};
+    delete legacy.commitCoordinator;
+    await fs.writeFile(fixture.statePath, `${JSON.stringify(legacy, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
+    expect(legacy).toMatchObject({
+      schemaVersion: 2,
+      exactStore: { commitOwners: {} }
+    });
+
+    await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+
+    expect(JSON.parse(await fs.readFile(fixture.statePath, "utf8"))).toMatchObject({
+      schemaVersion: 3,
+      commitCoordinator: { records: {} }
+    });
+  });
+
+  it("preserves a schema-v2 commit owner as an explicit legacy-blocked record", async () => {
+    const fixture = await createFixture();
+    await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const legacy = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as {
+      schemaVersion: number;
+      exactStore: { commitOwners: Record<string, string> };
+      commitCoordinator?: unknown;
+    };
+    legacy.schemaVersion = 2;
+    delete legacy.commitCoordinator;
+    legacy.exactStore.commitOwners["pending-operation-legacy"] = "legacy-owner-1";
+    await fs.writeFile(fixture.statePath, `${JSON.stringify(legacy, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
+
+    await expect(
+      loadLocalL3AuthorityRuntime({
+        configPath: fixture.configPath,
+        workspaceRoot: fixture.workspaceRoot,
+        routeledgerRoot: fixture.workspaceRoot,
+        hostKind: "generic",
+        subjectId: "mcp-user"
+      })
+    ).rejects.toThrow("offline recovery is required");
+
+    expect(JSON.parse(await fs.readFile(fixture.statePath, "utf8"))).toMatchObject({
+      schemaVersion: 3,
+      commitCoordinator: {
+        records: {
+          "pending-operation-legacy": {
+            commitKey: "pending-operation-legacy",
+            status: "legacy_blocked",
+            legacyOwnerId: "legacy-owner-1"
+          }
+        }
+      }
+    });
   });
 
   it("recovers an abandoned state lock before applying a trusted mutation", async () => {
