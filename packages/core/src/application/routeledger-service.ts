@@ -44,7 +44,6 @@ import { createTransitionEvents } from "../services/transition-event-service.js"
 import {
   closeVersion as closeVersionDomain,
   markVersionComplete as markVersionCompleteDomain,
-  prepareVersion as prepareVersionDomain,
   reopenVersion as reopenVersionDomain,
   shutdownVersion as shutdownVersionDomain,
   startVersion as startVersionDomain
@@ -82,6 +81,11 @@ import {
   RouteLedgerQueryService,
   type RouteLedgerVersionQueryUseCases
 } from "./routeledger-query-service.js";
+import { persistProjectAggregate } from "./project-aggregate-access.js";
+import {
+  VersionCommandService,
+  type VersionCommandUseCases
+} from "./version-command-service.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
   inspectEntryDocumentCoverage,
@@ -155,6 +159,7 @@ export interface RouteLedgerServiceOptions {
   storage: StoragePort;
   deps: DomainDependencies;
   queryService?: RouteLedgerVersionQueryUseCases;
+  versionCommandService?: VersionCommandUseCases;
   projectRoot?: string;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
@@ -3417,6 +3422,8 @@ export class RouteLedgerService {
 
   private readonly queryService: RouteLedgerVersionQueryUseCases;
 
+  private readonly versionCommandService: VersionCommandUseCases;
+
   private readonly projectRoot: string | null;
 
   private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
@@ -3429,6 +3436,9 @@ export class RouteLedgerService {
     this.storage = options.storage;
     this.deps = options.deps;
     this.queryService = options.queryService ?? new RouteLedgerQueryService({ storage: options.storage });
+    this.versionCommandService =
+      options.versionCommandService ??
+      new VersionCommandService({ storage: options.storage, deps: options.deps });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3480,15 +3490,7 @@ export class RouteLedgerService {
   }
 
   private async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
-    if (snapshot.project.settings.contentLocale === null) {
-      throw new ApplicationError(
-        "CONTENT_LOCALE_REQUIRED",
-        "Project content_locale is null. Confirm and set a concrete locale before writing project state.",
-        { projectId: snapshot.project.id }
-      );
-    }
-
-    await this.storage.saveProjectAggregate(snapshot);
+    await persistProjectAggregate(this.storage, snapshot);
   }
 
   private async executeOrdinaryWrite<TResult extends object>(input: {
@@ -3695,16 +3697,7 @@ export class RouteLedgerService {
   }
 
   async prepareVersion(input: VersionCommandInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const version = requireVersion(snapshot, input.versionId);
-    const context = createDomainContext(this.deps, input.actor);
-    const prepared = prepareVersionDomain(version, context, this.deps);
-
-    snapshot.versions = replaceRecord(snapshot.versions, prepared.version);
-    snapshot.events = snapshot.events.concat(prepared.events);
-    await this.saveProjectAggregate(snapshot);
-
-    return prepared;
+    return this.versionCommandService.prepareVersion(input);
   }
 
   async markVersionComplete(input: VersionCommandInput) {

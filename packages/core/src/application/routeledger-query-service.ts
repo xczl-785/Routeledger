@@ -1,17 +1,14 @@
 import type { Version } from "../domain/version.js";
-import {
-  attachProjectAggregateHeadRevision,
-  getProjectAggregateHeadRevision,
-  type ProjectAggregateSnapshot,
-  type StoragePort
-} from "../ports/storage-port.js";
 
 import {
   buildCurrentContextResult,
   buildNextActionResult,
   buildVersionsWindowResult
 } from "./current-context-query.js";
-import { ApplicationError } from "./errors.js";
+import {
+  loadRequiredProjectAggregate,
+  type ProjectSnapshotReader
+} from "./project-aggregate-access.js";
 import {
   planVersionCloseoutApplication,
   summarizeVersionCloseoutApplication,
@@ -48,38 +45,6 @@ export interface RouteLedgerVersionQueryUseCases {
   ): Promise<ReturnType<typeof planVersionCloseoutApplication>>;
 }
 
-type ProjectSnapshotReader = Pick<StoragePort, "loadProjectAggregate">;
-
-const cloneSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregateSnapshot => {
-  const cloned = structuredClone(snapshot);
-  const headRevision = getProjectAggregateHeadRevision(snapshot);
-
-  return headRevision === undefined
-    ? cloned
-    : attachProjectAggregateHeadRevision(cloned, headRevision);
-};
-
-const loadRequiredProject = async (
-  storage: ProjectSnapshotReader,
-  projectId: string
-): Promise<ProjectAggregateSnapshot> => {
-  const snapshot = await storage.loadProjectAggregate(projectId);
-
-  if (snapshot === null) {
-    throw new ApplicationError("PROJECT_NOT_FOUND", "project 不存在", { projectId });
-  }
-
-  if (snapshot.project.id !== projectId) {
-    throw new ApplicationError(
-      "PROJECT_OWNERSHIP_MISMATCH",
-      "storage 返回的 project 与请求 project 不一致",
-      { projectId, actualProjectId: snapshot.project.id }
-    );
-  }
-
-  return cloneSnapshot(snapshot);
-};
-
 export class RouteLedgerQueryService implements RouteLedgerVersionQueryUseCases {
   private readonly storage: ProjectSnapshotReader;
 
@@ -88,33 +53,33 @@ export class RouteLedgerQueryService implements RouteLedgerVersionQueryUseCases 
   }
 
   async listVersions(projectId: string): Promise<Version[]> {
-    const snapshot = await loadRequiredProject(this.storage, projectId);
+    const snapshot = await loadRequiredProjectAggregate(this.storage, projectId);
 
     return snapshot.versions.slice().sort((left, right) => left.order - right.order);
   }
 
   async listVersionsWindow(input: ListVersionsWindowQueryInput) {
-    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    const snapshot = await loadRequiredProjectAggregate(this.storage, input.projectId);
     return buildVersionsWindowResult(snapshot, input);
   }
 
   async getCurrentContext(input: CurrentContextQueryInput) {
-    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    const snapshot = await loadRequiredProjectAggregate(this.storage, input.projectId);
     return buildCurrentContextResult(snapshot, input);
   }
 
   async getNextAction(input: CurrentContextQueryInput) {
-    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    const snapshot = await loadRequiredProjectAggregate(this.storage, input.projectId);
     return buildNextActionResult(snapshot, input);
   }
 
   async summarizeVersionCloseout(input: SummarizeVersionCloseoutInput) {
-    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    const snapshot = await loadRequiredProjectAggregate(this.storage, input.projectId);
     return summarizeVersionCloseoutApplication(snapshot, input);
   }
 
   async planVersionCloseout(input: PlanVersionCloseoutInput) {
-    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    const snapshot = await loadRequiredProjectAggregate(this.storage, input.projectId);
     return planVersionCloseoutApplication(snapshot, input);
   }
 }
