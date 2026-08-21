@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { ApplicationError, DomainError, RouteLedgerService } from "../../core/src/index.js";
+import { WorkspaceDocumentSource } from "../../json/src/index.js";
 import { JsonFirstStorageAdapter, JsonFirstStorageError } from "./json-first-storage.js";
 import { discoverRouteLedgerRoots, planRouteLedgerBinding, renderHostBindingConfig, writeHostBindingConfig } from "./binding-assist.js";
 import { runBindingPreflight, getBindingRecommendedNextActions, isBindingToolKindAllowed } from "./binding-preflight.js";
@@ -247,12 +248,13 @@ const createService = (workspaceRoot, routeledgerRoot, sqliteReadModel, storageT
     });
     const service = new RouteLedgerService({
         storage,
-        projectRoot: workspaceRoot,
+        documentSource: new WorkspaceDocumentSource({ workspaceRoot }),
         ...(authorization === undefined
             ? {}
             : {
                 l3Authorization: {
                     exactStore: authorization.exactStore,
+                    commitCoordinator: authorization.commitCoordinator,
                     audience: "routeledger-core",
                     subjectId: authorization.subjectId,
                     routeledgerRootDigest: digestRouteLedgerRoot(routeledgerRoot),
@@ -853,6 +855,7 @@ export const createRouteLedgerMcpRegistry = (options) => {
             ? undefined
             : {
                 exactStore: options.l3Authorization.exactStore,
+                commitCoordinator: options.l3Authorization.commitCoordinator,
                 ...(options.l3Authorization.profile === undefined
                     ? {}
                     : { profile: options.l3Authorization.profile }),

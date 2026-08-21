@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { DomainError } from "../domain/errors.js";
 import { validateAssetPath } from "../services/asset-service.js";
 const HUMAN_ENTRY_DOCUMENT_CANDIDATES = [
@@ -31,7 +29,7 @@ export const inspectEntryDocumentCoverage = async (options) => {
     const entryFiles = [];
     for (const candidate of HUMAN_ENTRY_DOCUMENT_CANDIDATES) {
         try {
-            const content = await fs.readFile(path.join(options.projectRoot, candidate), "utf8");
+            const content = await options.documentSource.readUtf8(candidate);
             entryFiles.push({
                 path: candidate,
                 containsRouteLedgerPointer: content.includes(ROUTELEDGER_PROJECT_POINTER)
@@ -124,21 +122,6 @@ const assertDocDriftEntryFilePath = (entryFile, index) => {
         }
         throw error;
     }
-};
-const isPathInsideRoot = (rootPath, candidatePath) => {
-    const relativePath = path.relative(rootPath, candidatePath);
-    return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
-};
-const resolveDocDriftEntryFilePath = async (projectRoot, entryFile) => {
-    const realProjectRoot = await fs.realpath(projectRoot);
-    const resolvedPath = path.resolve(projectRoot, entryFile);
-    const realResolvedPath = await fs.realpath(resolvedPath);
-    if (!isPathInsideRoot(realProjectRoot, realResolvedPath)) {
-        const error = new Error(`entry file resolves outside project root via symlink: ${entryFile}`);
-        error.code = "ENTRY_FILE_OUTSIDE_PROJECT_ROOT";
-        throw error;
-    }
-    return realResolvedPath;
 };
 const normalizeAssertionValue = (value) => value
     .trim()
@@ -372,7 +355,7 @@ const buildDocDriftSummaryText = (options) => {
     ].join(" ");
 };
 export const runDocDriftCheck = async (options) => {
-    const { projectRoot, project, contentLocale, context, input } = options;
+    const { documentSource, project, contentLocale, context, input } = options;
     const currentVersion = context.currentVersion;
     const currentVersionId = currentVersion?.id ?? null;
     const currentVersionOpenTodos = currentVersionId === null
@@ -391,8 +374,7 @@ export const runDocDriftCheck = async (options) => {
     for (const [index, entryFile] of input.entryFiles.entries()) {
         assertDocDriftEntryFilePath(entryFile, index);
         try {
-            const resolvedPath = await resolveDocDriftEntryFilePath(projectRoot, entryFile);
-            const content = await fs.readFile(resolvedPath, "utf8");
+            const content = await documentSource.readUtf8(entryFile);
             const bytes = Buffer.byteLength(content, "utf8");
             let matchedWarningCount = 0;
             if (currentVersion !== null) {

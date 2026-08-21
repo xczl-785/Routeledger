@@ -479,11 +479,13 @@ const runStdioSmoke = async ({
   if (
     runtimeContext?.missionControl?.status !== "stopped" ||
     runtimeContext?.missionControl?.notice?.code !== "MISSION_CONTROL_STOPPED" ||
-    runtimeContext?.missionControl?.recommendedAction?.tool !== "manage_mission_control" ||
-    runtimeContext?.missionControl?.recommendedAction?.arguments?.operation !== "open"
+    runtimeContext?.missionControl?.recommendedAction !== null ||
+    runtimeContext?.missionControl?.recommendationLevel !== "advisory" ||
+    runtimeContext?.missionControl?.advisoryAction?.tool !== "manage_mission_control" ||
+    runtimeContext?.missionControl?.advisoryAction?.arguments?.operation !== "open"
   ) {
     throw new Error(
-      `inspect_runtime(operation=runtime) did not report executable Mission Control startup guidance: ${JSON.stringify(runtimeContext?.missionControl)}`
+      `inspect_runtime(operation=runtime) did not report advisory Mission Control startup guidance: ${JSON.stringify(runtimeContext?.missionControl)}`
     );
   }
   if (

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ROUTELEDGER_JSON_ROOT } from "./constants.js";
+import { CANONICAL_DOCUMENT_DESCRIPTORS, matchCanonicalDocumentDescriptor } from "./document-descriptors.js";
 import { decodeProjectAggregateFromJsonDocuments, encodeProjectAggregateToJsonDocuments } from "./codec.js";
 import { validateRouteLedgerJsonDocuments } from "./validator.js";
 import { auditLayoutExists, auditPackDocumentPath, buildAuditPhysicalDocuments, createClosedVersionAuditPack, readAuditPacks, readOperationEnvelopeDocuments } from "./audit-storage.js";
@@ -27,21 +28,9 @@ export class RouteLedgerJsonBusyError extends Error {
 }
 const compareByString = (left, right) => left.localeCompare(right, "en");
 export const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
-    /^\.routeledger\/schema\/routeledger\.schema\.json$/,
-    /^\.routeledger\/project\.json$/,
-    /^\.routeledger\/refs\/current\.json$/,
-    /^\.routeledger\/versions\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/work_items\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/todos\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/undos\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/deferred_items\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/constraints\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/assets\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/events\/\d{4}\/\d{2}\/[^/]+\.json$/,
-    /^\.routeledger\/pending_operations\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/approval_artifacts\/[^/]+\/[^/]+\.json$/,
-    /^\.routeledger\/ordinary_write_receipts\/[^/]+\/[^/]+\.json$/
-];
+    ...CANONICAL_DOCUMENT_DESCRIPTORS.filter((descriptor) => descriptor.id === "schema"),
+    ...CANONICAL_DOCUMENT_DESCRIPTORS.filter((descriptor) => descriptor.id !== "schema")
+].map((descriptor) => descriptor.pathMatcher);
 const ROUTELEDGER_CANONICAL_TOP_LEVEL_ENTRIES = [
     "project.json",
     "schema",
@@ -71,7 +60,7 @@ const DEFAULT_WRITE_LOCK_RETRY_AFTER_MS = 250;
 const DEFAULT_WRITE_LOCK_STALE_AFTER_MS = 30_000;
 const TRANSIENT_FILESYSTEM_ERROR_CODES = new Set(["EPERM", "EACCES"]);
 const TRANSIENT_FILESYSTEM_RETRY_DELAYS_MS = [100, 300, 1_000, 2_000];
-export const isCanonicalRouteLedgerJsonPath = (documentPath) => ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS.some((pattern) => pattern.test(documentPath));
+export const isCanonicalRouteLedgerJsonPath = (documentPath) => matchCanonicalDocumentDescriptor(documentPath) !== undefined;
 let routeLedgerJsonFilesystemTestHooks = null;
 export const setRouteLedgerJsonFilesystemTestHooks = (hooks) => {
     routeLedgerJsonFilesystemTestHooks = hooks;

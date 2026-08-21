@@ -1,4 +1,5 @@
 import { DomainError } from "../domain/errors.js";
+export { validateWorkItemActive, validateWorkItemLineage } from "../domain/work-item-lineage.js";
 import { createTransitionEvents } from "./transition-event-service.js";
 import { createDomainContext } from "./operation.js";
 const assertReason = (reason, note) => {
@@ -33,56 +34,6 @@ const createWorkItem = (projectId, title, type, originVersionId, activeRecordTyp
     closedAt: null,
     summary: title
 });
-export const validateWorkItemActive = (workItem, todos, undos, deferredItems = []) => {
-    if (workItem.status === "closed") {
-        if (workItem.activeRecordType !== null || workItem.activeRecordId !== null) {
-            throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "closed WorkItem 不应保留 active 指针", { workItemId: workItem.id });
-        }
-        return;
-    }
-    if (workItem.activeRecordType === null || workItem.activeRecordId === null) {
-        throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active WorkItem 必须有 active 指针", { workItemId: workItem.id });
-    }
-    const activeRecordType = workItem.activeRecordType;
-    const activeRecordId = workItem.activeRecordId;
-    switch (activeRecordType) {
-        case "todo": {
-            const todo = todos.find((item) => item.id === activeRecordId);
-            if (todo === undefined || todo.workItemId !== workItem.id) {
-                throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active todo 不存在或不属于该 WorkItem", { workItemId: workItem.id, activeRecordId });
-            }
-            if (todo.status !== "wait" && todo.status !== "running") {
-                throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active todo 不能指向 closed 或 converted 记录", { todoId: todo.id, status: todo.status });
-            }
-            return;
-        }
-        case "undo": {
-            const undo = undos.find((item) => item.id === activeRecordId);
-            if (undo === undefined || undo.workItemId !== workItem.id) {
-                throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active undo 不存在或不属于该 WorkItem", { workItemId: workItem.id, activeRecordId });
-            }
-            if (undo.status !== "wait") {
-                throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active undo 不能指向 closed 或 converted 记录", { undoId: undo.id, status: undo.status });
-            }
-            return;
-        }
-        case "deferred": {
-            const deferred = deferredItems.find((item) => item.id === activeRecordId);
-            if (deferred === undefined ||
-                deferred.workItemId !== workItem.id) {
-                throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active Deferred 不存在或不属于该 WorkItem", { workItemId: workItem.id, activeRecordId });
-            }
-            if (deferred.status !== "pending") {
-                throw new DomainError("INVALID_WORK_ITEM_ACTIVE", "active Deferred 只能指向 pending 记录", { deferredId: deferred.id, status: deferred.status });
-            }
-            return;
-        }
-        default: {
-            const exhaustiveActiveRecordType = activeRecordType;
-            throw new DomainError("INVALID_WORK_ITEM_ACTIVE", `不支持的 active record type: ${String(exhaustiveActiveRecordType)}`, { workItemId: workItem.id });
-        }
-    }
-};
 export const createTodo = ({ projectId, versionId, title, description = "", actor, deps, workItem, workItemType = "other" }) => {
     const context = createDomainContext(deps, actor);
     const todoId = deps.idGenerator.nextId();

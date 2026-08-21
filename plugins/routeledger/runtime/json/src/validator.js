@@ -1,106 +1,9 @@
 import path from "node:path";
-import { canonicalizeLocale, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, ORDINARY_WRITE_COMMAND_NAMES, validateWorkItemActive } from "../../core/src/index.js";
-import { decodeProjectAggregateFromJsonDocumentsForValidation } from "./codec.js";
-import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, ROUTELEDGER_READABLE_SCHEMA_VERSIONS, SCHEMA_DOCUMENT_PATH } from "./constants.js";
-const KNOWN_DOCUMENT_PREFIXES = [
-    `${ROUTELEDGER_JSON_ROOT}/versions/`,
-    `${ROUTELEDGER_JSON_ROOT}/work_items/`,
-    `${ROUTELEDGER_JSON_ROOT}/todos/`,
-    `${ROUTELEDGER_JSON_ROOT}/undos/`,
-    `${ROUTELEDGER_JSON_ROOT}/deferred_items/`,
-    `${ROUTELEDGER_JSON_ROOT}/constraints/`,
-    `${ROUTELEDGER_JSON_ROOT}/assets/`,
-    `${ROUTELEDGER_JSON_ROOT}/events/`,
-    `${ROUTELEDGER_JSON_ROOT}/pending_operations/`,
-    `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`,
-    `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`
-];
-const getDocumentContract = (documentPath) => {
-    if (documentPath === PROJECT_DOCUMENT_PATH) {
-        return {
-            kind: "project",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath === CURRENT_REF_DOCUMENT_PATH) {
-        return {
-            kind: "current_ref",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath === SCHEMA_DOCUMENT_PATH) {
-        return {
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/versions/`)) {
-        return {
-            kind: "version",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/work_items/`)) {
-        return {
-            kind: "work_item",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/todos/`)) {
-        return {
-            kind: "todo",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/undos/`)) {
-        return {
-            kind: "undo",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/deferred_items/`)) {
-        return {
-            kind: "deferred_item",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/constraints/`)) {
-        return {
-            kind: "constraint",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/assets/`)) {
-        return {
-            kind: "asset",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/events/`)) {
-        return {
-            kind: "transition_event",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/pending_operations/`)) {
-        return {
-            kind: "pending_operation",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`)) {
-        return {
-            kind: "approval_artifact",
-            requireSchemaVersion: true
-        };
-    }
-    if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`)) {
-        return {
-            kind: "ordinary_write_receipt",
-            requireSchemaVersion: true
-        };
-    }
-    return undefined;
-};
+import { canonicalizeLocale, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations, ORDINARY_WRITE_COMMAND_NAMES, validateWorkItemLineage } from "../../core/src/index.js";
+import { decodeProjectAggregateFromJsonDocumentsForValidation, } from "./codec.js";
+import { buildCanonicalIdDocumentPath, buildTransitionEventDocumentPath, matchRouteLedgerDocumentContract } from "./document-descriptors.js";
+import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, ROUTELEDGER_READABLE_SCHEMA_VERSIONS } from "./constants.js";
+const getDocumentContract = matchRouteLedgerDocumentContract;
 const compareByString = (left, right) => left.localeCompare(right, "en");
 const createIssue = (severity, code, message, extras = {}) => ({
     severity,
@@ -108,10 +11,7 @@ const createIssue = (severity, code, message, extras = {}) => ({
     message,
     ...extras
 });
-const isKnownRouteLedgerJsonPath = (documentPath) => documentPath === PROJECT_DOCUMENT_PATH ||
-    documentPath === CURRENT_REF_DOCUMENT_PATH ||
-    documentPath === SCHEMA_DOCUMENT_PATH ||
-    KNOWN_DOCUMENT_PREFIXES.some((prefix) => documentPath.startsWith(prefix));
+const isKnownRouteLedgerJsonPath = (documentPath) => matchRouteLedgerDocumentContract(documentPath) !== undefined;
 const parseDocumentJson = (document) => {
     try {
         const parsed = JSON.parse(document.content);
@@ -146,25 +46,20 @@ const hasValidJsonActorShape = (value) => isRecord(value) &&
     isNonBlankString(value.id) &&
     (value.type === "user" || value.type === "agent" || value.type === "system") &&
     (value.display_name === undefined || typeof value.display_name === "string");
-const getIdPrefix = (id) => id.slice(0, 2).padEnd(2, "_");
 const getSafePathId = (id) => typeof id === "string" && id.trim().length > 0 ? id : "invalid";
-const getVersionPath = (id) => `${ROUTELEDGER_JSON_ROOT}/versions/${getIdPrefix(id)}/${id}.json`;
-const getWorkItemPath = (id) => `${ROUTELEDGER_JSON_ROOT}/work_items/${getIdPrefix(id)}/${id}.json`;
-const getTodoPath = (id) => `${ROUTELEDGER_JSON_ROOT}/todos/${getIdPrefix(id)}/${id}.json`;
-const getUndoPath = (id) => `${ROUTELEDGER_JSON_ROOT}/undos/${getIdPrefix(id)}/${id}.json`;
-const getDeferredItemPath = (id) => `${ROUTELEDGER_JSON_ROOT}/deferred_items/${getIdPrefix(id)}/${id}.json`;
-const getConstraintPath = (id) => `${ROUTELEDGER_JSON_ROOT}/constraints/${getIdPrefix(id)}/${id}.json`;
-const getAssetPath = (id) => `${ROUTELEDGER_JSON_ROOT}/assets/${getIdPrefix(id)}/${id}.json`;
-const getPendingOperationPath = (id) => `${ROUTELEDGER_JSON_ROOT}/pending_operations/${getIdPrefix(id)}/${id}.json`;
-const getApprovalArtifactPath = (id) => `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
-const getOrdinaryWriteReceiptPath = (id) => `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
+const getVersionPath = (id) => buildCanonicalIdDocumentPath("version", id);
+const getWorkItemPath = (id) => buildCanonicalIdDocumentPath("work_item", id);
+const getTodoPath = (id) => buildCanonicalIdDocumentPath("todo", id);
+const getUndoPath = (id) => buildCanonicalIdDocumentPath("undo", id);
+const getDeferredItemPath = (id) => buildCanonicalIdDocumentPath("deferred_item", id);
+const getConstraintPath = (id) => buildCanonicalIdDocumentPath("constraint", id);
+const getAssetPath = (id) => buildCanonicalIdDocumentPath("asset", id);
+const getPendingOperationPath = (id) => buildCanonicalIdDocumentPath("pending_operation", id);
+const getApprovalArtifactPath = (id) => buildCanonicalIdDocumentPath("approval_artifact", id);
+const getOrdinaryWriteReceiptPath = (id) => buildCanonicalIdDocumentPath("ordinary_write_receipt", id);
 const getEventPath = (event) => {
-    const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
-    if (match === null) {
-        return `${ROUTELEDGER_JSON_ROOT}/events/unknown/${event.id}.json`;
-    }
-    const [, year, month] = match;
-    return `${ROUTELEDGER_JSON_ROOT}/events/${year}/${month}/${event.id}.json`;
+    return (buildTransitionEventDocumentPath(event) ??
+        `${ROUTELEDGER_JSON_ROOT}/events/unknown/${event.id}.json`);
 };
 const sortKeysDeep = (value) => {
     if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -762,7 +657,7 @@ export const validateProjectAggregateSnapshot = (snapshot, options = {}) => {
     validateVersionSiblingStructure(issues, snapshot.versions, versionsById);
     for (const workItem of snapshot.workItems) {
         try {
-            validateWorkItemActive(workItem, snapshot.todos, snapshot.undos, snapshot.deferredItems);
+            validateWorkItemLineage(workItem, snapshot.todos, snapshot.undos, snapshot.deferredItems);
         }
         catch (error) {
             issues.push(createIssue("error", "WORK_ITEM_ACTIVE_INVALID", "WorkItem active 指针语义无效", {

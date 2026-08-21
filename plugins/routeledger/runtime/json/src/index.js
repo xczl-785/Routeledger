@@ -6,4 +6,5 @@ export { RouteLedgerJsonImportError, loadValidatedProjectAggregateFromJsonDirect
 export { runRouteLedgerJsonMergeCheck } from "./merge-check.js";
 export { RouteLedgerJsonReviewSummaryError, buildProjectAggregateReviewSummary } from "./review-summary.js";
 export { buildRouteLedgerSchemaDocument } from "./schema.js";
+export { WorkspaceDocumentSource } from "./workspace-document-source.js";
 export { validateProjectAggregateSnapshot, validateRouteLedgerJsonDocuments } from "./validator.js";

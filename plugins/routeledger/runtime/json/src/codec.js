@@ -1,6 +1,7 @@
 import { collectConstraintInvariantViolations, collectDeferredItemInvariantViolations } from "../../core/src/index.js";
 import { buildRouteLedgerSchemaDocument } from "./schema.js";
 import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, SCHEMA_DOCUMENT_PATH } from "./constants.js";
+import { buildCanonicalIdDocumentPath, buildTransitionEventDocumentPath } from "./document-descriptors.js";
 const compareByString = (left, right) => left.localeCompare(right, "en");
 const createCanonicalContent = (value) => `${JSON.stringify(stripUndefined(value), null, 2)}\n`;
 const stripUndefined = (value) => {
@@ -480,24 +481,22 @@ const createDocument = (path, payload) => ({
     path,
     content: createCanonicalContent(payload)
 });
-const getIdPrefix = (id) => id.slice(0, 2).padEnd(2, "_");
-const getVersionDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/versions/${getIdPrefix(id)}/${id}.json`;
-const getWorkItemDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/work_items/${getIdPrefix(id)}/${id}.json`;
-const getTodoDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/todos/${getIdPrefix(id)}/${id}.json`;
-const getUndoDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/undos/${getIdPrefix(id)}/${id}.json`;
-const getDeferredItemDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/deferred_items/${getIdPrefix(id)}/${id}.json`;
-const getConstraintDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/constraints/${getIdPrefix(id)}/${id}.json`;
-const getAssetDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/assets/${getIdPrefix(id)}/${id}.json`;
-const getPendingOperationDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/pending_operations/${getIdPrefix(id)}/${id}.json`;
-const getApprovalArtifactDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/${getIdPrefix(id)}/${id}.json`;
-const getOrdinaryWriteReceiptDocumentPath = (id) => `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/${getIdPrefix(id)}/${id}.json`;
+const getVersionDocumentPath = (id) => buildCanonicalIdDocumentPath("version", id);
+const getWorkItemDocumentPath = (id) => buildCanonicalIdDocumentPath("work_item", id);
+const getTodoDocumentPath = (id) => buildCanonicalIdDocumentPath("todo", id);
+const getUndoDocumentPath = (id) => buildCanonicalIdDocumentPath("undo", id);
+const getDeferredItemDocumentPath = (id) => buildCanonicalIdDocumentPath("deferred_item", id);
+const getConstraintDocumentPath = (id) => buildCanonicalIdDocumentPath("constraint", id);
+const getAssetDocumentPath = (id) => buildCanonicalIdDocumentPath("asset", id);
+const getPendingOperationDocumentPath = (id) => buildCanonicalIdDocumentPath("pending_operation", id);
+const getApprovalArtifactDocumentPath = (id) => buildCanonicalIdDocumentPath("approval_artifact", id);
+const getOrdinaryWriteReceiptDocumentPath = (id) => buildCanonicalIdDocumentPath("ordinary_write_receipt", id);
 const getEventDocumentPath = (event) => {
-    const match = /^(\d{4})-(\d{2})/.exec(event.createdAt);
-    if (match === null) {
+    const documentPath = buildTransitionEventDocumentPath(event);
+    if (documentPath === undefined) {
         throw new Error(`invalid event createdAt: ${event.createdAt}`);
     }
-    const [, year, month] = match;
-    return `${ROUTELEDGER_JSON_ROOT}/events/${year}/${month}/${event.id}.json`;
+    return documentPath;
 };
 const encodeProject = (project) => ({
     schema_version: ROUTELEDGER_SCHEMA_VERSION,
@@ -1282,6 +1281,7 @@ const decodeProjectAggregateFromJsonDocumentsInternal = (documents, validateLife
         }
     }
     return {
+        headRevision: null,
         project,
         versions,
         workItems,

@@ -129,6 +129,7 @@ export const main = async (argv = process.argv.slice(2)) => {
             : {
                 l3Authorization: {
                     exactStore: l3AuthorityRuntime.exactStore,
+                    commitCoordinator: l3AuthorityRuntime.commitCoordinator,
                     ...(l3AuthorityRuntime.trustedClientId === undefined
                         ? {}
                         : { trustedClientId: l3AuthorityRuntime.trustedClientId }),

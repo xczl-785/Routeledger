@@ -48,6 +48,7 @@ export const createLocalL3AuthorityBroker = (options) => {
             bindingKey: selected.bindingKey,
             profile: runtime.profile,
             exactStore: runtime.exactStore,
+            commitCoordinator: runtime.commitCoordinator,
             ...(runtime.trustedClientId === undefined
                 ? {}
                 : { trustedClientId: runtime.trustedClientId }),

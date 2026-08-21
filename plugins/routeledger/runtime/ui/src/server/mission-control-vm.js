@@ -1,5 +1,5 @@
 import path from "node:path";
-import { RouteLedgerService } from "../../../core/src/index.js";
+import { buildVersionStructureView, RouteLedgerQueryService } from "../../../core/src/index.js";
 import { PROJECT_DOCUMENT_PATH, loadValidatedProjectAggregateFromJsonDirectory } from "../../../json/src/index.js";
 class ReadOnlySnapshotStorage {
     snapshot;
@@ -8,9 +8,6 @@ class ReadOnlySnapshotStorage {
     }
     async loadProjectAggregate(projectId) {
         return this.snapshot.project.id === projectId ? this.snapshot : null;
-    }
-    async saveProjectAggregate() {
-        throw new Error("RouteLedger Mission Control is read-only.");
     }
 }
 const isContainedWithin = (root, candidate) => {
@@ -34,14 +31,6 @@ const isUndoCarriedForwardAwayFromVersion = (undo, versionId) => undo.carriedFor
     undo.carriedForwardToVersionId !== versionId &&
     (undo.versionId === versionId || undo.originVersionId === versionId);
 const isUndoBlockingCloseForVersion = (undo, versionId) => undo.status === "wait" && !isUndoCarriedForwardAwayFromVersion(undo, versionId);
-const routeledgerDeps = {
-    clock: {
-        now: () => new Date().toISOString()
-    },
-    idGenerator: {
-        nextId: () => "mission-control-read-only"
-    }
-};
 const createBindingSummary = (input) => {
     const workspaceRoot = path.resolve(input.workspaceRoot);
     const routeledgerRoot = path.resolve(input.routeledgerRoot);
@@ -153,10 +142,8 @@ const summarizeTreeNode = (version) => {
     };
 };
 export const buildMissionControlViewModel = async (snapshot, binding, storage, screen, message) => {
-    const service = new RouteLedgerService({
-        storage: new ReadOnlySnapshotStorage(snapshot),
-        deps: routeledgerDeps,
-        projectRoot: binding.routeledgerRoot ?? ""
+    const service = new RouteLedgerQueryService({
+        storage: new ReadOnlySnapshotStorage(snapshot)
     });
     const context = await service.getCurrentContext({
         projectId: snapshot.project.id,
@@ -181,11 +168,13 @@ export const buildMissionControlViewModel = async (snapshot, binding, storage, s
     const currentVersion = currentVersionId === null ? null : versions.find((version) => version.id === currentVersionId) ?? null;
     const treeSource = currentVersionId === null
         ? null
-        : await service.getVersionStructure({
+        : buildVersionStructureView(snapshot, {
             projectId: snapshot.project.id,
             versionId: currentVersionId
         });
-    const pendingProposals = (await service.listL3Proposals(snapshot.project.id))
+    const pendingProposals = snapshot.pendingOperations
+        .slice()
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
         .filter((proposal) => proposal.status === "pending")
         .map(toProposalSummary);
     const dueDeferredIdSet = new Set(contextData.dueDeferredIds);

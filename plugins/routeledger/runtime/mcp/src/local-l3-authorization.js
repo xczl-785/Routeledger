@@ -2,15 +2,17 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { digestL3AuthorizationPolicy, evaluateL3AuthorizationPolicy, MemoryExactAuthorizationStore, validateL3AuthorizationProfile, validateL3AuthorizationPolicy } from "../../core/src/index.js";
+import { digestL3AuthorizationPolicy, evaluateL3AuthorizationPolicy, MemoryExactCommitCoordinator, MemoryExactAuthorizationStore, validateL3AuthorizationProfile, validateL3AuthorizationPolicy } from "../../core/src/index.js";
 import { LEGACY_AUTHORITY_CONFIG_TTL_FIELD, LEGACY_GRANT_FIELDS } from "./legacy-local-l3-authority-decoder.js";
 export const LOCAL_L3_AUTHORITY_SCHEMA_VERSION = 1;
-export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 2;
+export const LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION = 3;
 const LOCK_STALE_AFTER_MS = 30_000;
 const LOCK_WAIT_TIMEOUT_MS = 5_000;
 const LOCK_RETRY_MS = 20;
 const LOCK_HEARTBEAT_INTERVAL_MS = 5_000;
 const LOCK_RELEASE_RETRY_DELAYS_MS = [10, 30, 100];
+const EXACT_COMMIT_LEASE_MS = 30_000;
+const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
 const emptyState = () => ({
     schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
     revision: 0,
@@ -20,7 +22,8 @@ const emptyState = () => ({
     grants: {},
     receipts: {},
     legacyTombstones: {},
-    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+    exactStore: { authorizations: {}, receipts: {}, commitOwners: {} },
+    commitCoordinator: { records: {} }
 });
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
@@ -151,7 +154,8 @@ const migrateLegacyState = (value) => {
         ...value,
         schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
         legacyTombstones: {},
-        exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+        exactStore: { authorizations: {}, receipts: {}, commitOwners: {} },
+        commitCoordinator: { records: {} }
     });
     const migratedAt = new Date().toISOString();
     const tombstones = {};
@@ -171,7 +175,7 @@ const migrateLegacyState = (value) => {
         };
     }
     return {
-        schemaVersion: 2,
+        schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
         revision: legacy.revision + 1,
         activePolicies: legacy.activePolicies,
         policyUsages: legacy.policyUsages,
@@ -179,8 +183,33 @@ const migrateLegacyState = (value) => {
         grants: revokedGrants,
         receipts: legacy.receipts,
         legacyTombstones: tombstones,
-        exactStore: { authorizations: {}, receipts: {}, commitOwners: {} }
+        exactStore: { authorizations: {}, receipts: {}, commitOwners: {} },
+        commitCoordinator: { records: {} }
     };
+};
+const migrateSchemaV2State = (value) => {
+    if (!isObject(value.exactStore) || !isObject(value.exactStore.commitOwners)) {
+        throw new Error("Local exact authorization state is invalid and cannot be trusted.");
+    }
+    const exactStore = new MemoryExactAuthorizationStore(value.exactStore).exportState();
+    const records = {};
+    for (const [commitKey, legacyOwnerId] of Object.entries(exactStore.commitOwners)) {
+        if (!isNonEmptyString(commitKey) || !isNonEmptyString(legacyOwnerId)) {
+            throw new Error("Local exact commit owner state is invalid and cannot be trusted.");
+        }
+        records[commitKey] = {
+            commitKey,
+            status: "legacy_blocked",
+            legacyOwnerId
+        };
+    }
+    return parseState({
+        ...value,
+        schemaVersion: LOCAL_L3_AUTHORITY_STATE_SCHEMA_VERSION,
+        revision: value.revision + 1,
+        exactStore: { ...exactStore, commitOwners: {} },
+        commitCoordinator: { records }
+    });
 };
 const parseState = (value) => {
     if (!isObject(value) ||
@@ -190,8 +219,11 @@ const parseState = (value) => {
         !isObject(value.policyUsages) ||
         !isObject(value.reservedGrants) ||
         !isObject(value.grants) ||
-        !isObject(value.receipts)
-        || !isObject(value.legacyTombstones) || !isObject(value.exactStore)) {
+        !isObject(value.receipts) ||
+        !isObject(value.legacyTombstones) ||
+        !isObject(value.exactStore) ||
+        !isObject(value.commitCoordinator) ||
+        !isObject(value.commitCoordinator.records)) {
         throw new Error("Local L3 authority state is invalid and cannot be trusted.");
     }
     for (const [authorityId, active] of Object.entries(value.activePolicies)) {
@@ -287,6 +319,37 @@ const parseState = (value) => {
     catch {
         throw new Error("Local exact authorization state is invalid and cannot be trusted.");
     }
+    for (const [commitKey, record] of Object.entries(value.commitCoordinator.records)) {
+        if (!isNonEmptyString(commitKey) || !isObject(record) || record.commitKey !== commitKey) {
+            throw new Error("Local exact commit coordination state is invalid and cannot be trusted.");
+        }
+        if (record.status === "legacy_blocked") {
+            if (!isNonEmptyString(record.legacyOwnerId)) {
+                throw new Error("Local legacy commit coordination state is invalid and cannot be trusted.");
+            }
+            continue;
+        }
+        try {
+            new MemoryExactCommitCoordinator({
+                state: {
+                    records: {
+                        [commitKey]: record
+                    }
+                },
+                currentProcess: {
+                    processId: 1,
+                    processStartedAt: "1970-01-01T00:00:00.000Z",
+                    instanceId: "state-validator"
+                },
+                leaseDurationMs: 30_000,
+                now: () => new Date().toISOString(),
+                resolveOwnerLiveness: async () => "unknown"
+            });
+        }
+        catch {
+            throw new Error("Local exact commit coordination state is invalid and cannot be trusted.");
+        }
+    }
     return value;
 };
 const delay = async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -314,13 +377,24 @@ class LocalL3AuthorityStateFile {
         try {
             await assertPrivateExistingFile(this.statePath, "Local L3 authority state");
             const raw = JSON.parse(await fs.readFile(this.statePath, "utf8"));
+            let initializedState;
             if (isObject(raw) && raw.schemaVersion === 1) {
                 const migrated = migrateLegacyState(raw);
                 await lock.assertOwned();
                 await this.writeAtomic(migrated);
+                initializedState = migrated;
+            }
+            else if (isObject(raw) && raw.schemaVersion === 2) {
+                const migrated = migrateSchemaV2State(raw);
+                await lock.assertOwned();
+                await this.writeAtomic(migrated);
+                initializedState = migrated;
             }
             else {
-                parseState(raw);
+                initializedState = parseState(raw);
+            }
+            if (Object.values(initializedState.commitCoordinator.records).some((record) => record.status === "legacy_blocked")) {
+                throw new Error("Local exact commit ownership is legacy-blocked; offline recovery is required.");
             }
         }
         finally {
@@ -680,6 +754,62 @@ class PersistentLocalExactAuthorizationStore {
         return this.run((store) => store.revokeProfileReceipts(profileId, beforeModeEpoch, revokedAt));
     }
 }
+class PersistentLocalExactCommitCoordinator {
+    stateFile;
+    currentProcess = {
+        processId: process.pid,
+        processStartedAt: PROCESS_STARTED_AT,
+        instanceId: randomUUID()
+    };
+    constructor(stateFile) {
+        this.stateFile = stateFile;
+    }
+    async resolveOwnerLiveness(owner) {
+        if (owner.processId === process.pid) {
+            return owner.processStartedAt === PROCESS_STARTED_AT ? "alive" : "dead";
+        }
+        try {
+            process.kill(owner.processId, 0);
+            return "alive";
+        }
+        catch (error) {
+            return error.code === "ESRCH" ? "dead" : "unknown";
+        }
+    }
+    async run(operation) {
+        return this.stateFile.transact(async (state) => {
+            const records = {};
+            for (const [commitKey, record] of Object.entries(state.commitCoordinator.records)) {
+                if (record.status === "legacy_blocked") {
+                    throw new Error("Local exact commit ownership is legacy-blocked; offline recovery is required.");
+                }
+                records[commitKey] = record;
+            }
+            const coordinator = new MemoryExactCommitCoordinator({
+                state: { records },
+                currentProcess: this.currentProcess,
+                leaseDurationMs: EXACT_COMMIT_LEASE_MS,
+                now: () => new Date().toISOString(),
+                resolveOwnerLiveness: (owner) => this.resolveOwnerLiveness(owner)
+            });
+            const result = await operation(coordinator);
+            state.commitCoordinator = coordinator.exportState();
+            return result;
+        });
+    }
+    acquire(input) {
+        return this.run((coordinator) => coordinator.acquire(input));
+    }
+    assertOwned(token) {
+        return this.run((coordinator) => coordinator.assertOwned(token));
+    }
+    renew(token) {
+        return this.run((coordinator) => coordinator.renew(token));
+    }
+    release(token) {
+        return this.run((coordinator) => coordinator.release(token));
+    }
+}
 const minimumIsoTimestamp = (...timestamps) => timestamps.reduce((minimum, candidate) => Date.parse(candidate) < Date.parse(minimum) ? candidate : minimum);
 const assertExactProposalContext = (proposal, context) => {
     if (proposal.id.trim().length === 0 ||
@@ -719,6 +849,7 @@ export const loadLocalL3AuthorityRuntime = async (input) => {
     const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
     await stateFile.initialize();
     const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
+    const commitCoordinator = new PersistentLocalExactCommitCoordinator(stateFile);
     const policyDigest = digestL3AuthorizationPolicy(config.policy);
     await stateFile.activatePolicy(config.authorityId, policyDigest, {
         issuerId: config.authorityId,
@@ -817,6 +948,7 @@ export const loadLocalL3AuthorityRuntime = async (input) => {
     return {
         authority,
         exactStore,
+        commitCoordinator,
         ...(config.trustedClientId === undefined
             ? {}
             : { trustedClientId: config.trustedClientId }),
@@ -838,9 +970,11 @@ export const loadLocalL3AuthorityProfileRuntime = async (input) => {
     const stateFile = new LocalL3AuthorityStateFile(statePath, input.testHooks);
     await stateFile.initialize();
     const exactStore = new PersistentLocalExactAuthorizationStore(stateFile);
+    const commitCoordinator = new PersistentLocalExactCommitCoordinator(stateFile);
     const baseRuntime = {
         profile: structuredClone(input.profile),
         exactStore,
+        commitCoordinator,
         ...(input.profile.binding.trustedClientId === null
             ? {}
             : { trustedClientId: input.profile.binding.trustedClientId }),
