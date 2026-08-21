@@ -94,6 +94,8 @@ codex plugin add routeledger@routeledger-team --json
 
 Mission Control 是仓库自带的本地只读 Web 看板。每台机器只运行一个 UI Hub；多个已明确登记的工程共享这个进程，但页面一次只展示一个工程。切换工程只改变看板读取目标，不会改变 MCP 绑定，也不会写入 RouteLedger 数据。
 
+CI 用真实的无浏览器 UI 子进程测试认证、关闭和注册表清理，并以全局及 UI Hub 服务端覆盖率下限防止这些边界在重构中悄然失守。
+
 ```bash
 pnpm build:ui
 pnpm open:ui -- --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT --routeledger-root /ABS/PATH/TO/ROUTELEDGER_ROOT
