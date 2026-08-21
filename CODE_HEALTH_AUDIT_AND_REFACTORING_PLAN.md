@@ -261,6 +261,34 @@ findings in the one scheduled independent audit. Full repository verification:
 78 test files passed, with 749 tests passed and 1 skipped; typecheck and lint
 passed. Stage 2 is now the active entry point for audit group B.
 
+## Gate B completion evidence
+
+Stages 2-4 were delivered as one combined architecture group:
+
+- `4c0ff21` centralizes canonical JSON document descriptors and removes the
+  codec/schema type-only cycle;
+- `fee6031` shares canonical document and event path builders while preserving
+  caller-specific invalid-event behavior;
+- `3ecca61` adds the exact-baseline package-boundary regression gate;
+- `eee42d1` routes Mission Control through the declared UI package boundary;
+- `d5f81d9` removes ordinary cross-package source inclusion and migrates test
+  imports to declared workspace exports, leaving only the documented bundled
+  runtime build configuration in the baseline;
+- `1f2c48d`, `44e97bd`, and `a9b6629` extract Version-list, context,
+  next-action, and closeout queries behind a compatible query facade;
+- `6c1e22f` and `b52fcec` extract Batch planning and the Batch application use
+  case while keeping digest construction, live re-evaluation, proposal, and
+  commit security boundaries intact; and
+- `6b4ddb4` and `4995a7c` extract Version preparation and completion commands
+  with aggregate revision and close-readiness behavior preserved.
+
+Gate B closed on 2026-08-21 with zero blocking and zero non-blocking
+correctness findings in its one scheduled independent audit. Full repository
+verification passed 83 test files, with 757 tests passed and 1 skipped;
+typecheck, full lint, and the package-boundary gate passed. The independent
+focused review passed 138 tests across 11 files and verified the bundled UI
+runtime rewrite. Stage 5 is now the active entry point for audit group C.
+
 ## Working rules for every stage
 
 1. Start from a failing behavior or boundary test where practical.
