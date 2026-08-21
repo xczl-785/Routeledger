@@ -106,28 +106,14 @@ import {
   type L3AuthorizationPolicy
 } from "./l3-authorization.js";
 import {
-  assertBatchPreviousCurrentPolicy,
   evaluateBatchCreateVersions
 } from "./batch-create-versions-planner.js";
-import type {
-  BatchCreateVersionsFailure,
-  BatchCreateVersionsNormalizedPlan,
-  BatchCreateVersionsPreview
-} from "./batch-create-versions-planner.js";
 import {
-  BATCH_CREATE_VERSIONS_MODES,
-  isBatchCreateVersionsMode,
   isRouteOperationWorkflowMode,
   type RouteOperationWorkflowMode
 } from "./types.js";
 import type {
   ApprovalArtifact,
-  BatchCreateVersionsAnchor,
-  BatchCreateVersionsItemInput,
-  BatchCreateVersionsMode,
-  BatchCreateVersionsNotice,
-  BatchCreateVersionsResolvedAnchors,
-  BatchPreviousCurrentPolicy,
   CloseGateSnapshot,
   GateSnapshot,
   L3ActionType,
@@ -146,6 +132,20 @@ export type {
   BatchCreateVersionsPreviewTodo,
   BatchCreateVersionsPreviewVersion
 } from "./batch-create-versions-planner.js";
+import {
+  BatchCreateVersionsUseCase,
+  buildBatchSnapshotHash,
+  type BatchCreateVersionsExecutor,
+  type BatchCreateVersionsInput,
+  type BatchCreateVersionsResult
+} from "./batch-create-versions-use-case.js";
+export type {
+  BatchCreateVersionsInput,
+  BatchCreateVersionsPreflightResult,
+  BatchCreateVersionsPreflightSuccess,
+  BatchCreateVersionsProposeSuccess,
+  BatchCreateVersionsResult
+} from "./batch-create-versions-use-case.js";
 export type {
   CheckDocDriftCheckedFile,
   CheckDocDriftExpectedPointer,
@@ -173,6 +173,7 @@ export interface RouteLedgerServiceOptions {
   deps: DomainDependencies;
   queryService?: RouteLedgerVersionQueryUseCases;
   versionCommandService?: VersionCommandUseCases;
+  batchCreateVersionsUseCase?: BatchCreateVersionsExecutor;
   projectRoot?: string;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
@@ -584,52 +585,11 @@ export interface ReorderVersionsCommandInput extends DirectL3CommandInput {
   beforeVersionId?: string;
 }
 
-export interface BatchCreateVersionsInput {
-  projectId: string;
-  mode: BatchCreateVersionsMode;
-  partialAllowed?: boolean;
-  anchor?: BatchCreateVersionsAnchor;
-  items: BatchCreateVersionsItemInput[];
-  setCurrentTo?: string;
-  previousCurrentPolicy?: BatchPreviousCurrentPolicy;
-  reason?: string;
-  actor: Actor;
-}
-
 export interface GetVersionStructureInput {
   projectId: string;
   versionId?: string;
   residualAudit?: ResidualAuditInput;
 }
-
-export interface BatchCreateVersionsPreflightSuccess {
-  ok: true;
-  headRevision: string | null;
-  normalizedPlan: BatchCreateVersionsNormalizedPlan;
-  resolvedAnchors: BatchCreateVersionsResolvedAnchors;
-  preview: BatchCreateVersionsPreview;
-  risks: BatchCreateVersionsNotice[];
-  blockers: BatchCreateVersionsNotice[];
-  digestPreview: OperationDigest;
-}
-
-export type BatchCreateVersionsPreflightResult =
-  | BatchCreateVersionsPreflightSuccess
-  | BatchCreateVersionsFailure;
-
-export interface BatchCreateVersionsProposeSuccess {
-  ok: true;
-  headRevision: string | null;
-  pendingOperationId: string;
-  operationDigest: OperationDigest;
-  normalizedPlan: BatchCreateVersionsNormalizedPlan;
-  preview: BatchCreateVersionsPreview;
-  humanReviewText: string;
-}
-
-export type BatchCreateVersionsResult =
-  | BatchCreateVersionsPreflightResult
-  | BatchCreateVersionsProposeSuccess;
 
 export type TransitionVersionStepAction = "set_current_version" | "start_version";
 
@@ -909,21 +869,6 @@ const stableStringify = (value: unknown): string => JSON.stringify(sortKeys(valu
 
 const addMilliseconds = (isoString: string, milliseconds: number): string =>
   new Date(new Date(isoString).getTime() + milliseconds).toISOString();
-
-const assertBatchCreateVersionsMode = (mode: unknown): BatchCreateVersionsMode => {
-  if (isBatchCreateVersionsMode(mode)) {
-    return mode;
-  }
-
-  throw new ApplicationError(
-    "BATCH_CREATE_VERSIONS_MODE_INVALID",
-    "batch_create_versions mode 仅支持 preflight 或 propose",
-    {
-      receivedMode: mode ?? null,
-      allowedModes: [...BATCH_CREATE_VERSIONS_MODES]
-    }
-  );
-};
 
 const assertRouteOperationWorkflowMode = (
   mode: unknown
@@ -2180,29 +2125,6 @@ const buildNoopGateSnapshot = (evaluatedAt: string): NoopGateSnapshot => ({
   blockers: []
 });
 
-const buildBatchSnapshotHash = (snapshot: ProjectAggregateSnapshot): string =>
-  crypto
-    .createHash("sha256")
-    .update(
-      stableStringify({
-        projectId: snapshot.project.id,
-        currentVersionId: snapshot.project.currentVersionId,
-        versions: snapshot.versions
-          .slice()
-          .sort((left, right) => left.order - right.order)
-          .map((version) => ({
-            id: version.id,
-            state: version.state,
-            parentVersionId: version.parentVersionId,
-            previousVersionId: version.previousVersionId,
-            nextVersionId: version.nextVersionId,
-            order: version.order,
-            isCurrent: version.isCurrent
-          }))
-      })
-    )
-    .digest("hex");
-
 const buildDigestGateSnapshot = (
   gateSnapshot: GateSnapshot,
   includeExtendedGateState: boolean
@@ -2894,6 +2816,8 @@ export class RouteLedgerService {
 
   private readonly versionCommandService: VersionCommandUseCases;
 
+  private readonly batchCreateVersionsUseCase: BatchCreateVersionsExecutor;
+
   private readonly projectRoot: string | null;
 
   private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
@@ -2909,6 +2833,21 @@ export class RouteLedgerService {
     this.versionCommandService =
       options.versionCommandService ??
       new VersionCommandService({ storage: options.storage, deps: options.deps });
+    this.batchCreateVersionsUseCase =
+      options.batchCreateVersionsUseCase ??
+      new BatchCreateVersionsUseCase({
+        storage: options.storage,
+        deps: options.deps,
+        buildDigestPreview: ({ snapshot, payload, evaluatedAt }) =>
+          buildDigest(
+            snapshot.project.id,
+            "insert_version",
+            snapshot.project.id,
+            payload,
+            buildNoopGateSnapshot(evaluatedAt)
+          ),
+        propose: (input) => this.proposeL3Operation(input)
+      });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3858,97 +3797,7 @@ export class RouteLedgerService {
   }
 
   async batchCreateVersions(input: BatchCreateVersionsInput): Promise<BatchCreateVersionsResult> {
-    const mode = assertBatchCreateVersionsMode(input.mode);
-    const previousCurrentPolicy = assertBatchPreviousCurrentPolicy(input.previousCurrentPolicy);
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const headRevision = getProjectAggregateHeadRevision(snapshot) ?? null;
-    const evaluatedAt = this.deps.clock.now();
-    const evaluated = evaluateBatchCreateVersions(
-      snapshot,
-      {
-        anchor: input.anchor,
-        items: input.items,
-        partialAllowed: input.partialAllowed,
-        previousCurrentPolicy,
-        setCurrentTo: input.setCurrentTo
-      },
-      evaluatedAt,
-      buildBatchSnapshotHash(snapshot)
-    );
-
-    if (evaluated.ok === false) {
-      return evaluated;
-    }
-
-    const digestPreview = buildDigest(
-      snapshot.project.id,
-      "insert_version",
-      snapshot.project.id,
-      evaluated.payload,
-      buildNoopGateSnapshot(evaluatedAt)
-    );
-
-    if (mode === "preflight") {
-      return {
-        ok: true,
-        headRevision,
-        normalizedPlan: evaluated.normalizedPlan,
-        resolvedAnchors: evaluated.resolvedAnchors,
-        preview: evaluated.preview,
-        risks: evaluated.risks,
-        blockers: evaluated.blockers,
-        digestPreview
-      };
-    }
-
-    if (evaluated.blockers.length > 0) {
-      return {
-        ok: false,
-        code: "BATCH_VERSION_PLAN_BLOCKED",
-        headRevision,
-        summary: {
-          requestedCount: input.items.length,
-          validCount: input.items.length,
-          invalidCount: 0
-        },
-        issues: [],
-        risks: evaluated.risks,
-        blockers: evaluated.blockers,
-        normalizedPlan: evaluated.normalizedPlan,
-        resolvedAnchors: evaluated.resolvedAnchors,
-        preview: evaluated.preview,
-        digestPreview
-      };
-    }
-
-    const proposal = await this.proposeL3Operation({
-      projectId: input.projectId,
-      actionType: "insert_version",
-      targetId: input.projectId,
-      reason: input.reason ?? `batch create ${input.items.length} versions requested`,
-      payload: evaluated.payload,
-      actor: input.actor
-    });
-
-    return {
-      ok: true,
-      headRevision,
-      pendingOperationId: proposal.id,
-      operationDigest: proposal.digest,
-      normalizedPlan: evaluated.normalizedPlan,
-      preview: evaluated.preview,
-      humanReviewText: [
-        `RouteLedger batch proposal ${proposal.id}`,
-        `action: batch_create_versions`,
-        `carrierAction: ${proposal.actionType}`,
-        `target: ${proposal.targetId}`,
-        `digest: ${proposal.digest.value}`,
-        `items: ${evaluated.normalizedPlan.items.length}`,
-        evaluated.blockers.length > 0
-          ? `blockers: ${evaluated.blockers.map((blocker) => blocker.code).join(", ")}`
-          : "blockers: none"
-      ].join("\n")
-    };
+    return this.batchCreateVersionsUseCase.execute(input);
   }
 
   async proposeL3Operation(input: ProposeL3OperationInput): Promise<PendingOperation> {
