@@ -91,6 +91,11 @@ import {
   type L3ProposalReadUseCases,
   type RecommendBalancedL3AuthorizationPolicyInput
 } from "./l3-proposal-read-service.js";
+import type {
+  L3CanonicalDigestMaterial,
+  L3ProposalSecurityDescription,
+  L3ProposalSecurityPort
+} from "./l3-proposal-security-port.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
   inspectEntryDocumentCoverage,
@@ -777,14 +782,6 @@ export interface VersionStructureView {
   };
   legalOperations: VersionStructureLegalOperation[];
 }
-
-type L3OperationDescription = {
-  actionType: L3ActionType;
-  targetId: string;
-  payload: PendingOperationPayload;
-  gateSnapshot: GateSnapshot;
-  digest: OperationDigest;
-};
 
 type TransitionWorkflowEvaluation = {
   status: "ready" | "blocked" | "noop";
@@ -2411,7 +2408,7 @@ const buildOperationDescription = (
   targetId: string,
   payload: PendingOperationPayload,
   evaluatedAt: string
-): L3OperationDescription => {
+): L3ProposalSecurityDescription => {
   switch (actionType) {
     case "start_version": {
       const targetVersion = requireVersion(snapshot, targetId);
@@ -2752,6 +2749,28 @@ const buildOperationDescription = (
   }
 };
 
+const createL3ProposalSecurityPort = (): L3ProposalSecurityPort => ({
+  describe: (input) =>
+    buildOperationDescription(
+      input.snapshot,
+      input.actionType,
+      input.targetId,
+      input.payload,
+      input.evaluatedAt
+    )
+});
+
+const rebuildCanonicalL3ProposalDigest = (
+  material: L3CanonicalDigestMaterial
+): OperationDigest =>
+  buildDigest(
+    material.projectId,
+    material.actionType,
+    material.targetId,
+    material.payload,
+    material.gateSnapshot
+  );
+
 const applyPendingOperation = (
   snapshot: ProjectAggregateSnapshot,
   operation: PendingOperation
@@ -2821,6 +2840,8 @@ export class RouteLedgerService {
 
   private readonly l3ProposalReadService: L3ProposalReadUseCases;
 
+  private readonly l3ProposalSecurityPort: L3ProposalSecurityPort;
+
   private readonly projectRoot: string | null;
 
   private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
@@ -2854,6 +2875,7 @@ export class RouteLedgerService {
     this.l3ProposalReadService =
       options.l3ProposalReadService ??
       new L3ProposalReadService({ storage: options.storage, clock: options.deps.clock });
+    this.l3ProposalSecurityPort = createL3ProposalSecurityPort();
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3774,13 +3796,13 @@ export class RouteLedgerService {
   async proposeL3Operation(input: ProposeL3OperationInput): Promise<PendingOperation> {
     const snapshot = await requireProject(this.storage, input.projectId);
     const now = this.deps.clock.now();
-    const description = buildOperationDescription(
+    const description = this.l3ProposalSecurityPort.describe({
       snapshot,
-      input.actionType,
-      input.targetId,
-      input.payload ?? {},
-      now
-    );
+      actionType: input.actionType,
+      targetId: input.targetId,
+      payload: input.payload ?? {},
+      evaluatedAt: now
+    });
 
     if (input.requirePassingGate === true && !description.gateSnapshot.allowed) {
       throw new ApplicationError(
@@ -3847,13 +3869,13 @@ export class RouteLedgerService {
     const rebuiltDigest =
       persistedProposal === undefined
         ? null
-        : buildDigest(
-            persistedSnapshot.project.id,
-            persistedProposal.actionType,
-            persistedProposal.targetId,
-            persistedProposal.payload,
-            persistedProposal.gateSnapshot
-          );
+        : rebuildCanonicalL3ProposalDigest({
+            projectId: persistedSnapshot.project.id,
+            actionType: persistedProposal.actionType,
+            targetId: persistedProposal.targetId,
+            payload: persistedProposal.payload,
+            gateSnapshot: persistedProposal.gateSnapshot
+          });
     const persistenceIsSelfConsistent =
       persistedProposal !== undefined &&
       persistedProposal.projectId === proposal.projectId &&
@@ -4752,7 +4774,7 @@ export class RouteLedgerService {
   private applyCommittedOperation(
     snapshot: ProjectAggregateSnapshot,
     pendingOperation: PendingOperation,
-    liveDescription: L3OperationDescription,
+    liveDescription: L3ProposalSecurityDescription,
     context: {
       actor: Actor;
       now: string;
