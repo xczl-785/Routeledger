@@ -78,9 +78,12 @@ import type {
 import {
   buildCurrentContextResult,
   buildDerivedCurrentContextData,
-  buildNextActionResult,
-  buildVersionsWindowResult
+  buildNextActionResult
 } from "./current-context-query.js";
+import {
+  RouteLedgerQueryService,
+  type RouteLedgerVersionQueryUseCases
+} from "./routeledger-query-service.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
   inspectEntryDocumentCoverage,
@@ -155,6 +158,7 @@ export type {
 export interface RouteLedgerServiceOptions {
   storage: StoragePort;
   deps: DomainDependencies;
+  queryService?: RouteLedgerVersionQueryUseCases;
   projectRoot?: string;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
@@ -3415,6 +3419,8 @@ export class RouteLedgerService {
 
   private readonly deps: DomainDependencies;
 
+  private readonly queryService: RouteLedgerVersionQueryUseCases;
+
   private readonly projectRoot: string | null;
 
   private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
@@ -3426,6 +3432,7 @@ export class RouteLedgerService {
   constructor(options: RouteLedgerServiceOptions) {
     this.storage = options.storage;
     this.deps = options.deps;
+    this.queryService = options.queryService ?? new RouteLedgerQueryService({ storage: options.storage });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
     this.exactAuthorizationStore =
@@ -3684,14 +3691,11 @@ export class RouteLedgerService {
   }
 
   async listVersions(projectId: string): Promise<Version[]> {
-    const snapshot = await requireProject(this.storage, projectId);
-
-    return snapshot.versions.slice().sort((left, right) => left.order - right.order);
+    return this.queryService.listVersions(projectId);
   }
 
   async listVersionsWindow(input: ListVersionsWindowInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    return buildVersionsWindowResult(snapshot, input);
+    return this.queryService.listVersionsWindow(input);
   }
 
   async prepareVersion(input: VersionCommandInput) {

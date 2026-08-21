@@ -23,6 +23,7 @@ export * from "./application/exact-authorization-store.js";
 export * from "./application/l3-decision.js";
 export * from "./application/l3-operation-orchestrator.js";
 export * from "./application/ordinary-write-idempotency.js";
+export * from "./application/routeledger-query-service.js";
 /** @internal Legacy decoder/migration contract; not part of the exact-only public API. */
 export * from "./application/l3-authorization-profile.js";
 export * from "./application/l3-authorization.js";
