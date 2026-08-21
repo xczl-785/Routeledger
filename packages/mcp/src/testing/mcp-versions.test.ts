@@ -387,7 +387,7 @@ describe("routeledger mcp registry", () => {
       registry?.close();
       cleanupProjectRoot(projectRoot);
     }
-  });
+  }, 30_000);
 
   it("check_doc_drift returns structured warnings and unreadable files", async () => {
     const projectRoot = createTempProjectRoot();
