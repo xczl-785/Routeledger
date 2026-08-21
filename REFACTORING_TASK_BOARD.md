@@ -3,14 +3,15 @@
 Status: active  
 Last updated: 2026-08-21  
 Working branch: `refactor/code-health-roadmap`  
-Implementation base at handoff: `989ac36`
+Implementation base at handoff: `1ad1726`
 Detailed roadmap: [`CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md`](./CODE_HEALTH_AUDIT_AND_REFACTORING_PLAN.md)
 
 ## Handoff summary
 
-Gates A and B are closed. Stage 5 is complete: proposal reads, proposal writes,
-legacy decisions, exact authorization, and commit orchestration now sit behind
-cohesive internal services. Continue from R6; do not repeat completed R5 work.
+Gates A, B, and C are closed. Stages 5-7 are complete: L3 application
+lifecycles now sit behind cohesive internal services, MCP tool calls run through
+one ordered middleware pipeline, and Core document drift reads through a host
+document-source port. Continue from R8; do not repeat completed R5-R7 work.
 
 The current architectural direction is deliberately incremental:
 
@@ -35,26 +36,25 @@ The current architectural direction is deliberately incremental:
 | R5.3 | C | Define one L3 proposal security port | Done | `f711d89` adds one atomic `describe` port and keeps post-save canonical verification non-injectable. | Lossy payload and gate persistence are rejected and safely rolled back; self-signing digest injection is not exposed. |
 | R5.4 | C | Extract L3 proposal write lifecycle | Done | `4e94b0f` moves proposal creation, audit, canonical persistence self-check, and concurrency-aware rollback into one internal service. | 68 focused and adjacent tests pass; lossy payload/gate and linked-approval rollback guards are explicit. |
 | R5.5 | C | Extract approval, authorization, rejection, and commit orchestration | Done | `bbf680b` extracts legacy approval/rejection; `989ac36` extracts exact authorization and the complete commit/fencing/receipt/live-re-evaluation chain. | Core 39 files / 334 tests pass; independent audit found no security behavior regression and its code-health finding was corrected. |
-| R6 | C | Build MCP middleware pipeline | Next | Centralize `validate -> bind -> authorize -> execute -> project response -> map error`. | Tool contracts and response-detail behavior remain stable. |
-| R7 | C | Introduce document-source port | Todo | Remove direct filesystem reads from Core decisions; implement host adapter. | Core runs with in-memory document source; host integration passes. |
-| G-C | C | Combined Gate C audit | Todo | Run once after R5-R7, not after each slice. | Full workspace gates plus one focused architecture audit. |
-| R8 | D | Decide WorkItem identity | Todo | Record ADR, then encode the chosen aggregate/identity invariant. | ADR and domain/storage tests agree. |
+| R6 | C | Build MCP middleware pipeline | Done | `0dea7f4` introduces the pipeline; `1ad1726` moves known-tool schema validation ahead of bind and authorization. | 2025/2026 projection, broker, authorization, response-detail, and error behavior pass; malformed L3 input short-circuits before broker bind. |
+| R7 | C | Introduce document-source port | Done | `8fe9538` removes Core filesystem reads and injects a containment-safe JSON host adapter. | Core uses an in-memory source; JSON covers UTF-8, ENOENT, and symlink escape; CLI/MCP integration passes. |
+| G-C | C | Combined Gate C audit | Done | Independent audit found two blockers; both closed in `1ad1726`. No other medium/high-risk findings. | 90 test files; 773 passed, 1 skipped; typecheck, lint, package-boundary, and diff gates pass. |
+| R8 | D | Decide WorkItem identity | Next | Recover the complete identity/aggregate target, record the ADR, then encode the chosen invariant. | ADR and domain/storage tests agree. |
 | R9 | D | Add UI/process tests and coverage guard | Todo | Protect native process and thin runtime paths; use coverage as regression guard only. | Agreed process scenarios and thresholds run in CI. |
 | R10 | D | Evolve storage boundary | Todo | Make revisions explicit and split broad read/write capabilities after use cases are narrow. | JSON/SQLite stale-write, migration, and compatibility suites pass. |
 | G-D | D | Combined Gate D and release audit | Todo | Run once after R8-R10. | Full workspace and release gates pass. |
 
 ## Immediate next work
 
-Start with R6. Introduce one MCP middleware pipeline for the shared transport
-sequence while leaving domain-specific capability handlers responsible for
-their own inputs and results:
+Start with R8. Work backward from the durable WorkItem identity and aggregate
+model before selecting a migration step. Record the decision and its rejected
+alternatives in an ADR, including compatibility, storage, and lifecycle
+consequences. Then implement only the smallest domain/storage slice that proves
+the chosen invariant without creating a second temporary identity model.
 
-`validate -> bind -> authorize -> execute -> project response -> map error`
-
-Preserve tool schemas, response-detail projection, binding diagnostics,
-authorization admission, logging, and JSON-RPC error behavior. Do not combine
-R6 with generated runtime updates or R7 document-source work during focused
-implementation; they join only at the combined Gate C verification wave.
+Keep R9 process-test coverage and R10 storage-boundary evolution as separate
+implementation slices. Combine them only at Gate D for the full workspace and
+release audit.
 
 ## L3 safety constraints
 
@@ -81,10 +81,11 @@ interface L3ProposalSecurityPort {
     gateSnapshot: GateSnapshot;
     digest: OperationDigest;
   };
-
-  rebuildDigest(input: L3RebuildDigestInput): OperationDigest;
 }
 ```
+
+Post-save verification must remain an internal, non-injectable canonical digest
+rebuild over material that does not contain the persisted digest itself.
 
 Commit remains the most sensitive migration. Preserve these invariants as one
 chain: exact authorization binding, ownership lease renewal, fencing assertion,
@@ -111,7 +112,7 @@ pnpm lint
 pnpm check:package-boundaries
 ```
 
-The last full Gate B run passed 83 test files with 757 tests passed and 1
+The last full Gate C run passed 90 test files with 773 tests passed and 1
 skipped.
 
 ## New-machine startup
@@ -139,7 +140,7 @@ Expected initial state:
 - Begin each behavior slice with a focused RED test where practical.
 - Keep commits small and independently green; push after each coherent slice.
 - Do not open an architecture audit for each commit. The next scheduled audit
-  is Gate C after Stages 5-7.
+  is Gate D after R8-R10.
 - Do not combine behavior changes with broad formatting or generated runtime
   updates.
 - Do not merge, rebase, tag, or release this branch until the user explicitly
