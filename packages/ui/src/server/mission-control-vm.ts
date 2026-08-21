@@ -283,8 +283,7 @@ export const buildMissionControlViewModel = async (
 ): Promise<MissionControlResponse> => {
   const service = new RouteLedgerService({
     storage: new ReadOnlySnapshotStorage(snapshot),
-    deps: routeledgerDeps,
-    projectRoot: binding.routeledgerRoot ?? ""
+    deps: routeledgerDeps
   });
   const context = await service.getCurrentContext({
     projectId: snapshot.project.id,

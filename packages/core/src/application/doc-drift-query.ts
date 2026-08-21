@@ -1,8 +1,6 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-
 import { DomainError } from "../domain/errors.js";
 import type { Version } from "../domain/version.js";
+import type { DocumentSourcePort } from "../ports/document-source-port.js";
 import { validateAssetPath } from "../services/asset-service.js";
 
 export interface CheckDocDriftExpectedPointer {
@@ -159,14 +157,14 @@ const entryDocumentTemplate = (locale: "zh-CN" | "en"): string =>
       ].join("\n");
 
 export const inspectEntryDocumentCoverage = async (options: {
-  projectRoot: string;
+  documentSource: DocumentSourcePort;
   contentLocale: string;
 }): Promise<EntryDocumentCoverageResult> => {
   const entryFiles: EntryDocumentCoverageResult["entryFiles"] = [];
 
   for (const candidate of HUMAN_ENTRY_DOCUMENT_CANDIDATES) {
     try {
-      const content = await fs.readFile(path.join(options.projectRoot, candidate), "utf8");
+      const content = await options.documentSource.readUtf8(candidate);
       entryFiles.push({
         path: candidate,
         containsRouteLedgerPointer: content.includes(ROUTELEDGER_PROJECT_POINTER)
@@ -296,30 +294,6 @@ const assertDocDriftEntryFilePath = (entryFile: string, index: number): void => 
 
     throw error;
   }
-};
-
-const isPathInsideRoot = (rootPath: string, candidatePath: string): boolean => {
-  const relativePath = path.relative(rootPath, candidatePath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
-};
-
-const resolveDocDriftEntryFilePath = async (
-  projectRoot: string,
-  entryFile: string
-): Promise<string> => {
-  const realProjectRoot = await fs.realpath(projectRoot);
-  const resolvedPath = path.resolve(projectRoot, entryFile);
-  const realResolvedPath = await fs.realpath(resolvedPath);
-
-  if (!isPathInsideRoot(realProjectRoot, realResolvedPath)) {
-    const error = new Error(
-      `entry file resolves outside project root via symlink: ${entryFile}`
-    ) as NodeJS.ErrnoException;
-    error.code = "ENTRY_FILE_OUTSIDE_PROJECT_ROOT";
-    throw error;
-  }
-
-  return realResolvedPath;
 };
 
 const normalizeAssertionValue = (value: string): string =>
@@ -634,7 +608,7 @@ const buildDocDriftSummaryText = (options: {
 };
 
 export const runDocDriftCheck = async (options: {
-  projectRoot: string;
+  documentSource: DocumentSourcePort;
   project: {
     id: string;
     name: string;
@@ -644,7 +618,7 @@ export const runDocDriftCheck = async (options: {
   context: CheckDocDriftRouteContext;
   input: CheckDocDriftInput;
 }): Promise<CheckDocDriftResult> => {
-  const { projectRoot, project, contentLocale, context, input } = options;
+  const { documentSource, project, contentLocale, context, input } = options;
   const currentVersion = context.currentVersion;
   const currentVersionId = currentVersion?.id ?? null;
   const currentVersionOpenTodos =
@@ -670,8 +644,7 @@ export const runDocDriftCheck = async (options: {
     assertDocDriftEntryFilePath(entryFile, index);
 
     try {
-      const resolvedPath = await resolveDocDriftEntryFilePath(projectRoot, entryFile);
-      const content = await fs.readFile(resolvedPath, "utf8");
+      const content = await documentSource.readUtf8(entryFile);
       const bytes = Buffer.byteLength(content, "utf8");
       let matchedWarningCount = 0;
 

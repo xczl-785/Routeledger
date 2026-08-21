@@ -13,6 +13,7 @@ import {
   type DeferredItem,
   type Todo
 } from "@routeledger/core";
+import { WorkspaceDocumentSource } from "@routeledger/json";
 
 import {
   JsonFirstStorageAdapter,
@@ -518,7 +519,7 @@ const createService = (
   });
   const service = new RouteLedgerService({
     storage,
-    projectRoot: workspaceRoot,
+    documentSource: new WorkspaceDocumentSource({ workspaceRoot }),
     ...(authorization === undefined
       ? {}
       : {

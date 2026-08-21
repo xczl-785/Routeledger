@@ -7,6 +7,7 @@ import { expect } from "vitest";
 
 import type {
   ApprovalArtifact,
+  DocumentSourcePort,
   ProjectAggregateSnapshot,
   RouteLedgerService,
   StoragePort
@@ -39,6 +40,40 @@ export class MemoryStorageAdapter implements StoragePort {
     }
 
     this.snapshots.set(projectId, structuredClone(updater(structuredClone(snapshot))));
+  }
+}
+
+export class MemoryDocumentSource implements DocumentSourcePort {
+  private readonly documents = new Map<string, string>();
+
+  private readonly readErrors = new Map<string, Error>();
+
+  setDocument(path: string, content: string): void {
+    this.readErrors.delete(path);
+    this.documents.set(path, content);
+  }
+
+  setReadError(path: string, error: Error & { code?: string }): void {
+    this.documents.delete(path);
+    this.readErrors.set(path, error);
+  }
+
+  async readUtf8(path: string): Promise<string> {
+    const injected = this.readErrors.get(path);
+    if (injected !== undefined) {
+      throw injected;
+    }
+
+    const content = this.documents.get(path);
+    if (content !== undefined) {
+      return content;
+    }
+
+    const error = new Error(`ENOENT: no such file or directory, open '${path}'`) as Error & {
+      code?: string;
+    };
+    error.code = "ENOENT";
+    throw error;
   }
 }
 

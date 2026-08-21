@@ -1,13 +1,9 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
 import { expect, it, describe } from "vitest";
 
 import { TEST_ACTOR, createTestDependencies, createProjectFixture, createTodoFixture, createUndoFixture, createVersionFixture } from "./builders.js";
 import { RouteLedgerService } from "../index.js";
 
-import { MemoryStorageAdapter, createTempProjectRoot, cleanupProjectRoot, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, setCurrentVersionForTest } from "./routeledger-service-test-helpers.js";
+import { MemoryDocumentSource, MemoryStorageAdapter, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion, createCommittedVersion, createUnresolvedDeferredForCloseout, setCurrentVersionForTest } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
   it("getCurrentContext returns a default version window and can include all versions", async () => {
     const storage = new MemoryStorageAdapter();
@@ -334,16 +330,15 @@ describe("route ledger service", () => {
   });
 
   it("checkDocDrift flags stale current-version text, missing pointers, and missing files", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
@@ -363,24 +358,22 @@ describe("route ledger service", () => {
       });
       await setCurrentVersionForTest(service, created.project.id, nextVersionId);
 
-      fs.writeFileSync(
-        path.join(projectRoot, "README.md"),
+      documentSource.setDocument(
+        "README.md",
         [
           "# RouteLedger",
           "",
           "Current version is still Initial Version.",
           "The mainline description has not been updated yet."
         ].join("\n"),
-        "utf8"
       );
-      fs.writeFileSync(
-        path.join(projectRoot, "AGENTS.md"),
+      documentSource.setDocument(
+        "AGENTS.md",
         [
           "# Agent Entry",
           "",
           "QA entry still points to `docs/qa/legacy-checklist.md`."
         ].join("\n"),
-        "utf8"
       );
 
       const result = await service.checkDocDrift({
@@ -492,37 +485,31 @@ describe("route ledger service", () => {
         "Found 3 warnings and 1 unreadable files."
       );
       expect(result.data.summaryText).toContain("Coverage is partial:");
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift compares explicit Chinese current-Version ID, title, and state declarations", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
         contentLocale: "zh-CN",
         name: "PocketRead",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
       const currentVersion = created.firstVersion!;
-      const readmePath = path.join(projectRoot, "README.md");
-      fs.writeFileSync(
-        readmePath,
+      documentSource.setDocument(
+        "README.md",
         [
           "当前 Version：V0.1 可靠本地核心",
           "当前 Version ID：wrong-version-id",
           "当前 Version 状态：running"
         ].join("\n"),
-        "utf8"
       );
 
       const stale = await service.checkDocDrift({
@@ -568,10 +555,9 @@ describe("route ledger service", () => {
         ]
       });
 
-      fs.writeFileSync(
-        readmePath,
+      documentSource.setDocument(
+        "README.md",
         ["当前版本发布说明", "当前状态：running"].join("\n"),
-        "utf8"
       );
       const standaloneAlias = await service.checkDocDrift({
         projectId: created.project.id,
@@ -584,15 +570,14 @@ describe("route ledger service", () => {
         })
       );
 
-      fs.writeFileSync(
-        readmePath,
+      documentSource.setDocument(
+        "README.md",
         [
           `当前 Version 标题：${currentVersion.title}`,
           `当前 Version ID：${currentVersion.id}`,
           `当前状态：${currentVersion.state}`,
           "current pointer source: .routeledger/refs/current.json"
         ].join("\n"),
-        "utf8"
       );
 
       const aligned = await service.checkDocDrift({
@@ -617,22 +602,18 @@ describe("route ledger service", () => {
         notDetectedAssertionCount: 0
       });
       expect(aligned.data.summaryText).toContain("Coverage is partial:");
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift reports not_completed with blocking warnings when every entry file is unreadable", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
         contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
@@ -662,12 +643,9 @@ describe("route ledger service", () => {
       ]);
       expect(result.data.summaryText).toContain("Check status: not_completed.");
       expect(result.data.summaryText).toContain("Coverage is none:");
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
-  it("checkDocDrift 鍦ㄧ己灏?projectRoot 鏃朵粛鐩存帴鎶ラ敊", async () => {
+  it("checkDocDrift requires an injected document source", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({
       storage,
@@ -686,30 +664,28 @@ describe("route ledger service", () => {
         projectId: created.project.id,
         entryFiles: ["README.md"]
       })
-    ).rejects.toThrow("checkDocDrift requires RouteLedgerServiceOptions.projectRoot");
+    ).rejects.toThrow("checkDocDrift requires RouteLedgerServiceOptions.documentSource");
   });
 
   it("checkDocDrift 鍦?SQLite 琚啓鎴愬敮涓€鐪熸簮鏃惰繑鍥?STALE_TRUTH_SOURCE", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
-      fs.writeFileSync(
-        path.join(projectRoot, "README.md"),
+      documentSource.setDocument(
+        "README.md",
         "SQLite is the source of truth for the runtime route state.",
-        "utf8"
       );
 
       const result = await service.checkDocDrift({
@@ -725,31 +701,26 @@ describe("route ledger service", () => {
           })
         ])
       );
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift 鍦?entry docs 宸插悓姝ユ椂涓嶈繑鍥?warning", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
-      fs.mkdirSync(path.join(projectRoot, "docs", "capabilities"), { recursive: true });
-      fs.writeFileSync(
-        path.join(projectRoot, "README.md"),
+      documentSource.setDocument(
+        "README.md",
         [
           "# RouteLedger",
           "",
@@ -757,12 +728,10 @@ describe("route ledger service", () => {
           "Runtime truth lives in `.routeledger/` canonical JSON.",
           "Capability entrypoint: `docs/capabilities/cap-mcp-route-operations.md`."
         ].join("\n"),
-        "utf8"
       );
-      fs.writeFileSync(
-        path.join(projectRoot, "docs/capabilities/cap-mcp-route-operations.md"),
-        "currentVersion -> Initial Version\n",
-        "utf8"
+      documentSource.setDocument(
+        "docs/capabilities/cap-mcp-route-operations.md",
+        "currentVersion -> Initial Version\n"
       );
 
       const result = await service.checkDocDrift({
@@ -778,22 +747,18 @@ describe("route ledger service", () => {
 
       expect(result.data.warnings).toEqual([]);
       expect(result.data.unreadableFiles).toEqual([]);
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift 鎶?canonical current pointer 鏂囨。瑙嗕负宸插悓姝ワ紝浣嗘棫 current 鏂囨湰浠嶄細鎶?drift", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
@@ -813,23 +778,21 @@ describe("route ledger service", () => {
       });
       await setCurrentVersionForTest(service, created.project.id, nextVersionId);
 
-      fs.writeFileSync(
-        path.join(projectRoot, "README.md"),
+      documentSource.setDocument(
+        "README.md",
         [
           "# RouteLedger",
           "",
           "Current version: see `.routeledger/refs/current.json`."
         ].join("\n"),
-        "utf8"
       );
-      fs.writeFileSync(
-        path.join(projectRoot, "AGENTS.md"),
+      documentSource.setDocument(
+        "AGENTS.md",
         [
           "# Agent Entry",
           "",
           "Current version is still Initial Version."
         ].join("\n"),
-        "utf8"
       );
 
       const result = await service.checkDocDrift({
@@ -856,22 +819,18 @@ describe("route ledger service", () => {
           })
         ])
       );
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift accepts Windows-style canonical current pointers as synchronized", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
@@ -891,15 +850,14 @@ describe("route ledger service", () => {
       });
       await setCurrentVersionForTest(service, created.project.id, nextVersionId);
 
-      fs.writeFileSync(
-        path.join(projectRoot, "README.md"),
+      documentSource.setDocument(
+        "README.md",
         [
           "# RouteLedger",
           "",
           "Current version: see `.routeledger\\refs\\current.json`.",
           "当前版本：参见 `.routeledger\\refs\\current.json`。"
         ].join("\n"),
-        "utf8"
       );
 
       const result = await service.checkDocDrift({
@@ -915,34 +873,29 @@ describe("route ledger service", () => {
           matchedWarningCount: 0
         })
       ]);
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift rejects suffixed titles, negated states, and stale declarations beside canonical pointers", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
         contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
-      fs.writeFileSync(
-        path.join(projectRoot, "README.md"),
+      documentSource.setDocument(
+        "README.md",
         [
           "Current Version Title: Initial Version old; see `.routeledger/refs/current.json`.",
           "Current Version: not currently wait"
         ].join("\n"),
-        "utf8"
       );
 
       const result = await service.checkDocDrift({
@@ -967,22 +920,18 @@ describe("route ledger service", () => {
         matchedAssertionCount: 0,
         mismatchedAssertionCount: 2
       });
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
   it("checkDocDrift 浼氭嫆缁濊秺鐣?entry file path", async () => {
-    const projectRoot = createTempProjectRoot();
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
@@ -1001,32 +950,29 @@ describe("route ledger service", () => {
           path: "../README.md"
         }
       });
-    } finally {
-      cleanupProjectRoot(projectRoot);
-    }
   });
 
-  it("checkDocDrift does not follow symlinks outside the project root", async () => {
-    const projectRoot = createTempProjectRoot();
-    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-core-outside-"));
+  it("checkDocDrift preserves a host containment failure as an unreadable file", async () => {
     const storage = new MemoryStorageAdapter();
+    const documentSource = new MemoryDocumentSource();
     const service = new RouteLedgerService({
       storage,
-      projectRoot,
+      documentSource,
       deps: createTestDependencies()
     });
 
-    try {
-      const created = await service.initProject({
+    const created = await service.initProject({
       contentLocale: "en",
         name: "RouteLedger",
         firstVersion: { title: "Initial Version", description: "", initialTodos: [] },
         actor: TEST_ACTOR
       });
 
-      const outsideFilePath = path.join(outsideRoot, "outside-entry.md");
-      fs.writeFileSync(outsideFilePath, "褰撳墠鐗堟湰浠嶆槸 leaked version銆俓n", "utf8");
-      fs.symlinkSync(outsideFilePath, path.join(projectRoot, "README.md"));
+      const error = new Error(
+        "entry file resolves outside project root via symlink: README.md"
+      ) as Error & { code?: string };
+      error.code = "ENTRY_FILE_OUTSIDE_PROJECT_ROOT";
+      documentSource.setReadError("README.md", error);
 
       const result = await service.checkDocDrift({
         projectId: created.project.id,
@@ -1049,10 +995,6 @@ describe("route ledger service", () => {
           code: "ENTRY_FILE_OUTSIDE_PROJECT_ROOT"
         })
       ]);
-    } finally {
-      cleanupProjectRoot(projectRoot);
-      fs.rmSync(outsideRoot, { recursive: true, force: true });
-    }
   });
 
   it("carried-forward legacy undo no longer blocks source close but still blocks target start as a due undo", async () => {

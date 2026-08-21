@@ -43,7 +43,8 @@ import {
   loadValidatedProjectAggregateFromJsonDirectory,
   readRouteLedgerJsonDocuments,
   runRouteLedgerJsonMergeCheck,
-  validateRouteLedgerJsonDocuments
+  validateRouteLedgerJsonDocuments,
+  WorkspaceDocumentSource
 } from "@routeledger/json";
 import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 
@@ -380,7 +381,8 @@ class ReadOnlySnapshotStorageAdapter implements StoragePort {
 
 const createService = (
   storage: StoragePort,
-  l3Authorization?: CliL3AuthorizationRuntime
+  l3Authorization?: CliL3AuthorizationRuntime,
+  projectRoot?: string
 ): RouteLedgerService => {
   const service = new RouteLedgerService({
     storage,
@@ -392,6 +394,9 @@ const createService = (
         nextId: () => randomUUID()
       }
     },
+    ...(projectRoot === undefined
+      ? {}
+      : { documentSource: new WorkspaceDocumentSource({ workspaceRoot: projectRoot }) }),
     ...(l3Authorization === undefined
       ? {}
       : {
@@ -1801,7 +1806,7 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
   };
 
   const getService = (): RouteLedgerService => {
-    service ??= createService(getStorage(), l3Authorization);
+    service ??= createService(getStorage(), l3Authorization, options.projectRoot);
     return service;
   };
 

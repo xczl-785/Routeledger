@@ -13,6 +13,7 @@ export * from "./domain/version.js";
 export * from "./domain/work-item.js";
 
 export * from "./ports/clock-port.js";
+export * from "./ports/document-source-port.js";
 export * from "./ports/id-generator-port.js";
 export * from "./ports/storage-port.js";
 

@@ -64,6 +64,7 @@ export {
   type RouteLedgerJsonReviewSummaryErrorCode
 } from "./review-summary.js";
 export { buildRouteLedgerSchemaDocument } from "./schema.js";
+export { WorkspaceDocumentSource } from "./workspace-document-source.js";
 export {
   validateProjectAggregateSnapshot,
   validateRouteLedgerJsonDocuments,

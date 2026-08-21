@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import path from "node:path";
 
 import type { Actor } from "../domain/actor.js";
 import type {
@@ -24,6 +23,7 @@ import {
   type StoragePort,
   type ProjectAggregateSnapshot
 } from "../ports/storage-port.js";
+import type { DocumentSourcePort } from "../ports/document-source-port.js";
 import {
   assertDeferredRouteTarget,
   evaluateCloseGate,
@@ -178,7 +178,7 @@ export interface RouteLedgerServiceOptions {
   versionCommandService?: VersionCommandUseCases;
   batchCreateVersionsUseCase?: BatchCreateVersionsExecutor;
   l3ProposalReadService?: L3ProposalReadUseCases;
-  projectRoot?: string;
+  documentSource?: DocumentSourcePort;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
     commitCoordinator: ExactCommitCoordinator;
@@ -2421,7 +2421,7 @@ export class RouteLedgerService {
 
   private readonly l3OperationCommitService: L3OperationCommitUseCases;
 
-  private readonly projectRoot: string | null;
+  private readonly documentSource: DocumentSourcePort | null;
 
   constructor(options: RouteLedgerServiceOptions) {
     this.storage = options.storage;
@@ -2490,7 +2490,7 @@ export class RouteLedgerService {
           ? null
           : options.l3Authorization.commitCoordinator
     });
-    this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
+    this.documentSource = options.documentSource ?? null;
   }
 
   private async saveProjectAggregate(snapshot: ProjectAggregateSnapshot): Promise<void> {
@@ -2659,10 +2659,10 @@ export class RouteLedgerService {
     await this.saveProjectAggregate(snapshot);
 
     const documentation =
-      this.projectRoot === null
+      this.documentSource === null
         ? undefined
         : await inspectEntryDocumentCoverage({
-            projectRoot: this.projectRoot,
+            documentSource: this.documentSource,
             contentLocale: created.project.settings.contentLocale ?? "en"
           });
 
@@ -3612,15 +3612,15 @@ export class RouteLedgerService {
   }
 
   async checkDocDrift(input: CheckDocDriftInput): Promise<{ data: CheckDocDriftResult }> {
-    if (this.projectRoot === null) {
-      throw new Error("checkDocDrift requires RouteLedgerServiceOptions.projectRoot");
+    if (this.documentSource === null) {
+      throw new Error("checkDocDrift requires RouteLedgerServiceOptions.documentSource");
     }
 
     const snapshot = await requireProject(this.storage, input.projectId);
     const context = buildDerivedCurrentContextData(snapshot, {});
     return {
       data: await runDocDriftCheck({
-        projectRoot: this.projectRoot,
+        documentSource: this.documentSource,
         project: snapshot.project,
         contentLocale: snapshot.project.settings.contentLocale,
         context,
