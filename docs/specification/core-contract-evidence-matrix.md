@@ -65,7 +65,7 @@ Legend:
 | RL-L3-004 | Commit verifies live state, claims the receipt, applies one aggregate mutation, saves canonical state, and finalizes the receipt in that order. | `l3-route-transition-decision-protocol.md`; `exact-authorization-contract.md`; `nf1-recovery-and-storage-decision.md` | `RouteLedgerService.commitL3OperationOwned`; `ExactAuthorizationStore.claimCommit`; `finalizeCommit` | `service-approval.test.ts`; `service-authorization-grant.test.ts`; `execute-l3-operation.test.ts`; `exact-authorization-store.test.ts` | confirmed |
 | RL-L3-005 | Retry is exact replay only: the same artifact, identities, digest, and stable receipt claim may recover finalization without repeating the canonical mutation; mismatches fail closed. | `l3-route-transition-decision-protocol.md`; `exact-authorization-contract.md` | committed replay branch in `commitL3OperationOwned`; `buildAuthorizationCommitClaimId`; `claimCommit`; `finalizeCommit` | `service-authorization-grant.test.ts`; `execute-l3-operation.test.ts`; `local-l3-authorization-profile-runtime.test.ts` | confirmed |
 | RL-L3-006 | Local authority state-file locking uses owner identity, heartbeat, live-process checks, revision checks, and stale-owner recovery without time-only takeover. | `agent-host-integration.md`; `nf1-recovery-and-storage-decision.md`; host state schema version 2 | `LocalL3AuthorityStateFile.acquireLock`; heartbeat/ownership/revision helpers | `local-l3-authorization.test.ts`; `local-l3-authorization-profile-runtime.test.ts` | confirmed |
-| RL-L3-GAP-001 | Persisted `commitOwners` has no process-death recovery. An abandoned random owner blocks all exact replay before stable receipt recovery can run. | `nf1-recovery-and-storage-decision.md`; host-owned state only, not canonical schema | `RouteLedgerService.commitL3Operation`; `ExactAuthorizationStoreState.commitOwners`; `acquireCommitOwnership`; `releaseCommitOwnership` | Normal concurrency is covered; crash-window and restart-takeover acceptance tests do not yet exist. | gap |
+| RL-L3-007 | Persisted exact commit coordination recovers an expired owner only when process death is definitive, increments a fencing generation, and replays all four crash windows without repeating the canonical mutation. Live or unknown ownership fails closed. | `nf1-recovery-and-storage-decision.md`; local authority state schema version 3 | `ExactCommitCoordinator`; `MemoryExactCommitCoordinator`; `PersistentLocalExactCommitCoordinator`; `RouteLedgerService.commitL3Operation` | `exact-commit-coordinator.test.ts`; `service-authorization-grant.test.ts`; `local-l3-authorization.test.ts` | confirmed |
 
 ## Initial drafting gaps
 
@@ -77,9 +77,8 @@ claim coverage:
 2. Decide whether WorkItem is a first-class public core entity or a supporting
    bookkeeping entity; current code makes it structurally important while the
    user-facing vocabulary emphasizes Todo, Deferred, and Constraint.
-3. Keep `RL-L3-GAP-001` explicitly non-conforming/known-gap until a separate
-   functional Version defines safe takeover, fencing, migration, and crash
-   tests. NF1 must not solve or normalize it through refactoring prose.
+3. `RL-L3-GAP-001` was closed as `RL-L3-007` after safe takeover, fencing,
+   migration, and the four crash-window acceptance cases shipped in Stage 1.
 
 Symbol names in this inventory are deliberately implementation references, not
 language-agnostic API requirements. Refactoring may move them as long as the

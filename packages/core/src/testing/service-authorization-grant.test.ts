@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
+  MemoryExactCommitCoordinator,
   RouteLedgerService,
   type ExactCommitCoordinator,
   type ExactCommitOwnershipToken,
@@ -285,7 +287,9 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       releasedAt: null
     };
     let acquireCount = 0;
-    const release = vi.fn(async (_token: ExactCommitOwnershipToken) => undefined);
+    const release = vi.fn(async (candidate: ExactCommitOwnershipToken) => {
+      void candidate;
+    });
     const coordinator: ExactCommitCoordinator = {
       acquire: vi.fn(async () =>
         acquireCount++ === 0
@@ -368,7 +372,9 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       releasedAt: null
     };
     const assertOwned = vi.fn(async () => false);
-    const release = vi.fn(async (_token: ExactCommitOwnershipToken) => undefined);
+    const release = vi.fn(async (candidate: ExactCommitOwnershipToken) => {
+      void candidate;
+    });
     const coordinator: ExactCommitCoordinator = {
       acquire: async () => ({ ok: true, token }),
       assertOwned,
@@ -421,6 +427,149 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       )
     ).toHaveLength(0);
     expect(release).toHaveBeenCalledWith(token);
+  });
+
+  it.each([
+    "acquired_before_receipt_claim",
+    "receipt_claimed_before_canonical_save",
+    "canonical_committed_before_receipt_finalize",
+    "receipt_finalized_before_owner_release"
+  ] as const)("recovers the persisted exact commit crash window: %s", async (window) => {
+    const exactStore =
+      window === "canonical_committed_before_receipt_finalize"
+        ? new FailOnceFinalizeExactStore()
+        : new MemoryExactAuthorizationStore();
+    const fixture = await setup(new MemoryStorageAdapter(), undefined, undefined, exactStore);
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId]
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      authorizationId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    const receipt = await exactStore.getReceipt("grant-1");
+    if (receipt === null) throw new Error("Expected exact receipt");
+    const {
+      status,
+      commitClaimId,
+      commitClaimedAt,
+      committedAt,
+      revokedAt,
+      ...receiptBinding
+    } = receipt;
+    void status;
+    void commitClaimId;
+    void commitClaimedAt;
+    void committedAt;
+    void revokedAt;
+    const claimId = `commit_${createHash("sha256")
+      .update(`${artifact.id}\0${fixture.proposal.id}\0${fixture.proposal.digest.value}`, "utf8")
+      .digest("hex")}`;
+    const command = {
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    };
+    const commitKey = `${fixture.prepared.projectId}/${fixture.proposal.id}`;
+    const createCoordinator = (
+      state?: ConstructorParameters<typeof MemoryExactCommitCoordinator>[0]["state"]
+    ) =>
+      new MemoryExactCommitCoordinator({
+        state,
+        currentProcess: {
+          processId: state === undefined ? 101 : 202,
+          processStartedAt: "2026-06-27T00:00:00.000Z",
+          instanceId: state === undefined ? "crashing-process" : "replacement-process"
+        },
+        leaseDurationMs: 30_000,
+        now: () => "2026-06-27T00:10:00.000Z",
+        resolveOwnerLiveness: async () => "dead"
+      });
+    const createCommitService = (commitCoordinator: ExactCommitCoordinator) =>
+      new RouteLedgerService({
+        storage: fixture.storage,
+        deps: createTestDependencies(),
+        l3Authorization: {
+          exactStore,
+          commitCoordinator,
+          audience: "routeledger-core",
+          subjectId: "local-user",
+          routeledgerRootDigest: "sha256:root-1",
+          hostKind: "codex",
+          clientId: "codex-client"
+        }
+      });
+
+    if (window === "receipt_claimed_before_canonical_save") {
+      await exactStore.claimCommit(receiptBinding, {
+        claimId,
+        claimedAt: "2026-06-27T00:00:00.000Z"
+      });
+    }
+    if (window === "canonical_committed_before_receipt_finalize") {
+      await expect(
+        createCommitService(createCoordinator()).commitL3Operation(command)
+      ).rejects.toThrow("injected finalize failure");
+    }
+    if (window === "receipt_finalized_before_owner_release") {
+      await expect(
+        createCommitService(createCoordinator()).commitL3Operation(command)
+      ).resolves.toMatchObject({ pendingOperation: { status: "committed" } });
+    }
+
+    const replacementCoordinator = createCoordinator({
+      records: {
+        [commitKey]: {
+          commitKey,
+          owner: {
+            attemptId: "abandoned-attempt",
+            processId: 101,
+            processStartedAt: "2026-06-26T23:00:00.000Z",
+            instanceId: "dead-process"
+          },
+          generation: 1,
+          leaseExpiresAt: "2026-06-26T23:01:00.000Z",
+          status: "owned",
+          releasedAt: null
+        }
+      }
+    });
+    await expect(
+      createCommitService(replacementCoordinator).commitL3Operation(command)
+    ).resolves.toMatchObject({ pendingOperation: { status: "committed" } });
+
+    expect(replacementCoordinator.exportState().records[commitKey]).toMatchObject({
+      generation: 2,
+      status: "released"
+    });
+    await expect(exactStore.getReceipt("grant-1")).resolves.toMatchObject({
+      status: "committed",
+      commitClaimId: claimId
+    });
+    const aggregate = await fixture.storage.loadProjectAggregate(fixture.prepared.projectId);
+    expect(
+      aggregate?.events.filter(
+        (event) =>
+          event.eventType === "pending_operation.committed" &&
+          event.targetId === fixture.proposal.id
+      )
+    ).toHaveLength(1);
+    expect(
+      aggregate?.events.filter(
+        (event) =>
+          event.eventType === "version.state_changed" &&
+          event.targetId === fixture.prepared.versionId &&
+          event.toState === "running"
+      )
+    ).toHaveLength(1);
+    expect(aggregate?.versions.find((version) => version.id === fixture.prepared.versionId)?.state)
+      .toBe("running");
   });
 
   it("runs profile-less host admission through the same durable claim/finalize lifecycle", async () => {

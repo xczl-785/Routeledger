@@ -5494,7 +5494,7 @@ export class RouteLedgerService {
       exactReceiptBinding !== null &&
       this.exactAuthorizationStore !== null
     ) {
-      activeOwnershipToken = await this.requireExactCommitOwnership(activeOwnershipToken);
+      await this.requireExactCommitOwnership(activeOwnershipToken);
       const finalized = await this.exactAuthorizationStore.finalizeCommit(
         exactReceiptBinding,
         buildAuthorizationCommitClaimId(artifact, pendingOperation),

@@ -236,13 +236,23 @@ not become canonical RouteLedger project data.
 
 ### Stage 1 completion evidence
 
-- `RL-L3-GAP-001` is replaced by a confirmed contract in the evidence matrix.
-- The recovery decision document records the accepted protocol and rejected
-  alternatives.
+- `RL-L3-GAP-001` is replaced by confirmed contract `RL-L3-007` in the evidence
+  matrix.
+- The recovery decision document records the implemented protocol, verified
+  crash windows, and rejected alternatives.
 - Focused core tests, MCP execution tests, full workspace tests, typecheck, and
   lint pass.
 - No generated plugin runtime changes are accepted without the normal release
   provenance and plugin smoke checks.
+
+Delivery commits through Gate A implementation:
+
+- `26987ef` introduces the independent coordinator and fencing model;
+- `3343674` migrates local authority state to schema version 3;
+- `ffd7472` encapsulates host-owned process identity;
+- `aff8ad5` persists coordinator leases in local authority state;
+- `ee61fcf` wires recoverable ownership through Core, CLI, and MCP; and
+- `9ce92ac` fences the receipt claim before durable commit boundaries.
 
 ## Working rules for every stage
 

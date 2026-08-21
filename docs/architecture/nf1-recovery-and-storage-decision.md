@@ -1,8 +1,8 @@
 # NF1 recovery and storage-boundary decision
 
-Status: Stage 1 accepted implementation direction. The persisted commit-owner
-recovery gap remains open until this protocol and its crash/restart tests ship.
-The NF1 storage-boundary refactor remains deferred.
+Status: Stage 1 protocol implemented and verified on 2026-08-21. The persisted
+commit-owner recovery gap is closed. The NF1 storage-boundary refactor remains
+deferred.
 
 This decision is deliberately narrow. It applies only to the persisted L3
 exact-authorization commit boundary. It does not add lease, fencing, migration,
@@ -37,11 +37,11 @@ or architecture-document requirements to ordinary writes or small refactors.
 ## Evidence and current ordering
 
 The outer commit wrapper in
-`packages/core/src/application/routeledger-service.ts` acquires ownership under
-the pending-operation ID with a newly generated UUID, runs the commit, and
-releases the owner in `finally`. `ExactAuthorizationStoreState` persists this
-plain key-to-owner map without a lease, timestamp, liveness identity, fencing
-generation, or recovery record.
+`packages/core/src/application/routeledger-service.ts` now acquires ownership
+through `ExactCommitCoordinator` under the project/pending-operation key. The
+returned opaque token carries the owner identity, lease, and monotonic fencing
+generation. The service renews and asserts it before each durable commit
+boundary and performs owner-checked release in `finally`.
 
 Inside the owned commit, the durable protocol is ordered as follows:
 
@@ -52,22 +52,23 @@ Inside the owned commit, the durable protocol is ordered as follows:
 4. finalize the exact-authorization receipt;
 5. return through the outer wrapper and release the random commit owner.
 
-The stable receipt claim is intentionally replayable. The random persisted
-owner is not: after restart, a new call has a different UUID and cannot acquire
-the abandoned entry.
+The stable receipt claim remains intentionally replayable. Local authority
+state schema version 3 persists the independent coordination record so a new
+process can replace an expired owner only after that owner is definitively
+dead.
 
 ## Crash-window analysis
 
-| Crash point | Durable state | Intended replay path | Current blocker |
-| --- | --- | --- | --- |
-| Before receipt claim | Approval remains usable. | Re-enter the ordinary commit path. | Abandoned random owner rejects the call first. |
-| After claim, before canonical save | Receipt is `commit_claimed` with the stable claim ID. | Reuse the same claim and finish the commit. | Abandoned random owner rejects the call first. |
-| After canonical save, before receipt finalize | Route mutation is committed; receipt still needs recovery. | Detect the committed operation and finalize with the same claim ID. | Abandoned random owner rejects the replay first. |
-| After receipt finalize, before owner release | Canonical mutation and receipt are complete. | Return the idempotent committed result. | Abandoned random owner still rejects the replay first. |
+| Crash point | Durable state | Recovery path now verified |
+| --- | --- | --- |
+| Before receipt claim | Approval remains usable. | Replace the dead generation, re-enter validation, and claim normally. |
+| After claim, before canonical save | Receipt is `commit_claimed` with the stable claim ID. | Reuse the same stable claim and complete one canonical mutation. |
+| After canonical save, before receipt finalize | Route mutation is committed; receipt still needs recovery. | Detect committed canonical state and finalize without repeating the mutation. |
+| After receipt finalize, before owner release | Canonical mutation and receipt are complete. | Return the idempotent replay and owner-check release generation 2. |
 
-Normal exceptions do not leak ownership because `finally` releases it. The gap
-is specifically process death or equivalent interruption that prevents the
-release transaction.
+Normal exceptions do not leak ownership because `finally` releases it. Process
+death is recovered through the expired-lease plus definitively-dead takeover
+rule; live or unknown liveness remains fail closed.
 
 ## Rejected shortcuts
 
@@ -81,9 +82,10 @@ release transaction.
 
 ## Accepted Stage 1 protocol
 
-The coordinator returns an opaque handle containing the pending-operation key,
-owner ID, lease expiry, and generation. The local authority adapter persists
-the matching schema-v3 record and renews it while the L3 commit is active.
+The coordinator returns an opaque handle containing the project/pending-
+operation key, owner identity, lease expiry, and generation. The local
+authority adapter persists the matching schema-v3 record, and the service
+renews it at durable boundaries while the L3 commit is active.
 
 The commit path asserts the same owner and generation before receipt claim,
 before canonical save, and before receipt finalize. Release succeeds only for
@@ -123,14 +125,15 @@ partially interpret or overwrite it. Canonical project JSON, the SQLite read
 model, operation digests, approval artifacts, and exact-authorization schema
 version 2 remain unchanged.
 
-## Required verification and deferred work
+## Verification delivered and deferred work
 
-Verification is limited to this high-risk boundary: ownership generation,
-renewal and stale release; expired leases with live, dead, and unknown owners;
-v2 migration; the four crash windows; concurrent duplicate commits; canonical
-storage-revision conflict; and old-binary rejection of schema-v3 state.
+Verification covers ownership generation, renewal and stale release; expired
+leases with live, dead, unknown, and replaced-process identities; v2 migration;
+the four crash windows in one parameterized acceptance group; concurrent
+duplicate commits; canonical storage revision protection; and strict rejection
+of malformed or unsupported state.
 
-The gap closes only when these tests show that canonical mutation happens at
-most once and uncertain ownership fails closed. Redesigning `StoragePort`,
-splitting the application facade, or reorganizing MCP control flow remains
-separate non-functional work and is not a prerequisite for Stage 1.
+The acceptance group proves that canonical mutation and its transition events
+happen at most once across all four recovery windows, while uncertain ownership
+fails closed. Redesigning `StoragePort`, splitting the application facade, or
+reorganizing MCP control flow remains separate non-functional work.
