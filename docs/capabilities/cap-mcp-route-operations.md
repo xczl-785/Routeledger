@@ -71,9 +71,12 @@ rules.
     concrete BCP 47 locale is persisted.
 11. `inspect_runtime(operation="runtime").contentLocale.effectiveScopes` reports the current
     bounded effect of `contentLocale`: the persisted project setting, the
-    default language agents should use for new project content, and the
+    `agent_authored_project_content_default` language agents should use for new project content, and the
     write-integrity gate. It does
     not claim translation of user-authored or existing project content.
+    MCP diagnostics, blockers, next actions, state labels, and other control-plane
+    messages remain stable English. `humanReviewText` is stable review material
+    for an agent to interpret or paraphrase, not localized project content.
 12. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
     current Version ID, title, and state. It returns every recognized,
     mismatched, and non-detected assertion under `checkedAssertions`, and its

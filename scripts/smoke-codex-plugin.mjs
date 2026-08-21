@@ -121,6 +121,8 @@ const assertPluginFiles = async () => {
     "configure_binding",
     "manage_todo",
     "routeledger-version-lifecycle",
+    "Use the project's `contentLocale` when paraphrasing it",
+    "It does not localize MCP control-plane messages",
     "Never edit canonical RouteLedger JSON directly"
   ]) {
     if (!operatorSkill.includes(requiredGuidance)) {

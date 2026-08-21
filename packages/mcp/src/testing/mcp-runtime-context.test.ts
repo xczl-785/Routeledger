@@ -360,7 +360,7 @@ describe("routeledger mcp registry", () => {
             requiresUserDecision: true,
             effectiveScopes: [
               "project_setting",
-              "agent_content_default",
+              "agent_authored_project_content_default",
               "write_integrity_gate"
             ]
           },
@@ -380,6 +380,29 @@ describe("routeledger mcp registry", () => {
         }
       });
       expect(response.meta).not.toHaveProperty("language");
+    } finally {
+      registry.close();
+      cleanupProjectRoot(projectRoot);
+    }
+  });
+
+  it("uses host-authority terminology for the default Codex approval principal", async () => {
+    const projectRoot = createTempProjectRoot();
+    const registry = createRegistry(projectRoot, { hostProfile: "codex" });
+
+    try {
+      const response = await registry.invoke("get_runtime_context", {});
+
+      expect(response).toMatchObject({
+        ok: true,
+        data: {
+          hostProfile: "codex",
+          approver: {
+            id: "codex-host-authority",
+            displayName: "Codex host admission"
+          }
+        }
+      });
     } finally {
       registry.close();
       cleanupProjectRoot(projectRoot);
@@ -611,7 +634,7 @@ describe("routeledger mcp registry", () => {
             requiresUserDecision: false,
             effectiveScopes: [
               "project_setting",
-              "agent_content_default",
+              "agent_authored_project_content_default",
               "write_integrity_gate"
             ]
           }

@@ -202,6 +202,10 @@ describe("MCP tool description contract", () => {
     try {
       expect(registry.instructions).toContain("inspect_runtime with operation=runtime");
       expect(registry.instructions).toContain("manage_mission_control with operation=open");
+      expect(registry.instructions).toContain(
+        "Use the project's contentLocale when paraphrasing the stable English notice"
+      );
+      expect(registry.instructions).not.toContain("surface its localized notice");
       expect(registry.instructions).not.toMatch(/(?:^|\s)action=/u);
     } finally {
       registry.close();

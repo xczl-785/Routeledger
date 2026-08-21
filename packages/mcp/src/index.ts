@@ -252,6 +252,12 @@ const DEFAULT_APPROVER: Actor = {
   displayName: "routeledger-mcp-user"
 };
 
+const CODEX_HOST_AUTHORITY: Actor = {
+  id: "codex-host-authority",
+  type: "system",
+  displayName: "Codex host admission"
+};
+
 const serverCapabilities = {
   tools: {
     listChanged: false
@@ -445,7 +451,7 @@ const createInstructions = (options: {
   return [
     "RouteLedger exposes project state and route transitions through MCP tools.",
     "Before route operations, call inspect_runtime with operation=runtime to verify workspaceRoot and routeledgerRoot.",
-    "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface its localized notice once. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
+    "On the first RouteLedger interaction in a task, inspect inspect_runtime.missionControl and surface the Mission Control decision once. Use the project's contentLocale when paraphrasing the stable English notice. If it requires a user decision, wait for explicit confirmation before calling manage_mission_control with operation=open; declining UI must never block route work.",
     "If binding is missing, invalid, or low-confidence, use inspect_runtime to discover and plan the target, then call configure_binding; never treat the MCP process cwd as an initialization target.",
     "Use inspect_route_progress for current context, next actions, document drift, and closeout planning; use inspect_versions for version lists, structure, gates, and transition guidance; use inspect_l3_route_operations for L3 authorization and proposal state.",
     "For day-to-day work, use Todo for work now, Deferred for work that must be reviewed by a future version, and Constraint for rules that must not be violated.",
@@ -1183,6 +1189,12 @@ const resolveMissionControlRoots = (
 export const createRouteLedgerMcpRegistry = (
   options: RouteLedgerMcpRegistryOptions
 ): RouteLedgerMcpRegistry => {
+  const hostProfile = options.hostProfile ?? "generic";
+  const actor = resolveActor(DEFAULT_ACTOR, options.actor);
+  const approver = resolveActor(
+    hostProfile === "codex" ? CODEX_HOST_AUTHORITY : DEFAULT_APPROVER,
+    options.approver
+  );
   const bindingConfig = {
     workspaceRoot: options.workspaceRoot,
     workspaceRootSource: options.workspaceRootSource,
@@ -1211,8 +1223,8 @@ export const createRouteLedgerMcpRegistry = (
                 ...(options.l3Authorization.trustedClientId === undefined
                   ? {}
                   : { clientId: options.l3Authorization.trustedClientId }),
-                subjectId: resolveActor(DEFAULT_APPROVER, options.approver).id,
-                hostKind: options.hostProfile ?? "generic"
+                subjectId: approver.id,
+                hostKind: hostProfile
               }
         );
   const service = runtime?.service ?? (null as unknown as RouteLedgerService);
@@ -1225,9 +1237,6 @@ export const createRouteLedgerMcpRegistry = (
           projectRoot: initialBinding.routeledgerRoot,
           enabled: options.debugLog?.enabled
         });
-  const actor = resolveActor(DEFAULT_ACTOR, options.actor);
-  const approver = resolveActor(DEFAULT_APPROVER, options.approver);
-  const hostProfile = options.hostProfile ?? "generic";
   const runtimeProfile = options.runtimeProfile ?? "full";
   const configuredRuntimeIdentity = options.runtimeIdentity ?? resolveRuntimeIdentity(runtimeProfile);
   const runtimeIdentity: RuntimeIdentity = {
@@ -1302,7 +1311,7 @@ export const createRouteLedgerMcpRegistry = (
     const suggestedContentLocale = null;
     const contentLocaleEffectiveScopes = [
       "project_setting",
-      "agent_content_default",
+      "agent_authored_project_content_default",
       "write_integrity_gate"
     ] as const;
     const contentLocale =
