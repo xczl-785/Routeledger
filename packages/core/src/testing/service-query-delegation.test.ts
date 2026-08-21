@@ -80,4 +80,72 @@ describe("RouteLedgerService query delegation", () => {
       }
     });
   });
+
+  it("delegates current-context and next-action queries without reshaping their contracts", async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.saveProjectAggregate({
+      project: createProjectFixture({
+        currentVersionId: null,
+        initialVersionId: null
+      }),
+      versions: [],
+      workItems: [],
+      todos: [],
+      undos: [],
+      deferredItems: [],
+      constraints: [],
+      assets: [],
+      events: [],
+      pendingOperations: [],
+      approvalArtifacts: []
+    });
+    const queryService = new RouteLedgerQueryService({ storage });
+    const getCurrentContext = vi.spyOn(queryService, "getCurrentContext");
+    const getNextAction = vi.spyOn(queryService, "getNextAction");
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies(),
+      queryService
+    });
+    const contextInput = {
+      projectId: "project-1",
+      includeAllVersions: true,
+      includeLegacyUndo: true
+    };
+    const nextActionInput = {
+      projectId: "project-1",
+      versionWindowBefore: 1,
+      versionWindowAfter: 2,
+      includeLegacyUndo: true
+    };
+
+    const context = await service.getCurrentContext(contextInput);
+    const nextAction = await service.getNextAction(nextActionInput);
+
+    expect(getCurrentContext).toHaveBeenCalledOnce();
+    expect(getCurrentContext.mock.calls[0]?.[0]).toBe(contextInput);
+    expect(getNextAction).toHaveBeenCalledOnce();
+    expect(getNextAction.mock.calls[0]?.[0]).toBe(nextActionInput);
+    expect(context).toMatchObject({
+      data: {
+        project: { id: "project-1", currentVersionId: null },
+        currentVersion: null,
+        versions: [],
+        nextAction: {
+          actionType: "create_version",
+          requiresL3Approval: true
+        }
+      }
+    });
+    expect(nextAction).toMatchObject({
+      data: {
+        project: { id: "project-1", currentVersionId: null },
+        currentVersion: null,
+        nextAction: {
+          actionType: "create_version",
+          requiresL3Approval: true
+        }
+      }
+    });
+  });
 });

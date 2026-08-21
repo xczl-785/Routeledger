@@ -76,9 +76,7 @@ import type {
   ExactCommitOwnershipToken
 } from "./exact-commit-coordinator.js";
 import {
-  buildCurrentContextResult,
-  buildDerivedCurrentContextData,
-  buildNextActionResult
+  buildDerivedCurrentContextData
 } from "./current-context-query.js";
 import {
   RouteLedgerQueryService,
@@ -6289,12 +6287,10 @@ export class RouteLedgerService {
   }
 
   async getCurrentContext(input: GetCurrentContextInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    return buildCurrentContextResult(snapshot, input);
+    return this.queryService.getCurrentContext(input);
   }
 
   async getNextAction(input: GetCurrentContextInput) {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    return buildNextActionResult(snapshot, input);
+    return this.queryService.getNextAction(input);
   }
 }

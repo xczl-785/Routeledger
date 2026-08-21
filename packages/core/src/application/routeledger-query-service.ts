@@ -6,7 +6,11 @@ import {
   type StoragePort
 } from "../ports/storage-port.js";
 
-import { buildVersionsWindowResult } from "./current-context-query.js";
+import {
+  buildCurrentContextResult,
+  buildNextActionResult,
+  buildVersionsWindowResult
+} from "./current-context-query.js";
 import { ApplicationError } from "./errors.js";
 
 export interface ListVersionsWindowQueryInput {
@@ -16,9 +20,20 @@ export interface ListVersionsWindowQueryInput {
   after?: number;
 }
 
+export interface CurrentContextQueryInput {
+  projectId: string;
+  budgetBytes?: number;
+  includeAllVersions?: boolean;
+  versionWindowBefore?: number;
+  versionWindowAfter?: number;
+  includeLegacyUndo?: boolean;
+}
+
 export interface RouteLedgerVersionQueryUseCases {
   listVersions(projectId: string): Promise<Version[]>;
   listVersionsWindow(input: ListVersionsWindowQueryInput): Promise<ReturnType<typeof buildVersionsWindowResult>>;
+  getCurrentContext(input: CurrentContextQueryInput): Promise<ReturnType<typeof buildCurrentContextResult>>;
+  getNextAction(input: CurrentContextQueryInput): Promise<ReturnType<typeof buildNextActionResult>>;
 }
 
 type ProjectSnapshotReader = Pick<StoragePort, "loadProjectAggregate">;
@@ -69,5 +84,15 @@ export class RouteLedgerQueryService implements RouteLedgerVersionQueryUseCases 
   async listVersionsWindow(input: ListVersionsWindowQueryInput) {
     const snapshot = await loadRequiredProject(this.storage, input.projectId);
     return buildVersionsWindowResult(snapshot, input);
+  }
+
+  async getCurrentContext(input: CurrentContextQueryInput) {
+    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    return buildCurrentContextResult(snapshot, input);
+  }
+
+  async getNextAction(input: CurrentContextQueryInput) {
+    const snapshot = await loadRequiredProject(this.storage, input.projectId);
+    return buildNextActionResult(snapshot, input);
   }
 }
