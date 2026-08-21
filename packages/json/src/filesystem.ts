@@ -6,6 +6,10 @@ import type { ProjectAggregateSnapshot } from "@routeledger/core";
 
 import { ROUTELEDGER_JSON_ROOT } from "./constants.js";
 import {
+  CANONICAL_DOCUMENT_DESCRIPTORS,
+  matchCanonicalDocumentDescriptor
+} from "./document-descriptors.js";
+import {
   decodeProjectAggregateFromJsonDocuments,
   encodeProjectAggregateToJsonDocuments,
   type RouteLedgerJsonDocument
@@ -132,21 +136,9 @@ export interface RouteLedgerJsonWriteLockHandle extends RouteLedgerJsonWriteLock
 const compareByString = (left: string, right: string): number => left.localeCompare(right, "en");
 
 export const ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS = [
-  /^\.routeledger\/schema\/routeledger\.schema\.json$/,
-  /^\.routeledger\/project\.json$/,
-  /^\.routeledger\/refs\/current\.json$/,
-  /^\.routeledger\/versions\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/work_items\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/todos\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/undos\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/deferred_items\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/constraints\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/assets\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/events\/\d{4}\/\d{2}\/[^/]+\.json$/,
-  /^\.routeledger\/pending_operations\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/approval_artifacts\/[^/]+\/[^/]+\.json$/,
-  /^\.routeledger\/ordinary_write_receipts\/[^/]+\/[^/]+\.json$/
-] as const;
+  ...CANONICAL_DOCUMENT_DESCRIPTORS.filter((descriptor) => descriptor.id === "schema"),
+  ...CANONICAL_DOCUMENT_DESCRIPTORS.filter((descriptor) => descriptor.id !== "schema")
+].map((descriptor) => descriptor.pathMatcher);
 
 const ROUTELEDGER_CANONICAL_TOP_LEVEL_ENTRIES = [
   "project.json",
@@ -180,7 +172,7 @@ const TRANSIENT_FILESYSTEM_ERROR_CODES = new Set(["EPERM", "EACCES"]);
 const TRANSIENT_FILESYSTEM_RETRY_DELAYS_MS = [100, 300, 1_000, 2_000] as const;
 
 export const isCanonicalRouteLedgerJsonPath = (documentPath: string): boolean =>
-  ROUTELEDGER_CANONICAL_DOCUMENT_PATTERNS.some((pattern) => pattern.test(documentPath));
+  matchCanonicalDocumentDescriptor(documentPath) !== undefined;
 
 type RouteLedgerJsonReplacementState = "staged" | "backup_created" | "applied";
 

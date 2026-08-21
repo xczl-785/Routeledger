@@ -23,15 +23,17 @@ import {
 
 import {
   decodeProjectAggregateFromJsonDocumentsForValidation,
-  type RouteLedgerJsonDocument
 } from "./codec.js";
+import {
+  matchRouteLedgerDocumentContract,
+  type RouteLedgerJsonDocument
+} from "./document-descriptors.js";
 import {
   CURRENT_REF_DOCUMENT_PATH,
   PROJECT_DOCUMENT_PATH,
   ROUTELEDGER_JSON_ROOT,
   ROUTELEDGER_SCHEMA_VERSION,
-  ROUTELEDGER_READABLE_SCHEMA_VERSIONS,
-  SCHEMA_DOCUMENT_PATH
+  ROUTELEDGER_READABLE_SCHEMA_VERSIONS
 } from "./constants.js";
 
 export interface RouteLedgerJsonValidationIssue {
@@ -53,125 +55,7 @@ interface CurrentRefSnapshot {
   currentVersionId?: string | null;
 }
 
-interface RouteLedgerJsonDocumentContract {
-  kind?: string;
-  requireSchemaVersion: boolean;
-}
-
-const KNOWN_DOCUMENT_PREFIXES = [
-  `${ROUTELEDGER_JSON_ROOT}/versions/`,
-  `${ROUTELEDGER_JSON_ROOT}/work_items/`,
-  `${ROUTELEDGER_JSON_ROOT}/todos/`,
-  `${ROUTELEDGER_JSON_ROOT}/undos/`,
-  `${ROUTELEDGER_JSON_ROOT}/deferred_items/`,
-  `${ROUTELEDGER_JSON_ROOT}/constraints/`,
-  `${ROUTELEDGER_JSON_ROOT}/assets/`,
-  `${ROUTELEDGER_JSON_ROOT}/events/`,
-  `${ROUTELEDGER_JSON_ROOT}/pending_operations/`,
-  `${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`,
-  `${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`
-] as const;
-
-const getDocumentContract = (documentPath: string): RouteLedgerJsonDocumentContract | undefined => {
-  if (documentPath === PROJECT_DOCUMENT_PATH) {
-    return {
-      kind: "project",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath === CURRENT_REF_DOCUMENT_PATH) {
-    return {
-      kind: "current_ref",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath === SCHEMA_DOCUMENT_PATH) {
-    return {
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/versions/`)) {
-    return {
-      kind: "version",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/work_items/`)) {
-    return {
-      kind: "work_item",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/todos/`)) {
-    return {
-      kind: "todo",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/undos/`)) {
-    return {
-      kind: "undo",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/deferred_items/`)) {
-    return {
-      kind: "deferred_item",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/constraints/`)) {
-    return {
-      kind: "constraint",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/assets/`)) {
-    return {
-      kind: "asset",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/events/`)) {
-    return {
-      kind: "transition_event",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/pending_operations/`)) {
-    return {
-      kind: "pending_operation",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/approval_artifacts/`)) {
-    return {
-      kind: "approval_artifact",
-      requireSchemaVersion: true
-    };
-  }
-
-  if (documentPath.startsWith(`${ROUTELEDGER_JSON_ROOT}/ordinary_write_receipts/`)) {
-    return {
-      kind: "ordinary_write_receipt",
-      requireSchemaVersion: true
-    };
-  }
-
-  return undefined;
-};
+const getDocumentContract = matchRouteLedgerDocumentContract;
 
 const compareByString = (left: string, right: string): number => left.localeCompare(right, "en");
 
@@ -188,10 +72,7 @@ const createIssue = (
 });
 
 const isKnownRouteLedgerJsonPath = (documentPath: string): boolean =>
-  documentPath === PROJECT_DOCUMENT_PATH ||
-  documentPath === CURRENT_REF_DOCUMENT_PATH ||
-  documentPath === SCHEMA_DOCUMENT_PATH ||
-  KNOWN_DOCUMENT_PREFIXES.some((prefix) => documentPath.startsWith(prefix));
+  matchRouteLedgerDocumentContract(documentPath) !== undefined;
 
 const parseDocumentJson = (
   document: RouteLedgerJsonDocument

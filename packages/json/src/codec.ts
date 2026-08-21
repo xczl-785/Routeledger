@@ -53,11 +53,9 @@ import {
   ROUTELEDGER_SCHEMA_VERSION,
   SCHEMA_DOCUMENT_PATH
 } from "./constants.js";
+import type { RouteLedgerJsonDocument } from "./document-descriptors.js";
 
-export interface RouteLedgerJsonDocument {
-  path: string;
-  content: string;
-}
+export type { RouteLedgerJsonDocument } from "./document-descriptors.js";
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
