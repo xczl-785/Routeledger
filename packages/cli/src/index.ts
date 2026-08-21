@@ -9,6 +9,7 @@ import {
   BATCH_CREATE_VERSIONS_MODES,
   BATCH_PREVIOUS_CURRENT_POLICIES,
   DomainError,
+  MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   projectDecisionArtifact,
   ROUTE_OPERATION_WORKFLOW_MODES,
@@ -25,6 +26,7 @@ import {
   isBatchPreviousCurrentPolicy,
   isRouteOperationWorkflowMode,
   type L3ActionType,
+  type ExactCommitCoordinator,
   type ExactAuthorizationStore,
   type PendingOperation,
   type ResidualAuditInput
@@ -57,6 +59,7 @@ export interface RunCliOptions {
       decisionId: string;
     }>;
     exactStore?: ExactAuthorizationStore;
+    commitCoordinator?: ExactCommitCoordinator;
     subjectId?: string;
     hostKind?: string;
     clientId?: string;
@@ -66,6 +69,7 @@ export interface RunCliOptions {
 interface CliL3AuthorizationRuntime {
   requestAuthorization: NonNullable<RunCliOptions["l3Authorization"]>["requestAuthorization"];
   exactStore: ExactAuthorizationStore;
+  commitCoordinator: ExactCommitCoordinator;
   subjectId: string;
   routeledgerRootDigest: string;
   hostKind: string;
@@ -393,6 +397,7 @@ const createService = (
       : {
           l3Authorization: {
             exactStore: l3Authorization.exactStore,
+            commitCoordinator: l3Authorization.commitCoordinator,
             audience: "routeledger-core",
             subjectId: l3Authorization.subjectId,
             routeledgerRootDigest: l3Authorization.routeledgerRootDigest,
@@ -1769,6 +1774,19 @@ export const runCli = async (options: RunCliOptions): Promise<number> => {
           requestAuthorization: options.l3Authorization.requestAuthorization,
           exactStore:
             options.l3Authorization.exactStore ?? new MemoryExactAuthorizationStore(),
+          commitCoordinator:
+            options.l3Authorization.commitCoordinator ??
+            new MemoryExactCommitCoordinator({
+              currentProcess: {
+                processId: process.pid,
+                processStartedAt: new Date(Date.now() - process.uptime() * 1_000).toISOString(),
+                instanceId: randomUUID()
+              },
+              leaseDurationMs: 30_000,
+              now: () => new Date().toISOString(),
+              resolveOwnerLiveness: async (owner) =>
+                owner.processId === process.pid ? "alive" : "unknown"
+            }),
           subjectId: options.l3Authorization.subjectId ?? DEFAULT_APPROVER.id,
           routeledgerRootDigest: `sha256:${createHash("sha256")
             .update(options.projectRoot)

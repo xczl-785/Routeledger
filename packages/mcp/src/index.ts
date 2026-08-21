@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   ApplicationError,
   DomainError,
+  type ExactCommitCoordinator,
   type ExactAuthorizationStore,
   type L3AuthorizationProfileV2,
   RouteLedgerService,
@@ -166,6 +167,7 @@ export interface RouteLedgerMcpRegistryOptions {
   };
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
+    commitCoordinator: ExactCommitCoordinator;
     interaction: RouteLedgerMcpAuthorizationInteraction;
     /** Host-owned V2 profile selected from the verified project/root binding. */
     profile?: L3AuthorizationProfileV2;
@@ -501,6 +503,7 @@ const createService = (
   storageTestHooks?: JsonFirstStorageTestHooks,
   authorization?: {
     exactStore: ExactAuthorizationStore;
+    commitCoordinator: ExactCommitCoordinator;
     clientId?: string;
     subjectId: string;
     hostKind: string;
@@ -521,6 +524,7 @@ const createService = (
       : {
           l3Authorization: {
             exactStore: authorization.exactStore,
+            commitCoordinator: authorization.commitCoordinator,
             audience: "routeledger-core",
             subjectId: authorization.subjectId,
             routeledgerRootDigest: digestRouteLedgerRoot(routeledgerRoot),
@@ -1286,6 +1290,7 @@ export const createRouteLedgerMcpRegistry = (
             ? undefined
             : {
                 exactStore: options.l3Authorization.exactStore,
+                commitCoordinator: options.l3Authorization.commitCoordinator,
                 ...(options.l3Authorization.profile === undefined
                   ? {}
                   : { profile: options.l3Authorization.profile }),

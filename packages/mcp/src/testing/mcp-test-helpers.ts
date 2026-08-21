@@ -30,6 +30,7 @@ import {
   resolveWorkspaceConfigSync
 } from "../workspace-config.js";
 import {
+  MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   RouteLedgerService
 } from "../../../core/src/index.js";
@@ -58,12 +59,33 @@ export type ToolListResult = {
 };
 
 const trustedExactStores = new Map<string, MemoryExactAuthorizationStore>();
+const trustedCommitCoordinators = new Map<string, MemoryExactCommitCoordinator>();
+const TEST_PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
 
 const getTrustedExactStore = (projectRoot: string): MemoryExactAuthorizationStore => {
   const existing = trustedExactStores.get(projectRoot);
   if (existing !== undefined) return existing;
   const created = new MemoryExactAuthorizationStore();
   trustedExactStores.set(projectRoot, created);
+  return created;
+};
+
+export const getTrustedCommitCoordinator = (
+  projectRoot: string
+): MemoryExactCommitCoordinator => {
+  const existing = trustedCommitCoordinators.get(projectRoot);
+  if (existing !== undefined) return existing;
+  const created = new MemoryExactCommitCoordinator({
+    currentProcess: {
+      processId: process.pid,
+      processStartedAt: TEST_PROCESS_STARTED_AT,
+      instanceId: `vitest:${projectRoot}`
+    },
+    leaseDurationMs: 30_000,
+    now: () => new Date().toISOString(),
+    resolveOwnerLiveness: async () => "alive"
+  });
+  trustedCommitCoordinators.set(projectRoot, created);
   return created;
 };
 
@@ -197,6 +219,7 @@ export const createBindingRegistry = (options: RouteLedgerMcpRegistryOptions) =>
     l3Authorization:
       options.l3Authorization ?? {
         exactStore: new MemoryExactAuthorizationStore(),
+        commitCoordinator: getTrustedCommitCoordinator(routeledgerRoot ?? process.cwd()),
         interaction: {
           requestAuthorization: async () => ({
             action: "accept" as const,
@@ -261,6 +284,7 @@ export const createRegistry = (
     routeledgerRoot: projectRoot,
     l3Authorization: {
       exactStore: getTrustedExactStore(projectRoot),
+      commitCoordinator: getTrustedCommitCoordinator(projectRoot),
       interaction: {
         requestAuthorization: async () => ({
           action: "accept" as const,
@@ -348,6 +372,7 @@ export const createCapturedServer = (
 export const cleanupProjectRoot = (projectRoot: string): void => {
 
   trustedExactStores.delete(projectRoot);
+  trustedCommitCoordinators.delete(projectRoot);
   fs.rmSync(projectRoot, {
     recursive: true,
     force: true,

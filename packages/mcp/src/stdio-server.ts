@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { createInterface, type Interface as ReadLineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import {
   MemoryExactAuthorizationStore,
+  MemoryExactCommitCoordinator,
   type ExactAuthorizationBinding
 } from "@routeledger/core";
 
@@ -93,9 +95,14 @@ export interface CreateRouteLedgerStdioServerOptions
   extends Omit<RouteLedgerMcpRegistryOptions, "l3Authorization"> {
   l3Authorization?: Omit<
     RouteLedgerRegistryL3Authorization,
-    "interaction" | "exactStore"
+    "interaction" | "exactStore" | "commitCoordinator"
   > &
-    Partial<Pick<RouteLedgerRegistryL3Authorization, "interaction" | "exactStore">>;
+    Partial<
+      Pick<
+        RouteLedgerRegistryL3Authorization,
+        "interaction" | "exactStore" | "commitCoordinator"
+      >
+    >;
   /** Host-owned V2 broker; selection occurs only from verified runtime binding metadata. */
   l3AuthorityBroker?: LocalL3AuthorityBroker;
   sendMessage?: (message: JsonRpcMessage) => void;
@@ -570,6 +577,33 @@ export const createRouteLedgerStdioServer = (
     options.sendMessage?.(message);
   };
   const exactStore = configuredL3Authorization?.exactStore ?? new MemoryExactAuthorizationStore();
+  const fallbackProcessIdentity = {
+    processId: process.pid,
+    processStartedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+    instanceId: randomUUID()
+  };
+  const commitCoordinator =
+    configuredL3Authorization?.commitCoordinator ??
+    new MemoryExactCommitCoordinator({
+      currentProcess: fallbackProcessIdentity,
+      leaseDurationMs: 30_000,
+      now: () => new Date().toISOString(),
+      resolveOwnerLiveness: async (owner) => {
+        if (
+          owner.processId === fallbackProcessIdentity.processId &&
+          owner.processStartedAt === fallbackProcessIdentity.processStartedAt &&
+          owner.instanceId === fallbackProcessIdentity.instanceId
+        ) {
+          return "alive";
+        }
+        try {
+          process.kill(owner.processId, 0);
+          return "alive";
+        } catch (error) {
+          return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown";
+        }
+      }
+    });
   const state: ProtocolState = {
     initializeCompleted: false,
     initializedNotificationReceived: false,
@@ -639,6 +673,7 @@ export const createRouteLedgerStdioServer = (
       ...registryOptions,
       l3Authorization: {
         exactStore: selected?.exactStore ?? exactStore,
+        commitCoordinator: selected?.commitCoordinator ?? commitCoordinator,
         interaction: configuredL3Authorization?.interaction ?? { requestAuthorization },
         ...(selected !== undefined && "profile" in selected && selected.profile !== undefined
           ? { profile: selected.profile }

@@ -10,7 +10,8 @@ import type { RouteLedgerMcpDelegatedAuthorizationRequest } from "../index.js";
 import {
   cleanupProjectRoot,
   createRegistry,
-  createTempProjectRoot
+  createTempProjectRoot,
+  getTrustedCommitCoordinator
 } from "./mcp-test-helpers.js";
 
 describe("execute_route_change operation=execute_l3_operation", () => {
@@ -171,6 +172,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
     const registry = createRegistry(projectRoot, {
       l3Authorization: {
         exactStore: new MemoryExactAuthorizationStore(),
+        commitCoordinator: getTrustedCommitCoordinator(projectRoot),
         interaction: {
           requestAuthorization: async () => {
             throw new Error("automatic execution must not prompt");

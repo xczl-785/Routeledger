@@ -1002,7 +1002,9 @@ class PersistentLocalExactCommitCoordinator implements ExactCommitCoordinator {
   private async resolveOwnerLiveness(
     owner: ExactCommitCoordinationRecord["owner"]
   ): Promise<"alive" | "dead" | "unknown"> {
-    if (owner.processId === process.pid) return "alive";
+    if (owner.processId === process.pid) {
+      return owner.processStartedAt === PROCESS_STARTED_AT ? "alive" : "dead";
+    }
     try {
       process.kill(owner.processId, 0);
       return "alive";

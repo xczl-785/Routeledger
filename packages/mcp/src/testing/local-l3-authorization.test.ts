@@ -252,6 +252,57 @@ describe("local L3 authorization runtime", () => {
     });
   });
 
+  it("takes over an expired owner when the PID belongs to a different process identity", async () => {
+    const fixture = await createFixture();
+    await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+    const commitKey = "project-1/pending-reused-pid";
+    const state = JSON.parse(await fs.readFile(fixture.statePath, "utf8")) as {
+      commitCoordinator: { records: Record<string, unknown> };
+    };
+    state.commitCoordinator.records[commitKey] = {
+      commitKey,
+      owner: {
+        attemptId: "old-attempt",
+        processId: process.pid,
+        processStartedAt: "2000-01-01T00:00:00.000Z",
+        instanceId: "old-process-instance"
+      },
+      generation: 1,
+      leaseExpiresAt: "2000-01-01T00:01:00.000Z",
+      status: "owned",
+      releasedAt: null
+    };
+    await fs.writeFile(fixture.statePath, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
+
+    const restarted = await loadLocalL3AuthorityRuntime({
+      configPath: fixture.configPath,
+      workspaceRoot: fixture.workspaceRoot,
+      routeledgerRoot: fixture.workspaceRoot,
+      hostKind: "generic",
+      subjectId: "mcp-user"
+    });
+
+    await expect(
+      restarted.commitCoordinator.acquire({ commitKey, attemptId: "replacement-attempt" })
+    ).resolves.toMatchObject({
+      ok: true,
+      token: {
+        commitKey,
+        owner: { attemptId: "replacement-attempt", processId: process.pid },
+        generation: 2
+      }
+    });
+  });
+
   it("keeps exact duplicate issue and receipt writes idempotent across store implementations", async () => {
     const fixture = await createFixture();
     const runtime = await loadLocalL3AuthorityRuntime({
@@ -878,15 +929,14 @@ describe("local L3 authorization runtime", () => {
         }
       },
       l3Authorization: {
-
         exactStore: runtime.exactStore,
+        commitCoordinator: runtime.commitCoordinator,
         delegatedAuthority: runtime.authority,
         interaction: {
           requestAuthorization: async () => {
             throw new Error("host prompt must not be used");
           }
-        },
-
+        }
       }
     });
     const interrupted = await interruptedRegistry.invoke("execute_route_change", {

@@ -71,6 +71,10 @@ import type {
   ExactAuthorizationReceiptBinding
 } from "./exact-authorization-contract.js";
 import type { ExactAuthorizationStore } from "./exact-authorization-store.js";
+import type {
+  ExactCommitCoordinator,
+  ExactCommitOwnershipToken
+} from "./exact-commit-coordinator.js";
 import {
   buildCurrentContextResult,
   buildDerivedCurrentContextData,
@@ -154,6 +158,7 @@ export interface RouteLedgerServiceOptions {
   projectRoot?: string;
   l3Authorization?: {
     exactStore: ExactAuthorizationStore;
+    commitCoordinator: ExactCommitCoordinator;
     audience: string;
     subjectId: string;
     routeledgerRootDigest: string;
@@ -3416,6 +3421,8 @@ export class RouteLedgerService {
 
   private readonly exactAuthorizationStore: ExactAuthorizationStore | null;
 
+  private readonly exactCommitCoordinator: ExactCommitCoordinator | null;
+
   constructor(options: RouteLedgerServiceOptions) {
     this.storage = options.storage;
     this.deps = options.deps;
@@ -3425,6 +3432,10 @@ export class RouteLedgerService {
       options.l3Authorization === undefined
         ? null
         : options.l3Authorization.exactStore;
+    this.exactCommitCoordinator =
+      options.l3Authorization === undefined
+        ? null
+        : options.l3Authorization.commitCoordinator;
   }
 
   private async getExactArtifactReceiptBinding(
@@ -4966,30 +4977,56 @@ export class RouteLedgerService {
   }
 
   async commitL3Operation(input: CommitL3OperationInput) {
-    const ownerId = crypto.randomUUID();
-    const ownershipKey = input.pendingOperationId;
-    if (
-      this.exactAuthorizationStore !== null &&
-      !(await this.exactAuthorizationStore.acquireCommitOwnership(ownershipKey, ownerId))
-    ) {
+    const ownership =
+      this.exactCommitCoordinator === null
+        ? null
+        : await this.exactCommitCoordinator.acquire({
+            commitKey: `${input.projectId}/${input.pendingOperationId}`,
+            attemptId: crypto.randomUUID()
+          });
+    if (ownership !== null && !ownership.ok) {
       throw new ApplicationError(
         "WRITE_IN_PROGRESS",
         "The exact L3 commit is already owned by another in-flight call",
         {
           projectId: input.projectId,
           pendingOperationId: input.pendingOperationId,
-          reason: "EXACT_COMMIT_ALREADY_IN_PROGRESS"
+          reason: "EXACT_COMMIT_ALREADY_IN_PROGRESS",
+          coordinatorReason: ownership.code
         }
       );
     }
+    const ownershipToken: ExactCommitOwnershipToken | null =
+      ownership?.ok === true ? ownership.token : null;
     try {
-      return await this.commitL3OperationOwned(input);
+      return await this.commitL3OperationOwned(input, ownershipToken);
     } finally {
-      await this.exactAuthorizationStore?.releaseCommitOwnership(ownershipKey, ownerId);
+      if (ownershipToken !== null) {
+        await this.exactCommitCoordinator!.release(ownershipToken);
+      }
     }
   }
 
-  private async commitL3OperationOwned(input: CommitL3OperationInput) {
+  private async requireExactCommitOwnership(
+    token: ExactCommitOwnershipToken | null
+  ): Promise<ExactCommitOwnershipToken | null> {
+    if (token === null) return null;
+    const renewed = await this.exactCommitCoordinator!.renew(token);
+    if (!renewed.ok || !(await this.exactCommitCoordinator!.assertOwned(renewed.token))) {
+      throw new ApplicationError(
+        "WRITE_IN_PROGRESS",
+        "The exact L3 commit ownership was lost before a durable boundary",
+        { reason: "COMMIT_OWNERSHIP_LOST", commitKey: token.commitKey }
+      );
+    }
+    return renewed.token;
+  }
+
+  private async commitL3OperationOwned(
+    input: CommitL3OperationInput,
+    ownershipToken: ExactCommitOwnershipToken | null
+  ) {
+    let activeOwnershipToken = ownershipToken;
     const snapshot = await requireProject(this.storage, input.projectId);
     const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
 
@@ -5056,6 +5093,7 @@ export class RouteLedgerService {
         );
       }
       if (replayReceiptBinding !== null && this.exactAuthorizationStore !== null) {
+        activeOwnershipToken = await this.requireExactCommitOwnership(activeOwnershipToken);
         const finalized = await this.exactAuthorizationStore.finalizeCommit(
           replayReceiptBinding,
           buildAuthorizationCommitClaimId(artifact, pendingOperation),
@@ -5447,6 +5485,7 @@ export class RouteLedgerService {
     applied.snapshot.events = applied.snapshot.events
       .concat(applied.events)
       .concat(auditEvents);
+    activeOwnershipToken = await this.requireExactCommitOwnership(activeOwnershipToken);
     await this.saveProjectAggregate(applied.snapshot);
 
     if (
@@ -5454,6 +5493,7 @@ export class RouteLedgerService {
       exactReceiptBinding !== null &&
       this.exactAuthorizationStore !== null
     ) {
+      activeOwnershipToken = await this.requireExactCommitOwnership(activeOwnershipToken);
       const finalized = await this.exactAuthorizationStore.finalizeCommit(
         exactReceiptBinding,
         buildAuthorizationCommitClaimId(artifact, pendingOperation),

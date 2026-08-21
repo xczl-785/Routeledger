@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   RouteLedgerService,
+  type ExactCommitCoordinator,
+  type ExactCommitOwnershipToken,
   type ExactAuthorizationSource,
   type L3ActionType
 } from "../index.js";
@@ -100,17 +103,31 @@ class FailOnceFinalizeExactStore extends MemoryExactAuthorizationStore {
   }
 }
 
+const createTestCommitCoordinator = (): MemoryExactCommitCoordinator =>
+  new MemoryExactCommitCoordinator({
+    currentProcess: {
+      processId: 101,
+      processStartedAt: "2026-08-21T08:00:00.000Z",
+      instanceId: "service-authorization-test"
+    },
+    leaseDurationMs: 60_000,
+    now: () => "2026-08-21T08:00:00.000Z",
+    resolveOwnerLiveness: async () => "alive"
+  });
+
 const setup = async (
   storage: MemoryStorageAdapter = new MemoryStorageAdapter(),
   profile?: { profileId: string; modeEpoch: number; profileDigest: string },
   grantStore: TestAuthorizationIssuer = new TestAuthorizationIssuer(),
-  exactStore: MemoryExactAuthorizationStore = new MemoryExactAuthorizationStore()
+  exactStore: MemoryExactAuthorizationStore = new MemoryExactAuthorizationStore(),
+  commitCoordinator: ExactCommitCoordinator = createTestCommitCoordinator()
 ) => {
   const service = new RouteLedgerService({
     storage,
     deps: createTestDependencies(),
     l3Authorization: {
       exactStore,
+      commitCoordinator,
       audience: "routeledger-core",
       subjectId: "local-user",
       routeledgerRootDigest: "sha256:root-1",
@@ -162,7 +179,7 @@ const setup = async (
       expiresAt: grant.expiresAt
     });
   };
-  return { storage, grantStore, exactStore, service, prepared, proposal };
+  return { storage, grantStore, exactStore, commitCoordinator, service, prepared, proposal };
 };
 
 class DelayCommitStorageAdapter extends MemoryStorageAdapter {
@@ -214,6 +231,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         exactStore: fixture.exactStore,
+        commitCoordinator: fixture.commitCoordinator,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -236,6 +254,169 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       .toHaveLength(1);
     expect(aggregate?.events.filter((event) => event.eventType === "pending_operation.committed"))
       .toHaveLength(1);
+  });
+
+  it("uses the injected exact commit coordinator and releases its opaque token", async () => {
+    const storage = new DelayCommitStorageAdapter();
+    const fixture = await setup(storage);
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId]
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      authorizationId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    const token: ExactCommitOwnershipToken = {
+      commitKey: fixture.proposal.id,
+      owner: {
+        attemptId: "attempt-1",
+        processId: 101,
+        processStartedAt: "2026-08-21T08:00:00.000Z",
+        instanceId: "instance-1"
+      },
+      generation: 1,
+      leaseExpiresAt: "2026-08-21T08:01:00.000Z",
+      status: "owned",
+      releasedAt: null
+    };
+    let acquireCount = 0;
+    const release = vi.fn(async (_token: ExactCommitOwnershipToken) => undefined);
+    const coordinator: ExactCommitCoordinator = {
+      acquire: vi.fn(async () =>
+        acquireCount++ === 0
+          ? { ok: true as const, token }
+          : { ok: false as const, code: "COMMIT_OWNED_BY_LIVE_PROCESS" as const }
+      ),
+      assertOwned: async (candidate) => candidate === token,
+      renew: async (candidate) => ({ ok: true, token: candidate }),
+      release
+    };
+    const legacyAcquire = vi.spyOn(fixture.exactStore, "acquireCommitOwnership");
+    const createCommitService = () =>
+      new RouteLedgerService({
+        storage,
+        deps: createTestDependencies(),
+        l3Authorization: {
+          exactStore: fixture.exactStore,
+          commitCoordinator: coordinator,
+          audience: "routeledger-core",
+          subjectId: "local-user",
+          routeledgerRootDigest: "sha256:root-1",
+          hostKind: "codex",
+          clientId: "codex-client"
+        }
+      });
+    const ownerService = createCommitService();
+    const competingService = createCommitService();
+    const command = {
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      approvalArtifactId: artifact.id,
+      actor: TEST_ACTOR
+    };
+
+    storage.arm();
+    const owner = ownerService.commitL3Operation(command);
+    await storage.started;
+    await expect(competingService.commitL3Operation(command)).rejects.toMatchObject({
+      code: "WRITE_IN_PROGRESS",
+      details: { reason: "EXACT_COMMIT_ALREADY_IN_PROGRESS" }
+    });
+    storage.release();
+    await expect(owner).resolves.toMatchObject({ replayed: false });
+
+    expect(coordinator.acquire).toHaveBeenCalledTimes(2);
+    expect(coordinator.acquire).toHaveBeenCalledWith({
+      commitKey: `${fixture.prepared.projectId}/${fixture.proposal.id}`,
+      attemptId: expect.any(String)
+    });
+    expect(legacyAcquire).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect(release.mock.calls[0]?.[0]).toBe(token);
+  });
+
+  it("fences the canonical save when exact commit ownership is lost", async () => {
+    const fixture = await setup();
+    await fixture.grantStore.issue(
+      createGrant(fixture.proposal.digest.value, {
+        projectId: fixture.prepared.projectId,
+        allowedTargetIds: [fixture.prepared.versionId]
+      })
+    );
+    const artifact = await fixture.service.authorizeL3Operation({
+      projectId: fixture.prepared.projectId,
+      pendingOperationId: fixture.proposal.id,
+      authorizationId: "grant-1",
+      actor: TEST_ACTOR
+    });
+    const token: ExactCommitOwnershipToken = {
+      commitKey: fixture.proposal.id,
+      owner: {
+        attemptId: "attempt-1",
+        processId: 101,
+        processStartedAt: "2026-08-21T08:00:00.000Z",
+        instanceId: "instance-1"
+      },
+      generation: 1,
+      leaseExpiresAt: "2026-08-21T08:01:00.000Z",
+      status: "owned",
+      releasedAt: null
+    };
+    const assertOwned = vi.fn(async () => false);
+    const release = vi.fn(async (_token: ExactCommitOwnershipToken) => undefined);
+    const coordinator: ExactCommitCoordinator = {
+      acquire: async () => ({ ok: true, token }),
+      assertOwned,
+      renew: async (candidate) => ({ ok: true, token: candidate }),
+      release
+    };
+    const save = vi.spyOn(fixture.storage, "saveProjectAggregate");
+    const finalize = vi.spyOn(fixture.exactStore, "finalizeCommit");
+    const service = new RouteLedgerService({
+      storage: fixture.storage,
+      deps: createTestDependencies(),
+      l3Authorization: {
+        exactStore: fixture.exactStore,
+        commitCoordinator: coordinator,
+        audience: "routeledger-core",
+        subjectId: "local-user",
+        routeledgerRootDigest: "sha256:root-1",
+        hostKind: "codex",
+        clientId: "codex-client"
+      }
+    });
+
+    await expect(
+      service.commitL3Operation({
+        projectId: fixture.prepared.projectId,
+        pendingOperationId: fixture.proposal.id,
+        approvalArtifactId: artifact.id,
+        actor: TEST_ACTOR
+      })
+    ).rejects.toMatchObject({
+      code: "WRITE_IN_PROGRESS",
+      details: { reason: "COMMIT_OWNERSHIP_LOST" }
+    });
+
+    expect(assertOwned).toHaveBeenCalledWith(token);
+    expect(save).not.toHaveBeenCalled();
+    expect(finalize).not.toHaveBeenCalled();
+    const aggregate = await fixture.storage.loadProjectAggregate(fixture.prepared.projectId);
+    expect(aggregate?.pendingOperations.find((item) => item.id === fixture.proposal.id)?.status)
+      .toBe("pending");
+    expect(
+      aggregate?.events.filter(
+        (event) =>
+          event.eventType === "pending_operation.committed" &&
+          event.targetId === fixture.proposal.id
+      )
+    ).toHaveLength(0);
+    expect(release).toHaveBeenCalledWith(token);
   });
 
   it("runs profile-less host admission through the same durable claim/finalize lifecycle", async () => {
@@ -298,6 +479,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         exactStore: new MemoryExactAuthorizationStore(),
+        commitCoordinator: createTestCommitCoordinator(),
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -344,6 +526,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         exactStore: fixture.exactStore,
+        commitCoordinator: fixture.commitCoordinator,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -460,6 +643,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
         deps: createTestDependencies(),
         l3Authorization: {
           exactStore: new MemoryExactAuthorizationStore(),
+          commitCoordinator: createTestCommitCoordinator(),
           audience: "routeledger-core",
           subjectId: "local-user",
           routeledgerRootDigest: "sha256:root-1",
@@ -540,6 +724,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         exactStore: new MemoryExactAuthorizationStore(),
+        commitCoordinator: createTestCommitCoordinator(),
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",
@@ -578,6 +763,7 @@ describe("RouteLedgerService trusted L3 authorization", () => {
       deps: createTestDependencies(),
       l3Authorization: {
         exactStore: valid.exactStore,
+        commitCoordinator: valid.commitCoordinator,
         audience: "routeledger-core",
         subjectId: "local-user",
         routeledgerRootDigest: "sha256:root-1",

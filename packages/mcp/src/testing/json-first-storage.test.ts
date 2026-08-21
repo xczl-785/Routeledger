@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   RouteLedgerService
 } from "../../../core/src/index.js";
@@ -481,6 +482,18 @@ describe("JsonFirstStorageAdapter", () => {
         },
         l3Authorization: {
           exactStore: new MemoryExactAuthorizationStore(),
+          commitCoordinator: new MemoryExactCommitCoordinator({
+            currentProcess: {
+              processId: process.pid,
+              processStartedAt: new Date(
+                Date.now() - process.uptime() * 1000
+              ).toISOString(),
+              instanceId: "json-first-storage-test"
+            },
+            leaseDurationMs: 30_000,
+            now: () => new Date().toISOString(),
+            resolveOwnerLiveness: async () => "alive"
+          }),
           audience: "routeledger-core",
           subjectId: "local-user",
           routeledgerRootDigest: "sha256:trusted-root-binding",
