@@ -5398,6 +5398,7 @@ export class RouteLedgerService {
       );
     }
 
+    activeOwnershipToken = await this.requireExactCommitOwnership(activeOwnershipToken);
     const authorizationCommitClaim =
       exactReceiptBinding !== null && this.exactAuthorizationStore !== null
         ? await this.exactAuthorizationStore.claimCommit(

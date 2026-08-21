@@ -406,6 +406,10 @@ describe("RouteLedgerService trusted L3 authorization", () => {
     expect(assertOwned).toHaveBeenCalledWith(token);
     expect(save).not.toHaveBeenCalled();
     expect(finalize).not.toHaveBeenCalled();
+    await expect(fixture.exactStore.getReceipt("grant-1")).resolves.toMatchObject({
+      status: "authorized",
+      commitClaimId: null
+    });
     const aggregate = await fixture.storage.loadProjectAggregate(fixture.prepared.projectId);
     expect(aggregate?.pendingOperations.find((item) => item.id === fixture.proposal.id)?.status)
       .toBe("pending");
