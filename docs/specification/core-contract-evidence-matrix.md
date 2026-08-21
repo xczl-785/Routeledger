@@ -19,7 +19,7 @@ Legend:
 | --- | --- | --- | --- | --- | --- |
 | RL-DOM-001 | Project is the logical route root; `currentVersionId` identifies the selected Version and `initialVersionId` is a legacy pointer. | `cap-route-work-semantics.md`; `agent-host-integration.md`; canonical `project.json` schema | `Project`; `initProject`; `RouteLedgerService.initProject` | `project-service.test.ts`; `service-version-workflow.test.ts`; `mcp-versions.test.ts` | confirmed |
 | RL-DOM-002 | Version nodes form an ordered parent/sibling graph with one current pointer and explicit lifecycle state. | `cap-mcp-route-operations.md`; canonical Version schema | `Version`; `normalizeVersionTreePayload`; `applyVersionTreeMutation`; `prepareVersion`; `startVersion`; `markVersionComplete`; `closeVersion` | `version-service.test.ts`; `version-tree-service.test.ts`; `service-version-workflow.test.ts` | confirmed |
-| RL-DOM-003 | Todo represents current Version work and participates in WorkItem active-record and close-gate accounting. | `cap-route-work-semantics.md`; canonical Todo and WorkItem schemas | `Todo`; `WorkItem`; Todo operations in `RouteLedgerService`; `evaluateCloseGate` | `work-item-service.test.ts`; `workflow-service.test.ts`; `gate-service.test.ts` | confirmed |
+| RL-DOM-003 | WorkItem is a supporting Project-aggregate lineage identity, not a user work surface. Todo, Deferred, and readable legacy Undo records retain that ID across transitions; active WorkItems have exactly one active child record and closed WorkItems have none. | `cap-route-work-semantics.md`; `architecture/work-item-lineage-identity.md`; canonical Todo, Deferred, Undo, and WorkItem schemas | `WorkItem`; `validateWorkItemLineage`; Todo/Deferred operations in `RouteLedgerService`; aggregate validation | `work-item-service.test.ts`; `workflow-service.test.ts`; `json-validate.test.ts`; `sqlite-storage-adapter.test.ts` | confirmed |
 | RL-DOM-004 | Deferred represents intentionally postponed work with a finite target review Version; review activates, re-defers, or resolves it explicitly. | `cap-route-work-semantics.md`; canonical Deferred schema | `DeferredItem`; `createDeferred`; `deferTodo`; `deferAgain`; `activateDeferred`; `resolveDeferred`; `validateDeferredRouteTarget` | `deferred-service.test.ts`; `deferred-application.test.ts`; `gate-service.test.ts`; `cli-deferred-constraint.test.ts` | confirmed |
 | RL-DOM-005 | Constraint is a project- or Version-scoped rule, not a completion count; active constraints can block gates. | `cap-route-work-semantics.md`; canonical Constraint schema | `Constraint`; `createConstraint`; `retireConstraint`; `evaluateStartGate`; `evaluateCloseGate` | `constraint-service.test.ts`; `gate-service.test.ts`; `cli-deferred-constraint.test.ts` | confirmed |
 | RL-DOM-006 | TransitionEvent is append-only audit evidence ordered by `(operationId, operationSeq)` and scoped to an existing target. | canonical TransitionEvent schema; `cap-canonical-json-contract.md` | `TransitionEvent`; `createTransitionEvents`; aggregate validation in `SQLiteStorageAdapter`; canonical codec | `asset-service.test.ts`; `service-version-workflow.test.ts`; `json-codec.test.ts`; `sqlite-storage-adapter.test.ts` | confirmed |
@@ -74,10 +74,7 @@ claim coverage:
 
 1. Assign clause-level requirement IDs beneath these clusters and link each
    clause back to a row.
-2. Decide whether WorkItem is a first-class public core entity or a supporting
-   bookkeeping entity; current code makes it structurally important while the
-   user-facing vocabulary emphasizes Todo, Deferred, and Constraint.
-3. `RL-L3-GAP-001` was closed as `RL-L3-007` after safe takeover, fencing,
+2. `RL-L3-GAP-001` was closed as `RL-L3-007` after safe takeover, fencing,
    migration, and the four crash-window acceptance cases shipped in Stage 1.
 
 Symbol names in this inventory are deliberately implementation references, not

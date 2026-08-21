@@ -11,6 +11,7 @@ export * from "./domain/transition-event.js";
 export * from "./domain/undo.js";
 export * from "./domain/version.js";
 export * from "./domain/work-item.js";
+export * from "./domain/work-item-lineage.js";
 
 export * from "./ports/clock-port.js";
 export * from "./ports/document-source-port.js";

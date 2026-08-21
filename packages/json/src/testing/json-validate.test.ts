@@ -1204,6 +1204,35 @@ describe("@routeledger/json validate", () => {
     expect(getIssueCodes(missingUndoDocuments)).toContain("WORK_ITEM_ACTIVE_INVALID");
   });
 
+  it("reports WorkItem lineage with multiple active children or closed active children", () => {
+    const multipleActiveChildren = updateJsonDocument(
+      encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()),
+      (document) => document.path.endsWith("/undo-1.json"),
+      (value) => ({
+        ...value,
+        status: "wait",
+        closed_at: null,
+        close_reason: null,
+        close_note: null
+      })
+    );
+
+    expect(getIssueCodes(multipleActiveChildren)).toContain("WORK_ITEM_ACTIVE_INVALID");
+
+    const closedWithActiveChild = updateJsonDocument(
+      encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot()),
+      (document) => document.path.endsWith("/work-item-1.json"),
+      (value) => ({
+        ...value,
+        status: "closed",
+        active_record_type: null,
+        active_record_id: null
+      })
+    );
+
+    expect(getIssueCodes(closedWithActiveChild)).toContain("WORK_ITEM_ACTIVE_INVALID");
+  });
+
   it("reports undo version references, asset path issues, transition target issues, and pending/approval mismatches", () => {
     let documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
 

@@ -211,7 +211,11 @@ export const createJsonCodecSnapshot = (): ProjectAggregateSnapshot => {
     versionId: "version-1",
     preferredResolutionVersionId: "version-2",
     title: "Backfill validate",
-    reason: "defer validate"
+    reason: "defer validate",
+    status: "closed",
+    closedAt: "2026-06-27T00:10:00.000Z",
+    closeReason: "historical",
+    closeNote: "Retained as audit history"
   });
   const asset = {
     id: "asset-1",

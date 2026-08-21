@@ -10,6 +10,7 @@
 | Out of scope | Work not committed for the current scope; it needs a new decision to return. |
 | Rejected | A reviewed option that is not adopted. |
 | Legacy Undo | A historical audit record only; no write or recommendation surface remains. |
+| WorkItem | A supporting Project-aggregate lineage identity shared by Todo, Deferred, and retained legacy Undo records; it is not a user-operable work surface. |
 
 ## Current rules
 
@@ -22,8 +23,13 @@
    Historical Undo records remain readable for audit via
    `get_current_context(includeLegacyUndo=true)` and still participate in gate
    evaluation, but there is no way to create, close, or route them anymore.
+5. WorkItem remains stable when the same work converts or reopens across Todo,
+   Deferred, and legacy Undo records. An active WorkItem has exactly one active
+   child record; a closed WorkItem has none. The records and their WorkItem are
+   changed and persisted atomically as one Project aggregate.
 
 ## Evidence
 
-`packages/core/src/domain/`, `packages/core/src/services/`,
+`docs/architecture/work-item-lineage-identity.md`,
+`packages/core/src/domain/work-item-lineage.ts`, `packages/core/src/services/`,
 `packages/core/src/application/`, and their tests define the behavior.

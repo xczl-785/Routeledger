@@ -21,7 +21,7 @@ import type {
 import {
   collectConstraintInvariantViolations,
   collectDeferredItemInvariantViolations,
-  validateWorkItemActive
+  validateWorkItemLineage
 } from "@routeledger/core";
 import type BetterSqlite3 from "better-sqlite3";
 
@@ -337,7 +337,7 @@ const assertCompleteAggregateSnapshot = (
       );
     }
 
-    validateWorkItemActive(
+    validateWorkItemLineage(
       workItem,
       snapshot.todos,
       snapshot.undos,

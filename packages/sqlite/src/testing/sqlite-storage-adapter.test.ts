@@ -1832,6 +1832,26 @@ describe("sqlite storage adapter", () => {
         /active todo|active 指针/
       );
 
+      const multipleActiveChildrenAggregate: ProjectAggregateSnapshot = {
+        ...baseline,
+        undos: [
+          ...baseline.undos,
+          createUndoFixture({
+            id: "undo-active-duplicate",
+            projectId: baseline.project.id,
+            versionId: baseline.versions[0]!.id,
+            originVersionId: baseline.versions[0]!.id,
+            preferredResolutionVersionId: baseline.versions[0]!.id,
+            workItemId: baseline.workItems[0]!.id,
+            status: "wait"
+          })
+        ]
+      };
+
+      await expect(adapter.saveProjectAggregate(multipleActiveChildrenAggregate)).rejects.toThrow(
+        /恰有一个 active 子记录/
+      );
+
       const invalidUndoAggregate: ProjectAggregateSnapshot = {
         ...baseline,
         undos: baseline.undos.map((undo) => ({
@@ -1878,7 +1898,7 @@ describe("sqlite storage adapter", () => {
 
       await expect(
         adapter.saveProjectAggregate(invalidDeferredActiveAggregate)
-      ).rejects.toThrow(/active Deferred/);
+      ).rejects.toThrow(/恰有一个 active 子记录/);
 
       const constraintCreation = createConstraint({
         projectId: baseline.project.id,

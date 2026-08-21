@@ -18,7 +18,7 @@ import {
   collectConstraintInvariantViolations,
   collectDeferredItemInvariantViolations,
   ORDINARY_WRITE_COMMAND_NAMES,
-  validateWorkItemActive
+  validateWorkItemLineage
 } from "@routeledger/core";
 
 import {
@@ -1186,7 +1186,7 @@ export const validateProjectAggregateSnapshot = (
 
   for (const workItem of snapshot.workItems) {
     try {
-      validateWorkItemActive(
+      validateWorkItemLineage(
         workItem,
         snapshot.todos,
         snapshot.undos,

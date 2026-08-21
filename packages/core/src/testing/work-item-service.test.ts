@@ -117,6 +117,67 @@ describe("todo / undo / work item service", () => {
     ).toThrow(DomainError);
   });
 
+  it("active WorkItem 必须恰有一个 active 子记录并由指针指向它", () => {
+    const workItem = createWorkItemFixture();
+    const activeTodo = createTodoFixture();
+
+    expect(() => validateWorkItemActive(workItem, [activeTodo], [])).not.toThrow();
+
+    expect(() =>
+      validateWorkItemActive(workItem, [
+        activeTodo,
+        createTodoFixture({ id: "todo-second", status: "running" })
+      ], [])
+    ).toThrow(DomainError);
+  });
+
+  it("closed WorkItem 不得保留 active 子记录", () => {
+    expect(() =>
+      validateWorkItemActive(
+        createWorkItemFixture({
+          status: "closed",
+          activeRecordType: null,
+          activeRecordId: null
+        }),
+        [createTodoFixture()],
+        []
+      )
+    ).toThrow(DomainError);
+  });
+
+  it("lineage 允许保留关闭和转换历史，但转换后 WorkItem ID 稳定", () => {
+    const deps = createTestDependencies();
+    const creation = createDeferred({
+      projectId: "project-1",
+      originVersionId: "version-1",
+      targetReviewVersionId: "version-2",
+      title: "Review durable storage",
+      reason: "Not required yet",
+      actor: TEST_ACTOR,
+      deps
+    });
+    const historicalTodo = createTodoFixture({
+      id: "todo-converted",
+      workItemId: creation.workItem.id,
+      status: "converted"
+    });
+    const historicalUndo = createUndoFixture({
+      id: "undo-closed",
+      workItemId: creation.workItem.id,
+      status: "closed"
+    });
+
+    expect(creation.deferred.workItemId).toBe(creation.workItem.id);
+    expect(() =>
+      validateWorkItemActive(
+        creation.workItem,
+        [historicalTodo],
+        [historicalUndo],
+        [creation.deferred]
+      )
+    ).not.toThrow();
+  });
+
   it("createDeferred 返回的 WorkItem 可通过统一 active validator", () => {
     const deps = createTestDependencies();
     const creation = createDeferred({
