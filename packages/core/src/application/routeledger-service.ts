@@ -103,6 +103,10 @@ import {
   L3ProposalWriteService,
   type L3ProposalWriteUseCases
 } from "./l3-proposal-write-service.js";
+import {
+  L3LegacyApprovalService,
+  type L3LegacyApprovalUseCases
+} from "./l3-legacy-approval-service.js";
 import type { CheckDocDriftInput, CheckDocDriftResult } from "./doc-drift-query.js";
 import {
   inspectEntryDocumentCoverage,
@@ -841,7 +845,6 @@ type ContextOpenUndoSummary = {
   updatedAt: string;
 };
 
-const DEFAULT_APPROVAL_WINDOW_MS = 60 * 60 * 1000;
 const DIAGNOSTIC_VERSION_PATTERNS = [/_probe/i, /\bprobe\b/i, /diagnostic/i, /test-only/i];
 
 const cloneSnapshot = (snapshot: ProjectAggregateSnapshot): ProjectAggregateSnapshot => {
@@ -871,9 +874,6 @@ const sortKeys = (value: unknown): unknown => {
 };
 
 const stableStringify = (value: unknown): string => JSON.stringify(sortKeys(value));
-
-const addMilliseconds = (isoString: string, milliseconds: number): string =>
-  new Date(new Date(isoString).getTime() + milliseconds).toISOString();
 
 const assertRouteOperationWorkflowMode = (
   mode: unknown
@@ -2716,6 +2716,8 @@ export class RouteLedgerService {
 
   private readonly l3ProposalWriteService: L3ProposalWriteUseCases;
 
+  private readonly l3LegacyApprovalService: L3LegacyApprovalUseCases;
+
   private readonly projectRoot: string | null;
 
   private readonly l3Authorization: RouteLedgerServiceOptions["l3Authorization"];
@@ -2754,6 +2756,11 @@ export class RouteLedgerService {
       storage: options.storage,
       deps: options.deps,
       securityPort: l3ProposalSecurityPort
+    });
+    this.l3LegacyApprovalService = new L3LegacyApprovalService({
+      storage: options.storage,
+      deps: options.deps,
+      trustedControlPlaneConfigured: options.l3Authorization !== undefined
     });
     this.projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot);
     this.l3Authorization = options.l3Authorization;
@@ -3695,72 +3702,7 @@ export class RouteLedgerService {
   }
 
   async approveL3Operation(input: ApproveL3OperationInput): Promise<ApprovalArtifact> {
-    if (this.l3Authorization !== undefined) {
-      throw new ApplicationError(
-        "EXACT_AUTHORIZATION_REJECTED",
-        "Legacy L3 approval cannot bypass the configured trusted authorization control plane",
-        { pendingOperationId: input.pendingOperationId, reason: "LEGACY_APPROVAL_DISABLED" }
-      );
-    }
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
-
-    if (pendingOperation.status !== "pending") {
-      throw new ApplicationError(
-        "PENDING_OPERATION_NOT_PENDING",
-        "pending operation 不是待审批状态",
-        {
-          pendingOperationId: pendingOperation.id,
-          status: pendingOperation.status
-        }
-      );
-    }
-
-    const now = this.deps.clock.now();
-    const artifact: ApprovalArtifact = {
-      id: this.deps.idGenerator.nextId(),
-      projectId: input.projectId,
-      pendingOperationId: pendingOperation.id,
-      actionType: pendingOperation.actionType,
-      targetId: pendingOperation.targetId,
-      digest: pendingOperation.digest,
-      status: "approved",
-      approver: input.approver,
-      decisionRef: input.decisionRef ?? `decision_${this.deps.idGenerator.nextId()}`,
-      createdAt: now,
-      expiresAt: input.expiresAt ?? addMilliseconds(now, DEFAULT_APPROVAL_WINDOW_MS),
-      consumedAt: null
-    };
-    const context = createDomainContext(this.deps, input.actor);
-    const events = createAuditEvents(
-      [
-        {
-          targetType: "approval_artifact",
-          targetId: artifact.id,
-          eventType: "approval_artifact.approved",
-          toState: artifact.status,
-          metadata: {
-            pendingOperationId: pendingOperation.id,
-            decisionRef: artifact.decisionRef,
-            expiresAt: artifact.expiresAt,
-            approverId: artifact.approver.id,
-            approverType: artifact.approver.type,
-            approverDisplayName: artifact.approver.displayName ?? null
-          }
-        }
-      ],
-      snapshot.project.id,
-      input.actor,
-      now,
-      context.operationId,
-      this.deps
-    );
-
-    const updatedSnapshot = applyApprovalArtifact(snapshot, artifact);
-    updatedSnapshot.events = updatedSnapshot.events.concat(events);
-    await this.saveProjectAggregate(updatedSnapshot);
-
-    return artifact;
+    return this.l3LegacyApprovalService.approveL3Operation(input);
   }
 
   async authorizeL3Operation(input: AuthorizeL3OperationInput): Promise<ApprovalArtifact> {
@@ -3914,52 +3856,7 @@ export class RouteLedgerService {
   }
 
   async rejectL3Operation(input: RejectL3OperationInput): Promise<PendingOperation> {
-    const snapshot = await requireProject(this.storage, input.projectId);
-    const pendingOperation = requirePendingOperation(snapshot, input.pendingOperationId);
-
-    if (pendingOperation.status !== "pending") {
-      throw new ApplicationError(
-        "PENDING_OPERATION_NOT_PENDING",
-        "pending operation 不是待拒绝状态",
-        {
-          pendingOperationId: pendingOperation.id,
-          status: pendingOperation.status
-        }
-      );
-    }
-
-    const now = this.deps.clock.now();
-    const rejected: PendingOperation = {
-      ...pendingOperation,
-      status: "rejected",
-      updatedAt: now,
-      rejectedAt: now,
-      rejectionReason: input.reason
-    };
-    const context = createDomainContext(this.deps, input.actor);
-    const events = createAuditEvents(
-      [
-        {
-          targetType: "pending_operation",
-          targetId: rejected.id,
-          eventType: "pending_operation.rejected",
-          fromState: pendingOperation.status,
-          toState: rejected.status,
-          note: input.reason
-        }
-      ],
-      snapshot.project.id,
-      input.actor,
-      now,
-      context.operationId,
-      this.deps
-    );
-
-    snapshot.pendingOperations = replaceRecord(snapshot.pendingOperations, rejected);
-    snapshot.events = snapshot.events.concat(events);
-    await this.saveProjectAggregate(snapshot);
-
-    return rejected;
+    return this.l3LegacyApprovalService.rejectL3Operation(input);
   }
 
   async commitL3Operation(input: CommitL3OperationInput) {
