@@ -252,7 +252,14 @@ Delivery commits through Gate A implementation:
 - `ffd7472` encapsulates host-owned process identity;
 - `aff8ad5` persists coordinator leases in local authority state;
 - `ee61fcf` wires recoverable ownership through Core, CLI, and MCP; and
-- `9ce92ac` fences the receipt claim before durable commit boundaries.
+- `9ce92ac` fences the receipt claim before durable commit boundaries; and
+- `faf7d02` closes the four-window recovery acceptance evidence and contract
+  documentation.
+
+Gate A closed on 2026-08-21 with zero blocking and zero non-blocking correctness
+findings in the one scheduled independent audit. Full repository verification:
+78 test files passed, with 749 tests passed and 1 skipped; typecheck and lint
+passed. Stage 2 is now the active entry point for audit group B.
 
 ## Working rules for every stage
 
