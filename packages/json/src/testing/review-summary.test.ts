@@ -5,7 +5,7 @@ import {
   createTodoFixture,
   createUndoFixture,
   createVersionFixture
-} from "../../../core/src/testing/builders.js";
+} from "@routeledger/core/testing";
 import {
   buildProjectAggregateReviewSummary,
   RouteLedgerJsonReviewSummaryError

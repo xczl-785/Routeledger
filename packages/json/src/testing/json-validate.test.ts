@@ -26,7 +26,7 @@ import {
 import {
   createProjectFixture,
   createVersionFixture
-} from "../../../core/src/testing/builders.js";
+} from "@routeledger/core/testing";
 
 const createTempRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "routeledger-json-"));
 

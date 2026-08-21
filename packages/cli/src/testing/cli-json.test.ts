@@ -3,8 +3,8 @@ import path from "node:path";
 
 import { expect, it, describe } from "vitest";
 
-import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
-import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
+import { SQLiteStorageAdapter } from "@routeledger/sqlite";
+import { createUndoFixture, createWorkItemFixture } from "@routeledger/core/testing";
 import { exportProjectAggregateToJsonDirectory } from "@routeledger/json";
 
 import { createTempProjectRoot, cleanupProjectRoot, runGit, readJsonDocuments, readDocumentBytesByPaths, runCliJsonWithFirstVersion, summarizeSnapshotCounts, getIssueCodesFromCliError, seedJsonRoundTripProject, createVersionViaL3, setCurrentVersionViaL3, updateJsonFile, rewriteJsonFile, createValidateSnapshot } from "./cli-test-helpers.js";

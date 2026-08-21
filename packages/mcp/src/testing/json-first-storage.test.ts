@@ -9,20 +9,20 @@ import {
   MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   RouteLedgerService
-} from "../../../core/src/index.js";
+} from "@routeledger/core";
 import {
   createTestDependencies,
   createUndoFixture,
   createVersionFixture,
   createWorkItemFixture
-} from "../../../core/src/testing/builders.js";
+} from "@routeledger/core/testing";
 import {
   acquireRouteLedgerJsonWriteLock,
   getRouteLedgerJsonWriteLockInfo,
   readRouteLedgerJsonDocuments,
   writeRouteLedgerJsonDocuments
-} from "../../../json/src/index.js";
-import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
+} from "@routeledger/json";
+import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 import { JsonFirstStorageAdapter } from "../json-first-storage.js";
 
 const createTempProjectRoot = (): string =>

@@ -25,5 +25,8 @@
     "@routeledger/json": "workspace:*",
     "@routeledger/sqlite": "workspace:*",
     "@routeledger/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@routeledger/cli": "workspace:*"
   }
 }

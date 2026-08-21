@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { expect, it, describe } from "vitest";
 
-import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments } from "../../../json/src/index.js";
+import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments } from "@routeledger/json";
 import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry, type RouteLedgerMcpRegistryOptions, type ToolResponse } from "../index.js";
 import { createRouteLedgerStdioServer, type JsonRpcMessage } from "../stdio-server.js";
 import { ensureRouteLedgerGitAttributes, resolveWorkspaceConfigSync } from "../workspace-config.js";

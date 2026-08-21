@@ -2,7 +2,7 @@ import fs from "node:fs";
 
 import { expect, it, describe } from "vitest";
 
-import { readRouteLedgerJsonDocuments } from "../../../json/src/index.js";
+import { readRouteLedgerJsonDocuments } from "@routeledger/json";
 import { createRouteLedgerMcpRegistry } from "../index.js";
 
 import { createTempProjectRoot, getDefaultDataRoot, getDefaultJsonProjectPath, createMismatchedExpectedRouteLedgerRoot, createRegistry, cleanupProjectRoot, expectRouteLedgerRootGuardError, createApprovedVersionProposal } from "./mcp-test-helpers.js";

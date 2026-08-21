@@ -1,7 +1,7 @@
 import { expect, it, describe } from "vitest";
 
-import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
-import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
+import { SQLiteStorageAdapter } from "@routeledger/sqlite";
+import { createUndoFixture, createWorkItemFixture } from "@routeledger/core/testing";
 
 import { createTempProjectRoot, cleanupProjectRoot, runCliJsonWithFirstVersion, createVersionViaL3 } from "./cli-test-helpers.js";
 describe("routeledger cli", () => {

@@ -1,8 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "../",
+    "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "../core/src/**/*.ts", "../json/src/**/*.ts", "../sqlite/src/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, it, describe, vi } from "vitest";
 
-import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments, replaceRouteLedgerJsonDocuments } from "../../../json/src/index.js";
+import { acquireRouteLedgerJsonWriteLock, readRouteLedgerJsonDocuments, replaceRouteLedgerJsonDocuments } from "@routeledger/json";
 import type { createRouteLedgerStdioServer } from "../stdio-server.js";
 
 import { createTempProjectRoot, ensureDefaultWorkspaceConfig, getDefaultDataRoot, getDefaultWorkspaceConfigPath, getDefaultCanonicalJsonRoot, getDefaultJsonProjectPath, getDefaultSqliteDbPath, createRegistry, createBindingRegistry, cleanupProjectRoot, createDeferred, removeSqliteFiles, createSqliteOnlyProject, initializeServer, callTool, getStructuredData, createAndCommitVersion, createApprovedVersionProposal, expectCanonicalJsonValid, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";

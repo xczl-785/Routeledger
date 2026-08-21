@@ -13,7 +13,7 @@ import {
   TEST_ACTOR,
   createUndoFixture,
   createWorkItemFixture
-} from "../../../core/src/testing/builders.js";
+} from "@routeledger/core/testing";
 import { createTransitionEvents } from "@routeledger/core";
 
 import { SQLiteStorageAdapter } from "@routeledger/sqlite";

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { expect, it, describe } from "vitest";
 
 import { MemoryExactAuthorizationStore } from "@routeledger/core";
-import { runCli } from "../../../cli/src/index.js";
+import { runCli } from "@routeledger/cli";
 import { MCP_PROTOCOL_VERSION, createRouteLedgerMcpRegistry } from "../index.js";
 import { type JsonRpcResponse } from "../stdio-server.js";
 

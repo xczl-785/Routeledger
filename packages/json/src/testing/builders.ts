@@ -11,7 +11,7 @@ import {
   createUndoFixture,
   createVersionFixture,
   createWorkItemFixture
-} from "../../../core/src/testing/builders.js";
+} from "@routeledger/core/testing";
 
 const TEST_APPROVER = {
   id: "user-1",

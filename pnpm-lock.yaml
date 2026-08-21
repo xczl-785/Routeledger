@@ -102,6 +102,10 @@ importers:
       '@routeledger/ui':
         specifier: workspace:*
         version: link:../ui
+    devDependencies:
+      '@routeledger/cli':
+        specifier: workspace:*
+        version: link:../cli
 
   packages/sqlite:
     dependencies:

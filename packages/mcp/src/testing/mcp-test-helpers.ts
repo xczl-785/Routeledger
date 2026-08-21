@@ -5,13 +5,13 @@ import { PassThrough } from "node:stream";
 
 import { expect } from "vitest";
 
-import { loadValidatedProjectAggregateFromJsonDirectory } from "../../../json/src/index.js";
+import { loadValidatedProjectAggregateFromJsonDirectory } from "@routeledger/json";
 import {
   ROUTELEDGER_DIRECTORY,
   ROUTELEDGER_DB_DIRECTORY,
   ROUTELEDGER_DB_FILENAME,
   SQLiteStorageAdapter
-} from "../../../sqlite/src/index.js";
+} from "@routeledger/sqlite";
 import {
   MCP_PROTOCOL_VERSION,
   createRouteLedgerMcpRegistry,
@@ -33,8 +33,8 @@ import {
   MemoryExactCommitCoordinator,
   MemoryExactAuthorizationStore,
   RouteLedgerService
-} from "../../../core/src/index.js";
-import { createTestDependencies } from "../../../core/src/testing/builders.js";
+} from "@routeledger/core";
+import { createTestDependencies } from "@routeledger/core/testing";
 
 export type ToolListResult = {
   result: {

@@ -3,9 +3,9 @@ import path from "node:path";
 
 import { expect, it, describe } from "vitest";
 
-import { SQLiteStorageAdapter } from "../../../sqlite/src/index.js";
+import { SQLiteStorageAdapter } from "@routeledger/sqlite";
 import { JsonFirstStorageAdapter } from "../json-first-storage.js";
-import { createUndoFixture, createWorkItemFixture } from "../../../core/src/testing/builders.js";
+import { createUndoFixture, createWorkItemFixture } from "@routeledger/core/testing";
 import type { createRouteLedgerStdioServer } from "../stdio-server.js";
 
 import { createTempProjectRoot, getDefaultDataRoot, createMismatchedExpectedRouteLedgerRoot, createRegistry, cleanupProjectRoot, readDebugLogRecords, initializeServer, callTool, getStructuredData, createAndCommitVersion, setCurrentVersionWithApproval } from "./mcp-test-helpers.js";

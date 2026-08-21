@@ -25,7 +25,7 @@ import {
   startVersion,
   validateWorkItemActive,
   type ProjectAggregateSnapshot
-} from "../../../core/src/index.js";
+} from "@routeledger/core";
 import {
   TEST_ACTOR,
   createTestDependencies,
@@ -33,7 +33,7 @@ import {
   createUndoFixture,
   createWorkItemFixture,
   createVersionFixture
-} from "../../../core/src/testing/builders.js";
+} from "@routeledger/core/testing";
 import { describe, expect, it } from "vitest";
 
 import { ROUTELEDGER_DB_DIRECTORY, ROUTELEDGER_DB_FILENAME, openRouteLedgerDatabase } from "../database.js";

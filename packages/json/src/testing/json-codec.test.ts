@@ -21,7 +21,7 @@ import {
   createJsonCodecSnapshot,
   shuffleSnapshotCollections
 } from "./builders.js";
-import { TEST_ACTOR, createTestDependencies } from "../../../core/src/testing/builders.js";
+import { TEST_ACTOR, createTestDependencies } from "@routeledger/core/testing";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = path.join(testDir, "fixtures", "canonical");
