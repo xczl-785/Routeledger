@@ -1,6 +1,6 @@
 {
   "name": "routeledger",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "description": "Agent-first route control with compact, actionable MCP responses.",
   "author": {
     "name": "RouteLedger"
