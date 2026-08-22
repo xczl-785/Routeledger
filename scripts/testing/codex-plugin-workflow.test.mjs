@@ -12,6 +12,28 @@ const smokeScript = await fs.readFile(
   path.join(repositoryRoot, "scripts", "smoke-codex-plugin.mjs"),
   "utf8"
 );
+const packageManifest = JSON.parse(
+  await fs.readFile(path.join(repositoryRoot, "package.json"), "utf8")
+);
+const releaseCheckWrapper = await fs.readFile(
+  path.join(repositoryRoot, "scripts", "check-codex-plugin-release-all.mjs"),
+  "utf8"
+);
+
+assert.equal(
+  packageManifest.scripts["check:codex-plugin-release"],
+  "node ./scripts/check-codex-plugin-release-all.mjs"
+);
+assert.match(
+  releaseCheckWrapper,
+  /check-codex-plugin-release\.mjs"\), \.\.\.process\.argv\.slice\(2\)/,
+  "Release wrapper must forward CLI arguments to the distribution/version guard."
+);
+assert.match(
+  releaseCheckWrapper,
+  /check-release-docs\.mjs"\)\]/,
+  "Release wrapper must keep the documentation consistency check."
+);
 
 assert.doesNotMatch(
   smokeScript,
