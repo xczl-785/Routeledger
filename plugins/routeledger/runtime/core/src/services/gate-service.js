@@ -263,7 +263,7 @@ export const assertStartGate = (result) => {
         });
     }
 };
-export const evaluateCloseGate = ({ version, todos, undos, residualAudit, knownVersions, deferredItems = [], constraints = [], constraintChecks = [] }) => {
+export const evaluateCloseGate = ({ version, todos, knownTodos = todos, undos, residualAudit, knownVersions, deferredItems = [], constraints = [], constraintChecks = [] }) => {
     const blockers = [];
     const routeFailures = new Map();
     if (version.state !== "complete") {
@@ -328,12 +328,85 @@ export const evaluateCloseGate = ({ version, todos, undos, residualAudit, knownV
             });
         }
         for (const [index, item] of resolvedAudit.audit.items.entries()) {
-            if (item.destination !== "defer_work") {
+            if (item.destination !== "create_todo" &&
+                item.destination !== "defer_work" &&
+                item.destination !== "record_constraint") {
                 continue;
             }
-            const failure = validateDeferredRouteTarget(version, item.targetReviewVersionId, knownVersions);
+            const itemId = String(index);
+            const destinationRecordId = item.destinationRecordId?.trim() ?? "";
+            if (destinationRecordId.length === 0) {
+                blockers.push({
+                    code: "RESIDUAL_DESTINATION_RECORD_REQUIRED",
+                    message: "non-close residual destination 必须引用已存在的承接记录；close commit 不会隐式创建 Todo、Deferred 或 Constraint",
+                    recordIds: [itemId]
+                });
+                continue;
+            }
+            if (item.destination === "create_todo") {
+                const todo = knownTodos.find((candidate) => candidate.id === destinationRecordId);
+                if (todo === undefined) {
+                    blockers.push({
+                        code: "RESIDUAL_DESTINATION_RECORD_NOT_FOUND",
+                        message: "create_todo residual destination 必须引用已存在的 Todo",
+                        recordIds: [itemId, destinationRecordId]
+                    });
+                    continue;
+                }
+                if (todo.status !== "wait" && todo.status !== "running") {
+                    blockers.push({
+                        code: "RESIDUAL_DESTINATION_RECORD_NOT_ACTIONABLE",
+                        message: "create_todo residual destination 必须引用仍开放的 Todo",
+                        recordIds: [itemId, destinationRecordId]
+                    });
+                    continue;
+                }
+                const failure = validateDeferredRouteTarget(version, todo.versionId, knownVersions);
+                if (failure !== null) {
+                    addDeferredRouteFailure(routeFailures, failure, destinationRecordId);
+                }
+                continue;
+            }
+            if (item.destination === "record_constraint") {
+                const constraint = constraints.find((candidate) => candidate.id === destinationRecordId);
+                if (constraint === undefined) {
+                    blockers.push({
+                        code: "RESIDUAL_DESTINATION_RECORD_NOT_FOUND",
+                        message: "record_constraint residual destination 必须引用已存在的 Constraint",
+                        recordIds: [itemId, destinationRecordId]
+                    });
+                }
+                else if (constraint.status !== "active") {
+                    blockers.push({
+                        code: "RESIDUAL_DESTINATION_RECORD_NOT_ACTIONABLE",
+                        message: "record_constraint residual destination 必须引用 active Constraint",
+                        recordIds: [itemId, destinationRecordId]
+                    });
+                }
+                continue;
+            }
+            const deferred = deferredItems.find((candidate) => candidate.id === destinationRecordId);
+            if (deferred === undefined) {
+                blockers.push({
+                    code: "RESIDUAL_DESTINATION_RECORD_NOT_FOUND",
+                    message: "defer_work residual destination 必须引用已存在的 Deferred",
+                    recordIds: [itemId, destinationRecordId]
+                });
+                continue;
+            }
+            if (deferred.status !== "pending" ||
+                deferred.originVersionId !== version.id ||
+                deferred.targetReviewVersionId !== item.targetReviewVersionId) {
+                blockers.push({
+                    code: "RESIDUAL_DESTINATION_RECORD_MISMATCH",
+                    message: "defer_work residual destination 必须引用来自当前 Version、仍 pending 且目标一致的 Deferred",
+                    recordIds: [itemId, destinationRecordId]
+                });
+                continue;
+            }
+            const failure = validateDeferredRouteTarget(version, deferred.targetReviewVersionId, knownVersions);
             if (failure !== null) {
-                addDeferredRouteFailure(routeFailures, failure, String(index));
+                addDeferredRouteFailure(routeFailures, failure, destinationRecordId);
             }
         }
     }

@@ -484,6 +484,13 @@ export const runDocDriftCheck = async (options) => {
         : unreadableFiles.length > 0
             ? "partial"
             : "completed";
+    const alignmentStatus = unreadableFiles.length > 0 || checkedFiles.length === 0
+        ? "unknown"
+        : mismatchedAssertions.length > 0 || warnings.length > 0
+            ? "drift_detected"
+            : recognizedAssertions.length === 0
+                ? "insufficient_coverage"
+                : "aligned";
     const coverage = {
         level: checkedFiles.length === 0 ? "none" : "partial",
         assertionKinds: CURRENT_VERSION_ASSERTION_KINDS,
@@ -514,6 +521,8 @@ export const runDocDriftCheck = async (options) => {
     };
     return {
         status,
+        alignmentStatus,
+        safeToTrust: alignmentStatus === "aligned",
         project: {
             id: project.id,
             name: project.name,

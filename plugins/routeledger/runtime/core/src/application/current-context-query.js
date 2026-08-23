@@ -608,8 +608,9 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
             : null,
         hasMultipleRunningVersions: runningVersions.length > 1
     };
-    const currentVersionIndex = currentVersion === null ? -1 : versions.findIndex((version) => version.id === currentVersion.id);
-    const nextVersion = currentVersionIndex === -1 ? null : versions[currentVersionIndex + 1] ?? null;
+    const nextVersion = currentVersion?.nextVersionId === null || currentVersion?.nextVersionId === undefined
+        ? null
+        : versions.find((version) => version.id === currentVersion.nextVersionId) ?? null;
     const versionWindowBefore = clampVersionWindowSize(options.versionWindowBefore, DEFAULT_VERSION_WINDOW_BEFORE);
     const versionWindowAfter = clampVersionWindowSize(options.versionWindowAfter, DEFAULT_VERSION_WINDOW_AFTER);
     const versionWindow = buildVersionWindow({
@@ -721,6 +722,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
             ...evaluateCloseGate({
                 version: currentVersion,
                 todos: snapshot.todos.filter((todo) => todo.versionId === currentVersion.id),
+                knownTodos: snapshot.todos,
                 undos: snapshot.undos.filter((undo) => undo.versionId === currentVersion.id ||
                     undo.originVersionId === currentVersion.id ||
                     undo.preferredResolutionVersionId === currentVersion.id),

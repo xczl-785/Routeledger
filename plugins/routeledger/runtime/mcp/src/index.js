@@ -756,17 +756,18 @@ export const toToolError = (error, context) => {
         error instanceof InvalidToolInputError ||
         error instanceof JsonFirstStorageError) {
         const recovery = buildToolErrorRecovery(error, context);
+        const details = recovery === null
+            ? error.details
+            : {
+                ...(error.details ?? {}),
+                ...recovery
+            };
         return {
             ok: false,
             error: {
                 code: error.code,
                 message: error.message,
-                details: recovery === null
-                    ? error.details
-                    : {
-                        ...(error.details ?? {}),
-                        ...recovery
-                    }
+                ...(details === undefined ? {} : { details })
             }
         };
     }
