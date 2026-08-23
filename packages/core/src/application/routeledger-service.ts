@@ -691,7 +691,11 @@ export interface VersionTransitionGuideCloseGate {
   blockedConstraintIds: string[];
   residualAuditProvided: boolean;
   residualAuditRequired: boolean;
-  residualAuditSource: "input" | "proposal_payload" | "missing";
+  residualAuditSource:
+    | "input"
+    | "proposal_payload"
+    | "committed_close_proposal"
+    | "missing";
   residualAuditProposalId: string | null;
   blockers: GateBlocker[];
 }
@@ -1115,6 +1119,7 @@ const buildVersionStructureLegalOperations = (
   const closeGate = evaluateCloseGate({
     version: focusVersion,
     todos: snapshot.todos.filter((todo) => todo.versionId === focusVersion.id),
+    knownTodos: snapshot.todos,
     undos: snapshot.undos.filter(
       (undo) =>
         undo.versionId === focusVersion.id ||
@@ -1295,6 +1300,7 @@ export const buildVersionTransitionGuide = (
   const closeGateEvaluation = evaluateCloseGate({
     version: fromVersion,
     todos: snapshot.todos.filter((todo) => todo.versionId === fromVersion.id),
+    knownTodos: snapshot.todos,
     undos: snapshot.undos.filter(
       (undo) =>
         undo.versionId === fromVersion.id ||
@@ -2195,6 +2201,7 @@ const buildOperationDescription = (
       const gate = evaluateCloseGate({
         version,
         todos: snapshot.todos.filter((todo) => todo.versionId === version.id),
+        knownTodos: snapshot.todos,
         undos: snapshot.undos.filter(
           (undo) =>
             undo.versionId === version.id ||
@@ -2250,6 +2257,7 @@ const buildOperationDescription = (
       const ordinaryCloseGate = evaluateCloseGate({
         version,
         todos: snapshot.todos.filter((todo) => todo.versionId === version.id),
+        knownTodos: snapshot.todos,
         undos: snapshot.undos.filter(
           (undo) =>
             undo.versionId === version.id ||

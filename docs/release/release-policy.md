@@ -5,10 +5,11 @@ local build. A release requires a rebuilt plugin distribution, passing smoke
 and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
-`routeledger@routeledger-team` version 0.10.5 is the latest published Git
-marketplace release candidate, fixed by `routeledger-plugin-v0.10.5` after
-release validation. It preserves the agent-first MCP surface while tightening
-application-service, storage-concurrency, process-test, and runtime boundaries.
+`routeledger@routeledger-team` version 0.10.6 is the latest published Git
+marketplace release candidate, fixed by `routeledger-plugin-v0.10.6` after
+release validation. It preserves the agent-first MCP surface while repairing
+Agent-visible error, route-navigation, residual-handoff, closeout-evidence, and
+document-alignment contracts.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;

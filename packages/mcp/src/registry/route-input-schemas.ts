@@ -38,6 +38,14 @@ const residualAuditItemSchema = objectSchema(
         ),
         { type: "null" }
       ]
+    },
+    destinationRecordId: {
+      anyOf: [
+        stringSchema(
+          "Required existing Todo, Deferred, or Constraint ID when destination is create_todo, defer_work, or record_constraint. The close commit validates the record but does not create it."
+        ),
+        { type: "null" }
+      ]
     }
   },
   ["kind", "summary", "destination"]

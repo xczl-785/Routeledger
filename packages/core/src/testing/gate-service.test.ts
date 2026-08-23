@@ -523,11 +523,19 @@ describe("gate service", () => {
     };
     const invalidDeferred = evaluateCloseGate({
       ...base,
+      deferredItems: [
+        createDeferredFixture({
+          id: "deferred-invalid",
+          originVersionId: base.version.id,
+          targetReviewVersionId: " "
+        })
+      ],
       residualAudit: [
         {
           kind: "debt",
           summary: "review later",
-          destination: "defer_work"
+          destination: "defer_work",
+          destinationRecordId: "deferred-invalid"
         }
       ]
     });
@@ -540,22 +548,32 @@ describe("gate service", () => {
           order: base.version.order + 1
         })
       ],
+      deferredItems: [
+        createDeferredFixture({
+          id: "deferred-valid",
+          originVersionId: base.version.id,
+          targetReviewVersionId: "version-2"
+        })
+      ],
       residualAudit: [
         {
           kind: "debt",
           summary: "review later",
           destination: "defer_work",
-          targetReviewVersionId: "version-2"
+          targetReviewVersionId: "version-2",
+          destinationRecordId: "deferred-valid"
         }
       ]
     });
     const validConstraint = evaluateCloseGate({
       ...base,
+      constraints: [createConstraintFixture({ id: "constraint-valid" })],
       residualAudit: [
         {
           kind: "risk",
           summary: "do not bypass validation",
-          destination: "record_constraint"
+          destination: "record_constraint",
+          destinationRecordId: "constraint-valid"
         }
       ]
     });
@@ -566,6 +584,52 @@ describe("gate service", () => {
     );
     expect(validDeferred.allowed).toBe(true);
     expect(validConstraint.allowed).toBe(true);
+  });
+
+  it("non-close residual destinations require an existing actionable record", () => {
+    const { source, known } = createRouteVersions();
+    const downstreamTodo = createTodoFixture({
+      id: "todo-downstream",
+      versionId: "version-downstream",
+      status: "wait"
+    });
+
+    const missing = evaluateCloseGate({
+      version: source,
+      todos: [],
+      knownTodos: [downstreamTodo],
+      undos: [],
+      knownVersions: known,
+      residualAudit: [
+        {
+          kind: "debt",
+          summary: "carry work forward",
+          destination: "create_todo"
+        }
+      ]
+    });
+    const linked = evaluateCloseGate({
+      version: source,
+      todos: [],
+      knownTodos: [downstreamTodo],
+      undos: [],
+      knownVersions: known,
+      residualAudit: [
+        {
+          kind: "debt",
+          summary: "carry work forward",
+          destination: "create_todo",
+          destinationRecordId: downstreamTodo.id
+        }
+      ]
+    });
+
+    expect(missing.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "RESIDUAL_DESTINATION_RECORD_REQUIRED" })
+      ])
+    );
+    expect(linked).toMatchObject({ allowed: true, blockers: [] });
   });
 
   it.each([
@@ -683,12 +747,20 @@ describe("gate service", () => {
         todos: [],
         undos: [],
         knownVersions: known,
+        deferredItems: [
+          createDeferredFixture({
+            id: "deferred-residual-route",
+            originVersionId: source.id,
+            targetReviewVersionId
+          })
+        ],
         residualAudit: [
           {
             kind: "debt",
             summary: "review later",
             destination: "defer_work",
-            targetReviewVersionId
+            targetReviewVersionId,
+            destinationRecordId: "deferred-residual-route"
           }
         ]
       });
@@ -721,12 +793,20 @@ describe("gate service", () => {
       version: source,
       todos: [],
       undos: [],
+      deferredItems: [
+        createDeferredFixture({
+          id: "deferred-residual-route",
+          originVersionId: source.id,
+          targetReviewVersionId: "version-downstream"
+        })
+      ],
       residualAudit: [
         {
           kind: "debt",
           summary: "review later",
           destination: "defer_work",
-          targetReviewVersionId: "version-downstream"
+          targetReviewVersionId: "version-downstream",
+          destinationRecordId: "deferred-residual-route"
         }
       ]
     });

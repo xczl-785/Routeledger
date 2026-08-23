@@ -43,7 +43,8 @@ describe("route ledger service", () => {
       title: "V2.6",
       state: "complete",
       isCurrent: true,
-      order: 1
+      order: 1,
+      nextVersionId: "version-probe"
     });
     const probeVersion = createVersionFixture({
       id: "version-probe",
@@ -51,7 +52,8 @@ describe("route ledger service", () => {
       state: "wait",
       isCurrent: false,
       order: 2,
-      previousVersionId: currentVersion.id
+      previousVersionId: currentVersion.id,
+      nextVersionId: "version-2"
     });
     const nextVersion = createVersionFixture({
       id: "version-2",
@@ -183,7 +185,8 @@ describe("route ledger service", () => {
       title: "V2.6",
       state: "close",
       isCurrent: true,
-      order: 1
+      order: 1,
+      nextVersionId: "version-2"
     });
     const probeVersion = createVersionFixture({
       id: "version-probe",
@@ -191,7 +194,8 @@ describe("route ledger service", () => {
       state: "wait",
       isCurrent: false,
       order: 2,
-      previousVersionId: currentVersion.id
+      parentVersionId: currentVersion.id,
+      previousVersionId: null
     });
     const nextVersion = createVersionFixture({
       id: "version-2",
@@ -199,7 +203,7 @@ describe("route ledger service", () => {
       state: "ready",
       isCurrent: false,
       order: 3,
-      previousVersionId: probeVersion.id
+      previousVersionId: currentVersion.id
     });
 
     await storage.saveProjectAggregate({
@@ -237,11 +241,11 @@ describe("route ledger service", () => {
     expect(data.statusRisks.map((risk) => risk.code)).toContain(
       "CURRENT_VERSION_CLOSED_NEXT_VERSION_WAITING"
     );
-    expect(data.nextVersion?.id).toBe("version-probe");
+    expect(data.nextVersion?.id).toBe("version-2");
     expect(data.nextAction).toMatchObject({
-      actionType: "prepare_version",
-      targetId: "version-probe",
-      requiresL3Approval: false
+      actionType: "advance_to_version",
+      targetId: "version-2",
+      requiresL3Approval: true
     });
     expect(data.nextAction.blockingRiskCodes).toEqual([]);
   });
@@ -559,7 +563,8 @@ describe("route ledger service", () => {
       title: "V4.0",
       state: "close",
       isCurrent: true,
-      order: 1
+      order: 1,
+      nextVersionId: "version-41"
     });
     const waitVersion = createVersionFixture({
       id: "version-41",
@@ -567,7 +572,8 @@ describe("route ledger service", () => {
       state: "wait",
       isCurrent: false,
       order: 2,
-      previousVersionId: currentVersion.id
+      previousVersionId: currentVersion.id,
+      nextVersionId: "version-42"
     });
     const readyVersion = createVersionFixture({
       id: "version-42",
@@ -575,7 +581,8 @@ describe("route ledger service", () => {
       state: "ready",
       isCurrent: false,
       order: 3,
-      previousVersionId: waitVersion.id
+      previousVersionId: waitVersion.id,
+      nextVersionId: "version-43"
     });
     const runningVersion = createVersionFixture({
       id: "version-43",

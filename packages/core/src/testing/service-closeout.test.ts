@@ -5,6 +5,46 @@ import { RouteLedgerService } from "../index.js";
 
 import { MemoryStorageAdapter, createPreparedProject, createApprovedArtifact, startPreparedVersion, closeVersionThroughL3, completeCurrentVersion } from "./routeledger-service-test-helpers.js";
 describe("route ledger service", () => {
+  it("summarizeVersionCloseout restores the committed close proposal residual audit", async () => {
+    const storage = new MemoryStorageAdapter();
+    const service = new RouteLedgerService({
+      storage,
+      deps: createTestDependencies()
+    });
+    const prepared = await completeCurrentVersion(service, storage);
+    const residualAudit = {
+      status: "reviewed" as const,
+      items: [
+        {
+          kind: "debt" as const,
+          summary: "document the retained compatibility edge",
+          destination: "close" as const
+        }
+      ]
+    };
+    const proposal = await closeVersionThroughL3(
+      service,
+      prepared.projectId,
+      prepared.versionId,
+      residualAudit
+    );
+
+    const summary = await service.summarizeVersionCloseout({
+      projectId: prepared.projectId,
+      versionId: prepared.versionId
+    });
+
+    expect(summary.data.closeGate).toMatchObject({
+      residualAuditSource: "committed_close_proposal",
+      residualAuditProposalId: proposal.pendingOperationId,
+      residualAuditReviewed: true
+    });
+    expect(summary.meta).toMatchObject({
+      residualAuditSource: "committed_close_proposal",
+      residualAuditProposalId: proposal.pendingOperationId
+    });
+  });
+
   it("summarizeVersionCloseout 鍦?open todo 闃诲 close 鏃惰繑鍥?controller-facing 鎽樿骞跺缓璁?close_todo", async () => {
     const storage = new MemoryStorageAdapter();
     const service = new RouteLedgerService({

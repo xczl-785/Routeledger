@@ -44,6 +44,14 @@ const AGENT_CODE_MESSAGES: Record<string, string> = {
   MISSING_DECISION_REFS: "Required route-decision references are missing.",
   INVALID_RESIDUAL_AUDIT_DESTINATION:
     "Every residual-audit item requires a structured destination.",
+  RESIDUAL_DESTINATION_RECORD_REQUIRED:
+    "A non-close residual destination must reference an existing handoff record.",
+  RESIDUAL_DESTINATION_RECORD_NOT_FOUND:
+    "The residual destination record does not exist.",
+  RESIDUAL_DESTINATION_RECORD_NOT_ACTIONABLE:
+    "The residual destination record is no longer actionable.",
+  RESIDUAL_DESTINATION_RECORD_MISMATCH:
+    "The residual destination record does not match the declared handoff.",
   UNKNOWN_CONSTRAINT_GATE_CHECK:
     "The gate references a Constraint that does not exist.",
   MISMATCHED_CONSTRAINT_GATE_CHECK:
@@ -273,6 +281,7 @@ const normalizeDocDriftPresentation = (record: Record<string, unknown>): void =>
       `Checked ${checkedFiles.length} entry files for project ${String(project?.name ?? "")}.`,
       currentVersionText,
       `The current route has ${Number(routeTruth?.openTodoCount ?? 0)} open Todos, ${Number(routeTruth?.openUndoCount ?? 0)} open Undos, and ${Number(routeTruth?.pendingProposalCount ?? 0)} pending proposals.`,
+      `Alignment status: ${String(record.alignmentStatus ?? "unknown")}; safe to trust: ${record.safeToTrust === true ? "yes" : "no"}.`,
       `Found ${warnings.length} warnings and ${unreadableFiles.length} unreadable files.`,
       `Coverage is ${String(coverage?.level ?? "partial")}: ${Number(coverage?.recognizedAssertionCount ?? 0)} explicit current-Version declarations were recognized and ${Number(coverage?.notDetectedAssertionCount ?? 0)} declaration fields were not detected.`
     ].join(" ");

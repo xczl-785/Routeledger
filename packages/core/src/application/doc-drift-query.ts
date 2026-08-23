@@ -83,6 +83,8 @@ export interface CheckDocDriftCoverage {
 
 export interface CheckDocDriftResult {
   status: "completed" | "partial" | "not_completed";
+  alignmentStatus: "aligned" | "drift_detected" | "insufficient_coverage" | "unknown";
+  safeToTrust: boolean;
   project: {
     id: string;
     name: string;
@@ -789,6 +791,14 @@ export const runDocDriftCheck = async (options: {
       : unreadableFiles.length > 0
         ? "partial"
         : "completed";
+  const alignmentStatus: CheckDocDriftResult["alignmentStatus"] =
+    unreadableFiles.length > 0 || checkedFiles.length === 0
+      ? "unknown"
+      : mismatchedAssertions.length > 0 || warnings.length > 0
+        ? "drift_detected"
+        : recognizedAssertions.length === 0
+          ? "insufficient_coverage"
+          : "aligned";
   const coverage: CheckDocDriftCoverage = {
     level: checkedFiles.length === 0 ? "none" : "partial",
     assertionKinds: CURRENT_VERSION_ASSERTION_KINDS,
@@ -824,6 +834,8 @@ export const runDocDriftCheck = async (options: {
 
   return {
     status,
+    alignmentStatus,
+    safeToTrust: alignmentStatus === "aligned",
     project: {
       id: project.id,
       name: project.name,

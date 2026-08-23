@@ -47,6 +47,9 @@ rules.
    recommends `set_version_state(operation="prepare")`, while a current `ready` version with a passing
    start gate recommends `start_version`. Gate blockers, due Deferred work,
    pending proposals, shutdown state, and pointer drift retain higher priority.
+   The projected `nextVersion` is the current Version's persisted direct sibling
+   successor, not the next node in flattened tree preorder. Child Versions stay
+   visible as structure but do not silently replace the legal mainline advance target.
    A running current Version with no open Todo and no blocking risk returns a
    canonical-English `decision_required` branch: create a Todo when work remains, or
    mark the Version complete only when implementation is actually complete.
@@ -56,7 +59,13 @@ rules.
    `null`, and legacy empty arrays remain `MISSING_RESIDUAL_AUDIT`. The same
    resolved evidence (input first, then a pending close proposal) is used by
    gates, closeout summaries/plans, guides, close proposals, and approval
-   digests.
+   digests. A non-`close` destination is a declaration backed by an already
+   materialized Todo, Deferred, or Constraint: callers must provide its
+   `destinationRecordId`, and the close gate validates type, actionability, and
+   downstream routing. Close commit never invents an underspecified record.
+   After close, the summary restores the reviewed audit from the committed
+   close proposal; while a Version is reopened, a current pending close proposal
+   takes precedence over historical committed evidence.
 9. Agent-facing MCP messages and protocol identifiers use canonical English.
    Coded blockers use one message catalog across current context, gate inspection,
    and legal-operation projections; next-action summaries, reasons, and choice
@@ -91,7 +100,10 @@ rules.
     current Version ID, title, and state. It returns every recognized,
     mismatched, and non-detected assertion under `checkedAssertions`, and its
     `coverage.level` remains `partial`; zero warnings never claims complete
-    document coverage.
+    document coverage. Execution completion and document alignment are separate:
+    `alignmentStatus` reports `aligned`, `drift_detected`,
+    `insufficient_coverage`, or `unknown`, and `safeToTrust` is true only for
+    the aligned result.
 15. `configure_project(operation="initialize")` distinguishes project initialization from route selection.
     Omitting `firstVersion` creates a valid empty route with nullable current
     and legacy-initial pointers. An explicit `firstVersion` creates the first
