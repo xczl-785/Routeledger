@@ -6,7 +6,7 @@ export const canonicalizeLocale = (value) => {
         throw new DomainError("CONTENT_LOCALE_REQUIRED", "content_locale requires a concrete BCP 47 locale.");
     }
     if (normalized.toLowerCase() === "auto") {
-        throw new DomainError("CONTENT_LOCALE_MUST_BE_CONCRETE", "content_locale cannot be auto; confirm a concrete BCP 47 locale with the user.");
+        throw new DomainError("CONTENT_LOCALE_MUST_BE_CONCRETE", "content_locale cannot be auto; confirm a concrete BCP 47 locale with the user.", { contentLocale: value });
     }
     try {
         return Intl.getCanonicalLocales(normalized)[0];

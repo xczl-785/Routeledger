@@ -560,6 +560,12 @@ describe("route ledger service", () => {
         ]
       });
 
+      expect(stale.data).toMatchObject({
+        status: "completed",
+        alignmentStatus: "drift_detected",
+        safeToTrust: false
+      });
+
       documentSource.setDocument(
         "README.md",
         ["当前版本发布说明", "当前状态：running"].join("\n"),
@@ -591,6 +597,10 @@ describe("route ledger service", () => {
       });
 
       expect(aligned.data.status).toBe("completed");
+      expect(aligned.data).toMatchObject({
+        alignmentStatus: "aligned",
+        safeToTrust: true
+      });
       expect(aligned.data.warnings).toEqual([]);
       expect(aligned.data.checkedAssertions).toEqual(
         expect.arrayContaining([
@@ -631,6 +641,10 @@ describe("route ledger service", () => {
       });
 
       expect(result.data.status).toBe("not_completed");
+      expect(result.data).toMatchObject({
+        alignmentStatus: "unknown",
+        safeToTrust: false
+      });
       expect(result.data.coverage.level).toBe("none");
       expect(result.data.checkedFiles).toEqual([]);
       expect(result.data.unreadableFiles).toHaveLength(2);

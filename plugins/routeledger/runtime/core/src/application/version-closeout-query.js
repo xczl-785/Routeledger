@@ -88,21 +88,28 @@ const summarizeCloseoutRecentEvent = (event) => ({
 const isProjectCurrentVersionEventForVersion = (event, versionId) => event.targetType === "project" &&
     event.eventType === "project.current_version_changed" &&
     (event.fromState === versionId || event.toState === versionId);
-const resolveCloseoutResidualAudit = (pendingOperations, versionId) => {
-    const resolved = resolveResidualAudit(undefined, pendingOperations
-        .filter((operation) => operation.status === "pending" &&
+const resolveCloseoutResidualAudit = (pendingOperations, versionId, preferCommitted) => {
+    const candidates = pendingOperations
+        .filter((operation) => (operation.status === "committed" || operation.status === "pending") &&
         operation.actionType === "close_version" &&
         operation.targetId === versionId)
         .slice()
-        .sort(comparePendingOperationsDesc)
-        .map((operation) => ({
+        .sort((left, right) => {
+        if (left.status !== right.status) {
+            return left.status === (preferCommitted ? "committed" : "pending") ? -1 : 1;
+        }
+        return comparePendingOperationsDesc(left, right);
+    });
+    const resolved = resolveResidualAudit(undefined, candidates.map((operation) => ({
         id: operation.id,
         residualAudit: operation.payload.residualAudit,
         residualAuditReviewed: operation.payload.residualAuditReviewed
     })));
     return {
         residualAudit: structuredClone(resolved.audit?.items ?? []),
-        source: resolved.source,
+        source: resolved.source === "proposal_payload" && candidates[0]?.status === "committed"
+            ? "committed_close_proposal"
+            : resolved.source,
         proposalId: resolved.proposalId,
         reviewed: resolved.audit !== null
     };
@@ -235,10 +242,11 @@ export const collectVersionCloseoutView = (options) => {
         .sort(comparePendingOperationsDesc);
     const relatedPendingOperationIds = new Set(relatedPendingOperations.map((operation) => operation.id));
     const newestEvents = snapshot.events.slice().reverse();
-    const residualAudit = resolveCloseoutResidualAudit(relatedPendingOperations, version.id);
+    const residualAudit = resolveCloseoutResidualAudit(relatedPendingOperations, version.id, version.state === "close");
     const closeGateEvaluation = evaluateCloseGate({
         version,
         todos: versionTodos,
+        knownTodos: snapshot.todos,
         undos: versionUndos,
         residualAudit: residualAudit.reviewed
             ? { status: "reviewed", items: residualAudit.residualAudit }

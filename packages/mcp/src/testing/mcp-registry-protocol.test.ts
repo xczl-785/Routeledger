@@ -39,7 +39,8 @@ describe("routeledger mcp registry", () => {
         ok: false,
         error: {
           code: "CONTENT_LOCALE_MUST_BE_CONCRETE",
-          message: "content_locale must be concrete and cannot be auto."
+          message: "content_locale must be concrete and cannot be auto.",
+          details: { contentLocale: "auto" }
         }
       });
 

@@ -726,12 +726,14 @@ describe("@routeledger/json canonical codec", () => {
             kind: "open_question",
             summary: "review this in the next product version",
             destination: "defer_work",
-            targetReviewVersionId: "version-2"
+            targetReviewVersionId: "version-2",
+            destinationRecordId: "deferred-1"
           },
           {
             kind: "risk",
             summary: "preserve the stop-write boundary",
-            destination: "record_constraint"
+            destination: "record_constraint",
+            destinationRecordId: "constraint-1"
           }
         ]
       }
@@ -748,6 +750,7 @@ describe("@routeledger/json canonical codec", () => {
     expect(pendingDocument?.content).toContain("\"defer_work\"");
     expect(pendingDocument?.content).toContain("\"record_constraint\"");
     expect(pendingDocument?.content).toContain("\"target_review_version_id\"");
+    expect(pendingDocument?.content).toContain("\"destination_record_id\"");
     expect(decoded.pendingOperations[0]?.payload).toEqual(
       pendingOperation.payload
     );

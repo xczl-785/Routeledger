@@ -69,16 +69,16 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   configure_binding: "c29110103adc70d2a09d99333b24df0be7a70452eeed1d7444ee8e4d145f899a",
   configure_project: "6051b3a33ebe6f7805d7a7439e6f52f3704336e4e0d46c9180271b649dc531e9",
   inspect_route_progress: "a7aa7d052dffba17f97734074d5fdb33061de83e35a5a524e24e36251357e7ed",
-  inspect_versions: "80678914abea7583a112d590045b355b4c03b6a80d412241a77ce941fad1e762",
+  inspect_versions: "a172ce649526f477750af7b0dc0e01274f97b0f92b82cb62fc338755e81632d6",
   inspect_l3_route_operations: "39b657927f844f5f3bf5c5cbdc25401d1ffa679e0e0118609ff188f32c44a757",
   manage_todo: "3c8ca1c0c87d72b4b1fc39558c3e5a3c4b25f25ba2d9b0b8d7be08184074d010",
   manage_deferred: "07d6b9fcae2d19807fd3bc90547b759110ccc9c88b6930e51d2028184813c184",
   manage_constraint: "99597c205e5cbb3452e8e697f44c74860d7601ca6df9c0cb177ddcfaf69d6997",
-  propose_version_lifecycle_change: "83320a77caecc3833851c3f4f12d86989ee7acae589e789d6793dbfd81a6c37d",
+  propose_version_lifecycle_change: "2b595b78138b0579925b17957638e17580288a8a456804c2ebfcf7ec155d0dd2",
   propose_version_structure_change: "59f73895a080862b1de52e832cc58e3d377844e98cf2683090d3a7dd01d45ed8",
-  propose_l3_route_change: "308d72df78a6bd4fa7167d09a42c949a11893202731f268fe26e1b62ee8d63dc",
+  propose_l3_route_change: "29f03d82521cad53bee60e71526c268da2535b28cb556888b45540242a77bc42",
   set_version_state: "b844b6ab10ea1988f8161e81fc0a7302541ed6072d0cc1852326750ab7fdba06",
-  execute_route_change: "a9145a2012571d204c0c8263115417045fc950835796f6d8a5e3713970fd8162",
+  execute_route_change: "0de95319db13c333b9655165d5872e02dd5497dd8c0ee0c5e1cc94fcb8f44232",
   manage_mission_control: "95cca65c6dcd640ffcea75a1c90f175ba30b3118d9e0ca05729e08e1b5ee11f4"
 } as const;
 

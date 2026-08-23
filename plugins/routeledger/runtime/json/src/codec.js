@@ -141,7 +141,8 @@ const encodeGateSnapshot = (snapshot) => {
                 summary: item.summary,
                 destination: item.destination,
                 preferred_resolution_version_id: item.preferredResolutionVersionId,
-                target_review_version_id: item.targetReviewVersionId
+                target_review_version_id: item.targetReviewVersionId,
+                destination_record_id: item.destinationRecordId
             })) ?? null,
             ...(snapshot.residualAuditReviewed === true
                 ? { residual_audit_reviewed: true }
@@ -218,7 +219,8 @@ const decodeGateSnapshot = (snapshot) => {
                 summary: item.summary,
                 destination: item.destination,
                 preferredResolutionVersionId: item.preferred_resolution_version_id,
-                targetReviewVersionId: item.target_review_version_id
+                targetReviewVersionId: item.target_review_version_id,
+                destinationRecordId: item.destination_record_id
             })) ?? null,
             ...(snapshot.residual_audit_reviewed === true
                 ? { residualAuditReviewed: true }
@@ -380,7 +382,8 @@ const encodePendingOperationPayload = (payload) => stripUndefined({
         summary: item.summary,
         destination: item.destination,
         preferred_resolution_version_id: item.preferredResolutionVersionId,
-        target_review_version_id: item.targetReviewVersionId
+        target_review_version_id: item.targetReviewVersionId,
+        destination_record_id: item.destinationRecordId
     })) ?? undefined,
     ...(payload.residualAuditReviewed === true
         ? { residual_audit_reviewed: true }
@@ -426,7 +429,8 @@ const decodePendingOperationPayload = (payload) => {
                     summary: auditItem.summary,
                     destination: auditItem.destination,
                     preferredResolutionVersionId: auditItem.preferred_resolution_version_id,
-                    targetReviewVersionId: auditItem.target_review_version_id
+                    targetReviewVersionId: auditItem.target_review_version_id,
+                    destinationRecordId: auditItem.destination_record_id
                 };
             })
             : payload.residual_audit === null

@@ -132,6 +132,7 @@ export class VersionCommandService implements VersionCommandUseCases {
     const closeReadiness = evaluateCloseGate({
       version: completed.version,
       todos: snapshot.todos.filter((todo) => todo.versionId === input.versionId),
+      knownTodos: snapshot.todos,
       undos: snapshot.undos.filter(
         (undo) =>
           undo.versionId === input.versionId ||

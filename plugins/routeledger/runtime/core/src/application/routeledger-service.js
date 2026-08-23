@@ -283,6 +283,7 @@ const buildVersionStructureLegalOperations = (snapshot, focusVersion, residualAu
     const closeGate = evaluateCloseGate({
         version: focusVersion,
         todos: snapshot.todos.filter((todo) => todo.versionId === focusVersion.id),
+        knownTodos: snapshot.todos,
         undos: snapshot.undos.filter((undo) => undo.versionId === focusVersion.id ||
             undo.originVersionId === focusVersion.id ||
             undo.preferredResolutionVersionId === focusVersion.id),
@@ -437,6 +438,7 @@ export const buildVersionTransitionGuide = (snapshot, input) => {
     const closeGateEvaluation = evaluateCloseGate({
         version: fromVersion,
         todos: snapshot.todos.filter((todo) => todo.versionId === fromVersion.id),
+        knownTodos: snapshot.todos,
         undos: snapshot.undos.filter((undo) => undo.versionId === fromVersion.id ||
             undo.originVersionId === fromVersion.id ||
             undo.preferredResolutionVersionId === fromVersion.id),
@@ -1130,6 +1132,7 @@ const buildOperationDescription = (snapshot, actionType, targetId, payload, eval
             const gate = evaluateCloseGate({
                 version,
                 todos: snapshot.todos.filter((todo) => todo.versionId === version.id),
+                knownTodos: snapshot.todos,
                 undos: snapshot.undos.filter((undo) => undo.versionId === version.id ||
                     undo.originVersionId === version.id ||
                     undo.preferredResolutionVersionId === version.id),
@@ -1164,6 +1167,7 @@ const buildOperationDescription = (snapshot, actionType, targetId, payload, eval
             const ordinaryCloseGate = evaluateCloseGate({
                 version,
                 todos: snapshot.todos.filter((todo) => todo.versionId === version.id),
+                knownTodos: snapshot.todos,
                 undos: snapshot.undos.filter((undo) => undo.versionId === version.id ||
                     undo.originVersionId === version.id ||
                     undo.preferredResolutionVersionId === version.id),

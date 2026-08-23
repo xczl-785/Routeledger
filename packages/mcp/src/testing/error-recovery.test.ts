@@ -6,6 +6,16 @@ import { toToolError } from "../index.js";
 import { normalizeAgentToolResponse } from "../agent-response.js";
 
 describe("MCP business error recovery", () => {
+  it("omits undefined details so domain errors remain valid public output", () => {
+    expect(toToolError(new DomainError("CONTENT_LOCALE_INVALID", "plain"))).toEqual({
+      ok: false,
+      error: {
+        code: "CONTENT_LOCALE_INVALID",
+        message: "plain"
+      }
+    });
+  });
+
   it("treats a repeated close_todo as an already-applied boundary without weakening the state machine", () => {
     const response = toToolError(
         new DomainError("INVALID_TODO_TRANSITION", "cannot close", {

@@ -9,6 +9,7 @@ import type {
   ApprovalArtifact,
   DocumentSourcePort,
   ProjectAggregateSnapshot,
+  ResidualAuditInput,
   RouteLedgerService,
   StoragePort
 } from "../index.js";
@@ -265,13 +266,15 @@ export const startPreparedVersion = async (
     approvalArtifactId: artifact.id,
     actor: TEST_ACTOR
   });
+
+  return proposal;
 };
 
 export const closeVersionThroughL3 = async (
   service: RouteLedgerService,
   projectId: string,
   versionId: string,
-  residualAudit = [
+  residualAudit: ResidualAuditInput = [
     {
       kind: "debt" as const,
       summary: "none",
@@ -294,6 +297,8 @@ export const closeVersionThroughL3 = async (
     approvalArtifactId: artifact.id,
     actor: TEST_ACTOR
   });
+
+  return proposal;
 };
 
 export const completeCurrentVersion = async (
