@@ -353,6 +353,7 @@ describe("routeledger mcp registry", () => {
         ok: true,
         data: {
           contentLocale: {
+            scope: "project_content_only",
             status: "confirmation_required",
             configuredValue: null,
             suggestedValue: null,
@@ -630,6 +631,7 @@ describe("routeledger mcp registry", () => {
             contentLocale: "en"
           },
           contentLocale: {
+            scope: "project_content_only",
             status: "configured",
             configuredValue: "en",
             requiresUserDecision: false,

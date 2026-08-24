@@ -351,6 +351,7 @@ describe("agent response detail projection", () => {
           contentLocale: "zh"
         },
         contentLocale: {
+          scope: "project_content_only",
           status: "configured",
           configuredValue: "zh",
           suggestedValue: null,
@@ -413,7 +414,11 @@ describe("agent response detail projection", () => {
     expect(compact.data).toMatchObject({
       binding: { status: "bound", routeledgerRoot: "D:/workspace/project" },
       activeProject: { id: "project-1", name: "Example" },
-      contentLocale: { status: "configured", configuredValue: "zh" },
+      contentLocale: {
+        scope: "project_content_only",
+        status: "configured",
+        configuredValue: "zh"
+      },
       missionControl: {
         status: "stopped",
         notice: { code: "MISSION_CONTROL_STOPPED", requiresUserDecision: true },

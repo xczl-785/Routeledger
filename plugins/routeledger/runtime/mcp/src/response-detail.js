@@ -73,6 +73,7 @@ const compactRuntimeData = (value, omittedSections) => {
             contentLocale === null
                 ? undefined
                 : definedEntries([
+                    ["scope", contentLocale.scope],
                     ["status", contentLocale.status],
                     ["configuredValue", contentLocale.configuredValue],
                     ["requiresUserDecision", contentLocale.requiresUserDecision]

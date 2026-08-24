@@ -22,7 +22,10 @@ rules.
    no write or recommendation surface remains.
 4. Deferred work has a target review version; a due item must be reviewed
    rather than silently carried forward. Constraints remain rules, not work
-   completion counts.
+   completion counts. When no downstream Version exists, the error recovery
+   payload supplies a three-step dependency plan: propose a real Version,
+   execute the admitted proposal, then retry the original Deferred request by
+   binding `targetReviewVersionId` to the proposal's real `targetId`.
 5. L3 route changes follow proposal, approval or rejection, and commit.
    Approval artifacts are minted only after a trusted exact decision from
    structured host elicitation, Codex native admission, or a host-managed
@@ -78,7 +81,8 @@ rules.
 10. A legacy project whose `contentLocale` is unresolved remains readable.
    All project writes except `configure_project(operation="set_content_locale")` are blocked until a
     concrete BCP 47 locale is persisted.
-11. `inspect_runtime(operation="runtime").contentLocale.effectiveScopes` reports the current
+11. `inspect_runtime(operation="runtime").contentLocale.scope` is the stable
+    machine-readable value `project_content_only`, while `effectiveScopes` reports the current
     bounded effect of `contentLocale`: the persisted project setting, the
     `agent_authored_project_content_default` language agents should use for new project content, and the
     write-integrity gate. It does
@@ -94,8 +98,9 @@ rules.
 13. The MCP runtime exposes an `interactionProfile` without persisting it into
     canonical project data. Codex, Claude Code, and Cursor default to
     `agent_only`; generic MCP defaults to `agent_with_human_review`. Under
-    `agent_only`, Mission Control and human-entry setup remain available as
-    `advisoryAction` metadata rather than primary recommended actions.
+    `agent_only`, Mission Control remains available as `advisoryAction`
+    metadata, while project initialization omits human-entry-document metadata.
+    Explicit document inspection and human-review profiles retain it.
 14. `inspect_route_progress(operation="check_doc_drift")` compares explicit Chinese or English declarations of the
     current Version ID, title, and state. It returns every recognized,
     mismatched, and non-detected assertion under `checkedAssertions`, and its
@@ -112,7 +117,8 @@ rules.
     documents. It reports whether one points to `.routeledger/project.json`
     and returns a locale-matched, non-blocking template when coverage is
     missing; it never creates or rewrites README, AGENTS, CONTRIBUTING, or
-    `docs/index.md` automatically.
+    `docs/index.md` automatically. The check is omitted from the returned
+    `agent_only` initialization payload to keep the primary Agent route concise.
 14. On an empty route, the first approved `propose_version_structure_change(operation="propose_version_creation")` commit creates the
     node and assigns it as current atomically. Batch creation requires an
     explicit `setCurrentTo`. A closed top-level tail may receive an append-only

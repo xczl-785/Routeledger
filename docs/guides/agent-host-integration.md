@@ -50,8 +50,10 @@ selected the first real node, pass its title, description, and explicit
 older projects, while the Project itself is the route root and
 `currentVersionId` identifies the selected node. Initialization also reports
 whether a common human entry document points to `.routeledger/project.json`.
-Missing coverage is non-blocking and includes a locale-matched suggested
-snippet; RouteLedger does not create or rewrite the entry document. For an
+Under `agent_only`, initialization omits that human-entry metadata; explicit
+document inspection and human-review profiles retain it. Missing coverage is
+non-blocking and includes a locale-matched suggested snippet when returned;
+RouteLedger does not create or rewrite the entry document. For an
 existing canonical data set, read it before writing. When JSON and SQLite
 disagree, stop on `JSON_SQLITE_CONFLICT`; do not delete either store to force
 a result.
@@ -60,7 +62,8 @@ An older project without `settings.content_locale` decodes as unresolved
 `null`. It remains readable, but project writes are blocked until
 `set_project_content_locale` records a user-confirmed concrete value. Agent-facing
 MCP messages, tool names, object keys, enums, and error codes use one canonical
-English protocol. The persisted `contentLocale` remains the language contract
+English protocol. Runtime inspection marks `contentLocale.scope` as
+`project_content_only`. The persisted `contentLocale` remains the language contract
 for generated project content and user-facing consumers. This includes candidate
 Todo titles and reasons returned by document-drift checks; their surrounding
 diagnostics, coverage limitations, and summaries remain canonical English.
@@ -88,6 +91,12 @@ confirm binding -> read current context -> get next_action
 Agents must not reconstruct the state machine when an executable Next Action is present or infer executable authorization from ordinary chat or project files. After a timeout, conflict, or unknown result, reread current state and `next_action` before retrying; known successful writes do not require extra inspection.
 
 Explain route restructuring, exceptional Version states, Deferred review states, Constraint retirement, closeout residual auditing, L3 proposals, document drift, and Mission Control only when the matching state, blocker, or action appears. Work lineage, authorization artifacts and receipts, digests, request state, storage internals, and the segmented L3 protocol remain audit, recovery, or developer concepts rather than first-use vocabulary.
+
+When Deferred creation reports `downstream_version_required`, follow its
+ordered `recommendedNextActions`. Resolve each step's `inputBindings` from the
+declared earlier result, wait for the admitted Version creation to commit, and
+only then retry the original Deferred request. Never fabricate the future
+Version ID.
 
 Canonical JSON is the MCP runtime authority. SQLite is a rebuildable read
 model when enabled. The JSON-only plugin runtime disables that read model and

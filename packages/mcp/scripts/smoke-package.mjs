@@ -458,6 +458,10 @@ const runStdioSmoke = async ({
   if (stdoutLines[2]?.result?.structuredContent?.ok !== true) {
     throw new Error("configure_project(operation=initialize) did not report a successful canonical JSON write.");
   }
+  const initializedProject = stdoutLines[2]?.result?.structuredContent?.data;
+  if (Object.prototype.hasOwnProperty.call(initializedProject ?? {}, "documentation")) {
+    throw new Error("Codex agent-only initialization did not omit human-entry-document metadata.");
+  }
 
   const runtimeContext = stdoutLines[3]?.result?.structuredContent?.data;
   if (runtimeContext?.binding?.workspaceRoot !== workspaceRoot) {
@@ -475,6 +479,9 @@ const runStdioSmoke = async ({
   }
   if (runtimeContext?.runtimeProfile !== profileName) {
     throw new Error(`inspect_runtime(operation=runtime) did not report runtimeProfile=${profileName}.`);
+  }
+  if (runtimeContext?.contentLocale?.scope !== "project_content_only") {
+    throw new Error("inspect_runtime(operation=runtime) did not report the project-content-only locale scope.");
   }
   if (
     runtimeContext?.missionControl?.status !== "stopped" ||
