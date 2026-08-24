@@ -77,14 +77,30 @@ Use `detail: "compact"` for routine Agent action loops. Compact responses keep
 the state, IDs, blockers, executable recommended actions, idempotency/replay
 state, and exact L3 proposal/digest/artifact identifiers needed for the next
 call. Audit-heavy payload bodies, verbose runtime identity, and full event
-records are omitted or summarized; `meta.omittedSections` states exactly what
-was removed and `meta.hasMore` indicates whether a `standard` or `audit` read
-can provide more.
+records are omitted or summarized. High-frequency runtime, route-progress,
+Version-list, L3-list, and Todo receipt operations use operation-aware compact
+profiles instead of relying only on generic recursive trimming. Empty routine
+collections may be absent from a compact current-context response; a present
+collection remains authoritative. `meta.omittedSections` may group related
+nonessential children under one stable section marker, and `meta.hasMore`
+indicates whether a `standard` or `audit` read can provide more.
+
+Response-footprint tests measure the complete minified structured envelope,
+not only `data` or `error`. Representative routine compact reads are required
+to stay below their R1/R2 budgets and must never exceed the matching standard
+response. L3 compact responses retain exact execution identifiers and use the
+wider R3 budget.
 
 Omitting `detail` uses `standard` and preserves the compatibility response.
 Use `detail: "audit"` only when complete diagnostic, proposal-payload, event,
 or authorization evidence is needed. Selecting response detail does not change
 the operation, persisted state, digest, or idempotency fingerprint.
+
+Legacy/unknown MCP clients continue to receive the full JSON envelope mirrored
+into text content for structured-content compatibility. An explicit compact
+request using the MCP 2026 multi-round-trip profile receives a terse text
+pointer (at most 256 UTF-8 bytes) plus the authoritative `structuredContent`;
+standard responses keep the complete text mirror.
 
 ## Multiple projects
 

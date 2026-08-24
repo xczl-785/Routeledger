@@ -470,11 +470,24 @@ const toStructuredEnvelope = (
 const toCallToolResult = (
   registry: RouteLedgerMcpRegistry,
   toolName: string,
-  toolResponse: ToolResponse
+  toolResponse: ToolResponse,
+  options: { terseText?: boolean } = {}
 ) => {
   const toolDefinition = registry.getTool(toolName);
   const structuredContent = toStructuredEnvelope(toolResponse);
-  const text = JSON.stringify(structuredContent, null, 2);
+  const data = isObject(toolResponse.data) ? toolResponse.data : null;
+  const status = data === null
+    ? undefined
+    : [data.status, data.state, data.mode].find((value) => typeof value === "string");
+  const text = options.terseText === true
+    ? JSON.stringify({
+        ok: toolResponse.ok,
+        tool: toolName,
+        ...(status === undefined ? {} : { status }),
+        ...(toolResponse.error === undefined ? {} : { errorCode: toolResponse.error.code }),
+        result: "See structuredContent."
+      })
+    : JSON.stringify(structuredContent, null, 2);
 
   return {
     content: [
@@ -1169,7 +1182,15 @@ export const createRouteLedgerStdioServer = (
                     ...validationError,
                     meta: await activeRegistry.getRuntimeContextMeta()
                   };
-                  const callResult = toCallToolResult(activeRegistry, toolCall.name, toolResponse);
+                  const callResult = toCallToolResult(
+                    activeRegistry,
+                    toolCall.name,
+                    toolResponse,
+                    {
+                      terseText:
+                        is2026Request && toolCall.arguments.detail === "compact"
+                    }
+                  );
                   return {
                     kind: "respond",
                     response: successResponse(
@@ -1224,14 +1245,19 @@ export const createRouteLedgerStdioServer = (
                       request.id,
                       to2026Result(
                         bound.registry,
-                        toCallToolResult(bound.registry, toolCall.name, {
-                          ok: false,
-                          error: {
-                            code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-                            message:
-                              "MCP 2026 L3 execution requires ROUTELEDGER_MCP_REQUEST_STATE_SECRET."
-                          }
-                        })
+                        toCallToolResult(
+                          bound.registry,
+                          toolCall.name,
+                          {
+                            ok: false,
+                            error: {
+                              code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+                              message:
+                                "MCP 2026 L3 execution requires ROUTELEDGER_MCP_REQUEST_STATE_SECRET."
+                            }
+                          },
+                          { terseText: toolCall.arguments.detail === "compact" }
+                        )
                       )
                     )
                   };
@@ -1331,14 +1357,19 @@ export const createRouteLedgerStdioServer = (
                       request.id,
                       to2026Result(
                         activeRegistry,
-                        toCallToolResult(activeRegistry, toolCall.name, {
-                          ok: false,
-                          error: {
-                            code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
-                            message:
-                              "MCP 2026 interactive authorization requires an explicit request-state secret."
-                          }
-                        })
+                        toCallToolResult(
+                          activeRegistry,
+                          toolCall.name,
+                          {
+                            ok: false,
+                            error: {
+                              code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
+                              message:
+                                "MCP 2026 interactive authorization requires an explicit request-state secret."
+                            }
+                          },
+                          { terseText: toolCall.arguments.detail === "compact" }
+                        )
                       )
                     );
                   }
@@ -1408,7 +1439,11 @@ export const createRouteLedgerStdioServer = (
                 const callResult = toCallToolResult(
                   activeRegistry,
                   toolCall.name,
-                  outputValidationError ?? effectiveToolResponse
+                  outputValidationError ?? effectiveToolResponse,
+                  {
+                    terseText:
+                      is2026Request && toolCall.arguments.detail === "compact"
+                  }
                 );
                 return successResponse(
                   request.id,
