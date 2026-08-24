@@ -208,10 +208,22 @@ const toStructuredEnvelope = (toolResponse) => ({
     ...(toolResponse.error === undefined ? {} : { error: toolResponse.error }),
     ...(toolResponse.meta === undefined ? {} : { meta: toolResponse.meta })
 });
-const toCallToolResult = (registry, toolName, toolResponse) => {
+const toCallToolResult = (registry, toolName, toolResponse, options = {}) => {
     const toolDefinition = registry.getTool(toolName);
     const structuredContent = toStructuredEnvelope(toolResponse);
-    const text = JSON.stringify(structuredContent, null, 2);
+    const data = isObject(toolResponse.data) ? toolResponse.data : null;
+    const status = data === null
+        ? undefined
+        : [data.status, data.state, data.mode].find((value) => typeof value === "string");
+    const text = options.terseText === true
+        ? JSON.stringify({
+            ok: toolResponse.ok,
+            tool: toolName,
+            ...(status === undefined ? {} : { status }),
+            ...(toolResponse.error === undefined ? {} : { errorCode: toolResponse.error.code }),
+            result: "See structuredContent."
+        })
+        : JSON.stringify(structuredContent, null, 2);
     return {
         content: [
             {
@@ -774,7 +786,9 @@ export const createRouteLedgerStdioServer = (options) => {
                                         ...validationError,
                                         meta: await activeRegistry.getRuntimeContextMeta()
                                     };
-                                    const callResult = toCallToolResult(activeRegistry, toolCall.name, toolResponse);
+                                    const callResult = toCallToolResult(activeRegistry, toolCall.name, toolResponse, {
+                                        terseText: is2026Request && toolCall.arguments.detail === "compact"
+                                    });
                                     return {
                                         kind: "respond",
                                         response: successResponse(request.id, is2026Request ? to2026Result(activeRegistry, callResult) : callResult)
@@ -819,7 +833,7 @@ export const createRouteLedgerStdioServer = (options) => {
                                                 code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
                                                 message: "MCP 2026 L3 execution requires ROUTELEDGER_MCP_REQUEST_STATE_SECRET."
                                             }
-                                        })))
+                                        }, { terseText: toolCall.arguments.detail === "compact" })))
                                     };
                                 }
                                 let invocationArguments = toolCall.arguments;
@@ -897,7 +911,7 @@ export const createRouteLedgerStdioServer = (options) => {
                                                 code: "AUTHORIZATION_CONTROL_PLANE_UNAVAILABLE",
                                                 message: "MCP 2026 interactive authorization requires an explicit request-state secret."
                                             }
-                                        })));
+                                        }, { terseText: toolCall.arguments.detail === "compact" })));
                                     }
                                     const requestState = effectiveToolResponse.data.requestState;
                                     if (!isObject(requestState) ||
@@ -952,7 +966,9 @@ export const createRouteLedgerStdioServer = (options) => {
                                     });
                                 }
                                 const outputValidationError = validateToolOutput(rebound.toolDefinition, effectiveToolResponse);
-                                const callResult = toCallToolResult(activeRegistry, toolCall.name, outputValidationError ?? effectiveToolResponse);
+                                const callResult = toCallToolResult(activeRegistry, toolCall.name, outputValidationError ?? effectiveToolResponse, {
+                                    terseText: is2026Request && toolCall.arguments.detail === "compact"
+                                });
                                 return successResponse(request.id, is2026Request ? to2026Result(activeRegistry, callResult) : callResult);
                             },
                             mapError: (error) => errorResponse(request.id, INTERNAL_ERROR, error instanceof Error ? error.message : String(error))

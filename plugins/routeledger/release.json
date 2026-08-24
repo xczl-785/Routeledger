@@ -24,7 +24,7 @@
     },
     "buildCommit": null,
     "artifactDigest": null,
-    "runtimePayloadDigest": "fa477ab399d04daf4ad6800c798ed5bfea6d64d5faf1693c7158495a56fe9974",
+    "runtimePayloadDigest": "884151ff6f43db58b0e4d24bf98dee6af683651722e63a4da819c690ee49c1b9",
     "runtimePayloadCoverage": "All regular files under plugins/routeledger/runtime, excluding mcp/src/runtime-identity.js."
   },
   "attestation": {
@@ -40,8 +40,8 @@
   },
   "content": {
     "algorithm": "sha256",
-    "pluginDistributionSha256": "74b45413939acb69a90f9625ce43db300a89b9e3babeae0245fa9cfb3392ed41",
-    "runtimeSha256": "d11bb29bfb5b1485a8488182f2ff7c347cb81ef6328102e65f8de2a161ffff9b",
+    "pluginDistributionSha256": "1223bc18eb3129aa054382da23e3f7afe3ef7254b892cbb52394f1675e5a81ee",
+    "runtimeSha256": "2971ccb4e30be839900481f7e982dbe765324520f520f86d76f87ae3ec327dbf",
     "pluginDistributionCoverage": "All regular files under plugins/routeledger, excluding release.json.",
     "runtimeCoverage": "All regular files under plugins/routeledger/runtime."
   }
