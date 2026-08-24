@@ -33,6 +33,10 @@ checklist for every new tool.
    test when wiring, preflight, session state, or response behavior changes.
    Write tools still require a root-assertion failure case that verifies zero
    state change.
+   Assign the operation an R0-R3 response-footprint class, add one representative
+   compact budget assertion, and verify compact is not larger than standard.
+   Preserve exact blockers, user decisions, executable inputs, and L3 identifiers;
+   avoid summary/delta fields that only repeat a small read response.
 6. If the tool is read-only and should default to auto approval in Codex,
    update the approval lists in `packages/codex/src/index.ts`; otherwise it
    falls back to the default prompt mode.

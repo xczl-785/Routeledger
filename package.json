@@ -10,6 +10,7 @@
     "check:package-boundaries": "node ./scripts/check-package-boundaries.mjs",
     "lint": "eslint . --ignore-pattern \"packages/*/dist/**\" --ignore-pattern \"packages/*/dist-plugin-runtime/**\" --ignore-pattern \"plugins/*/runtime/**\"",
     "measure:audit-footprint": "tsx ./scripts/testing/measure-audit-footprint.ts",
+    "measure:agent-response-footprint": "tsx ./scripts/testing/measure-agent-response-footprint.ts",
     "build:ui": "pnpm --filter @routeledger/ui run build",
     "launch:ui": "pnpm --filter @routeledger/ui run launch",
     "open:ui": "pnpm --filter @routeledger/ui run open",

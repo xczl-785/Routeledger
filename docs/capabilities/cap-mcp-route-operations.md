@@ -140,15 +140,22 @@ rules.
     internal/CLI installation capability rather than an Agent-facing MCP tool.
 18. Every public operation accepts `detail: compact | standard | audit`.
     Omission keeps the compatibility-preserving `standard` response.
-    `compact` is intended for routine Agent loops: it shortens runtime binding
-    metadata, summarizes events, caps long arrays, removes operation and digest
-    payload bodies, and adds structured `agentSummary` plus `delta`. Its metadata
-    reports `detailApplied`, `payloadBytes`, `hasMore`, and exact
-    `omittedSections`. Executable recommended-action inputs are never trimmed.
+    `compact` is intended for routine Agent loops: operation-aware profiles
+    shorten runtime binding and route context, summarize Todo receipts and
+    events, cap long arrays, and remove operation/digest payload bodies.
+    `agentSummary` and `delta` are retained where they add write or L3 value,
+    but are not added to small read/empty-list responses merely to repeat IDs.
+    Compact metadata reports `detailApplied`, `payloadBytes`, `hasMore`, and
+    grouped or exact `omittedSections`. Executable recommended-action inputs
+    are never trimmed.
     Exact proposal, target, digest, authorization, approval-artifact, replay,
     and commit identifiers remain available so an Agent can complete L3 state
-    progression without requesting audit material. `audit` preserves the full
-    response and exposes L3 host-diagnostic authorization fields.
+    progression without requesting audit material. Representative structured
+    envelopes are guarded by R0-R3 footprint tests, including the invariant
+    that compact is no larger than standard. `audit` preserves the full response
+    and exposes L3 host-diagnostic authorization fields. MCP 2026 explicit
+    compact calls use terse text plus authoritative `structuredContent`; legacy
+    and standard calls retain the compatibility JSON text mirror.
 
 ## Evidence
 
@@ -162,3 +169,7 @@ schemas live in `packages/mcp/src/registry/*.ts` and
 tests together define these guarantees. `RouteLedgerService` remains the
 public application facade and retains aggregate loading/ownership validation;
 the closeout collaborator is read-only orchestration behind that facade.
+Response profile and footprint behavior is implemented in
+`packages/mcp/src/response-detail.ts` and verified by
+`response-detail.test.ts`, `response-footprint-integration.test.ts`,
+`execute-l3-operation.test.ts`, and `mcp-mrtr.test.ts`.

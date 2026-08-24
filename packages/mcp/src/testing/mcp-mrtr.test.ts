@@ -64,6 +64,45 @@ describe("MCP 2026-07-28 multi round-trip conformance", () => {
     }
   });
 
+  it("uses terse text for explicit compact results while preserving the standard mirror", async () => {
+    const root = createTempProjectRoot();
+    const server = createRouteLedgerStdioServer({ workspaceRoot: root, routeledgerRoot: root });
+    try {
+      const compact = await call(server, "compact", "inspect_runtime", {
+        operation: "runtime",
+        detail: "compact"
+      });
+      const compactResult = (compact as {
+        result: {
+          content: Array<{ type: string; text: string }>;
+          structuredContent: Record<string, unknown>;
+        };
+      }).result;
+      expect(compactResult.structuredContent).toMatchObject({ ok: true });
+      expect(Buffer.byteLength(compactResult.content[0]?.text ?? "", "utf8")).toBeLessThanOrEqual(
+        256
+      );
+      expect(compactResult.content[0]?.text).toContain("structuredContent");
+
+      const standard = await call(server, "standard", "inspect_runtime", {
+        operation: "runtime",
+        detail: "standard"
+      });
+      const standardResult = (standard as {
+        result: {
+          content: Array<{ type: string; text: string }>;
+          structuredContent: Record<string, unknown>;
+        };
+      }).result;
+      expect(JSON.parse(standardResult.content[0]?.text ?? "null")).toEqual(
+        standardResult.structuredContent
+      );
+    } finally {
+      server.close();
+      cleanupProjectRoot(root);
+    }
+  });
+
   it("returns native input_required and resumes the exact proposal after a server restart", async () => {
     const root = createTempProjectRoot();
     let server = createRouteLedgerStdioServer({

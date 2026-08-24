@@ -67,6 +67,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         payloadBytes: expect.any(Number),
         omittedSections: expect.arrayContaining(["data.proposal.digest.payload"])
       });
+      expect(Buffer.byteLength(JSON.stringify(proposed), "utf8")).toBeLessThanOrEqual(4_096);
 
       const auditProposal = await registry.invoke("inspect_l3_route_operations", {
         operation: "get_l3_proposal",
@@ -95,6 +96,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
       });
       expect(Buffer.byteLength(JSON.stringify(compactProposal), "utf8"))
         .toBeLessThan(Buffer.byteLength(JSON.stringify(auditProposal), "utf8") / 2);
+      expect(Buffer.byteLength(JSON.stringify(compactProposal), "utf8")).toBeLessThanOrEqual(4_096);
 
       const mismatchedDigest = await registry.invoke("execute_route_change", {
         operation: "execute_admitted_proposal",
@@ -144,6 +146,7 @@ describe("execute_route_change operation=execute_l3_operation", () => {
           detailApplied: "compact"
         }
       });
+      expect(Buffer.byteLength(JSON.stringify(committed), "utf8")).toBeLessThanOrEqual(4_096);
 
       const replay = await registry.invoke("execute_route_change", {
         operation: "execute_admitted_proposal",
