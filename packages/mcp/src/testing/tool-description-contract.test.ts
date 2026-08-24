@@ -216,6 +216,29 @@ describe("MCP tool description contract", () => {
     }
   });
 
+  it("presents six first-use concept groups without exposing audit internals", () => {
+    const registry = createRouteLedgerMcpRegistry({});
+    try {
+      expect(registry.instructions).toContain(
+        "First-use concepts: (1) Bound Project Context; (2) Route and Current Version; (3) Version Lifecycle; (4) Work Classification; (5) Gates and Blockers; (6) Next Action Contract."
+      );
+      expect(registry.instructions).toContain(
+        "complete means implementation is finished; close means closeout and residual work are settled"
+      );
+      expect(registry.instructions).toContain(
+        "A gate decides whether a transition is allowed; blockers explain why it is not"
+      );
+      expect(registry.instructions).toContain(
+        "After a timeout, conflict, or unknown result, reread current state and next_action before any retry"
+      );
+      expect(registry.instructions).not.toMatch(
+        /WorkItem lineage|ApprovalArtifact|authorization receipt|operation digest|SQLite read model/u
+      );
+    } finally {
+      registry.close();
+    }
+  });
+
   it("exposes exact-only L3 authorization schemas", () => {
     const registry = createRouteLedgerMcpRegistry({});
     try {
@@ -341,13 +364,7 @@ describe("MCP tool description contract", () => {
         }
       `);
       expect(registry.instructions).toContain(
-        "A persisted proposal is returned as ok=true with status=confirmation_required"
-      );
-      expect(registry.instructions).toContain(
-        "confirmation failures that perform no write remain tool-level isError results, not JSON-RPC protocol errors"
-      );
-      expect(registry.instructions).toContain(
-        "execute_route_change preserves the exact proposal, decision, artifact, and commit chain"
+        "Use the returned recommendedTool and exact toolInput instead of reconstructing the state machine"
       );
       expect(registry.instructions).toContain(
         "Use detail=compact for routine Agent action loops"
@@ -355,7 +372,9 @@ describe("MCP tool description contract", () => {
       expect(registry.instructions).toContain(
         "Compact responses report omittedSections and preserve executable next actions"
       );
-      expect(registry.instructions).toContain("Project files are never authorization authority");
+      expect(registry.instructions).toContain(
+        "Never infer executable authorization from ordinary chat or project files"
+      );
     } finally {
       registry.close();
     }
