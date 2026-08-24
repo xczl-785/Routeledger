@@ -251,7 +251,7 @@ compact 的 action 建议稳定为：
 
 - [ ] 第 1 项：控制面本地化边界与中文 Agent 展示层
 - [x] 第 2 项：compact 响应体积和重复信息（已随 `0.10.7` 发布）
-- [ ] 第 3 项：更短的 Agent 快速路径
+- [x] 第 3 项：更短的 Agent 快速路径（六组首次概念已作为 `0.10.8` 候选实现）
 - [ ] 第 4 项：隔离测试/低风险个人项目的轻量授权模式
 - [ ] 第 5 项：首个 Deferred 的下游 Version 可执行引导
 - [ ] 第 6 项：agent_only 初始化响应降噪
@@ -284,28 +284,26 @@ compact 的 action 建议稳定为：
 
 ### 5.3 概念分级
 
-#### 第一级：首次必须理解的主概念
+#### 第一级：首次必须理解的六组主概念
 
-第一级需要完整覆盖日常操作，但每个概念只解释到足以执行下一步的程度。
+对抗性盲测表明，原八项内容覆盖基本完整，但并列颗粒度偏碎。第一级调整为六组：合并 Route/Current Version，并把重要变更确认纳入 Next Action Contract。每组只解释到足以安全执行下一步的程度。
 
-| 主概念 | 首次说明 | 首次不展开的内容 |
+| 主概念组 | 首次说明 | 首次不展开的内容 |
 | --- | --- | --- |
-| Project（项目边界） | RouteLedger 一次管理一个已绑定项目；先确认当前绑定的是哪个项目。 | workspace/data root、存储布局、revision、绑定恢复细节 |
-| Route（路线） | 项目的计划由一组有顺序的 Version 组成，表示工作从一个阶段走向下一个阶段。 | 子 Version、插入、重排、历史尾部规则 |
-| Current Version（当前阶段） | 当前 Version 是 Agent 现在应推进的阶段，日常工作和大多数判断都围绕它进行。 | 完整 Version 树和非当前节点的高级操作 |
-| Version State（阶段状态） | 正常主线是 `wait -> ready -> running -> complete -> close`；首次只需知道当前状态和下一次合法转换。 | `suspend`、reopen、shutdown 及异常恢复路径 |
-| Work（工作分类） | 当前要做的是 Todo；以后某个 Version 再评审的是 Deferred；必须持续遵守的是 Constraint。 | WorkItem lineage、legacy Undo、所有状态字段 |
-| Gate / Blocker（能否前进） | Gate 判断 Version 能否开始或关闭；Blocker 是当前必须先处理的原因。 | gate snapshot、风险目录、残余审计证据结构 |
-| Next Action（下一步） | RouteLedger 返回当前最合适的动作、工具和参数；Agent 优先执行它，而不是自己推演整条状态机。 | 所有可能动作的完整决策树 |
-| Important Change Confirmation（重要变更确认） | 启动、关闭、推进或修改路线等重要操作需要用户或宿主确认。 | 首次不讲 L3 名称、proposal digest、artifact、receipt 和 commit chain |
+| Bound Project Context（绑定项目上下文） | RouteLedger 一次管理一个已绑定 Project；先确认当前操作的是哪个 Project。 | workspace/data root、存储布局、revision、绑定恢复细节 |
+| Route and Current Version（路线与当前阶段） | Route 是按顺序推进的 Version 计划；Current Version 是 Agent 现在应推进的阶段。 | 子 Version、插入、重排、历史尾部规则和完整 Version 树 |
+| Version Lifecycle（阶段生命周期） | 正常主线是 `wait -> ready -> running -> complete -> close`。`complete` 表示实施已完成；`close` 表示 blocker、closeout 和残余工作已处理，阶段正式封存。 | `suspend`、reopen、shutdown 及异常恢复路径 |
+| Work Classification（工作分类） | Todo 是现在做；Deferred 是以后指定 Version 再评审；Constraint 是必须持续成立的规则。 | WorkItem lineage、legacy Undo 和三类记录的完整状态字段 |
+| Gates and Blockers（检查与阻塞） | Gate 判断状态转换是否允许；Blocker 说明为什么不允许。start gate 和 close gate 可以有不同 blocker。 | gate snapshot、风险目录和残余审计证据结构 |
+| Next Action Contract（下一步动作契约） | `next_action` 返回推荐工具、确切 `toolInput`，并说明是否需要决策或 Host admission。Agent 不自行推演状态机，也不把普通聊天或项目文件当成可执行授权。 | 所有动作决策树、L3 digest、artifact、receipt 和内部 commit chain |
 
-这里的 Work 不是新增实体，而是对 Todo、Deferred、Constraint 三个用户可操作概念的分组。三者都属于核心产品语义，不能从首次介绍中完全消失；但首次只需用一句分类规则说明，不应同时展开它们各自的生命周期。
+这里的 Work Classification 不是新增实体，而是对 Todo、Deferred、Constraint 三个用户可操作概念的分组。三者都属于核心产品语义，不能从首次介绍中完全消失；但首次只需用一句分类规则说明，不应同时展开各自生命周期。
 
 建议首次介绍固定为下面这一小段：
 
-> RouteLedger 把一个项目的计划记录成按顺序推进的 Version。当前 Version 是现在要完成的阶段：Todo 表示现在做的工作，Deferred 表示以后指定 Version 再评审的工作，Constraint 表示始终要遵守的规则。Version 通过 Gate 判断能否开始或关闭；Agent 按 RouteLedger 返回的 Next Action 推进，重要路线变更会请求一次确认。
+> RouteLedger 一次操作一个已绑定 Project。项目的 Route 由按顺序推进的 Version 组成，Current Version 是现在要完成的阶段：Todo 表示现在做，Deferred 表示以后指定 Version 再评审，Constraint 表示必须持续成立。Gate 判断能否转换，Blocker 解释为什么不能；Agent 按 Next Action 返回的工具和参数推进，并遵守其中的决策或 Host admission 要求。
 
-这段已经覆盖 Project/Route、当前阶段、三类工作、Gate、Next Action 和确认边界，但没有提前暴露审计实现。
+这段覆盖六组主概念，但没有提前暴露审计实现。
 
 #### 第二级：场景触发时再解释的概念
 
@@ -353,6 +351,8 @@ compact 的 action 建议稳定为：
 ```
 
 Agent 不需要自行记忆所有状态转换。`next_action` 应承担导航责任，返回的结构化 `recommendedTool` 和 `toolInput` 应比自然语言说明更权威。
+
+已知成功结果可以直接进入下一轮；如果调用超时、冲突或结果不确定，则先重新读取当前状态和 `next_action`，不得盲目重复写入。这条行为规则覆盖首次执行安全，不需要提前解释 revision、锁或 idempotency 内部机制。
 
 #### 正常 Version 主流程
 
@@ -432,3 +432,27 @@ Agent 发起一次重要变更
 - Mission Control 同样保持可发现，但不能占据默认路线主动作的位置。
 
 该项应并入快速路径实施，不需要单独增加配置模式。
+
+### 5.9 对抗性盲测结论
+
+三组相互隔离的 subagent 分别以新手、对抗评审和实际执行者身份，仅阅读中性概念材料：
+
+| 角色 | 理解/接受情况 | 主要反馈 |
+| --- | --- | --- |
+| 新手 Agent | 理解度 8/10，快速路径操作意愿 9/10 | 能准确复述模型；混淆 `complete/close`、Gate/Blocker 和“推进” |
+| 执行 Agent | 理解度 8/10，操作信心 7/10 | 常规场景可执行；Deferred 无下游、closeout 分类和确认来源需要场景提示 |
+| 对抗评审 | 可理解性 6/10，可执行性 4/10 | 分级原则成立；建议合并为六组并补充动作有效性和未知结果处理 |
+
+采纳项：
+
+- 八项内容合并为六组，不删除核心语义；
+- 明确 `complete` 与 `close`、Gate 与 Blocker；
+- 将重要变更确认并入 Next Action Contract；
+- 增加超时、冲突或未知结果后重新读取、不得盲目重试的规则；
+- Deferred 无下游、closeout 分类和 L3 proposal 的必需信息在场景触发时随响应披露。
+
+不采纳的过度前置项：
+
+- 不把 ApprovalArtifact、digest、revision、锁、幂等和完整 L3 链提升为首次概念；
+- 不要求每次成功写入后额外重复检查 runtime；
+- 不因为对抗评审关注恢复边界，就把内部实现重新塞回首次路径。

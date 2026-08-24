@@ -27,6 +27,8 @@ Use the bundled RouteLedger MCP server to inspect and change Version state or ro
 
 ## Choose the workflow
 
+The normal lifecycle is `wait -> ready -> running -> complete -> close`. `complete` records that implementation is finished; the Version is not sealed until close blockers, residual work, and closeout review are settled and it reaches `close`. A gate is the transition check, while blockers are the concrete unmet conditions it reports.
+
 - Use `set_version_state(operation="prepare")` to prepare a waiting Version and `set_version_state(operation="mark_complete")` only after implementation is actually complete.
 - Use `propose_version_structure_change` to create, insert, nest, or reorder Versions. On an empty route, create the first real Version; never invent a placeholder.
 - Use `propose_version_lifecycle_change` to preview or propose batch creation, transition, advance, or ordinary close.
@@ -43,6 +45,8 @@ Do not insert before closed history, reorder it, change its parent, or add a chi
 Use the proposal and execution inputs returned by RouteLedger without weakening their project, root, target, action, or digest bindings.
 
 Do not insert repeated `inspect_runtime` calls between a persisted proposal and `execute_admitted_proposal`. The execution call performs binding preflight and reloads the canonical proposal. Reinspect only when the returned recovery action says the proposal or live route is stale, blocked, missing, or otherwise requires new context.
+
+If a write times out or returns a conflict or unknown outcome, do not blindly repeat it. Read the current state and `next_action`, then follow the returned recovery action. This does not require routine reinspection after known successful results.
 
 Codex decides whether a high-risk `execute_route_change` call reaches the plugin. Do not reproduce that permission decision in the Skill, infer approval from chat, or manage Codex authorization. Once an admitted call arrives, RouteLedger validates the exact operation and current state, then executes or rejects it.
 

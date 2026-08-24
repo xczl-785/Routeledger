@@ -65,6 +65,30 @@ for generated project content and user-facing consumers. This includes candidate
 Todo titles and reasons returned by document-drift checks; their surrounding
 diagnostics, coverage limitations, and summaries remain canonical English.
 
+## First-use concept model
+
+Routine Agent guidance introduces six groups, not the complete domain and audit model:
+
+| Group | First-use meaning |
+| --- | --- |
+| Bound Project Context | One server operates one bound Project; establish the active Project before route work. |
+| Route and Current Version | The Route is an ordered Version plan; Current Version is the stage to advance now. |
+| Version Lifecycle | The normal path is `wait -> ready -> running -> complete -> close`. `complete` means implementation is finished; `close` means closeout and residual work are settled. |
+| Work Classification | Todo is work now, Deferred is reviewed at a named future Version, and Constraint is a rule that must remain true. |
+| Gates and Blockers | A gate decides whether a transition is allowed; blockers explain the unmet conditions. Start and close gates may report different blockers. |
+| Next Action Contract | `next_action` provides the recommended tool and exact input and indicates when a decision or host admission is required. |
+
+The routine loop is:
+
+```text
+confirm binding -> read current context -> get next_action
+  -> satisfy any required decision -> execute exact toolInput -> repeat
+```
+
+Agents must not reconstruct the state machine when an executable Next Action is present or infer executable authorization from ordinary chat or project files. After a timeout, conflict, or unknown result, reread current state and `next_action` before retrying; known successful writes do not require extra inspection.
+
+Explain route restructuring, exceptional Version states, Deferred review states, Constraint retirement, closeout residual auditing, L3 proposals, document drift, and Mission Control only when the matching state, blocker, or action appears. Work lineage, authorization artifacts and receipts, digests, request state, storage internals, and the segmented L3 protocol remain audit, recovery, or developer concepts rather than first-use vocabulary.
+
 Canonical JSON is the MCP runtime authority. SQLite is a rebuildable read
 model when enabled. The JSON-only plugin runtime disables that read model and
 does not create a database. A newly initialized JSON-only project uses hashed

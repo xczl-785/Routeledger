@@ -17,6 +17,26 @@ Operate only through the bundled RouteLedger MCP server. Never edit canonical Ro
 
 Use `routeledger-version-lifecycle` for Version lists, structure, gates, closeout, lifecycle proposals, or route-change execution.
 
+## First-use model
+
+Introduce six concept groups before any advanced details:
+
+1. **Bound Project Context**: RouteLedger operates one bound Project; confirm which Project is active.
+2. **Route and Current Version**: the Route is an ordered Version plan, and Current Version is the stage to advance now.
+3. **Version Lifecycle**: the normal path is `wait -> ready -> running -> complete -> close`. `complete` means implementation is finished; `close` means blockers, closeout, and residual work are settled.
+4. **Work Classification**: Todo is work now, Deferred is reviewed at a named future Version, and Constraint is a rule that must remain true.
+5. **Gates and Blockers**: a gate decides whether a transition is allowed; blockers explain why it is not.
+6. **Next Action Contract**: `next_action` supplies the recommended tool and exact input, including whether a decision or host admission is required.
+
+Use this routine loop:
+
+```text
+confirm binding -> read current context -> get next_action
+  -> satisfy any required decision -> execute exact toolInput -> repeat
+```
+
+Do not teach route restructuring, exceptional Version states, closeout auditing, Deferred review states, or L3 internals until the matching blocker or next action appears. Never infer executable authorization from ordinary chat or project files. After a timeout, conflict, or unknown result, reread current context and `next_action` before retrying; do not blindly repeat a write.
+
 ## Bind and initialize
 
 1. Call `inspect_runtime(operation="runtime")`. Confirm the workspace root, RouteLedger root, active project, storage mode, and `contentLocale`.
