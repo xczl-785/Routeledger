@@ -47,9 +47,9 @@ Do not teach route restructuring, exceptional Version states, closeout auditing,
 
 Before every write, pass the matching absolute `expectedRouteLedgerRoot` returned by runtime inspection. Treat binding failures as blockers, not as permission to guess a path.
 
-`contentLocale` applies to agent-authored project content intended for human consumption. It does not localize MCP control-plane messages, diagnostics, blockers, next actions, or state labels.
+`contentLocale` applies to agent-authored project content intended for human consumption. Runtime reports this as `scope: project_content_only`. It does not localize MCP control-plane messages, diagnostics, blockers, next actions, or state labels.
 
-When `inspect_runtime` reports `interactionProfile: agent_only`, treat Mission Control and human-entry-document actions as advisory. Do not let them replace the primary route action.
+When `inspect_runtime` reports `interactionProfile: agent_only`, treat Mission Control as advisory. Project initialization omits human-entry-document metadata in this profile; use explicit document inspection only when documentation work is requested.
 
 ## Manage current work
 
@@ -59,7 +59,7 @@ Read `inspect_route_progress(operation="get_current_context")` before changing w
 - Use `manage_deferred` for work that must be reviewed by a future Version.
 - Use `manage_constraint` for persistent rules that must remain true.
 
-If Deferred work has no eligible downstream Version, follow the returned `propose_downstream_version` action. Complete the Version proposal approval flow before retrying Deferred creation; do not retry against the current Version or an invented ID.
+If Deferred work has no eligible downstream Version, follow the returned three-step recovery plan. Propose the Version, execute it after Host admission using the declared result bindings, then inject the proposal's real `targetId` into the original Deferred request. Do not retry against the current Version or an invented ID.
 
 Do not convert Deferred work or Constraints into completion counts. Keep legacy Undo data audit-only.
 

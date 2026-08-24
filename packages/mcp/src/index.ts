@@ -648,11 +648,19 @@ interface ToolErrorContext {
 }
 
 interface ToolErrorRecoveryAction {
+  stepId?: string;
+  dependsOn?: string[];
   type: string;
   tool: string;
   description: string;
   toolInput?: Record<string, unknown>;
   requiredInputs?: string[];
+  inputBindings?: Array<{
+    target: string;
+    sourceStep: string;
+    sourcePath: string;
+    optional?: boolean;
+  }>;
 }
 
 interface ToolErrorRecovery {
@@ -1036,6 +1044,9 @@ const buildToolErrorRecovery = (
     );
     if (eligibleTargetVersions.length === 0) {
       const projectId = context.input.projectId;
+      const deferredRetryInput = Object.fromEntries(
+        Object.entries(context.input).filter(([key]) => key !== "targetReviewVersionId")
+      );
       return {
         recoveryState: "downstream_version_required",
         currentState: "no_downstream_version",
@@ -1046,6 +1057,7 @@ const buildToolErrorRecovery = (
         artifactConsumed: false,
         recommendedNextActions: [
           {
+            stepId: "propose_downstream_version",
             type: "propose_downstream_version",
             tool: "propose_version_creation",
             description:
@@ -1055,6 +1067,47 @@ const buildToolErrorRecovery = (
               ...(typeof projectId === "string" ? { projectId } : {})
             },
             requiredInputs: ["title"]
+          },
+          {
+            stepId: "execute_downstream_version_creation",
+            dependsOn: ["propose_downstream_version"],
+            type: "execute_downstream_version_creation",
+            tool: "execute_route_change",
+            description:
+              "After host admission, execute the persisted Version creation proposal.",
+            toolInput: {
+              operation: "execute_admitted_proposal",
+              ...(typeof projectId === "string" ? { projectId } : {})
+            },
+            inputBindings: [
+              {
+                target: "pendingOperationId",
+                sourceStep: "propose_downstream_version",
+                sourcePath: "pendingOperationId"
+              },
+              {
+                target: "expectedOperationDigest",
+                sourceStep: "propose_downstream_version",
+                sourcePath: "proposal.digest.value",
+                optional: true
+              }
+            ]
+          },
+          {
+            stepId: "retry_deferred_with_created_version",
+            dependsOn: ["execute_downstream_version_creation"],
+            type: "retry_deferred_with_created_version",
+            tool: context.toolName,
+            description:
+              "Retry the original Deferred request with the created downstream Version ID.",
+            toolInput: deferredRetryInput,
+            inputBindings: [
+              {
+                target: "targetReviewVersionId",
+                sourceStep: "propose_downstream_version",
+                sourcePath: "proposal.targetId"
+              }
+            ]
           }
         ]
       };
@@ -1397,6 +1450,7 @@ export const createRouteLedgerMcpRegistry = (
     const contentLocale =
       activeProject?.contentLocale !== null && activeProject?.contentLocale !== undefined
         ? {
+            scope: "project_content_only" as const,
             status: "configured" as const,
             configuredValue: activeProject.contentLocale,
             suggestedValue: null,
@@ -1406,6 +1460,7 @@ export const createRouteLedgerMcpRegistry = (
           }
         : binding.status === "uninitialized" || activeProject !== null
           ? {
+              scope: "project_content_only" as const,
               status: "confirmation_required" as const,
               configuredValue: null,
               suggestedValue: suggestedContentLocale,
@@ -1415,6 +1470,7 @@ export const createRouteLedgerMcpRegistry = (
               effectiveScopes: contentLocaleEffectiveScopes
             }
           : {
+              scope: "project_content_only" as const,
               status: "unavailable" as const,
               configuredValue: null,
               suggestedValue: null,

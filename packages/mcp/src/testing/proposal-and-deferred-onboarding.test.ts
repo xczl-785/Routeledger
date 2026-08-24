@@ -180,6 +180,7 @@ describe("proposal and Deferred onboarding contracts", () => {
             artifactConsumed: false,
             recommendedNextActions: [
               expect.objectContaining({
+                stepId: "propose_downstream_version",
                 type: "propose_downstream_version",
                 tool: "propose_version_structure_change",
                 toolInput: {
@@ -188,7 +189,58 @@ describe("proposal and Deferred onboarding contracts", () => {
                   expectedRouteLedgerRoot: projectRoot
                 },
                 requiredInputs: ["title"]
-              })
+              }),
+              {
+                stepId: "execute_downstream_version_creation",
+                dependsOn: ["propose_downstream_version"],
+                type: "execute_downstream_version_creation",
+                tool: "execute_route_change",
+                description:
+                  "After host admission, execute the persisted Version creation proposal.",
+                toolInput: {
+                  operation: "execute_admitted_proposal",
+                  projectId: data.project.id,
+                  expectedRouteLedgerRoot: projectRoot
+                },
+                inputBindings: [
+                  {
+                    target: "pendingOperationId",
+                    sourceStep: "propose_downstream_version",
+                    sourcePath: "pendingOperationId"
+                  },
+                  {
+                    target: "expectedOperationDigest",
+                    sourceStep: "propose_downstream_version",
+                    sourcePath: "proposal.digest.value",
+                    optional: true
+                  }
+                ]
+              },
+              {
+                stepId: "retry_deferred_with_created_version",
+                dependsOn: ["execute_downstream_version_creation"],
+                type: "retry_deferred_with_created_version",
+                tool: "manage_deferred",
+                description:
+                  "Retry the original Deferred request with the created downstream Version ID.",
+                toolInput: {
+                  operation: "defer",
+                  mode: "new",
+                  projectId: data.project.id,
+                  currentVersionId: data.firstVersion.id,
+                  title: "Review this later",
+                  reason: "There is no downstream Version yet.",
+                  idempotencyKey: "deferred-onboarding-contract",
+                  expectedRouteLedgerRoot: projectRoot
+                },
+                inputBindings: [
+                  {
+                    target: "targetReviewVersionId",
+                    sourceStep: "propose_downstream_version",
+                    sourcePath: "proposal.targetId"
+                  }
+                ]
+              }
             ]
           }
         }

@@ -433,22 +433,17 @@ export const createProjectBootstrapTools = (
           actor
         });
         const documentation = result.documentation;
+        if (interactionProfile === "agent_only" && documentation !== undefined) {
+          const agentOnlyResult = { ...result };
+          delete agentOnlyResult.documentation;
+          return {
+            ok: true,
+            data: agentOnlyResult
+          };
+        }
         return {
           ok: true,
-          data:
-            interactionProfile === "agent_only" &&
-            documentation?.recommendedAction !== null &&
-            documentation?.recommendedAction !== undefined
-              ? {
-                  ...result,
-                  documentation: {
-                    ...documentation,
-                    recommendedAction: null,
-                    advisoryAction: documentation.recommendedAction,
-                    recommendationLevel: "advisory"
-                  }
-                }
-              : result
+          data: result
         };
       }
     ),

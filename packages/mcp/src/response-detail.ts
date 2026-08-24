@@ -98,6 +98,7 @@ const compactRuntimeData = (
       contentLocale === null
         ? undefined
         : definedEntries([
+            ["scope", contentLocale.scope],
             ["status", contentLocale.status],
             ["configuredValue", contentLocale.configuredValue],
             ["requiresUserDecision", contentLocale.requiresUserDecision]

@@ -456,13 +456,18 @@ const runPluginStdioSmoke = async () => {
     if (responses[7]?.result?.structuredContent?.ok !== true) {
       throw new Error("Bundled runtime project initialization did not report a successful canonical JSON write after session rebound.");
     }
+    const initializedProject = responses[7]?.result?.structuredContent?.data;
+    if (Object.prototype.hasOwnProperty.call(initializedProject ?? {}, "documentation")) {
+      throw new Error("Bundled agent-only initialization did not omit human-entry-document metadata.");
+    }
     const initializedRuntimeContext = responses[8]?.result?.structuredContent?.data;
     if (
       initializedRuntimeContext?.binding?.workspaceRoot !== testWorkspaceRoot ||
       initializedRuntimeContext?.binding?.workspaceRootSource !== "explicit_arg" ||
       initializedRuntimeContext?.binding?.routeledgerRoot !== testRouteledgerRoot ||
       initializedRuntimeContext?.storage?.sqliteReadModel !== "disabled" ||
-      initializedRuntimeContext?.storage?.mode !== "json"
+      initializedRuntimeContext?.storage?.mode !== "json" ||
+      initializedRuntimeContext?.contentLocale?.scope !== "project_content_only"
     ) {
       throw new Error("Bundled runtime did not initialize JSON-only storage after the explicit session rebound.");
     }
