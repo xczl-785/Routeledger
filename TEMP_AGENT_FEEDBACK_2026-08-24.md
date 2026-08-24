@@ -250,8 +250,185 @@ compact 的 action 建议稳定为：
 ## 四、后续待修复清单
 
 - [ ] 第 1 项：控制面本地化边界与中文 Agent 展示层
-- [ ] 第 2 项：compact 响应体积和重复信息
+- [x] 第 2 项：compact 响应体积和重复信息（已随 `0.10.7` 发布）
 - [ ] 第 3 项：更短的 Agent 快速路径
 - [ ] 第 4 项：隔离测试/低风险个人项目的轻量授权模式
 - [ ] 第 5 项：首个 Deferred 的下游 Version 可执行引导
 - [ ] 第 6 项：agent_only 初始化响应降噪
+
+## 五、其余反馈的重新评估
+
+本节记录第 1、3、4、5、6 项的产品判断。目标不是看到反馈后立即增加模式或概念，而是先区分：真实能力缺口、展示层负担，以及合理但没有表达清楚的既有边界。
+
+### 5.1 重要性与推荐方案复杂度
+
+| 重要性顺序 | 问题 | 影响范围 | 推荐方案复杂度 | 当前判断 |
+| --- | --- | --- | --- | --- |
+| 1 | 首次使用概念过多 | 所有新 Agent 和新项目 | 中 | 优先做概念分级和快速路径，不删领域能力 |
+| 2 | `ready -> start` 的 L3 体验偏重 | 每个正常启动流程 | 中高 | 保留 L3 等级，简化为外部一次操作、内部完整审计 |
+| 3 | `contentLocale=zh` 与英文控制面产生割裂感 | 非英文项目和转述给用户的 Agent | 低到中 | 不做完整控制面国际化，改进边界表达和机器优先输出 |
+| 4 | 首个 Deferred 的恢复引导不完整 | 只有一个 Version 的首次试用 | 低 | 在已有第一步引导上补齐跨步骤恢复计划 |
+| 5 | `agent_only` 仍返回 README 建议 | 初始化响应 | 低 | 并入快速路径，默认直接省略人类入口建议 |
+
+按投入产出比，建议先做概念分级、`agent_only` 降噪和 Deferred 恢复计划，再处理 L3 表面流程。控制面语言不单独建设一套国际化系统，而是随响应结构化和快速路径一起改进。
+
+### 5.2 “首次使用概念太多”的根因
+
+问题不只是概念数量多，而是三类不同层次的概念被同时展示：
+
+1. Agent 完成当前操作必须理解的产品概念；
+2. 只有进入某个场景时才需要理解的进阶概念；
+3. 为恢复、审计和实现正确性服务的内部概念。
+
+如果把 Version、Todo、WorkItem、Deferred、Constraint、L3、ApprovalArtifact、残余审计平铺为同一级，Agent 会误以为首次操作前必须掌握整个状态机。更合理的做法是按“何时必须知道”分级，而不是按代码实体或数据表分级。
+
+### 5.3 概念分级
+
+#### 第一级：首次必须理解的主概念
+
+第一级需要完整覆盖日常操作，但每个概念只解释到足以执行下一步的程度。
+
+| 主概念 | 首次说明 | 首次不展开的内容 |
+| --- | --- | --- |
+| Project（项目边界） | RouteLedger 一次管理一个已绑定项目；先确认当前绑定的是哪个项目。 | workspace/data root、存储布局、revision、绑定恢复细节 |
+| Route（路线） | 项目的计划由一组有顺序的 Version 组成，表示工作从一个阶段走向下一个阶段。 | 子 Version、插入、重排、历史尾部规则 |
+| Current Version（当前阶段） | 当前 Version 是 Agent 现在应推进的阶段，日常工作和大多数判断都围绕它进行。 | 完整 Version 树和非当前节点的高级操作 |
+| Version State（阶段状态） | 正常主线是 `wait -> ready -> running -> complete -> close`；首次只需知道当前状态和下一次合法转换。 | `suspend`、reopen、shutdown 及异常恢复路径 |
+| Work（工作分类） | 当前要做的是 Todo；以后某个 Version 再评审的是 Deferred；必须持续遵守的是 Constraint。 | WorkItem lineage、legacy Undo、所有状态字段 |
+| Gate / Blocker（能否前进） | Gate 判断 Version 能否开始或关闭；Blocker 是当前必须先处理的原因。 | gate snapshot、风险目录、残余审计证据结构 |
+| Next Action（下一步） | RouteLedger 返回当前最合适的动作、工具和参数；Agent 优先执行它，而不是自己推演整条状态机。 | 所有可能动作的完整决策树 |
+| Important Change Confirmation（重要变更确认） | 启动、关闭、推进或修改路线等重要操作需要用户或宿主确认。 | 首次不讲 L3 名称、proposal digest、artifact、receipt 和 commit chain |
+
+这里的 Work 不是新增实体，而是对 Todo、Deferred、Constraint 三个用户可操作概念的分组。三者都属于核心产品语义，不能从首次介绍中完全消失；但首次只需用一句分类规则说明，不应同时展开它们各自的生命周期。
+
+建议首次介绍固定为下面这一小段：
+
+> RouteLedger 把一个项目的计划记录成按顺序推进的 Version。当前 Version 是现在要完成的阶段：Todo 表示现在做的工作，Deferred 表示以后指定 Version 再评审的工作，Constraint 表示始终要遵守的规则。Version 通过 Gate 判断能否开始或关闭；Agent 按 RouteLedger 返回的 Next Action 推进，重要路线变更会请求一次确认。
+
+这段已经覆盖 Project/Route、当前阶段、三类工作、Gate、Next Action 和确认边界，但没有提前暴露审计实现。
+
+#### 第二级：场景触发时再解释的概念
+
+只有当响应中实际出现对应动作或阻塞时，才补充以下概念：
+
+| 触发场景 | 此时解释的概念 |
+| --- | --- |
+| 创建、插入、嵌套或重排 Version | Version 结构、父子关系、直接后继和历史边界 |
+| 发生暂停、重开或强制终止 | `suspend`、reopen、shutdown 的区别和影响 |
+| 创建或评审 Deferred | 目标评审 Version、activate、defer again、resolve |
+| Constraint 阻止操作 | 约束作用域、状态、违反原因和 retire |
+| Version 准备关闭 | close gate、残余工作、去向选择和残余审计 |
+| 重要变更等待确认 | L3 proposal 是可恢复的待确认动作；优先执行返回的 admitted action |
+| 文档状态或 UI 被明确请求 | doc drift、README 入口和 Mission Control；它们不是默认路线主流程 |
+
+第二级仍然是产品概念，但遵循按需披露：没有进入 Deferred 场景，就不讲 Deferred 的三种评审结果；没有进入 closeout，就不讲残余审计。
+
+#### 第三级：恢复、审计或开发时才解释的概念
+
+以下内容不应进入普通首次介绍：
+
+- WorkItem lineage；
+- ApprovalArtifact、authorization receipt、operation digest、request state；
+- TransitionEvent 和完整事件链；
+- idempotency replay、revision、锁和冲突恢复；
+- canonical JSON、SQLite read model、audit pack；
+- legacy Undo 兼容规则；
+- L3 内部的 propose、approve、claim、commit、finalize 分段协议。
+
+这些概念必须继续存在，也必须能在诊断和 audit 响应中读取，但普通 Agent 只需要看到它们产生的稳定结果：动作是否等待确认、是否已执行、是否可安全重试，以及下一步工具输入。
+
+### 5.4 首次 Agent 快速流程
+
+首次使用应同时提供两个互补视角，避免把“工具调用顺序”和“项目生命周期”混在一起。
+
+#### Agent 操作循环
+
+```text
+确认项目绑定
+  -> 读取当前 Version、工作和 blocker
+  -> 获取 Next Action
+  -> 必要时请求一次确认
+  -> 使用返回的 toolInput 执行
+  -> 重复读取 Next Action
+```
+
+Agent 不需要自行记忆所有状态转换。`next_action` 应承担导航责任，返回的结构化 `recommendedTool` 和 `toolInput` 应比自然语言说明更权威。
+
+#### 正常 Version 主流程
+
+```text
+选择或创建当前 Version
+  -> prepare：wait -> ready
+  -> 通过 start gate 并确认 start：ready -> running
+  -> 完成 Todo、处理到期 Deferred、遵守 Constraint
+  -> mark complete：running -> complete
+  -> 处理 close blocker 和残余工作
+  -> 确认 close：complete -> close
+  -> 推进到下一个 Version
+```
+
+首次只展示这条正常主线。暂停、重开、强制终止、嵌套路线和精细审批恢复在实际发生时再说明。
+
+### 5.5 `contentLocale` 的最终边界与反馈原因
+
+保留当前产品决定：
+
+- `contentLocale` 只控制 Agent 生成并写入项目、供人阅读的内容；
+- tool name、字段名、枚举、错误码和 MCP 控制协议保持 canonical English；
+- 不增加 `controlPlaneLocale`，不维护成套的双语 message/blocker/diagnostic 模板；
+- Agent 根据当前对话语言向用户转述控制面结果。
+
+Agent 反复报告该问题，并不等于 Agent 无法理解英文。更可能的原因是：
+
+1. `contentLocale=zh` 容易被理解成“本项目所有可见输出均为中文”，而不是较窄的“项目内容语言”；
+2. `message`、`summary`、`reason` 和 blocker 文本看起来像会直接展示给用户，不像纯机器协议；
+3. 中文项目内容和英文控制说明出现在同一响应中，Agent 在评估中文工作流时会主动标记这种不一致；
+4. Agent 常把错误或 blocker 转述给用户，因此会把额外翻译成本也计入插件体验。
+
+推荐修复的不是完整国际化，而是让控制面更加“机器优先”：
+
+- compact 以稳定 code、state、blocker code、`recommendedTool` 和 `toolInput` 为主；
+- 能由结构表达的内容不再重复长英文 message；
+- 英文自由文本主要保留在 standard/audit 或异常诊断中；
+- 文档和 standard runtime 明确标识 `contentLocale` 的作用域为 `project_content_only`；
+- 测试应证明 Agent 不依赖英文句子也能完成下一步操作。
+
+这样可以缓解割裂感，同时不引入控制面国际化的长期维护复杂度。
+
+### 5.6 L3：保持安全等级，简化表面流程
+
+不建议把 `start_version` 降为普通写入。启动 Version 会改变正式路线状态，保留可恢复提案、精确授权和审计链是合理的。
+
+需要优化的是 Agent 看到的流程：
+
+```text
+Agent 发起一次重要变更
+  -> Host 请求一次确认
+  -> RouteLedger 内部完成 proposal、authorization、artifact 和 commit
+```
+
+默认 Next Action 应优先给出一个可执行的高风险入口，不要求普通 Agent 手工编排 propose/approve/commit。显式分段操作继续保留给恢复、诊断和特殊宿主。
+
+隔离测试或低风险个人项目不应引入另一套“轻量安全等级”。可以复用现有 preauthorized/delegated 能力，提供明确启用且范围有限的策略，例如绑定到当前项目、指定 action/Version、短时有效并限制执行次数。未显式启用时仍走正常确认。
+
+### 5.7 Deferred：从单步提示补成完整恢复计划
+
+当前实现已经会在没有下游 Version 时返回 `DEFERRED_ROUTE_TARGET_UNKNOWN`、`downstream_version_required`，以及提议创建下游 Version 的第一步工具输入。反馈仍成立，因为 Agent 尚需自行推断后续步骤。
+
+建议错误响应返回有依赖关系的三步计划：
+
+1. 提议创建真实下游 Version，并列出仍需用户提供的标题；
+2. 完成该 Version 的确认与提交，从结果取得真实 Version ID；
+3. 复用原 Deferred 请求，将 `targetReviewVersionId` 替换为上一步结果后重试。
+
+未来 ID 不能提前伪造，因此第一步可以是立即可执行动作，后两步用 `dependsOn`/结果引用表达。这样既维持 Deferred 必须绑定真实下游 Version 的语义，也让首次试用形成完整闭环。
+
+### 5.8 `agent_only` 初始化降噪
+
+当前 `agent_only` 会把 README 等人类入口从 recommended 降为 advisory，但相关对象仍在响应里。对于纯 Agent 流程，建议默认直接省略这类 documentation 建议：
+
+- 初始化成功只返回项目、首个 Version、必要写入回执和 Next Action；
+- README/doc drift 仅在显式文档检查、standard/audit 查询或有人类审阅配置时出现；
+- Mission Control 同样保持可发现，但不能占据默认路线主动作的位置。
+
+该项应并入快速路径实施，不需要单独增加配置模式。
