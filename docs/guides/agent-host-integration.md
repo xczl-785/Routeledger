@@ -90,6 +90,13 @@ confirm binding -> read current context -> get next_action
 
 Agents must not reconstruct the state machine when an executable Next Action is present or infer executable authorization from ordinary chat or project files. After a timeout, conflict, or unknown result, reread current state and `next_action` before retrying; known successful writes do not require extra inspection.
 
+For an immediately executable action, `toolInput` contains every value known
+from current state, including project and Version identifiers. If new content
+must be supplied, such as a new Version title, `requiredInputs` names the
+missing fields instead of presenting an incomplete call as executable. Public
+MCP projection also includes the public operation name and active
+`expectedRouteLedgerRoot`.
+
 Explain route restructuring, exceptional Version states, Deferred review states, Constraint retirement, closeout residual auditing, L3 proposals, document drift, and Mission Control only when the matching state, blocker, or action appears. Work lineage, authorization artifacts and receipts, digests, request state, storage internals, and the segmented L3 protocol remain audit, recovery, or developer concepts rather than first-use vocabulary.
 
 When Deferred creation reports `downstream_version_required`, follow its

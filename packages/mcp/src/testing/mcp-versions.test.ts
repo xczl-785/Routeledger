@@ -22,6 +22,26 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
       });
       const projectId = (init.data as { project: { id: string } }).project.id;
 
+      const emptyRouteNextAction = await registry.invoke("inspect_route_progress", {
+        operation: "next_action",
+        projectId
+      });
+      expect(emptyRouteNextAction).toMatchObject({
+        ok: true,
+        data: {
+          nextAction: {
+            actionType: "create_version",
+            recommendedTool: "propose_version_structure_change",
+            toolInput: {
+              operation: "propose_version_creation",
+              projectId,
+              expectedRouteLedgerRoot: projectRoot
+            },
+            requiredInputs: ["title"]
+          }
+        }
+      });
+
       const createFirst = await registry.invoke("create_version", {
         projectId,
         title: "First delivery"
@@ -179,6 +199,52 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         approvalArtifactId: (closeApproval.data as { id: string }).id
       });
 
+      const advanceNextAction = await registry.invoke("inspect_route_progress", {
+        operation: "next_action",
+        projectId
+      });
+      expect(advanceNextAction).toMatchObject({
+        ok: true,
+        data: {
+          nextAction: {
+            actionType: "advance_to_version",
+            recommendedTool: "propose_version_lifecycle_change",
+            toolInput: {
+              operation: "propose_version_advance",
+              projectId,
+              fromVersionId: firstVersionId,
+              versionId: successorVersionId,
+              expectedRouteLedgerRoot: projectRoot
+            },
+            requiredInputs: []
+          }
+        }
+      });
+      const advanceGuide = await registry.invoke("inspect_versions", {
+        operation: "get_version_transition_guide",
+        projectId,
+        targetVersionId: successorVersionId
+      });
+      expect(advanceGuide).toMatchObject({
+        ok: true,
+        data: {
+          recommendedSteps: expect.arrayContaining([
+            expect.objectContaining({
+              stepId: "transition-to-target",
+              recommendedTool: "propose_version_lifecycle_change",
+              toolInput: {
+                operation: "propose_version_advance",
+                projectId,
+                fromVersionId: firstVersionId,
+                versionId: successorVersionId,
+                expectedRouteLedgerRoot: projectRoot
+              },
+              requiredInputs: []
+            })
+          ])
+        }
+      });
+
       const advance = await registry.invoke("advance_to_version", {
         projectId,
         fromVersionId: firstVersionId,
@@ -282,7 +348,8 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         approvalArtifactId: (closeSuccessorApproval.data as { id: string }).id
       });
 
-      const closedTailNextAction = await registry.invoke("next_action", {
+      const closedTailNextAction = await registry.invoke("inspect_route_progress", {
+        operation: "next_action",
         projectId
       });
       expect(closedTailNextAction).toMatchObject({
@@ -291,7 +358,14 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
           nextAction: {
             actionType: "create_version",
             targetId: successorVersionId,
-            summary: "Append one successor Version after the closed top-level tail."
+            summary: "Append one successor Version after the closed top-level tail.",
+            recommendedTool: "propose_version_structure_change",
+            toolInput: {
+              operation: "propose_version_creation",
+              projectId,
+              expectedRouteLedgerRoot: projectRoot
+            },
+            requiredInputs: ["title"]
           }
         }
       });
@@ -1449,15 +1523,15 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
-      const startProposalData = getStructuredData<{ id: string }>(startProposal);
+      const startProposalData = getStructuredData<{ pendingOperationId: string }>(startProposal);
       const approveStart = await callTool(server, "approve-start", "approve_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id
+        pendingOperationId: startProposalData.pendingOperationId
       });
       const approveStartData = getStructuredData<{ id: string }>(approveStart);
       await callTool(server, "commit-start", "commit_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id,
+        pendingOperationId: startProposalData.pendingOperationId,
         approvalArtifactId: approveStartData.id
       });
       await callTool(server, "complete-initial", "mark_version_complete", {
@@ -1630,15 +1704,15 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
-      const startProposalData = getStructuredData<{ id: string }>(startProposal);
+      const startProposalData = getStructuredData<{ pendingOperationId: string }>(startProposal);
       const approveStart = await callTool(server, "approve-start", "approve_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id
+        pendingOperationId: startProposalData.pendingOperationId
       });
       const approveStartData = getStructuredData<{ id: string }>(approveStart);
       await callTool(server, "commit-start", "commit_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id,
+        pendingOperationId: startProposalData.pendingOperationId,
         approvalArtifactId: approveStartData.id
       });
       await callTool(server, "complete-current", "mark_version_complete", {
@@ -1783,7 +1857,7 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         "close_version"
       );
 
-      const startProposal = getStructuredData<{ id: string }>(
+      const startProposal = getStructuredData<{ pendingOperationId: string }>(
         await callTool(server, "start-current", "propose_l3_operation", {
           projectId: initData.project.id,
           actionType: "start_version",
@@ -1794,12 +1868,12 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
       const startApproval = getStructuredData<{ id: string }>(
         await callTool(server, "approve-start", "approve_l3_operation", {
           projectId: initData.project.id,
-          pendingOperationId: startProposal.id
+          pendingOperationId: startProposal.pendingOperationId
         })
       );
       await callTool(server, "commit-start", "commit_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposal.id,
+        pendingOperationId: startProposal.pendingOperationId,
         approvalArtifactId: startApproval.id
       });
 
@@ -1971,15 +2045,15 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
-      const startProposalData = getStructuredData<{ id: string }>(startProposal);
+      const startProposalData = getStructuredData<{ pendingOperationId: string }>(startProposal);
       const approveStart = await callTool(server, "approve-start", "approve_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id
+        pendingOperationId: startProposalData.pendingOperationId
       });
       const approveStartData = getStructuredData<{ id: string }>(approveStart);
       await callTool(server, "commit-start", "commit_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id,
+        pendingOperationId: startProposalData.pendingOperationId,
         approvalArtifactId: approveStartData.id
       });
       await callTool(server, "complete-current", "mark_version_complete", {
@@ -2946,15 +3020,15 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
         targetId: initData.firstVersion!.id,
         reason: "start initial"
       });
-      const startProposalData = getStructuredData<{ id: string }>(startProposal);
+      const startProposalData = getStructuredData<{ pendingOperationId: string }>(startProposal);
       const startApproval = await callTool(server, "approve-start", "approve_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id
+        pendingOperationId: startProposalData.pendingOperationId
       });
       const startApprovalData = getStructuredData<{ id: string }>(startApproval);
       await callTool(server, "commit-start", "commit_l3_operation", {
         projectId: initData.project.id,
-        pendingOperationId: startProposalData.id,
+        pendingOperationId: startProposalData.pendingOperationId,
         approvalArtifactId: startApprovalData.id
       });
       await callTool(server, "create-open-todo", "create_todo", {

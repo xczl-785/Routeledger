@@ -1707,12 +1707,12 @@ describe("routeledger mcp registry", () => {
           result: {
             structuredContent: {
               data: {
-                id: string;
+                pendingOperationId: string;
               };
             };
           };
         }
-      ).result.structuredContent.data.id;
+      ).result.structuredContent.data.pendingOperationId;
 
       const commitResponse = await callTool(server, "commit", "commit_l3_operation", {
         projectId: projectData.project.id,

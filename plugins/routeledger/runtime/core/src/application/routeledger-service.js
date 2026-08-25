@@ -782,6 +782,17 @@ export const buildVersionTransitionGuide = (snapshot, input) => {
         recommendedTool: transitionActionType === "advance_to_version"
             ? "propose_version_advance"
             : "preview_or_propose_version_transition",
+        toolInput: transitionActionType === "advance_to_version"
+            ? {
+                projectId: snapshot.project.id,
+                fromVersionId: fromVersion.id,
+                versionId: targetVersion.id
+            }
+            : {
+                projectId: snapshot.project.id,
+                versionId: targetVersion.id
+            },
+        requiredInputs: [],
         createsL3Proposal: true,
         actionType: transitionActionType,
         reason: transitionEvaluation?.status === "noop"

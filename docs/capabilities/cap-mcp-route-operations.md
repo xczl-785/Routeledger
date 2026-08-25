@@ -44,6 +44,11 @@ rules.
    canonical proposal and, only after host admission, internally authorizes and
    commits it. This reduces the normal admitted lifecycle path to proposal plus
    execution while preserving the explicit approve/reject/commit operations.
+   `propose_l3_route_change` returns the same confirmation envelope as the
+   dedicated Version proposal tools, including the proposal ID, digest, and
+   complete execute/approve/reject actions. While a proposal is pending,
+   `next_action` points directly to `execute_admitted_proposal` rather than
+   sending the Agent back to reread the same proposal.
 6. Route writes use the JSON-first storage boundary and therefore inherit its
    validation, locking, recovery, and conflict behavior.
 7. `inspect_route_progress(operation="next_action")` follows the version lifecycle: a current `wait` version

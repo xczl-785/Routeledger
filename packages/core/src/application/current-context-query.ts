@@ -558,11 +558,13 @@ const buildNextAction = (options: {
 
     return {
       actionType: "review_pending_proposal",
-      recommendedTool: "get_l3_proposal",
+      recommendedTool: "execute_admitted_proposal",
       toolInput: {
         projectId,
-        pendingOperationId: proposal.id
+        pendingOperationId: proposal.id,
+        expectedOperationDigest: proposal.digest
       },
+      requiredInputs: [],
       summary: "先处理 pending L3 proposal。",
       reason: `待处理提案 ${proposal.id} 会影响后续路线判断，应先审批或拒绝。`,
       targetId: proposal.id,
@@ -575,6 +577,9 @@ const buildNextAction = (options: {
   if (currentVersion === null && nextVersion === null) {
     return {
       actionType: "create_version",
+      recommendedTool: "propose_version_creation",
+      toolInput: { projectId },
+      requiredInputs: ["title"],
       summary: "与用户确认后创建首个真实 Version。",
       reason: "Project 逻辑根已经存在，但路线仍为空；首个 Version 应表达真实交付边界。",
       targetId: null,
@@ -827,6 +832,13 @@ const buildNextAction = (options: {
 
     return {
       actionType: "advance_to_version",
+      recommendedTool: "propose_version_advance",
+      toolInput: {
+        projectId,
+        fromVersionId: currentVersion.id,
+        versionId: nextVersion.id
+      },
+      requiredInputs: [],
       summary: "原子切换并启动下一个 ready Version。",
       reason: `当前边界已关闭，下一个 Version ${nextVersion.id} 已 ready，可用一套 L3 审计链完成 current 切换和启动。`,
       targetId: nextVersion.id,
@@ -898,6 +910,8 @@ const buildNextAction = (options: {
     return {
       actionType: "create_version",
       recommendedTool: "propose_version_creation",
+      toolInput: { projectId },
+      requiredInputs: ["title"],
       summary: "Append one successor Version after the closed top-level tail.",
       reason: `version ${currentVersion.id} is the ordinary closed top-level tail; continue the route by appending one real successor Version.`,
       targetId: currentVersion.id,

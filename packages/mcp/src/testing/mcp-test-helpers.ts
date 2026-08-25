@@ -813,14 +813,15 @@ export const setCurrentVersionWithApproval = async (
       structuredContent: {
         ok: true,
         data: {
-          id: expect.any(String)
+          status: "confirmation_required",
+          pendingOperationId: expect.any(String)
         }
       }
     }
   });
 
   const details = getStructuredData<{
-    id: string;
+    pendingOperationId: string;
   }>(response);
   const approveResponse = await callTool(
     server,
@@ -828,7 +829,7 @@ export const setCurrentVersionWithApproval = async (
     "approve_l3_operation",
     {
       projectId,
-      pendingOperationId: details.id,
+      pendingOperationId: details.pendingOperationId,
       expectedRouteLedgerRoot: routeledgerRoot
     }
   );
@@ -836,7 +837,7 @@ export const setCurrentVersionWithApproval = async (
 
   await callTool(server, `commit-set-current-${versionId}`, "commit_l3_operation", {
     projectId,
-    pendingOperationId: details.id,
+    pendingOperationId: details.pendingOperationId,
     approvalArtifactId: approvalArtifact.id,
     expectedRouteLedgerRoot: routeledgerRoot
   });

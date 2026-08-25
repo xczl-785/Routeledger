@@ -288,6 +288,7 @@ export interface CurrentContextNextAction {
   actionType: CurrentContextNextActionType;
   recommendedTool?: string;
   toolInput?: Record<string, unknown>;
+  requiredInputs?: string[];
   summary: string;
   reason: string;
   targetId: string | null;

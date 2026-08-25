@@ -495,9 +495,61 @@ describe("execute_route_change operation=execute_l3_operation", () => {
         projectId,
         actionType: "start_version",
         targetId: versionId,
-        reason: "Verify the explicit Windows Desktop flow"
+        reason: "Verify the explicit Windows Desktop flow",
+        expectedRouteLedgerRoot: projectRoot
       });
-      const pendingOperationId = (proposed.data as { id: string }).id;
+      expect(proposed).toMatchObject({
+        ok: true,
+        data: {
+          status: "confirmation_required",
+          proposalPersisted: true,
+          pendingOperationId: expect.any(String),
+          digest: expect.any(String),
+          proposal: {
+            status: "pending",
+            actionType: "start_version",
+            targetId: versionId
+          },
+          recommendedNextActions: [
+            expect.objectContaining({
+              action: "execute_if_admitted",
+              tool: "execute_route_change",
+              input: {
+                operation: "execute_admitted_proposal",
+                projectId,
+                pendingOperationId: expect.any(String),
+                expectedOperationDigest: expect.any(String),
+                expectedRouteLedgerRoot: projectRoot
+              }
+            }),
+            expect.objectContaining({ action: "approve" }),
+            expect.objectContaining({ action: "reject" })
+          ]
+        }
+      });
+      const pendingOperationId = (proposed.data as { pendingOperationId: string })
+        .pendingOperationId;
+      const pendingNextAction = await registry.invoke("inspect_route_progress", {
+        operation: "next_action",
+        projectId
+      });
+      expect(pendingNextAction).toMatchObject({
+        ok: true,
+        data: {
+          nextAction: {
+            actionType: "review_pending_proposal",
+            recommendedTool: "execute_route_change",
+            toolInput: {
+              operation: "execute_admitted_proposal",
+              projectId,
+              pendingOperationId,
+              expectedOperationDigest: (proposed.data as { digest: string }).digest,
+              expectedRouteLedgerRoot: projectRoot
+            },
+            requiredInputs: []
+          }
+        }
+      });
       const approved = await registry.invoke("execute_route_change", {
         operation: "approve_l3_operation",
         projectId,

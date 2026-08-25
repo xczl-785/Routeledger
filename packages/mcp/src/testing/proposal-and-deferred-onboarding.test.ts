@@ -74,12 +74,14 @@ describe("proposal and Deferred onboarding contracts", () => {
         data: {
           nextAction: {
             actionType: "review_pending_proposal",
-            recommendedTool: "inspect_l3_route_operations",
+            recommendedTool: "execute_route_change",
             toolInput: {
-              operation: "get_l3_proposal",
+              operation: "execute_admitted_proposal",
               projectId,
               pendingOperationId: (proposed.data as { pendingOperationId: string })
-                .pendingOperationId
+                .pendingOperationId,
+              expectedOperationDigest: expect.any(String),
+              expectedRouteLedgerRoot: projectRoot
             }
           }
         }

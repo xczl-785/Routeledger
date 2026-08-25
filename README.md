@@ -58,7 +58,7 @@ your-project/
 
 ## 快速开始（安装 Codex 插件）
 
-当前推荐通过 Codex 插件使用 RouteLedger。当前发布版为 0.10.9，由不可变标签 `routeledger-plugin-v0.10.9` 固定；它精简纯 Agent 初始化、补齐 Deferred 恢复计划，并明确项目内容语言的作用域。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
+当前推荐通过 Codex 插件使用 RouteLedger。当前发布版为 0.10.10，由不可变标签 `routeledger-plugin-v0.10.10` 固定；它补齐 Next Action 的可执行输入、统一通用 L3 提案响应，并消除 binding 成功响应中的时间快照矛盾。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref main --json
@@ -147,7 +147,7 @@ pnpm smoke:codex-git-marketplace
 ## 当前状态与边界
 
 - 发布干线：`main` 是唯一发布干线，`codex-marketplace` 保留为 0.3.3 历史锚点；Codex 插件与未来的 MCP / npm 包各自使用独立版本号和标签；
-- 安装：当前只通过 Codex 插件（Git marketplace）分发；已发布稳定版为 0.10.9；
+- 安装：当前只通过 Codex 插件（Git marketplace）分发；已发布稳定版为 0.10.10；
 - npm：`@routeledger/mcp` 等包正在支持中（coming soon），暂不提供 npm 安装；
 - 数据：JSON-first，SQLite 仅为查询缓存；
 - 并发：同一项目同一时刻只有一个 current version；当前是单写者模型，多读者可在无活跃写入时使用；
@@ -159,7 +159,7 @@ pnpm smoke:codex-git-marketplace
 - [Capability index](docs/capabilities/capability-index.md) — 已实现能力与源码 / 测试对应关系
 - [Agent-host integration](docs/guides/agent-host-integration.md) — MCP 单绑定运行时契约
 - [Codex plugin installation](docs/guides/codex-plugin-installation.md) — 插件安装与运行边界
-- [Release policy](docs/release/release-policy.md) 与 [0.10.9 release note](docs/release/release-notes/0.10.9.md) — 当前候选基线与发布流程
+- [Release policy](docs/release/release-policy.md) 与 [0.10.10 release note](docs/release/release-notes/0.10.10.md) — 当前候选基线与发布流程
 - [Distribution and tag conventions](docs/release/distribution-and-tags.md) — 插件与 MCP / npm 的版本与标签约定
 
 ## License
