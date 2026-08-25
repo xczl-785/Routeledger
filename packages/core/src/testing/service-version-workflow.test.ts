@@ -1062,7 +1062,13 @@ describe("route ledger service", () => {
         expect.objectContaining({
           stepId: "transition-to-target",
           status: "blocked",
-          recommendedTool: "propose_version_advance"
+          recommendedTool: "propose_version_advance",
+          toolInput: {
+            projectId: prepared.projectId,
+            fromVersionId: prepared.versionId,
+            versionId: targetVersionId
+          },
+          requiredInputs: []
         })
       ])
     );

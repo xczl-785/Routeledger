@@ -718,6 +718,8 @@ export interface VersionTransitionGuideStep {
   label: string;
   status: VersionTransitionGuideStepStatus;
   recommendedTool: string;
+  toolInput?: Record<string, unknown>;
+  requiredInputs?: string[];
   createsL3Proposal: boolean;
   actionType: VersionTransitionGuideActionType | null;
   reason: string;
@@ -1714,6 +1716,18 @@ export const buildVersionTransitionGuide = (
       transitionActionType === "advance_to_version"
         ? "propose_version_advance"
         : "preview_or_propose_version_transition",
+    toolInput:
+      transitionActionType === "advance_to_version"
+        ? {
+            projectId: snapshot.project.id,
+            fromVersionId: fromVersion.id,
+            versionId: targetVersion.id
+          }
+        : {
+            projectId: snapshot.project.id,
+            versionId: targetVersion.id
+          },
+    requiredInputs: [],
     createsL3Proposal: true,
     actionType: transitionActionType,
     reason:

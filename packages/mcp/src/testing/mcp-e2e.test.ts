@@ -137,12 +137,12 @@ describe("routeledger mcp registry", () => {
         reason: "start current version"
       });
       const mcpProposalData = mcpProposal.data as {
-        id: string;
+        pendingOperationId: string;
       };
       const mcpApprove = await registry.invoke("execute_route_change", {
         operation: "approve_l3_operation",
         projectId: mcpProjectId,
-        pendingOperationId: mcpProposalData.id
+        pendingOperationId: mcpProposalData.pendingOperationId
       });
       const mcpApproveData = mcpApprove.data as {
         id: string;
@@ -150,7 +150,7 @@ describe("routeledger mcp registry", () => {
       await registry.invoke("execute_route_change", {
         operation: "commit_l3_operation",
         projectId: mcpProjectId,
-        pendingOperationId: mcpProposalData.id,
+        pendingOperationId: mcpProposalData.pendingOperationId,
         approvalArtifactId: mcpApproveData.id
       });
       const mcpContext = await registry.invoke("inspect_route_progress", {

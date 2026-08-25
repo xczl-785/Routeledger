@@ -26,6 +26,11 @@ describe("route ledger service", () => {
       statusRisks: [{ code: "ROUTE_EMPTY", severity: "info" }],
       nextAction: {
         actionType: "create_version",
+        recommendedTool: "propose_version_creation",
+        toolInput: {
+          projectId: created.project.id
+        },
+        requiredInputs: ["title"],
         targetId: null,
         requiresL3Approval: true
       }
@@ -244,6 +249,13 @@ describe("route ledger service", () => {
     expect(data.nextVersion?.id).toBe("version-2");
     expect(data.nextAction).toMatchObject({
       actionType: "advance_to_version",
+      recommendedTool: "propose_version_advance",
+      toolInput: {
+        projectId: "project-1",
+        fromVersionId: "version-1",
+        versionId: "version-2"
+      },
+      requiredInputs: [],
       targetId: "version-2",
       requiresL3Approval: true
     });
@@ -891,6 +903,10 @@ describe("route ledger service", () => {
       nextAction: {
         actionType: "create_version",
         recommendedTool: "propose_version_creation",
+        toolInput: {
+          projectId: "project-1"
+        },
+        requiredInputs: ["title"],
         targetId: currentVersion.id,
         recordIds: [currentVersion.id]
       }
@@ -945,11 +961,13 @@ describe("route ledger service", () => {
     const pendingAction = await service.getNextAction({ projectId: "project-1" });
     expect(pendingAction.data.nextAction).toMatchObject({
       actionType: "review_pending_proposal",
-      recommendedTool: "get_l3_proposal",
+      recommendedTool: "execute_admitted_proposal",
       toolInput: {
         projectId: "project-1",
-        pendingOperationId: proposal.id
-      }
+        pendingOperationId: proposal.id,
+        expectedOperationDigest: proposal.digest.value
+      },
+      requiredInputs: []
     });
   });
 

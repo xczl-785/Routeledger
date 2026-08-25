@@ -2086,6 +2086,8 @@ describe("routeledger mcp registry", () => {
         rebound: boolean;
         activeBinding: { status: string; workspaceRoot: string; routeledgerRoot: string };
         bindingPlan: {
+          checks: Array<{ code: string; status: string }>;
+          risks: Array<{ code: string }>;
           requiresHostConfigUpdate: boolean;
           requiresServerRestart: boolean;
           sessionActivation: { available: boolean; required: boolean; action: string | null };
@@ -2111,6 +2113,14 @@ describe("routeledger mcp registry", () => {
           routeledgerRoot: workspaceRoot
         },
         bindingPlan: {
+          checks: [
+            expect.objectContaining({ code: "WORKSPACE_ROOT_VALID", status: "ok" }),
+            expect.objectContaining({ code: "ROUTELEDGER_ROOT_WITHIN_WORKSPACE", status: "ok" }),
+            expect.objectContaining({
+              code: "ROUTELEDGER_STATE_NOT_INITIALIZED",
+              status: "warning"
+            })
+          ],
           requiresHostConfigUpdate: false,
           requiresServerRestart: false,
           sessionActivation: {
@@ -2132,6 +2142,16 @@ describe("routeledger mcp registry", () => {
           ]
         }
       });
+      expect(activationData.bindingPlan.checks).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "WORKSPACE_CONFIG_NOT_FOUND" })
+        ])
+      );
+      expect(activationData.bindingPlan.risks).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "WORKSPACE_CONFIG_NOT_FOUND" })
+        ])
+      );
       expect(JSON.stringify(activation)).not.toContain("activate_routeledger_binding");
       expect(JSON.stringify(activation)).not.toContain("init_project");
     } finally {

@@ -125,6 +125,7 @@ const nextActionOutputSchema = objectSchema(
     actionType: { type: "string" },
     recommendedTool: { anyOf: [{ type: "string" }, { type: "null" }] },
     toolInput: flexibleObjectOutputSchema,
+    requiredInputs: stringArrayOutputSchema,
     summary: { type: "string" },
     reason: { type: "string" },
     targetId: nullableStringOutputSchema,

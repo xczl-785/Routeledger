@@ -714,6 +714,7 @@ const PUBLIC_TOOL_REFERENCE_MAP: Record<string, { tool: string; operation?: stri
   preview_or_propose_forced_version_shutdown: { tool: "execute_route_change", operation: "force_shutdown" },
   shutdown_version: { tool: "execute_route_change", operation: "force_shutdown" },
   execute_l3_operation: { tool: "execute_route_change", operation: "execute_l3_operation" },
+  execute_admitted_proposal: { tool: "execute_route_change", operation: "execute_admitted_proposal" },
   approve_l3_operation: { tool: "execute_route_change", operation: "approve_l3_operation" },
   commit_l3_operation: { tool: "execute_route_change", operation: "commit_l3_operation" },
   reject_l3_operation: { tool: "execute_route_change", operation: "reject_l3_operation" }
@@ -865,6 +866,72 @@ const attachIdempotencyReplayGuidance = (
           toolInput: { projectId }
         }
       }
+    }
+  };
+};
+
+const attachL3ProposalConfirmationGuidance = (
+  response: ToolResponse,
+  toolName: string
+): ToolResponse => {
+  if (
+    toolName !== "propose_l3_route_change" ||
+    !response.ok ||
+    response.data === null ||
+    typeof response.data !== "object" ||
+    Array.isArray(response.data)
+  ) {
+    return response;
+  }
+  const proposal = response.data as Record<string, unknown>;
+  const digest = proposal.digest;
+  const digestValue =
+    digest !== null &&
+    typeof digest === "object" &&
+    !Array.isArray(digest) &&
+    typeof (digest as Record<string, unknown>).value === "string"
+      ? ((digest as Record<string, unknown>).value as string)
+      : undefined;
+  if (
+    typeof proposal.id !== "string" ||
+    typeof proposal.projectId !== "string" ||
+    digestValue === undefined
+  ) {
+    return response;
+  }
+  const input = {
+    projectId: proposal.projectId,
+    pendingOperationId: proposal.id
+  };
+  return {
+    ...response,
+    data: {
+      status: "confirmation_required",
+      proposalPersisted: true,
+      pendingOperationId: proposal.id,
+      digest: digestValue,
+      proposal,
+      recommendedNextActions: [
+        {
+          action: "execute_if_admitted",
+          tool: "execute_admitted_proposal",
+          input: {
+            ...input,
+            expectedOperationDigest: digestValue
+          }
+        },
+        {
+          action: "approve",
+          tool: "approve_l3_operation",
+          input
+        },
+        {
+          action: "reject",
+          tool: "reject_l3_operation",
+          input,
+          requiredInputs: ["reason"]
+        }
+      ]
     }
   };
 };
@@ -1926,6 +1993,12 @@ export const createRouteLedgerMcpRegistry = (
   ): Promise<ToolResponse> => {
     const binding = readBinding();
     const runtimeContext = await getRuntimeContextData(binding);
+    const postActivationPlan = await planRouteLedgerBinding({
+      binding,
+      workspaceRoot: pendingRebind.workspaceRoot,
+      routeledgerRoot: pendingRebind.routeledgerRoot,
+      hostProfile
+    });
     const workspaceConfigEffect = pendingRebind.bindingPlan.checks.some(
       (check) => check.code === "WORKSPACE_CONFIG_NOT_FOUND"
     )
@@ -1959,7 +2032,7 @@ export const createRouteLedgerMcpRegistry = (
       });
     }
     const activatedBindingPlan: RouteLedgerBindingPlanResult = {
-      ...pendingRebind.bindingPlan,
+      ...postActivationPlan,
       status: pendingRebind.requiresInit ? "needs_init" : "ready",
       currentBinding: {
         status: runtimeContext.binding.status,
@@ -2125,7 +2198,10 @@ export const createRouteLedgerMcpRegistry = (
             ? await activatePendingRebindForDirectRegistry()
             : null;
         const responseWithReplayGuidance = attachIdempotencyReplayGuidance(
-          activationResponse ?? response,
+          attachL3ProposalConfirmationGuidance(
+            activationResponse ?? response,
+            toolName
+          ),
           input
         );
         return finalizeResponse(
