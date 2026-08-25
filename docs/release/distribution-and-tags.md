@@ -41,8 +41,7 @@ superseded before publication.
 
 ## Current status
 
-- Published: Codex plugin 0.10.9 (tag `routeledger-plugin-v0.10.9`).
-- Candidate: Codex plugin 0.10.10 (not tagged until release validation and merge).
+- Published: Codex plugin 0.10.10 (tag `routeledger-plugin-v0.10.10`).
 - Historical branch anchor: Codex plugin 0.3.3 on `codex-marketplace`.
 - Not published: `@routeledger/mcp` on npm. Documentation must not present it
   as installable until the first npm release exists.

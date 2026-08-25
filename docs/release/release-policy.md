@@ -5,11 +5,11 @@ local build. A release requires a rebuilt plugin distribution, passing smoke
 and quality checks, a SemVer-consistent `release.json`, a reviewed change set,
 and its immutable `routeledger-plugin-v<version>` tag.
 
-`routeledger@routeledger-team` version 0.10.9 is the latest published Git
-marketplace release. Version 0.10.10 is the current release candidate. It
-completes executable Next Action inputs, aligns the generic L3 proposal
-response with the confirmation contract, and reports post-activation binding
-facts consistently.
+`routeledger@routeledger-team` version 0.10.10 is the latest published Git
+marketplace release, fixed by `routeledger-plugin-v0.10.10` after release
+validation. It completes executable Next Action inputs, aligns the generic L3
+proposal response with the confirmation contract, and reports post-activation
+binding facts consistently.
 `main` is the release branch;
 `codex-marketplace` remains only the historical 0.3.3 branch anchor. This is a
 Codex plugin release path only;
