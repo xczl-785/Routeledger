@@ -1,166 +1,112 @@
 # RouteLedger
 
-RouteLedger 是一个轻量的**项目状态台账**，专为以 AI agent（如 Codex）为主要开发者的项目设计。它不管理代码，只管理“项目现在推进到哪个版本、接下来该做什么、什么暂缓了、哪些约束不能违反”，把散落在文档和对话里的状态收拢到项目根目录 `.routeledger/` 下一份可读、可写、可审计的权威数据（single source of truth，下称“真源”）里：用户通过只读看板查看，agent 通过 MCP 读写。
+RouteLedger 是给 AI agent 项目使用的本地状态真源。它不管理代码，也不替代文档仓；它只把“当前推进到哪里、接下来做什么、哪些事暂缓、哪些规则不能破坏”记录到项目根目录的 `.routeledger/` 中。
 
-## 它解决什么问题
+人通过 Mission Control 只读查看状态，agent 通过 MCP 工具读写状态。
 
-agent-first 项目通常有一个文档仓，其中 `进行中 / 路线图 / 任务与进展 / 遗留问题 / 当前边界` 会快速膨胀：
+[English README](README.en.md)
 
-- 当前状态散落在多份文档和对话记录里，agent 每次都要重新翻找；
-- “当前版本 / 当前阶段”缺少一个机器可读、可校验的坐标；
-- 暂停、否决、推迟的事项缺少生命周期和复评点；
-- 状态变更缺少审计，收尾时无法确认是否真的收干净了。
+## 为什么需要它
 
-它的目标是让“项目当前状态”像代码一样有版本、有坐标、可查询，而不是靠翻文档和猜。RouteLedger 不承载文档、证据和方法论，只负责状态本身：
+agent-first 项目很容易出现一种问题：当前状态散落在 README、AGENTS、临时任务板和对话记录里。下一次 agent 接手时，需要重新翻找、猜测和确认，尤其是在多阶段工作、暂停项、约束和收尾审计变多之后。
 
-> 工具负责：版本路线、当前位置、Todo / Deferred / Constraint、状态流转和审计
-> 文档负责：长说明、证据、方法论、参考资料和历史材料
+RouteLedger 把这部分状态从长文档里拿出来，变成机器可读、可审计、可恢复的项目台账。文档继续解释背景、证据和设计；RouteLedger 只记录可执行状态。
 
-## 它不是什么
+## 适合谁
 
-- 不是 Jira 之类的完整项目管理 / 问题追踪平台；
-- 不是 LangGraph / AutoGen 之类的 agent 编排或任务执行框架——它只管理项目状态，不替你执行任务；
-- 不会替项目自动推导路线——版本和路线由用户或 agent 显式维护；
-- 不替代你的文档仓。
+适合：
 
-## 核心概念
+- 主要由 Codex 或其它 AI agent 推进的项目；
+- 有明确阶段、当前工作、暂缓事项和约束的工程；
+- 希望 agent 接手时先读取状态真源，而不是重新整理聊天记录的维护者；
+- 需要本地、可审计、可版本化项目状态的团队或个人。
 
-| 概念 | 含义 |
-| --- | --- |
-| Project | 被 RouteLedger 治理的一个项目容器 |
-| Version | 路线上的推进坐标，当前版本决定“现在该做什么” |
-| Todo | 当前版本应做、但尚未完成的工作 |
-| Deferred | 当前主动不做、已指定目标版本、届时必须复评的事项 |
-| Constraint | 项目或版本范围内不得违反的规则 |
-| TransitionEvent | 状态变化的审计记录 |
+不适合：
 
-## 数据如何存放
+- 普通待办清单；
+- Jira、Linear 之类完整项目管理平台的替代品；
+- LangGraph、AutoGen 之类 agent 编排或任务执行框架；
+- 希望工具自动决定路线而不是显式维护路线的工作流。
 
-每个被治理的项目根下有一个 `.routeledger/` 目录：
+## 快速开始
 
-```text
-your-project/
-└── .routeledger/
-    ├── config.json        # 工作区配置（声明数据目录）
-    ├── project.json       # 项目聚合
-    ├── refs/current.json  # 当前版本指针
-    ├── versions/          # 版本对象
-    ├── todos/             # 当前工作项
-    ├── deferred_items/    # 暂缓项
-    └── constraints/       # 约束
-```
-
-三点关键规则：
-
-- canonical JSON 文档集是**真源**，MCP 每次写入先更新 JSON；
-- SQLite（`.routeledger/db/routeledger.sqlite3`）只是查询缓存副本，删除或损坏都可以从 JSON 完整重建；
-- 一条 MCP server entry 固定绑定一个项目根；写入前，服务会先核对请求指向的就是它绑定的那个根（root 断言），防止误改别的项目。
-
-## 快速开始（安装 Codex 插件）
-
-当前推荐通过 Codex 插件使用 RouteLedger。当前发布版为 0.10.10，由不可变标签 `routeledger-plugin-v0.10.10` 固定；它补齐 Next Action 的可执行输入、统一通用 L3 提案响应，并消除 binding 成功响应中的时间快照矛盾。`main` 是唯一发布干线，`codex-marketplace` 只保留为 0.3.3 的历史锚点分支：
+当前推荐通过 Codex 插件使用 RouteLedger：
 
 ```bash
 codex plugin marketplace add xczl-785/Routeledger --ref main --json
 codex plugin add routeledger@routeledger-team --json
 ```
 
-安装后新开一个 Codex 任务，然后：
+安装后，新开一个 Codex 任务，在目标项目里对 agent 说：
 
-1. 让 agent 先调用 `get_runtime_context` 确认当前绑定；
-2. 若未绑定到目标项目，调用 `activate_routeledger_binding` 绑定到当前项目根；
-3. `get_runtime_context` 会报告 `content_locale` 是否尚未确认；agent 必须让用户明确选择具体 BCP 47 locale（如 `zh-CN` 或 `en`）；
-4. 用明确的 `contentLocale` 调用 `configure_project(operation="initialize")`。默认只建立 Project 逻辑根，不创建真实 Version；如用户已经确认首个交付节点，可同时传入 `firstVersion`（标题、描述、初始 Todo）。`auto` 不被接受。服务仍会只读检查 README、AGENTS、CONTRIBUTING 等人类入口，但 `agent_only` 初始化响应省略这些人类文档建议；显式文档检查和有人审阅的模式仍可读取它们。
+```text
+请检查当前项目是否已经绑定 RouteLedger。
+如果还没有绑定，请绑定到当前项目根目录。
+如果项目还没有初始化，请用 zh-CN 初始化，并创建一个描述当前工作目标的第一个 Version。
+然后告诉我当前 Version、Todo、Deferred 和 Constraint 的状态。
+```
 
-`content_locale` 控制 agent 后续生成并写入该项目内容时采用的语言，持久化在项目设置中，并供用户界面消费。runtime 通过 `scope: "project_content_only"` 明确这一边界。旧项目缺少此字段时会读作 `null`：仍可检查，但写入前必须通过 `configure_project(operation="set_content_locale")` 补齐。面向 agent 的 MCP 工具名、字段名、枚举、错误码和系统说明统一使用英文。
+如果你只想先建立空台账，可以把最后一句改成：
 
-插件内置 JSON-only runtime，不依赖 SQLite。新初始化的 JSON-only 项目默认把同一 operation 的 Event 与 ordinary-write receipt 写入带摘要的 operation envelope；已有 loose-audit 项目保持原布局，只有显式执行 `json compact-audit` 才迁移。更多安装与运行细节见 [Codex plugin installation](docs/guides/codex-plugin-installation.md)。
+```text
+如果项目还没有初始化，请用 zh-CN 初始化，但先不要创建 Version。
+```
 
-> npm 安装方式正在支持中（coming soon），目前不提供 `npm install @routeledger/...`。
+成功后，目标项目根目录会出现 `.routeledger/`。之后你可以让 agent：
 
-## CLI
+- 查看当前状态和下一步；
+- 创建或完成 Todo；
+- 记录 Deferred，并指定未来复评的 Version；
+- 记录不能违反的 Constraint；
+- 在需要时打开 Mission Control 只读看板。
 
-仓库还提供 CLI（`@routeledger/cli`，当前为源码形态），覆盖常用工作语义：
+## 它如何工作
 
-- Deferred：`deferred create`、`deferred from-todo`、`deferred activate`、`deferred defer-again`、`deferred resolve`
-- Constraint：`constraint record`、`constraint retire`
-- JSON：`json import`、`json export`、`json merge-check`、`json review-summary`、`json audit-summary`、`json compact-audit`
-- 上下文：`context`
-- 项目语言：初始化时使用 `init_project --content-locale <BCP47>`；旧项目使用 `set_project_content_locale --content-locale <BCP47>` 补齐
-- 路线起点：`init_project` 默认建立空路线；可用 `--first-version <JSON>` 明确初始化首个节点
-- 连续推进：`version advance` 将“切换到已准备好的直接后继 Version + 启动”合并为一次 L3 审批提交
+RouteLedger 的状态保存在项目本地的 `.routeledger/` 目录中。JSON 文件是持久真源；SQLite 只用于查询缓存，可以从 JSON 重建。
 
-## Mission Control（只读看板）
+每个 MCP server entry 固定绑定一个项目根。写入前，RouteLedger 会核对请求目标是否仍是绑定的项目，避免 agent 误写到其它工程。
 
-Mission Control 是仓库自带的本地只读 Web 看板。每台机器只运行一个 UI Hub；多个已明确登记的工程共享这个进程，但页面一次只展示一个工程。切换工程只改变看板读取目标，不会改变 MCP 绑定，也不会写入 RouteLedger 数据。
+核心状态很少：Project 表示被治理的项目；Version 表示路线上的当前坐标；Todo 是当前要做的工作；Deferred 是暂缓但必须复评的事项；Constraint 是不能违反的规则。
 
-CI 用真实的无浏览器 UI 子进程测试认证、关闭和注册表清理，并以全局及 UI Hub 服务端覆盖率下限防止这些边界在重构中悄然失守。
+## Mission Control
+
+Mission Control 是本地只读 Web 看板，用来给人查看 RouteLedger 状态。通过 Codex 插件使用时，可以让 agent 打开 Mission Control；源码开发时也可以运行：
 
 ```bash
 pnpm build:ui
 pnpm open:ui -- --workspace-root /ABS/PATH/TO/CODEX_WORKSPACE_ROOT --routeledger-root /ABS/PATH/TO/ROUTELEDGER_ROOT
 ```
 
-重复执行 `open:ui` 会复用现有 Hub，并把新工程加入顶部工程切换器。Hub 只监听 `127.0.0.1`；页面关闭且连续 30 分钟没有活动时自动退出，也可以执行 `pnpm stop:ui` 主动关闭。`pnpm status:ui` 查看状态，`pnpm add:ui-project` 只登记工程、不打开新进程。Codex 插件内的 `open_mission_control` 提供同一套 Hub，无需本地克隆源码。
+Mission Control 只读。切换看板中的项目不会改变 MCP 绑定，也不会写入 RouteLedger 数据。
 
-## 开发与验证
+## 开发
 
-开发与构建本仓库要求 Node.js ≥ 20.19（建议 22 LTS）、pnpm 11（仓库锁定 `pnpm@11.7.0`，建议 `corepack enable` 后使用）。这不是已生成插件 runtime 的最低运行版本；runtime 的独立要求记录在其 `package.json` 与 README 中。
-
-`packages/mcp` 与生成后的 runtime 使用 `0.0.0-package-prep` 作为尚未发布到 npm 的内部包身份；这不是 Codex 插件版本。插件版本与不可变发布标签分别以 `plugins/routeledger/.codex-plugin/plugin.json` 和 `plugins/routeledger/release.json` 为准。当前生成 runtime 的最低运行要求是 Node.js 18，而构建整个源码仓仍按上面的 Node.js 20.19 要求执行。
+源码开发要求 Node.js >= 20.19 和 pnpm 11。安装依赖并运行基础检查：
 
 ```bash
-git clone https://github.com/xczl-785/Routeledger.git
-cd Routeledger
 pnpm install
 pnpm test
 pnpm typecheck
 pnpm lint
 ```
 
-插件构建与发布校验：
+贡献流程、验证要求和插件发布检查见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-```bash
-pnpm build:codex-plugin
-pnpm smoke:codex-plugin
-pnpm check:codex-plugin-release
-pnpm smoke:codex-git-marketplace
-```
+RouteLedger 管理的业务项目可以按自己的协作约定把 `.routeledger/` JSON 真源纳入版本控制；这是跨机器共享和合并项目状态的主要方式。
 
-源码方式接入 MCP 的配置示例见 `examples/config/`，运行时契约见 [Agent-host integration](docs/guides/agent-host-integration.md)。
+## 当前状态
 
-## 仓库结构
+当前稳定分发方式是 Codex Git marketplace 插件；已发布稳定版为 0.10.10。npm 包仍在准备中，暂不提供 `npm install @routeledger/...` 安装方式。
 
-| 目录 | 作用 |
-| --- | --- |
-| `packages/core` | 领域模型与状态机：Project / Version / Todo / Deferred / Constraint |
-| `packages/json` | canonical JSON 编解码、校验、导入导出、merge-check |
-| `packages/sqlite` | SQLite 查询缓存适配（非真源） |
-| `packages/mcp` | MCP stdio server、binding、root 断言、Mission Control 工具 |
-| `packages/codex` | Codex 项目级配置生成器 |
-| `packages/cli` | 命令行入口 |
-| `packages/ui` | Mission Control 只读看板 |
-| `plugins/routeledger` | 已生成的 Codex 插件分发（JSON-only runtime） |
-| `docs/` | 能力文档、接入指南、发布策略与发布记录 |
-| `examples/` | Codex 配置示例 |
+`main` 是发布干线；`codex-marketplace` 是历史锚点分支，不代表当前推荐安装路径。当前发布记录见 [0.10.10 release note](docs/release/release-notes/0.10.10.md)。
 
-## 当前状态与边界
+## 更多文档
 
-- 发布干线：`main` 是唯一发布干线，`codex-marketplace` 保留为 0.3.3 历史锚点；Codex 插件与未来的 MCP / npm 包各自使用独立版本号和标签；
-- 安装：当前只通过 Codex 插件（Git marketplace）分发；已发布稳定版为 0.10.10；
-- npm：`@routeledger/mcp` 等包正在支持中（coming soon），暂不提供 npm 安装；
-- 数据：JSON-first，SQLite 仅为查询缓存；
-- 并发：同一项目同一时刻只有一个 current version；当前是单写者模型，多读者可在无活跃写入时使用；
-- UI：Mission Control 当前只读。
-
-## 文档导航
-
-- [docs/README.md](docs/README.md) — 文档仓入口与边界
-- [Capability index](docs/capabilities/capability-index.md) — 已实现能力与源码 / 测试对应关系
-- [Agent-host integration](docs/guides/agent-host-integration.md) — MCP 单绑定运行时契约
-- [Codex plugin installation](docs/guides/codex-plugin-installation.md) — 插件安装与运行边界
-- [Release policy](docs/release/release-policy.md) 与 [0.10.10 release note](docs/release/release-notes/0.10.10.md) — 当前候选基线与发布流程
-- [Distribution and tag conventions](docs/release/distribution-and-tags.md) — 插件与 MCP / npm 的版本与标签约定
+- [Codex plugin installation](docs/guides/codex-plugin-installation.md)：插件安装和运行边界
+- [Agent-host integration](docs/guides/agent-host-integration.md)：MCP 绑定、运行时和 host 集成契约
+- [Capability index](docs/capabilities/capability-index.md)：已实现能力与源码、测试证据
+- [Documentation index](docs/README.md)：长期文档入口
+- [Release policy](docs/release/release-policy.md)：发布流程和版本规则
 
 ## License
 
