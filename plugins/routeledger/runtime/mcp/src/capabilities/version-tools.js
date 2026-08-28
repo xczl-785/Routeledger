@@ -366,13 +366,15 @@ export const createVersionMutationTools = (dependencies) => {
         }, objectSchema({
             projectId: stringSchema("RouteLedger project ID."),
             title: stringSchema("Version title."),
-            description: stringSchema("Optional version description.")
+            description: stringSchema("Optional version description."),
+            reason: stringSchema("Optional human-review proposal reason.")
         }, ["projectId", "title"]), { title: "Propose Version Creation", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.createVersion({
                 projectId: input.projectId,
                 title: input.title,
                 description: input.description,
+                reason: input.reason,
                 actor
             })
         })),
@@ -384,7 +386,8 @@ export const createVersionMutationTools = (dependencies) => {
             title: stringSchema("Version title."),
             description: stringSchema("Optional version description."),
             afterVersionId: stringSchema("Insert after this sibling version ID."),
-            beforeVersionId: stringSchema("Insert before this sibling version ID.")
+            beforeVersionId: stringSchema("Insert before this sibling version ID."),
+            reason: stringSchema("Optional human-review proposal reason.")
         }, ["projectId", "title"]), { title: "Propose Version Insertion", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.insertVersion({
@@ -393,6 +396,7 @@ export const createVersionMutationTools = (dependencies) => {
                 description: input.description,
                 afterVersionId: input.afterVersionId,
                 beforeVersionId: input.beforeVersionId,
+                reason: input.reason,
                 actor
             })
         })),
@@ -405,7 +409,8 @@ export const createVersionMutationTools = (dependencies) => {
             title: stringSchema("Version title."),
             description: stringSchema("Optional version description."),
             afterVersionId: stringSchema("Insert after this child version ID."),
-            beforeVersionId: stringSchema("Insert before this child version ID.")
+            beforeVersionId: stringSchema("Insert before this child version ID."),
+            reason: stringSchema("Optional human-review proposal reason.")
         }, ["projectId", "parentVersionId", "title"]), { title: "Propose Child Version Creation", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.createChildVersion({
@@ -415,6 +420,7 @@ export const createVersionMutationTools = (dependencies) => {
                 description: input.description,
                 afterVersionId: input.afterVersionId,
                 beforeVersionId: input.beforeVersionId,
+                reason: input.reason,
                 actor
             })
         })),
@@ -425,7 +431,8 @@ export const createVersionMutationTools = (dependencies) => {
             projectId: stringSchema("RouteLedger project ID."),
             versionId: stringSchema("Version ID to move."),
             afterVersionId: stringSchema("Move after this sibling version ID."),
-            beforeVersionId: stringSchema("Move before this sibling version ID.")
+            beforeVersionId: stringSchema("Move before this sibling version ID."),
+            reason: stringSchema("Optional human-review proposal reason.")
         }, ["projectId", "versionId"]), { title: "Propose Version Reorder", riskLevel: "write" }, async (input) => ({
             ok: true,
             data: await service.reorderVersions({
@@ -433,6 +440,7 @@ export const createVersionMutationTools = (dependencies) => {
                 versionId: input.versionId,
                 afterVersionId: input.afterVersionId,
                 beforeVersionId: input.beforeVersionId,
+                reason: input.reason,
                 actor
             })
         }))

@@ -584,7 +584,7 @@ const HistorySection = ({
   <div className="history-stack">
     {proposals.length > 0 ? (
       <section><h3>Pending Proposal（{proposals.length}）</h3>{proposals.map((proposal) => (
-        <article className="history-record" key={proposal.id}><strong>{proposal.actionType}</strong><p>{proposal.reason}</p><small>{formatDateTime(proposal.createdAt)}</small></article>
+        <article className="history-record" key={proposal.id}><strong>{proposal.actionType}</strong><p>{proposal.reason}</p><small>{proposal.reasonSource.replaceAll("_", " ")} · {formatDateTime(proposal.createdAt)}</small></article>
       ))}</section>
     ) : null}
     <section>

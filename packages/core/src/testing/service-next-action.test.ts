@@ -107,6 +107,7 @@ describe("route ledger service", () => {
           targetId: currentVersion.id,
           status: "pending",
           reason: "close current version",
+          reasonSource: "explicit_input",
           gateSnapshot: {
             kind: "close",
             evaluatedAt: "2026-06-27T00:00:00.000Z",
@@ -256,6 +257,14 @@ describe("route ledger service", () => {
         versionId: "version-2"
       },
       requiredInputs: [],
+      recommendedInputs: [
+        {
+          field: "reason",
+          contentRole: "human_review",
+          localeSource: "project.contentLocale",
+          guidance: "Provide an explicit reason in the project contentLocale."
+        }
+      ],
       targetId: "version-2",
       requiresL3Approval: true
     });

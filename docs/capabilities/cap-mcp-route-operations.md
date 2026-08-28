@@ -76,9 +76,10 @@ rules.
    takes precedence over historical committed evidence.
 9. Agent-facing MCP messages and protocol identifiers use canonical English.
    Coded blockers use one message catalog across current context, gate inspection,
-   and legal-operation projections; next-action summaries, reasons, and choice
-   conditions do not vary with project locale. Candidate Todo text and document
-   templates are project content and continue to follow `contentLocale`.
+   and legal-operation projections; next-action summaries, system-default reasons,
+   and choice conditions do not vary with project locale. An explicit lifecycle
+   reason is agent-authored project content and should follow `contentLocale`.
+   Candidate Todo text and document templates follow the same rule.
    `inspect_runtime(operation="runtime")` reports an unresolved project
    `contentLocale` without inferring a value from the agent or host language;
    initialization requires user confirmation and an explicit value. `auto` is
@@ -93,8 +94,13 @@ rules.
     write-integrity gate. It does
     not claim translation of user-authored or existing project content.
     MCP diagnostics, blockers, next actions, state labels, and other control-plane
-    messages remain stable English. `humanReviewText` is stable review material
-    for an agent to interpret or paraphrase, not localized project content.
+    messages remain stable English. Persisted proposal reasons carry a
+    `reasonSource`: `explicit_input`, `system_default`, or `legacy_unspecified`.
+    A system default is control-plane metadata even though it is human-readable;
+    `humanReviewText` labels it as a system default and states that no human reason
+    was supplied. For actions that create reviewable reasons, `next_action` exposes
+    `recommendedInputs` so an agent can supply an explicit reason in the project
+    `contentLocale` without localizing the surrounding protocol.
 12. Agent-facing recommended actions are projected to public task-level tools.
     Write, proposal, and high-risk action inputs include the active binding's
     `expectedRouteLedgerRoot`; when no trusted root exists, the action declares

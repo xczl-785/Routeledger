@@ -213,6 +213,7 @@ export interface MissionControlProposal {
   targetId: string;
   status: string;
   reason: string;
+  reasonSource: "explicit_input" | "system_default" | "legacy_unspecified";
   createdAt: string;
   gateKind: string;
   gateAllowed: boolean;

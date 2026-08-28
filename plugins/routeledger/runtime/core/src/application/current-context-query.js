@@ -8,6 +8,14 @@ const DEFAULT_VERSION_WINDOW_BEFORE = 3;
 const DEFAULT_VERSION_WINDOW_AFTER = 3;
 const MAX_VERSION_WINDOW_SIZE = 20;
 const DIAGNOSTIC_VERSION_PATTERNS = [/_probe/i, /\bprobe\b/i, /diagnostic/i, /test-only/i];
+const buildHumanReviewReasonRecommendation = () => [
+    {
+        field: "reason",
+        contentRole: "human_review",
+        localeSource: "project.contentLocale",
+        guidance: "Provide an explicit reason in the project contentLocale."
+    }
+];
 const sortKeys = (value) => {
     if (Array.isArray(value)) {
         return value.map(sortKeys);
@@ -302,6 +310,7 @@ const buildNextAction = (options) => {
             recommendedTool: "propose_version_creation",
             toolInput: { projectId },
             requiredInputs: ["title"],
+            recommendedInputs: buildHumanReviewReasonRecommendation(),
             summary: "与用户确认后创建首个真实 Version。",
             reason: "Project 逻辑根已经存在，但路线仍为空；首个 Version 应表达真实交付边界。",
             targetId: null,
@@ -438,6 +447,7 @@ const buildNextAction = (options) => {
             reason: `project.currentVersionId 当前仍指向 ${currentVersion.id}，但实际运行中的边界是 ${runningVersion.id}；需要走 L3 set_current_version 修正 current。`,
             targetId: runningVersion.id,
             requiresL3Approval: true,
+            recommendedInputs: buildHumanReviewReasonRecommendation(),
             recordIds: [currentVersion.id, runningVersion.id],
             blockingRiskCodes
         };
@@ -457,6 +467,7 @@ const buildNextAction = (options) => {
         return {
             actionType: "close_version",
             recommendedTool: "preview_or_propose_version_close",
+            recommendedInputs: buildHumanReviewReasonRecommendation(),
             summary: "准备 residual audit 后，预览或发起 Version 关闭提案。",
             reason: `current version ${currentVersion.id} 已 complete，但尚未 close。`,
             targetId: currentVersion.id,
@@ -529,6 +540,7 @@ const buildNextAction = (options) => {
                 versionId: nextVersion.id
             },
             requiredInputs: [],
+            recommendedInputs: buildHumanReviewReasonRecommendation(),
             summary: "原子切换并启动下一个 ready Version。",
             reason: `当前边界已关闭，下一个 Version ${nextVersion.id} 已 ready，可用一套 L3 审计链完成 current 切换和启动。`,
             targetId: nextVersion.id,
@@ -570,9 +582,10 @@ const buildNextAction = (options) => {
             toolInput: {
                 projectId,
                 actionType: "start_version",
-                targetId: currentVersion.id,
-                reason: "Start the ready current Version after its start gate passed."
+                targetId: currentVersion.id
             },
+            requiredInputs: ["reason"],
+            recommendedInputs: buildHumanReviewReasonRecommendation(),
             summary: "启动当前 ready version。",
             reason: `current version ${currentVersion.id} 已 ready 且 start gate 通过，可进入 start_version 审计链。`,
             targetId: currentVersion.id,
@@ -590,6 +603,7 @@ const buildNextAction = (options) => {
             recommendedTool: "propose_version_creation",
             toolInput: { projectId },
             requiredInputs: ["title"],
+            recommendedInputs: buildHumanReviewReasonRecommendation(),
             summary: "Append one successor Version after the closed top-level tail.",
             reason: `version ${currentVersion.id} is the ordinary closed top-level tail; continue the route by appending one real successor Version.`,
             targetId: currentVersion.id,
@@ -682,6 +696,7 @@ export const buildDerivedCurrentContextData = (snapshot, options = {}) => {
         status: operation.status,
         digest: operation.digest.value,
         reason: operation.reason,
+        reasonSource: operation.reasonSource,
         createdAt: operation.createdAt,
         gate: {
             kind: operation.gateSnapshot.kind,

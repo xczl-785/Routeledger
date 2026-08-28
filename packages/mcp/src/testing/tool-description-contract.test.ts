@@ -75,7 +75,7 @@ const EXPECTED_TOOL_CONTRACT_DIGESTS = {
   manage_deferred: "07d6b9fcae2d19807fd3bc90547b759110ccc9c88b6930e51d2028184813c184",
   manage_constraint: "99597c205e5cbb3452e8e697f44c74860d7601ca6df9c0cb177ddcfaf69d6997",
   propose_version_lifecycle_change: "2b595b78138b0579925b17957638e17580288a8a456804c2ebfcf7ec155d0dd2",
-  propose_version_structure_change: "59f73895a080862b1de52e832cc58e3d377844e98cf2683090d3a7dd01d45ed8",
+  propose_version_structure_change: "24fe4d95ba2788e4d26e3e1b7dba517a02867bbb0c8694bc468151c0e9104acb",
   propose_l3_route_change: "29f03d82521cad53bee60e71526c268da2535b28cb556888b45540242a77bc42",
   set_version_state: "b844b6ab10ea1988f8161e81fc0a7302541ed6072d0cc1852326750ab7fdba06",
   execute_route_change: "0de95319db13c333b9655165d5872e02dd5497dd8c0ee0c5e1cc94fcb8f44232",

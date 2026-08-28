@@ -277,7 +277,7 @@ describe("sqlite storage adapter", () => {
           .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger'")
           .get() as { count: number };
 
-      expect(migrationCount.count).toBe(10);
+        expect(migrationCount.count).toBe(SQLITE_MIGRATIONS.length);
         expect(triggerCount.count).toBe(0);
       } finally {
         opened.close();
@@ -287,7 +287,7 @@ describe("sqlite storage adapter", () => {
     }
   });
 
-  it("upgrades every real migration prefix through 0010 and rejects future histories", () => {
+  it("upgrades every real migration prefix through the current migration and rejects future histories", () => {
     for (let prefixLength = 0; prefixLength <= SQLITE_MIGRATIONS.length; prefixLength += 1) {
       const db = new BetterSqlite3(":memory:");
       try {
@@ -310,6 +310,10 @@ describe("sqlite storage adapter", () => {
           (db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>)
             .map(({ name }) => name)
         ).toContain("aggregate_revision");
+        expect(
+          (db.prepare("PRAGMA table_info(pending_operations)").all() as Array<{ name: string }>)
+            .map(({ name }) => name)
+        ).toContain("reason_source");
       } finally {
         db.close();
       }
@@ -597,7 +601,7 @@ describe("sqlite storage adapter", () => {
             count: number;
           }
         ).count
-      ).toBe(10);
+      ).toBe(SQLITE_MIGRATIONS.length);
       expect(
         (
           db.prepare("SELECT COUNT(*) AS count FROM todos WHERE id = 'todo-legacy-1'").get() as {
@@ -2271,6 +2275,7 @@ describe("sqlite storage adapter", () => {
         targetId: currentVersion.id,
         status: "pending",
         reason: "emergency_stop",
+        reasonSource: "explicit_input",
         gateSnapshot: {
           kind: "shutdown",
           evaluatedAt: "2026-06-27T03:00:00.000Z",

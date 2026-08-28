@@ -6,6 +6,7 @@ import { normalizeVersionTreePayload } from "../services/version-tree-service.js
 import { closeTodo as closeTodoDomain, createTodo as createTodoDomain } from "../services/work-item-service.js";
 import { deferWork as deferWorkWorkflow, recordConstraint as recordConstraintWorkflow, retireRecordedConstraint, reviewDeferred as reviewDeferredWorkflow } from "../services/workflow-service.js";
 import { ApplicationError } from "./errors.js";
+import { resolveProposalReason } from "./proposal-reason.js";
 import { buildDerivedCurrentContextData } from "./current-context-query.js";
 import { RouteLedgerQueryService } from "./routeledger-query-service.js";
 import { persistProjectAggregate } from "./project-aggregate-access.js";
@@ -111,12 +112,20 @@ const makeHumanReviewText = (operation) => {
                 : "ordinaryCloseBlockers: none"
         ]
         : [];
+    const reasonLines = operation.reasonSource === "system_default"
+        ? [
+            `system default reason: ${operation.reason}`,
+            "human reason: not provided"
+        ]
+        : operation.reasonSource === "explicit_input"
+            ? [`reason: ${operation.reason}`, "reason source: explicit input"]
+            : [`reason: ${operation.reason}`, "reason source: legacy unspecified"];
     return [
         `RouteLedger proposal ${operation.id}`,
         `action: ${operation.actionType}`,
         `target: ${operation.targetId}`,
         `digest: ${operation.digest.value}`,
-        `reason: ${operation.reason}`,
+        ...reasonLines,
         blockerCodes.length > 0 ? `blockers: ${blockerCodes.join(", ")}` : "blockers: none",
         ...shutdownLines
     ].join("\n");
@@ -1866,7 +1875,7 @@ export class RouteLedgerService {
                 projectId: input.projectId,
                 actionType: "set_current_version",
                 targetId: input.versionId,
-                reason: input.reason ?? "transition version requested: set current first",
+                ...resolveProposalReason(input.reason, "transition version requested: set current first"),
                 payload: {
                     currentVersionId: input.versionId
                 },
@@ -1876,7 +1885,7 @@ export class RouteLedgerService {
                 projectId: input.projectId,
                 actionType: "start_version",
                 targetId: input.versionId,
-                reason: input.reason ?? "transition version requested: start ready target",
+                ...resolveProposalReason(input.reason, "transition version requested: start ready target"),
                 actor: input.actor
             });
         return {
@@ -1911,7 +1920,7 @@ export class RouteLedgerService {
             projectId: input.projectId,
             actionType: "close_version",
             targetId: input.versionId,
-            reason: input.reason ?? "close version requested",
+            ...resolveProposalReason(input.reason, "close version requested"),
             payload: {
                 residualAudit: resolvedAudit.audit?.items ?? null,
                 residualAuditReviewed: resolvedAudit.audit !== null
@@ -1961,7 +1970,7 @@ export class RouteLedgerService {
             projectId: input.projectId,
             actionType: "shutdown_version",
             targetId: input.versionId,
-            reason: input.reason ?? `emergency shutdown requested (${description.gateSnapshot.stateReason})`,
+            ...resolveProposalReason(input.reason, `emergency shutdown requested (${description.gateSnapshot.stateReason})`),
             payload: {
                 shutdownReason: input.shutdownReason
             },
@@ -2050,7 +2059,7 @@ export class RouteLedgerService {
         return this.l3OperationCommitService.commitL3Operation(input);
     }
     async startVersion(input) {
-        return this.requestConfirmation(input.projectId, "start_version", input.versionId, input.reason ?? "start version requested", input.actor);
+        return this.requestConfirmation(input.projectId, "start_version", input.versionId, resolveProposalReason(input.reason, "start version requested"), input.actor);
     }
     async closeVersion(input) {
         const gate = await this.checkCloseGate(input);
@@ -2067,21 +2076,21 @@ export class RouteLedgerService {
         }
         const snapshot = await requireProject(this.storage, input.projectId);
         const resolvedAudit = resolveCloseResidualAudit(snapshot, input.versionId, input.residualAudit);
-        return this.requestConfirmation(input.projectId, "close_version", input.versionId, "close version requested", input.actor, {
+        return this.requestConfirmation(input.projectId, "close_version", input.versionId, resolveProposalReason(undefined, "close version requested"), input.actor, {
             residualAudit: resolvedAudit.audit?.items ?? null,
             residualAuditReviewed: resolvedAudit.audit !== null
         });
     }
     async shutdownVersion(input) {
-        return this.requestConfirmation(input.projectId, "shutdown_version", input.versionId, input.reason ?? `emergency shutdown requested (${buildShutdownStateReason(input.shutdownReason)})`, input.actor, {
+        return this.requestConfirmation(input.projectId, "shutdown_version", input.versionId, resolveProposalReason(input.reason, `emergency shutdown requested (${buildShutdownStateReason(input.shutdownReason)})`), input.actor, {
             shutdownReason: input.shutdownReason
         });
     }
     async reopenVersion(input) {
-        return this.requestConfirmation(input.projectId, "reopen_version", input.versionId, input.reason ?? "reopen version requested", input.actor);
+        return this.requestConfirmation(input.projectId, "reopen_version", input.versionId, resolveProposalReason(input.reason, "reopen version requested"), input.actor);
     }
     async setCurrentVersion(input) {
-        return this.requestConfirmation(input.projectId, "set_current_version", input.versionId, input.reason ?? "set current version requested", input.actor, {
+        return this.requestConfirmation(input.projectId, "set_current_version", input.versionId, resolveProposalReason(input.reason, "set current version requested"), input.actor, {
             currentVersionId: input.versionId
         });
     }
@@ -2107,7 +2116,7 @@ export class RouteLedgerService {
             projectId: input.projectId,
             actionType: "advance_to_version",
             targetId: input.versionId,
-            reason: input.reason ?? "advance to version requested",
+            ...resolveProposalReason(input.reason, "advance to version requested"),
             actor: input.actor,
             payload: {
                 fromVersionId: input.fromVersionId
@@ -2143,13 +2152,13 @@ export class RouteLedgerService {
         };
     }
     async createVersion(input) {
-        return this.requestConfirmation(input.projectId, "create_version", this.deps.idGenerator.nextId(), input.reason ?? "create version requested", input.actor, {
+        return this.requestConfirmation(input.projectId, "create_version", this.deps.idGenerator.nextId(), resolveProposalReason(input.reason, "create version requested"), input.actor, {
             title: input.title,
             description: input.description
         });
     }
     async insertVersion(input) {
-        return this.requestConfirmation(input.projectId, "insert_version", this.deps.idGenerator.nextId(), input.reason ?? "insert version requested", input.actor, {
+        return this.requestConfirmation(input.projectId, "insert_version", this.deps.idGenerator.nextId(), resolveProposalReason(input.reason, "insert version requested"), input.actor, {
             title: input.title,
             description: input.description,
             previousVersionId: input.afterVersionId ?? null,
@@ -2157,7 +2166,7 @@ export class RouteLedgerService {
         });
     }
     async createChildVersion(input) {
-        return this.requestConfirmation(input.projectId, "create_child_version", this.deps.idGenerator.nextId(), input.reason ?? "create child version requested", input.actor, {
+        return this.requestConfirmation(input.projectId, "create_child_version", this.deps.idGenerator.nextId(), resolveProposalReason(input.reason, "create child version requested"), input.actor, {
             title: input.title,
             description: input.description,
             parentVersionId: input.parentVersionId,
@@ -2166,7 +2175,7 @@ export class RouteLedgerService {
         });
     }
     async reorderVersions(input) {
-        return this.requestConfirmation(input.projectId, "reorder_versions", input.versionId, input.reason ?? "reorder versions requested", input.actor, {
+        return this.requestConfirmation(input.projectId, "reorder_versions", input.versionId, resolveProposalReason(input.reason, "reorder versions requested"), input.actor, {
             previousVersionId: input.afterVersionId ?? null,
             nextVersionId: input.beforeVersionId ?? null
         });
@@ -2193,12 +2202,12 @@ export class RouteLedgerService {
     async getNextAction(input) {
         return this.queryService.getNextAction(input);
     }
-    async requestConfirmation(projectId, actionType, targetId, reason, actor, payload = {}, requirePassingGate = false) {
+    async requestConfirmation(projectId, actionType, targetId, resolvedReason, actor, payload = {}, requirePassingGate = false) {
         const proposal = await this.proposeL3Operation({
             projectId,
             actionType,
             targetId,
-            reason,
+            ...resolvedReason,
             actor,
             payload,
             requirePassingGate

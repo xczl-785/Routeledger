@@ -344,6 +344,28 @@ describe("@routeledger/json canonical codec", () => {
     expect(decoded.project.settings.contentLocale).toBeNull();
   });
 
+  it("persists reason provenance and marks legacy pending operations as unspecified", () => {
+    const documents = encodeProjectAggregateToJsonDocuments(createJsonCodecSnapshot());
+    const pendingDocument = documents.find((document) =>
+      document.path.includes("/pending_operations/")
+    );
+    if (pendingDocument === undefined) throw new Error("missing pending operation fixture");
+
+    expect(JSON.parse(pendingDocument.content)).toMatchObject({
+      reason_source: "explicit_input"
+    });
+
+    const legacyDocuments = documents.map((document) => {
+      if (document.path !== pendingDocument.path) return document;
+      const value = JSON.parse(document.content) as Record<string, unknown>;
+      delete value.reason_source;
+      return { ...document, content: `${JSON.stringify(value, null, 2)}\n` };
+    });
+
+    const decoded = decodeProjectAggregateFromJsonDocuments(legacyDocuments);
+    expect(decoded.pendingOperations[0]?.reasonSource).toBe("legacy_unspecified");
+  });
+
   it("fails closed when direct decode receives malformed DeferredItem or Constraint documents", () => {
     const documents = encodeProjectAggregateToJsonDocuments(
       createDeferredConstraintJsonSnapshot()

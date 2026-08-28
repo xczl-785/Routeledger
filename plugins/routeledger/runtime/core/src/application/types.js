@@ -10,6 +10,11 @@ export const L3_ACTION_TYPES = [
     "create_child_version",
     "reorder_versions"
 ];
+export const PENDING_OPERATION_REASON_SOURCES = [
+    "explicit_input",
+    "system_default",
+    "legacy_unspecified"
+];
 export const BATCH_CREATE_VERSIONS_MODES = ["preflight", "propose"];
 export const isBatchCreateVersionsMode = (value) => typeof value === "string" &&
     BATCH_CREATE_VERSIONS_MODES.includes(value);

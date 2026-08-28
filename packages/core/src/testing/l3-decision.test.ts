@@ -28,6 +28,7 @@ const proposal = (status: PendingOperation["status"] = "pending"): PendingOperat
   targetId: "version-1",
   status,
   reason: "Advance the accepted route",
+  reasonSource: "explicit_input",
   gateSnapshot: {
     kind: "none",
     evaluatedAt: "2026-08-11T00:00:00.000Z",

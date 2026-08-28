@@ -18,6 +18,7 @@ const createProposal = (id: string, createdAt: string): PendingOperation => ({
   targetId: "version-1",
   status: "pending",
   reason: id,
+  reasonSource: "explicit_input",
   gateSnapshot: {
     kind: "none",
     evaluatedAt: createdAt,

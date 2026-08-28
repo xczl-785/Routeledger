@@ -1,4 +1,4 @@
-import { collectConstraintInvariantViolations, collectDeferredItemInvariantViolations } from "../../core/src/index.js";
+import { PENDING_OPERATION_REASON_SOURCES, collectConstraintInvariantViolations, collectDeferredItemInvariantViolations } from "../../core/src/index.js";
 import { buildRouteLedgerSchemaDocument } from "./schema.js";
 import { CURRENT_REF_DOCUMENT_PATH, PROJECT_DOCUMENT_PATH, ROUTELEDGER_JSON_ROOT, ROUTELEDGER_SCHEMA_VERSION, SCHEMA_DOCUMENT_PATH } from "./constants.js";
 import { buildCanonicalIdDocumentPath, buildTransitionEventDocumentPath } from "./document-descriptors.js";
@@ -966,6 +966,7 @@ const encodePendingOperation = (operation) => ({
     target_id: operation.targetId,
     status: operation.status,
     reason: operation.reason,
+    reason_source: operation.reasonSource,
     gate_snapshot: encodeGateSnapshot(operation.gateSnapshot),
     digest: encodeDigest(operation.digest),
     payload: encodePendingOperationPayload(operation.payload),
@@ -977,6 +978,13 @@ const encodePendingOperation = (operation) => ({
     rejection_reason: operation.rejectionReason,
     approval_artifact_id: operation.approvalArtifactId
 });
+const decodePendingOperationReasonSource = (value) => {
+    if (value === undefined)
+        return "legacy_unspecified";
+    if (PENDING_OPERATION_REASON_SOURCES.includes(value))
+        return value;
+    throw new Error("pending_operation document has invalid reason_source");
+};
 const decodePendingOperation = (operation) => ({
     id: operation.id,
     projectId: operation.project_id,
@@ -984,6 +992,7 @@ const decodePendingOperation = (operation) => ({
     targetId: operation.target_id,
     status: operation.status,
     reason: operation.reason,
+    reasonSource: decodePendingOperationReasonSource(operation.reason_source),
     gateSnapshot: decodeGateSnapshot(operation.gate_snapshot),
     digest: decodeDigest(operation.digest),
     payload: decodePendingOperationPayload(operation.payload),
