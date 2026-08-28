@@ -581,6 +581,7 @@ export const createValidateSnapshot = (): ProjectAggregateSnapshot => ({
       targetId: "version-2",
       status: "pending",
       reason: "close version",
+      reasonSource: "legacy_unspecified",
       gateSnapshot: {
         kind: "close",
         evaluatedAt: "2026-06-27T00:00:00.000Z",
