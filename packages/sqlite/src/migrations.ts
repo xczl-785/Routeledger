@@ -1014,6 +1014,12 @@ const PROJECT_AGGREGATE_REVISION_SQL = `
 ALTER TABLE projects ADD COLUMN aggregate_revision INTEGER NOT NULL DEFAULT 0;
 `;
 
+const PENDING_OPERATION_REASON_SOURCE_SQL = `
+ALTER TABLE pending_operations
+  ADD COLUMN reason_source TEXT NOT NULL DEFAULT 'legacy_unspecified'
+  CHECK (reason_source IN ('explicit_input', 'system_default', 'legacy_unspecified'));
+`;
+
 export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0001_initial_schema",
@@ -1054,6 +1060,10 @@ export const SQLITE_MIGRATIONS: readonly MigrationDefinition[] = [
   {
     id: "0010_project_aggregate_revision",
     sql: PROJECT_AGGREGATE_REVISION_SQL
+  },
+  {
+    id: "0011_pending_operation_reason_source",
+    sql: PENDING_OPERATION_REASON_SOURCE_SQL
   }
 ];
 

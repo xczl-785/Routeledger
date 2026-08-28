@@ -96,9 +96,9 @@ RouteLedger 管理的业务项目可以按自己的协作约定把 `.routeledger
 
 ## 当前状态
 
-当前稳定分发方式是 Codex Git marketplace 插件；已发布稳定版为 0.10.10。npm 包仍在准备中，暂不提供 `npm install @routeledger/...` 安装方式。
+当前稳定分发方式是 Codex Git marketplace 插件；已发布稳定版为 0.10.11。npm 包仍在准备中，暂不提供 `npm install @routeledger/...` 安装方式。
 
-`main` 是发布干线；`codex-marketplace` 是历史锚点分支，不代表当前推荐安装路径。当前发布记录见 [0.10.10 release note](docs/release/release-notes/0.10.10.md)。
+`main` 是发布干线；`codex-marketplace` 是历史锚点分支，不代表当前推荐安装路径。当前发布记录见 [0.10.11 release note](docs/release/release-notes/0.10.11.md)。
 
 ## 更多文档
 

@@ -93,6 +93,7 @@ const proposalFor = (context: L3AuthorizationEvaluationContext): PendingOperatio
   targetId: context.targetId,
   status: "pending",
   reason: "profile exact decision",
+  reasonSource: "explicit_input",
   gateSnapshot: { kind: "none", evaluatedAt: context.now, allowed: true, blockers: [] },
   digest: { algorithm: "sha256", value: context.operationDigest, payload: {} },
   payload: {},

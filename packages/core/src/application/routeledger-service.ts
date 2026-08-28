@@ -51,6 +51,10 @@ import {
 } from "../services/workflow-service.js";
 
 import { ApplicationError } from "./errors.js";
+import {
+  resolveProposalReason,
+  type ResolvedProposalReason
+} from "./proposal-reason.js";
 import type { ExactAuthorizationStore } from "./exact-authorization-store.js";
 import type { ExactCommitCoordinator } from "./exact-commit-coordinator.js";
 import {
@@ -900,12 +904,22 @@ const makeHumanReviewText = (operation: PendingOperation): string => {
         ]
       : [];
 
+  const reasonLines =
+    operation.reasonSource === "system_default"
+      ? [
+          `system default reason: ${operation.reason}`,
+          "human reason: not provided"
+        ]
+      : operation.reasonSource === "explicit_input"
+        ? [`reason: ${operation.reason}`, "reason source: explicit input"]
+        : [`reason: ${operation.reason}`, "reason source: legacy unspecified"];
+
   return [
     `RouteLedger proposal ${operation.id}`,
     `action: ${operation.actionType}`,
     `target: ${operation.targetId}`,
     `digest: ${operation.digest.value}`,
-    `reason: ${operation.reason}`,
+    ...reasonLines,
     blockerCodes.length > 0 ? `blockers: ${blockerCodes.join(", ")}` : "blockers: none",
     ...shutdownLines
   ].join("\n");
@@ -3173,7 +3187,10 @@ export class RouteLedgerService {
             projectId: input.projectId,
             actionType: "set_current_version",
             targetId: input.versionId,
-            reason: input.reason ?? "transition version requested: set current first",
+            ...resolveProposalReason(
+              input.reason,
+              "transition version requested: set current first"
+            ),
             payload: {
               currentVersionId: input.versionId
             },
@@ -3183,7 +3200,10 @@ export class RouteLedgerService {
             projectId: input.projectId,
             actionType: "start_version",
             targetId: input.versionId,
-            reason: input.reason ?? "transition version requested: start ready target",
+            ...resolveProposalReason(
+              input.reason,
+              "transition version requested: start ready target"
+            ),
             actor: input.actor
           });
 
@@ -3229,7 +3249,7 @@ export class RouteLedgerService {
       projectId: input.projectId,
       actionType: "close_version",
       targetId: input.versionId,
-      reason: input.reason ?? "close version requested",
+      ...resolveProposalReason(input.reason, "close version requested"),
       payload: {
         residualAudit: resolvedAudit.audit?.items ?? null,
         residualAuditReviewed: resolvedAudit.audit !== null
@@ -3298,8 +3318,10 @@ export class RouteLedgerService {
       projectId: input.projectId,
       actionType: "shutdown_version",
       targetId: input.versionId,
-      reason:
-        input.reason ?? `emergency shutdown requested (${description.gateSnapshot.stateReason})`,
+      ...resolveProposalReason(
+        input.reason,
+        `emergency shutdown requested (${description.gateSnapshot.stateReason})`
+      ),
       payload: {
         shutdownReason: input.shutdownReason
       },
@@ -3427,7 +3449,7 @@ export class RouteLedgerService {
       input.projectId,
       "start_version",
       input.versionId,
-      input.reason ?? "start version requested",
+      resolveProposalReason(input.reason, "start version requested"),
       input.actor
     );
   }
@@ -3457,7 +3479,7 @@ export class RouteLedgerService {
       input.projectId,
       "close_version",
       input.versionId,
-      "close version requested",
+      resolveProposalReason(undefined, "close version requested"),
       input.actor,
       {
         residualAudit: resolvedAudit.audit?.items ?? null,
@@ -3471,7 +3493,10 @@ export class RouteLedgerService {
       input.projectId,
       "shutdown_version",
       input.versionId,
-      input.reason ?? `emergency shutdown requested (${buildShutdownStateReason(input.shutdownReason)})`,
+      resolveProposalReason(
+        input.reason,
+        `emergency shutdown requested (${buildShutdownStateReason(input.shutdownReason)})`
+      ),
       input.actor,
       {
         shutdownReason: input.shutdownReason
@@ -3484,7 +3509,7 @@ export class RouteLedgerService {
       input.projectId,
       "reopen_version",
       input.versionId,
-      input.reason ?? "reopen version requested",
+      resolveProposalReason(input.reason, "reopen version requested"),
       input.actor
     );
   }
@@ -3494,7 +3519,7 @@ export class RouteLedgerService {
       input.projectId,
       "set_current_version",
       input.versionId,
-      input.reason ?? "set current version requested",
+      resolveProposalReason(input.reason, "set current version requested"),
       input.actor,
       {
         currentVersionId: input.versionId
@@ -3538,7 +3563,7 @@ export class RouteLedgerService {
       projectId: input.projectId,
       actionType: "advance_to_version",
       targetId: input.versionId,
-      reason: input.reason ?? "advance to version requested",
+      ...resolveProposalReason(input.reason, "advance to version requested"),
       actor: input.actor,
       payload: {
         fromVersionId: input.fromVersionId
@@ -3580,7 +3605,7 @@ export class RouteLedgerService {
       input.projectId,
       "create_version",
       this.deps.idGenerator.nextId(),
-      input.reason ?? "create version requested",
+      resolveProposalReason(input.reason, "create version requested"),
       input.actor,
       {
         title: input.title,
@@ -3594,7 +3619,7 @@ export class RouteLedgerService {
       input.projectId,
       "insert_version",
       this.deps.idGenerator.nextId(),
-      input.reason ?? "insert version requested",
+      resolveProposalReason(input.reason, "insert version requested"),
       input.actor,
       {
         title: input.title,
@@ -3610,7 +3635,7 @@ export class RouteLedgerService {
       input.projectId,
       "create_child_version",
       this.deps.idGenerator.nextId(),
-      input.reason ?? "create child version requested",
+      resolveProposalReason(input.reason, "create child version requested"),
       input.actor,
       {
         title: input.title,
@@ -3627,7 +3652,7 @@ export class RouteLedgerService {
       input.projectId,
       "reorder_versions",
       input.versionId,
-      input.reason ?? "reorder versions requested",
+      resolveProposalReason(input.reason, "reorder versions requested"),
       input.actor,
       {
         previousVersionId: input.afterVersionId ?? null,
@@ -3665,7 +3690,7 @@ export class RouteLedgerService {
     projectId: string,
     actionType: L3ActionType,
     targetId: string,
-    reason: string,
+    resolvedReason: ResolvedProposalReason,
     actor: Actor,
     payload: PendingOperationPayload = {},
     requirePassingGate = false
@@ -3674,7 +3699,7 @@ export class RouteLedgerService {
       projectId,
       actionType,
       targetId,
-      reason,
+      ...resolvedReason,
       actor,
       payload,
       requirePassingGate

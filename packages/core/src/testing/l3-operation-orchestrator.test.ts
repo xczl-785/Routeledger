@@ -14,6 +14,7 @@ const proposal: PendingOperation = {
   targetId: "version-1",
   status: "pending",
   reason: "Start",
+  reasonSource: "explicit_input",
   gateSnapshot: { kind: "none", evaluatedAt: "2026-08-11T00:00:00.000Z", allowed: true, blockers: [] },
   digest: { algorithm: "sha256", value: "digest-1", payload: {} },
   payload: {},

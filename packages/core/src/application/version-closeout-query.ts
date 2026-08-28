@@ -62,6 +62,7 @@ type CloseoutPendingOperationSummary = {
   targetId: string;
   status: PendingOperation["status"];
   reason: string;
+  reasonSource: PendingOperation["reasonSource"];
   createdAt: string;
   updatedAt: string;
   committedAt: string | null;
@@ -214,6 +215,7 @@ const summarizeCloseoutPendingOperation = (
   targetId: operation.targetId,
   status: operation.status,
   reason: operation.reason,
+  reasonSource: operation.reasonSource,
   createdAt: operation.createdAt,
   updatedAt: operation.updatedAt,
   committedAt: operation.committedAt,

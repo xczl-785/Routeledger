@@ -16,13 +16,19 @@ import {
   type ProjectSnapshotWriter
 } from "./project-aggregate-access.js";
 import type { ProjectAggregateSnapshot } from "../ports/storage-port.js";
-import type { L3ActionType, PendingOperation, PendingOperationPayload } from "./types.js";
+import type {
+  L3ActionType,
+  PendingOperation,
+  PendingOperationPayload,
+  PendingOperationReasonSource
+} from "./types.js";
 
 export interface L3ProposalWriteInput {
   projectId: string;
   actionType: L3ActionType;
   targetId: string;
   reason: string;
+  reasonSource?: PendingOperationReasonSource;
   actor: Actor;
   payload?: PendingOperationPayload;
   requirePassingGate?: boolean;
@@ -87,6 +93,7 @@ export class L3ProposalWriteService implements L3ProposalWriteUseCases {
       targetId: description.targetId,
       status: "pending",
       reason: input.reason,
+      reasonSource: input.reasonSource ?? "explicit_input",
       gateSnapshot: description.gateSnapshot,
       digest: description.digest,
       payload: description.payload,
@@ -110,7 +117,8 @@ export class L3ProposalWriteService implements L3ProposalWriteUseCases {
           metadata: {
             actionType: proposal.actionType,
             targetId: proposal.targetId,
-            digest: proposal.digest.value
+            digest: proposal.digest.value,
+            reasonSource: proposal.reasonSource
           }
         }
       ],

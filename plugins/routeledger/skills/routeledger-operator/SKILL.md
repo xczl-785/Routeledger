@@ -26,7 +26,7 @@ Introduce six concept groups before any advanced details:
 3. **Version Lifecycle**: the normal path is `wait -> ready -> running -> complete -> close`. `complete` means implementation is finished; `close` means blockers, closeout, and residual work are settled.
 4. **Work Classification**: Todo is work now, Deferred is reviewed at a named future Version, and Constraint is a rule that must remain true.
 5. **Gates and Blockers**: a gate decides whether a transition is allowed; blockers explain why it is not.
-6. **Next Action Contract**: `next_action` supplies the recommended tool and exact input, including whether a decision or host admission is required.
+6. **Next Action Contract**: `next_action` supplies the recommended tool and exact input, including whether a decision or host admission is required. When `recommendedInputs` identifies a human-review `reason`, write it explicitly in the project's `contentLocale` and add it to the tool input.
 
 Use this routine loop:
 
@@ -48,6 +48,8 @@ Do not teach route restructuring, exceptional Version states, closeout auditing,
 Before every write, pass the matching absolute `expectedRouteLedgerRoot` returned by runtime inspection. Treat binding failures as blockers, not as permission to guess a path.
 
 `contentLocale` applies to agent-authored project content intended for human consumption. Runtime reports this as `scope: project_content_only`. It does not localize MCP control-plane messages, diagnostics, blockers, next actions, or state labels.
+
+Persisted proposal reasons report their provenance as `explicit_input`, `system_default`, or `legacy_unspecified`. Treat a `system_default` reason as stable control-plane metadata, not as localized project content. If a reason will be reviewed by a human, prefer an explicit reason in `contentLocale`; follow `next_action.recommendedInputs` when present.
 
 When `inspect_runtime` reports `interactionProfile: agent_only`, treat Mission Control as advisory. Project initialization omits human-entry-document metadata in this profile; use explicit document inspection only when documentation work is requested.
 

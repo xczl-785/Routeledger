@@ -21,6 +21,15 @@ export type L3ActionType = (typeof L3_ACTION_TYPES)[number];
 
 export type PendingOperationStatus = "pending" | "committed" | "rejected";
 
+export const PENDING_OPERATION_REASON_SOURCES = [
+  "explicit_input",
+  "system_default",
+  "legacy_unspecified"
+] as const;
+
+export type PendingOperationReasonSource =
+  (typeof PENDING_OPERATION_REASON_SOURCES)[number];
+
 export type ApprovalArtifactStatus =
   | "pending"
   | "approved"
@@ -202,6 +211,7 @@ export interface PendingOperation {
   targetId: string;
   status: PendingOperationStatus;
   reason: string;
+  reasonSource: PendingOperationReasonSource;
   gateSnapshot: GateSnapshot;
   digest: OperationDigest;
   payload: PendingOperationPayload;
@@ -284,11 +294,19 @@ export interface CurrentContextNextActionChoice {
   requiredInputs: string[];
 }
 
+export interface CurrentContextRecommendedInput {
+  field: string;
+  contentRole: "human_review";
+  localeSource: "project.contentLocale";
+  guidance: string;
+}
+
 export interface CurrentContextNextAction {
   actionType: CurrentContextNextActionType;
   recommendedTool?: string;
   toolInput?: Record<string, unknown>;
   requiredInputs?: string[];
+  recommendedInputs?: CurrentContextRecommendedInput[];
   summary: string;
   reason: string;
   targetId: string | null;

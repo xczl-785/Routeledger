@@ -24,6 +24,7 @@ Use the bundled RouteLedger MCP server to inspect and change Version state or ro
 1. Call `inspect_runtime(operation="runtime")` and confirm the active project and RouteLedger root. If the project is unbound or uninitialized, use `routeledger-operator` before continuing.
 2. Before every proposal, state write, preview, dry run, or execution, pass the matching absolute `expectedRouteLedgerRoot`.
 3. Inspect live Version structure and the relevant start or close gate immediately before proposing a change.
+4. When `next_action.recommendedInputs` requests a human-review `reason`, provide it explicitly in the project's `contentLocale`. A returned `system_default` reason is provenance-labelled control-plane metadata, not a localized project explanation.
 
 ## Choose the workflow
 

@@ -56,11 +56,15 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
       });
       const createFirstDetails = createFirst.data as {
         pendingOperationId: string;
-        proposal: { targetId: string };
+        proposal: { targetId: string; reasonSource: string };
         humanReviewText: string;
       };
       const firstVersionId = createFirstDetails.proposal.targetId;
+      expect(createFirstDetails.proposal.reasonSource).toBe("system_default");
       expect(createFirstDetails.humanReviewText).toContain("RouteLedger proposal");
+      expect(createFirstDetails.humanReviewText).toContain(
+        "system default reason: create version requested"
+      );
       const firstApproval = await registry.invoke("approve_l3_operation", {
         projectId,
         pendingOperationId: createFirstDetails.pendingOperationId
@@ -78,7 +82,8 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
 
       const createSuccessor = await registry.invoke("create_version", {
         projectId,
-        title: "Successor delivery"
+        title: "Successor delivery",
+        reason: "创建后续交付版本"
       });
       expect(createSuccessor).toMatchObject({
         ok: true,
@@ -90,8 +95,14 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
       });
       const createSuccessorDetails = createSuccessor.data as {
         pendingOperationId: string;
-        proposal: { targetId: string };
+        proposal: { targetId: string; reason: string; reasonSource: string };
+        humanReviewText: string;
       };
+      expect(createSuccessorDetails.proposal).toMatchObject({
+        reason: "创建后续交付版本",
+        reasonSource: "explicit_input"
+      });
+      expect(createSuccessorDetails.humanReviewText).toContain("reason source: explicit input");
       const successorVersionId = createSuccessorDetails.proposal.targetId;
       const successorApproval = await registry.invoke("approve_l3_operation", {
         projectId,
@@ -216,7 +227,15 @@ describe("routeledger mcp registry", { timeout: 30_000 }, () => {
               versionId: successorVersionId,
               expectedRouteLedgerRoot: projectRoot
             },
-            requiredInputs: []
+            requiredInputs: [],
+            recommendedInputs: [
+              {
+                field: "reason",
+                contentRole: "human_review",
+                localeSource: "project.contentLocale",
+                guidance: "Provide an explicit reason in the project contentLocale."
+              }
+            ]
           }
         }
       });

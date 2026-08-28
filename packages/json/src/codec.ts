@@ -23,6 +23,7 @@ import type {
   OrdinaryWriteReceipt,
   PendingOperation,
   PendingOperationPayload,
+  PendingOperationReasonSource,
   PendingOperationStatus,
   Project,
   ProjectAggregateSnapshot,
@@ -41,6 +42,7 @@ import type {
   WorkItemType
 } from "@routeledger/core";
 import {
+  PENDING_OPERATION_REASON_SOURCES,
   collectConstraintInvariantViolations,
   collectDeferredItemInvariantViolations
 } from "@routeledger/core";
@@ -387,6 +389,7 @@ interface JsonPendingOperation {
   target_id: string;
   status: PendingOperationStatus;
   reason: string;
+  reason_source?: PendingOperationReasonSource;
   gate_snapshot: JsonGateSnapshot;
   digest: JsonOperationDigest;
   payload: JsonPendingOperationPayload;
@@ -1697,6 +1700,7 @@ const encodePendingOperation = (operation: PendingOperation): JsonPendingOperati
   target_id: operation.targetId,
   status: operation.status,
   reason: operation.reason,
+  reason_source: operation.reasonSource,
   gate_snapshot: encodeGateSnapshot(operation.gateSnapshot),
   digest: encodeDigest(operation.digest),
   payload: encodePendingOperationPayload(operation.payload),
@@ -1709,6 +1713,14 @@ const encodePendingOperation = (operation: PendingOperation): JsonPendingOperati
   approval_artifact_id: operation.approvalArtifactId
 });
 
+const decodePendingOperationReasonSource = (
+  value: JsonPendingOperation["reason_source"]
+): PendingOperationReasonSource => {
+  if (value === undefined) return "legacy_unspecified";
+  if (PENDING_OPERATION_REASON_SOURCES.includes(value)) return value;
+  throw new Error("pending_operation document has invalid reason_source");
+};
+
 const decodePendingOperation = (operation: JsonPendingOperation): PendingOperation => ({
   id: operation.id,
   projectId: operation.project_id,
@@ -1716,6 +1728,7 @@ const decodePendingOperation = (operation: JsonPendingOperation): PendingOperati
   targetId: operation.target_id,
   status: operation.status,
   reason: operation.reason,
+  reasonSource: decodePendingOperationReasonSource(operation.reason_source),
   gateSnapshot: decodeGateSnapshot(operation.gate_snapshot),
   digest: decodeDigest(operation.digest),
   payload: decodePendingOperationPayload(operation.payload),

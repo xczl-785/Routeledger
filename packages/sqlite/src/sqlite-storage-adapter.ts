@@ -694,6 +694,7 @@ interface PendingOperationRow {
   target_id: string;
   status: PendingOperation["status"];
   reason: string;
+  reason_source: PendingOperation["reasonSource"];
   gate_snapshot_json: string;
   digest_json: string;
   payload_json: string;
@@ -1279,6 +1280,7 @@ export class SQLiteStorageAdapter implements StoragePort {
           target_id,
           status,
           reason,
+          reason_source,
           gate_snapshot_json,
           digest_json,
           payload_json,
@@ -1304,6 +1306,7 @@ export class SQLiteStorageAdapter implements StoragePort {
           targetId: row.target_id,
           status: row.status,
           reason: row.reason,
+          reasonSource: row.reason_source,
           gateSnapshot: parseJson<PendingOperation["gateSnapshot"]>(row.gate_snapshot_json),
           digest: parseJson<PendingOperation["digest"]>(row.digest_json),
           payload: parseJson<PendingOperation["payload"]>(row.payload_json),
@@ -1840,6 +1843,7 @@ export class SQLiteStorageAdapter implements StoragePort {
         target_id,
         status,
         reason,
+        reason_source,
         gate_snapshot_json,
         digest_json,
         payload_json,
@@ -1860,6 +1864,7 @@ export class SQLiteStorageAdapter implements StoragePort {
         @target_id,
         @status,
         @reason,
+        @reason_source,
         @gate_snapshot_json,
         @digest_json,
         @payload_json,
@@ -2189,6 +2194,7 @@ export class SQLiteStorageAdapter implements StoragePort {
           target_id: pendingOperation.targetId,
           status: pendingOperation.status,
           reason: pendingOperation.reason,
+          reason_source: pendingOperation.reasonSource,
           gate_snapshot_json: serializeJson(pendingOperation.gateSnapshot),
           digest_json: serializeJson(pendingOperation.digest),
           payload_json: serializeJson(pendingOperation.payload),

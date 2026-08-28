@@ -40,6 +40,7 @@ export class L3ProposalWriteService {
             targetId: description.targetId,
             status: "pending",
             reason: input.reason,
+            reasonSource: input.reasonSource ?? "explicit_input",
             gateSnapshot: description.gateSnapshot,
             digest: description.digest,
             payload: description.payload,
@@ -62,7 +63,8 @@ export class L3ProposalWriteService {
                 metadata: {
                     actionType: proposal.actionType,
                     targetId: proposal.targetId,
-                    digest: proposal.digest.value
+                    digest: proposal.digest.value,
+                    reasonSource: proposal.reasonSource
                 }
             }
         ], {

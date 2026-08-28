@@ -60,6 +60,7 @@ const summarizeCloseoutPendingOperation = (operation) => ({
     targetId: operation.targetId,
     status: operation.status,
     reason: operation.reason,
+    reasonSource: operation.reasonSource,
     createdAt: operation.createdAt,
     updatedAt: operation.updatedAt,
     committedAt: operation.committedAt,

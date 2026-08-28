@@ -126,6 +126,18 @@ const nextActionOutputSchema = objectSchema(
     recommendedTool: { anyOf: [{ type: "string" }, { type: "null" }] },
     toolInput: flexibleObjectOutputSchema,
     requiredInputs: stringArrayOutputSchema,
+    recommendedInputs: {
+      type: "array",
+      items: objectSchema(
+        {
+          field: { type: "string" },
+          contentRole: { type: "string", const: "human_review" },
+          localeSource: { type: "string", const: "project.contentLocale" },
+          guidance: { type: "string" }
+        },
+        ["field", "contentRole", "localeSource", "guidance"]
+      )
+    },
     summary: { type: "string" },
     reason: { type: "string" },
     targetId: nullableStringOutputSchema,

@@ -167,6 +167,7 @@ const toProposalSummary = (proposal: PendingOperation): MissionControlProposal =
   targetId: proposal.targetId,
   status: proposal.status,
   reason: proposal.reason,
+  reasonSource: proposal.reasonSource,
   createdAt: proposal.createdAt,
   gateKind: proposal.gateSnapshot.kind,
   gateAllowed: proposal.gateSnapshot.allowed,

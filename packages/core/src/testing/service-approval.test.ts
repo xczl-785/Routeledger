@@ -39,6 +39,7 @@ describe("route ledger service", () => {
     expect(snapshot?.versions[0]?.state).toBe("ready");
     expect(snapshot?.pendingOperations).toHaveLength(1);
     expect(snapshot?.pendingOperations[0]?.actionType).toBe("start_version");
+    expect(snapshot?.pendingOperations[0]?.reasonSource).toBe("system_default");
     expect(snapshot?.approvalArtifacts).toHaveLength(0);
   });
 
@@ -60,6 +61,7 @@ describe("route ledger service", () => {
     const snapshot = await storage.loadProjectAggregate(prepared.projectId);
 
     expect(proposal.digest.value).toHaveLength(64);
+    expect(proposal.reasonSource).toBe("explicit_input");
     expect(snapshot?.versions[0]?.state).toBe("ready");
     expect(snapshot?.pendingOperations).toHaveLength(1);
     expect(snapshot?.events.at(-1)?.targetType).toBe("pending_operation");

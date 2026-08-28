@@ -69,6 +69,7 @@ const createPendingOperationFixture = (): PendingOperation => ({
   targetId: "version-2",
   status: "pending",
   reason: "close current version",
+  reasonSource: "explicit_input",
   gateSnapshot: {
     kind: "close",
     evaluatedAt: "2026-06-27T01:00:00.000Z",

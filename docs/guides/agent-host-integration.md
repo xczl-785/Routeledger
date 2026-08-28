@@ -97,6 +97,16 @@ missing fields instead of presenting an incomplete call as executable. Public
 MCP projection also includes the public operation name and active
 `expectedRouteLedgerRoot`.
 
+Some persisted audit fields are human-readable without being project content.
+In particular, a lifecycle proposal may fall back to a stable English system
+reason. Pending operations distinguish `explicit_input`, `system_default`, and
+`legacy_unspecified` through `reasonSource`, and human review text labels system
+defaults instead of presenting them as authored project explanations. When
+`next_action.recommendedInputs` identifies `reason` with
+`localeSource: "project.contentLocale"`, provide an explicit reason in that
+locale before invoking the recommended write. The recommendation is structured
+control-plane guidance; the supplied reason is agent-authored project content.
+
 Explain route restructuring, exceptional Version states, Deferred review states, Constraint retirement, closeout residual auditing, L3 proposals, document drift, and Mission Control only when the matching state, blocker, or action appears. Work lineage, authorization artifacts and receipts, digests, request state, storage internals, and the segmented L3 protocol remain audit, recovery, or developer concepts rather than first-use vocabulary.
 
 When Deferred creation reports `downstream_version_required`, follow its

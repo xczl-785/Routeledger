@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { assertBatchPreviousCurrentPolicy, evaluateBatchCreateVersions } from "./batch-create-versions-planner.js";
 import { ApplicationError } from "./errors.js";
+import { resolveProposalReason } from "./proposal-reason.js";
 import { loadRequiredProjectAggregate } from "./project-aggregate-access.js";
 import { BATCH_CREATE_VERSIONS_MODES, isBatchCreateVersionsMode } from "./types.js";
 const sortKeys = (value) => {
@@ -102,11 +103,12 @@ export class BatchCreateVersionsUseCase {
                 digestPreview
             };
         }
+        const resolvedReason = resolveProposalReason(input.reason, `batch create ${input.items.length} versions requested`);
         const proposal = await this.propose({
             projectId: input.projectId,
             actionType: "insert_version",
             targetId: input.projectId,
-            reason: input.reason ?? `batch create ${input.items.length} versions requested`,
+            ...resolvedReason,
             payload: evaluated.payload,
             actor: input.actor
         });
@@ -124,6 +126,15 @@ export class BatchCreateVersionsUseCase {
                 `target: ${proposal.targetId}`,
                 `digest: ${proposal.digest.value}`,
                 `items: ${evaluated.normalizedPlan.items.length}`,
+                ...(proposal.reasonSource === "system_default"
+                    ? [
+                        `system default reason: ${proposal.reason}`,
+                        "human reason: not provided"
+                    ]
+                    : [
+                        `reason: ${proposal.reason}`,
+                        `reason source: ${proposal.reasonSource.replaceAll("_", " ")}`
+                    ]),
                 "blockers: none"
             ].join("\n")
         };
